@@ -7,7 +7,7 @@ import { AccountId } from "polkadot-api";
 import { createHash } from "node:crypto";
 import { CID } from "multiformats/cid";
 import { create as createMultihashDigest } from "multiformats/hashes/digest";
-import type { Bulletin } from "@polkadot-api/descriptors";
+import type { Bulletin } from "@triangle-e2e/papi";
 import { createBulletinClient } from "../lib/client.js";
 import { createBulletinSigner, type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";

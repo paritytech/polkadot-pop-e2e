@@ -1,0 +1,16 @@
+{
+  "name": "@triangle-e2e/papi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "scripts": {
+    "generate": "papi"
+  },
+  "dependencies": {
+    "@polkadot-api/descriptors": "file:.papi/descriptors"
+  },
+  "devDependencies": {
+    "polkadot-api": "^1.23.1"
+  }
+}

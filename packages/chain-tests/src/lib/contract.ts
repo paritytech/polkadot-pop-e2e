@@ -6,7 +6,7 @@ import {
   type Address,
 } from "viem";
 import type { TypedApi } from "polkadot-api";
-import type { Paseo } from "@polkadot-api/descriptors";
+import type { Paseo } from "@triangle-e2e/papi";
 import { performDryRunCall } from "./revive.js";
 
 type AssetHubApi = TypedApi<Paseo>;

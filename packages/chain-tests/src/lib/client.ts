@@ -1,7 +1,7 @@
 import { createClient } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws-provider/node";
 import { withPolkadotSdkCompat } from "polkadot-api/polkadot-sdk-compat";
-import { paseo, bulletin, people } from "@polkadot-api/descriptors";
+import { paseo, bulletin, people } from "@triangle-e2e/papi";
 
 export function createAssetHubClient(ws: string) {
   const client = createClient(getWsProvider(ws));

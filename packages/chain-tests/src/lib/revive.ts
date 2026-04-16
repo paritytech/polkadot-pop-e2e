@@ -1,5 +1,5 @@
 import { Binary, type TypedApi } from "polkadot-api";
-import type { Paseo } from "@polkadot-api/descriptors";
+import type { Paseo } from "@triangle-e2e/papi";
 import { isAddress, type Address } from "viem";
 
 type AssetHubApi = TypedApi<Paseo>;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { namehash, type Hex } from "viem";
 import type { PolkadotClient, TypedApi } from "polkadot-api";
-import type { Paseo } from "@polkadot-api/descriptors";
+import type { Paseo } from "@triangle-e2e/papi";
 import { createAssetHubClient } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { performContractCall } from "../lib/contract.js";

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient, type TypedApi } from "polkadot-api";
-import type { Paseo } from "@polkadot-api/descriptors";
+import type { Paseo } from "@triangle-e2e/papi";
 import { createAssetHubClient } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
