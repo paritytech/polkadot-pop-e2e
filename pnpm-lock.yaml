@@ -25,6 +25,9 @@ importers:
       '@triangle-e2e/papi':
         specifier: workspace:*
         version: link:../papi
+      jsqr:
+        specifier: ^1.4.0
+        version: 1.4.0
       polkadot-api:
         specifier: ^1.23.1
         version: 1.23.3(postcss@8.5.8)(rxjs@7.8.2)
@@ -1244,6 +1247,9 @@ packages:
 
   js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
+
+  jsqr@1.4.0:
+    resolution: {integrity: sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==}
 
   lilconfig@3.1.3:
     resolution: {integrity: sha512-/vlFKAoH5Cgt3Ie+JLhRbwOsCQePABiU3tJ1egGvyQ+33R/vcwM2Zl2QR/LzjsBeItPt3oSVXapn+m4nQDvpzw==}
@@ -2992,6 +2998,8 @@ snapshots:
   js-tokens@4.0.0: {}
 
   js-tokens@9.0.1: {}
+
+  jsqr@1.4.0: {}
 
   lilconfig@3.1.3: {}
 
