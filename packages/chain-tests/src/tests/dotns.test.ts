@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { namehash, type Hex } from "viem";
-import type { PolkadotClient, TypedApi } from "polkadot-api";
-import type { Paseo } from "@triangle-e2e/papi";
-import { createAssetHubClient } from "../lib/client.js";
+import type { PolkadotClient } from "polkadot-api";
+import { createAssetHubClient, type AssetHubApi } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { performContractCall } from "../lib/contract.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -11,7 +10,7 @@ import { DOTNS_REGISTRY_ABI, DOTNS_CONTENT_RESOLVER_ABI } from "../config/contra
 describe("DotNS: Domain resolution on Asset Hub", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let api: TypedApi<Paseo>;
+  let api: AssetHubApi;
   let account: TestAccount;
   const hasDotns = () => network.contracts !== null;
 
@@ -37,6 +36,7 @@ describe("DotNS: Domain resolution on Asset Hub", () => {
 
     const exists = await performContractCall<boolean>(
       api,
+      client,
       account.address,
       contracts.dotnsRegistry,
       DOTNS_REGISTRY_ABI,
@@ -54,6 +54,7 @@ describe("DotNS: Domain resolution on Asset Hub", () => {
 
     const exists = await performContractCall<boolean>(
       api,
+      client,
       account.address,
       contracts.dotnsRegistry,
       DOTNS_REGISTRY_ABI,
@@ -71,6 +72,7 @@ describe("DotNS: Domain resolution on Asset Hub", () => {
 
     const contentHash = await performContractCall<Hex>(
       api,
+      client,
       account.address,
       contracts.dotnsContentResolver,
       DOTNS_CONTENT_RESOLVER_ABI,
@@ -92,6 +94,7 @@ describe("DotNS: Domain resolution on Asset Hub", () => {
 
     const contentHash = await performContractCall<Hex>(
       api,
+      client,
       account.address,
       contracts.dotnsContentResolver,
       DOTNS_CONTENT_RESOLVER_ABI,

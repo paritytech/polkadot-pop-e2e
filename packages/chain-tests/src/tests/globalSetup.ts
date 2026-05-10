@@ -6,7 +6,7 @@
  */
 import { config } from "dotenv";
 import { resolve } from "node:path";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import {
   generateAttestationParams,
   signAndRegister,
@@ -20,6 +20,24 @@ export async function setup() {
 
   const network = getNetworkConfig();
   console.log(`\n[global-setup] Network: ${network.name}`);
+
+  // Opt-in: reuse existing credentials when REUSE_CREDS=1. Used for
+  // local debug iteration so we skip the (slow) claim tests and target
+  // the same lite-person whose PGAS/allowance state is already set up.
+  // CI never sets this — fresh creds avoid replay errors on retry.
+  if (process.env.REUSE_CREDS === "1" && existsSync(CREDENTIALS_PATH)) {
+    try {
+      const existing = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
+      if (existing.attested && existing.address) {
+        console.log(
+          `[global-setup] REUSE_CREDS=1 → reusing ${existing.address} (${existing.username ?? "no username"})`,
+        );
+        return;
+      }
+    } catch {
+      // fall through to fresh registration
+    }
+  }
 
   if (!network.identityBackend) {
     console.log("[global-setup] No identity backend — skipping attestation");

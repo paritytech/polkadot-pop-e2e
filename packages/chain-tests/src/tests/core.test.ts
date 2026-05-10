@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Binary, type PolkadotClient, type TypedApi } from "polkadot-api";
-import type { Paseo } from "@triangle-e2e/papi";
-import { createAssetHubClient } from "../lib/client.js";
+import { Binary, type PolkadotClient } from "polkadot-api";
+import { createAssetHubClient, type AssetHubApi } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -9,7 +8,7 @@ import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 describe("Core: Asset Hub", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let api: TypedApi<Paseo>;
+  let api: AssetHubApi;
   let account: TestAccount;
 
   beforeAll(async () => {

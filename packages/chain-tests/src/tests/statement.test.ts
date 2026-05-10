@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws-provider/node";
+import { getWsProvider } from "polkadot-api/ws";
 import { fromHex } from "@polkadot-api/utils";
 import {
   createLazyClient,
@@ -141,7 +141,7 @@ describe("Statement: People Chain + Identity Backend", () => {
 
       // Read back
       const readStart = Date.now();
-      const readResult = await adapter.queryStatements([topicBytes]);
+      const readResult = await adapter.queryStatements({ matchAll: [topicBytes] });
       if (readResult.isErr()) {
         throw new Error(`Statement Store read failed: ${readResult.error.message}`);
       }

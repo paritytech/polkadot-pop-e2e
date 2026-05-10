@@ -23,10 +23,18 @@ function randomEntropy(): Uint8Array {
   return entropy;
 }
 
-function deriveKeyPair(entropy: Uint8Array) {
+/**
+ * Hard-derivation path used for the SSO/lite-person account, matching
+ * `triangle-js-sdks/host-papp` (`deriveSr25519Account(mnemonic, '//wallet//sso')`).
+ * The host SDK uses this path; tests must match so the on-chain account
+ * we attest equals the account a real user would have.
+ */
+export const LITE_PERSON_DERIVATION = "//wallet//sso";
+
+export function deriveKeyPair(entropy: Uint8Array) {
   const miniSecret = entropyToMiniSecret(entropy);
   const derive = sr25519CreateDerive(miniSecret);
-  return derive("");
+  return derive(LITE_PERSON_DERIVATION);
 }
 
 export interface AttestationCredentials {
@@ -63,7 +71,7 @@ export function generateAttestationParams(): {
   const ringVrfKey = member_from_entropy(verifiableEntropy);
 
   // Attestation message: MSG_PREFIX || publicKey || ringVrfKey
-  const message = mergeUint8(MSG_PREFIX, publicKey, ringVrfKey);
+  const message = mergeUint8([MSG_PREFIX, publicKey, ringVrfKey]);
 
   // Candidate signature (sr25519)
   const candidateSignature = keyPair.sign(message);
@@ -88,7 +96,11 @@ export function generateAttestationParams(): {
   }
   const username = `etest${suffix}`;
 
-  const statementStoreSecret = createSr25519Secret(entropy);
+  // Must use the same derivation as the keyPair so the prover's signatures
+  // match what the chain has registered for this attested account. Host SDK
+  // stores `account.secret = createSr25519Secret(entropy, '//wallet//sso')`
+  // and passes it to `createSr25519Prover(ssSecret)`.
+  const statementStoreSecret = createSr25519Secret(entropy, LITE_PERSON_DERIVATION);
 
   return {
     credentials: { address, publicKey, statementStoreSecret, entropy },
@@ -132,14 +144,14 @@ export async function signAndRegister(
   const usernameBytes = new TextEncoder().encode(usernameBase);
   const usernameLenPrefix = new Uint8Array([usernameBytes.length * 4]); // SCALE compact
 
-  const consumerPayload = mergeUint8(
+  const consumerPayload = mergeUint8([
     keyPair.publicKey,
     attesterBytes,
     identifierKeyBytes,
     usernameLenPrefix,
     usernameBytes,
     new Uint8Array([0]), // Option::None (reserved_username)
-  );
+  ]);
 
   const consumerRegistrationSignature = keyPair.sign(consumerPayload);
   params.consumerRegistrationSignature = toHex(consumerRegistrationSignature);

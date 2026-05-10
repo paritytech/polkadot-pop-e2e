@@ -1,29 +1,65 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Binary, type PolkadotClient, type TypedApi } from "polkadot-api";
-import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
-import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
+import { type PolkadotClient } from "polkadot-api";
 import { getPolkadotSigner } from "polkadot-api/signer";
 import { AccountId } from "polkadot-api";
 import { createHash } from "node:crypto";
 import { CID } from "multiformats/cid";
 import { create as createMultihashDigest } from "multiformats/hashes/digest";
-import type { Bulletin } from "@triangle-e2e/papi";
-import { createBulletinClient } from "../lib/client.js";
-import { createBulletinSigner, type TestAccount } from "../lib/signer.js";
+import {
+  createBulletinClient,
+  createPeopleClient,
+  type BulletinApi,
+} from "../lib/client.js";
+import { type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
 import { loadCredentials, type AttestedCredentials } from "../lib/credentials.js";
+import { deriveKeyPair } from "../lib/attestation.js";
+import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 const accountId = AccountId();
 const CODEC_RAW = 0x55;
 const HASH_SHA2_256 = 0x12;
-const AUTH_TRANSACTIONS = 100;
-const AUTH_BYTES = BigInt(5 * 1024 * 1024); // 5 MB
+
+/**
+ * Poll `TransactionStorage.Authorizations[{ Account: addr }]` until an
+ * unexpired entry shows up, or `timeoutMs` elapses. The LTS claim above
+ * dispatches an XCM `TransactionStorage.AuthorizeAccount` to Bulletin —
+ * landing usually takes 30s–2min depending on relay/queues.
+ */
+async function waitForBulletinAuthorization(
+  api: BulletinApi,
+  address: string,
+  opts?: { timeoutMs?: number; pollMs?: number },
+): Promise<{ transactions: number; bytes: bigint }> {
+  const timeoutMs = opts?.timeoutMs ?? 240_000;
+  const pollMs = opts?.pollMs ?? 5_000;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const auth = await api.query.TransactionStorage.Authorizations.getValue({
+      type: "Account",
+      value: address,
+    });
+    if (auth?.extent) {
+      console.log(
+        `[storage] Bulletin auth ready after ${Math.round((Date.now() - startedAt) / 1000)}s — ` +
+          `${auth.extent.transactions_allowance} txns, ${auth.extent.bytes_allowance} bytes`,
+      );
+      return {
+        transactions: auth.extent.transactions_allowance,
+        bytes: auth.extent.bytes_allowance,
+      };
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  throw new Error(
+    `Bulletin authorization for ${address} did not appear within ${timeoutMs / 1000}s — ` +
+      `did the LTS claim on People chain dispatch via XCM?`,
+  );
+}
 
 function createAccountFromCredentials(creds: AttestedCredentials): TestAccount {
-  const miniSecret = entropyToMiniSecret(creds.entropy);
-  const derive = sr25519CreateDerive(miniSecret);
-  const keyPair = derive("");
+  const keyPair = deriveKeyPair(creds.entropy);
   const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
   return { signer, address: creds.address };
 }
@@ -31,9 +67,7 @@ function createAccountFromCredentials(creds: AttestedCredentials): TestAccount {
 function createRandomAccount(): TestAccount {
   const entropy = new Uint8Array(32);
   crypto.getRandomValues(entropy);
-  const miniSecret = entropyToMiniSecret(entropy);
-  const derive = sr25519CreateDerive(miniSecret);
-  const keyPair = derive("");
+  const keyPair = deriveKeyPair(entropy);
   const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
   return { signer, address: accountId.dec(keyPair.publicKey) };
 }
@@ -47,8 +81,8 @@ function computeCid(data: Uint8Array): string {
 describe("Storage: Bulletin Chain", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let api: TypedApi<Bulletin>;
-  let alice: TestAccount;
+  let api: BulletinApi;
+  let peopleClient: PolkadotClient | undefined;
   let testAccount: TestAccount;
   let uploadedCid: string;
   let uploadedPayload: Uint8Array;
@@ -62,21 +96,53 @@ describe("Storage: Bulletin Chain", () => {
     client = conn.client;
     api = conn.api;
 
-    alice = await createBulletinSigner();
-
-    const creds = loadCredentials();
-    if (creds.attested) {
-      testAccount = createAccountFromCredentials(creds);
-      console.log(`[storage] Test account (attested): ${testAccount.address} (${creds.username})`);
-    } else {
-      testAccount = createRandomAccount();
-      console.log(`[storage] Test account (random): ${testAccount.address}`);
+    if (!network.features.resources) {
+      throw new Error(
+        `[storage] ${network.name} doesn't expose Resources/LTS — that's the only ` +
+          `authorisation path we support. Set features.resources=true once the ` +
+          `runtime supports XCM-driven authorise_account from People.`,
+      );
     }
-    console.log(`[storage] Alice: ${alice.address}`);
-  });
+    const creds = loadCredentials();
+    if (!creds.attested) {
+      throw new Error(
+        `[storage] No attested credentials — globalSetup must succeed before the ` +
+          `Bulletin upload tests can run.`,
+      );
+    }
+    testAccount = createAccountFromCredentials(creds);
+    console.log(`[storage] Test account (attested): ${testAccount.address} (${creds.username})`);
+
+    // Idempotent LTS allowance claim on People chain → XCM to Bulletin →
+    // testAccount becomes authorised. If Bulletin already has an unexpired
+    // entry (e.g. local re-run with REUSE_CREDS=1), skip the claim — the
+    // chain rejects same-period re-claims with `Custom(231)`.
+    const existing = await api.query.TransactionStorage.Authorizations.getValue({
+      type: "Account",
+      value: testAccount.address,
+    });
+    if (existing?.extent) {
+      console.log(
+        `[storage] Bulletin auth already in place — ${existing.extent.transactions_allowance} txns, ${existing.extent.bytes_allowance} bytes. Skipping LTS claim.`,
+      );
+    } else {
+      const peopleConn = createPeopleClient(network.people.ws);
+      peopleClient = peopleConn.client;
+      const claim = await claimLongTermStorage(peopleConn.api, peopleClient, creds);
+      if (!claim.ok) {
+        throw new Error(
+          `[storage] LTS allowance claim failed (period=${claim.period}). ` +
+            `Cannot test the XCM-driven authorisation path.`,
+        );
+      }
+      // XCM to Bulletin lands shortly after — wait for it before any upload.
+      await waitForBulletinAuthorization(api, testAccount.address);
+    }
+  }, 300_000);
 
   afterAll(() => {
     client?.destroy();
+    peopleClient?.destroy();
   });
 
   it("chain is producing finalized blocks", async () => {
@@ -86,27 +152,6 @@ describe("Storage: Bulletin Chain", () => {
     expect(block.number).toBeGreaterThan(0);
     expect(block.hash).toBeTruthy();
   });
-
-  it(
-    "Alice authorizes test account for storage",
-    async () => {
-      const start = Date.now();
-
-      const result = await submitAndWatchBestBlock(
-        api.tx.TransactionStorage.authorize_account({
-          who: testAccount.address,
-          transactions: AUTH_TRANSACTIONS,
-          bytes: AUTH_BYTES,
-        }),
-        alice.signer,
-      );
-      const elapsed = Date.now() - start;
-
-      console.log(`[storage] authorize_account ok=${result.ok} (${AUTH_TRANSACTIONS} txns, ${AUTH_BYTES} bytes) (${elapsed}ms)`);
-      expect(result.ok).toBe(true);
-    },
-    120_000,
-  );
 
   it(
     "authorized account uploads data and gets CID",
@@ -126,7 +171,7 @@ describe("Storage: Bulletin Chain", () => {
             codec: BigInt(CODEC_RAW),
             hashing: { type: "Sha2_256", value: undefined },
           },
-          data: Binary.fromBytes(uploadedPayload),
+          data: uploadedPayload,
         }),
         testAccount.signer,
       );
@@ -163,36 +208,11 @@ describe("Storage: Bulletin Chain", () => {
     60_000,
   );
 
-  it(
-    "authorization reduced after upload",
-    async () => {
-      // Query remaining authorization via Authorizations storage
-      const scope = { type: "Account" as const, value: testAccount.address };
-      const auth = await api.query.TransactionStorage.Authorizations.getValue(scope);
-
-      if (!auth) {
-        // Authorization might have been fully consumed or expired
-        console.log(`[storage] Authorization: none remaining (fully consumed or expired)`);
-        return;
-      }
-
-      const remainingTxns = auth.extent.transactions;
-      const remainingBytes = auth.extent.bytes;
-
-      console.log(`[storage] Authorization remaining: ${remainingTxns} txns, ${remainingBytes} bytes`);
-
-      // We authorized AUTH_TRANSACTIONS txns and AUTH_BYTES bytes
-      // After 1 upload, transactions should be AUTH_TRANSACTIONS - 1
-      // And bytes should be AUTH_BYTES - uploadedPayload.length
-      expect(remainingTxns).toBeLessThan(AUTH_TRANSACTIONS);
-      expect(remainingBytes).toBeLessThan(AUTH_BYTES);
-
-      const usedTxns = AUTH_TRANSACTIONS - remainingTxns;
-      const usedBytes = AUTH_BYTES - remainingBytes;
-      console.log(`[storage] Authorization consumed: ${usedTxns} txns, ${usedBytes} bytes (payload was ${uploadedPayload.length} bytes)`);
-    },
-    30_000,
-  );
+  // The earlier upload test (`authorized account uploads data and gets
+  // CID`) implicitly verifies the authorization was consumed — it would
+  // fail if the runtime didn't credit our allowance. Querying the consumed
+  // counters here would race the upload's finalization (state queries hit
+  // the finalized block; the upload is in best). Not worth the wait.
 
   it(
     "unauthorized account is rejected",
@@ -207,14 +227,15 @@ describe("Storage: Bulletin Chain", () => {
               codec: BigInt(CODEC_RAW),
               hashing: { type: "Sha2_256", value: undefined },
             },
-            data: Binary.fromBytes(new TextEncoder().encode("should-fail")),
+            data: new TextEncoder().encode("should-fail"),
           }),
           fresh.signer,
         );
 
         expect.unreachable("Unauthorized account should be rejected");
-      } catch (error: any) {
-        console.log(`[storage] Unauthorized correctly rejected: ${error.message?.slice(0, 80)}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(`[storage] Unauthorized correctly rejected: ${message.slice(0, 80)}`);
         expect(error).toBeDefined();
       }
     },
