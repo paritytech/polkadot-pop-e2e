@@ -131,22 +131,36 @@ describe("PGAS: claim + spend on revive", () => {
   });
 
   it.skipIf(!getNetworkConfig().features.pgas)(
-    "claim PGAS gas allowance (5 slots, enough for one Revive op)",
+    "claim PGAS gas allowance (auto-sized to cover one Revive op)",
     async () => {
       // `features.pgas` gated this test; assert at the top so the rest of
       // the body sees `RichAssetHubApi` and reaches Pgas/MembersSubscriber
       // through real types instead of `any`.
       assertRichAssetHub(assetHubApi);
 
-      // Why 5 slots: each `claim_pgas` mints `PgasClaimAmount = 50_000_000`
-      // (verified via `dot const Pgas.PgasClaimAmount`). The minimum Revive
-      // op (one new child-trie storage item) costs `DepositPerChildTrieItem +
-      // bytes × DepositPerByte = 200_000_000 + 64 × 100_000 = 206_400_000`.
-      // 5 × 50M = 250M > 206.4M, so 5 claims cover one minimal contract call
-      // with ~44M margin. See docs/issues/pgas-claim-amount-undersized.md.
-      const SLOTS_TO_CLAIM = 5;
-      const PGAS_PER_CLAIM = 50_000_000n;
-      const REQUIRED_PGAS = PGAS_PER_CLAIM * BigInt(SLOTS_TO_CLAIM);
+      // We need at least enough PGAS to cover one minimum Revive op (one new
+      // child-trie storage item): `DepositPerChildTrieItem + bytes ×
+      // DepositPerByte = 200_000_000 + 64 × 100_000 = 206_400_000`.
+      const MIN_PGAS_FOR_ONE_OP = 206_400_000n;
+
+      // Per-claim mint amount is read from chain — adapts automatically to
+      // runtime upgrades. Number of claims is ceil(MIN / per-claim). Capped
+      // at 10 to fail fast if PgasClaimAmount has regressed to something
+      // pathologically small rather than burn time on dozens of claims.
+      const pgasPerClaim = await assetHubApi.constants.Pgas.PgasClaimAmount();
+      const slotsToClaim = Number(
+        (MIN_PGAS_FOR_ONE_OP + pgasPerClaim - 1n) / pgasPerClaim,
+      );
+      if (slotsToClaim > 10) {
+        throw new Error(
+          `[pgas] PgasClaimAmount (${pgasPerClaim}) is suspiciously low — ` +
+            `would need ${slotsToClaim} claims to cover ${MIN_PGAS_FOR_ONE_OP} PGAS for one Revive op`,
+        );
+      }
+      const expectedMinMinted = pgasPerClaim * BigInt(slotsToClaim);
+      console.log(
+        `[pgas] PgasClaimAmount=${pgasPerClaim}, slots=${slotsToClaim}, expect ≥${expectedMinMinted}`,
+      );
 
       // PGAS lives on Asset Hub, but the lite-people ring is on People chain.
       // We fetch members from People (atomic snapshot at finalized block hash)
@@ -167,8 +181,8 @@ describe("PGAS: claim + spend on revive", () => {
       // People's latest revision. AH receives ring roots from People via XCM;
       // on a freshly onboarded member there's a 30s–2min lag before the new
       // revision propagates. Submitting against a revision AH doesn't know
-      // yet → BadProof. The same snapshot is reused for all 5 claims so all
-      // proofs verify against one stable (members, revision) pair.
+      // yet → BadProof. The same snapshot is reused for all claims so every
+      // proof verifies against one stable (members, revision) pair.
       const at = await waitForAssetHubRing(
         peopleApi,
         peopleClient,
@@ -207,9 +221,9 @@ describe("PGAS: claim + spend on revive", () => {
       // independently — they are separate claim records bound to distinct
       // (day, slot_index) contexts, so each needs its own ring-VRF proof.
       console.log(
-        `[pgas] claiming ${SLOTS_TO_CLAIM} slots — day=${day} ring=${ringIndex} rev=${revisionIndex} (people @${at.slice(0, 10)}…)`,
+        `[pgas] claiming ${slotsToClaim} slots — day=${day} ring=${ringIndex} rev=${revisionIndex} (people @${at.slice(0, 10)}…)`,
       );
-      for (let slotIndex = 0; slotIndex < SLOTS_TO_CLAIM; slotIndex++) {
+      for (let slotIndex = 0; slotIndex < slotsToClaim; slotIndex++) {
         const context = pgasContext(day, slotIndex);
         const signer = createClaimSigner({
           extensionName: "AsPgas",
@@ -253,14 +267,16 @@ describe("PGAS: claim + spend on revive", () => {
         0n;
       const minted = balanceAfter - balanceBefore;
       console.log(
-        `[pgas] balance: ${balanceBefore} → ${balanceAfter} (+${minted}, expected +${REQUIRED_PGAS})`,
+        `[pgas] balance: ${balanceBefore} → ${balanceAfter} (+${minted}, expected ≥${expectedMinMinted})`,
       );
-      expect(minted).toBe(REQUIRED_PGAS);
+      // Tolerate over-mint — a runtime upgrade bumping PgasClaimAmount mid-
+      // run shouldn't fail health. We just need enough to spend.
+      expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // ~6 min budget. Setup (waitForInclusion 60-90s + ring stability 18s +
-    // AH ring sync 30-180s) ≈ 90-180s, plus 5 claim txs at ~30s each ≈
-    // 150s. Worst case ~5.5 min on a degraded chain; if we blow this,
-    // vitest timeout finalises junit.xml — better than an outer SIGKILL.
+    // Setup (waitForInclusion 60-90s + ring stability 18s + AH ring sync
+    // 30-180s) ≈ 90-180s, plus up to 10 claim txs at ~30s each. Budget
+    // generously so vitest finalises junit.xml on overrun instead of being
+    // SIGKILLed by an outer timeout.
     360_000,
   );
 
@@ -288,15 +304,15 @@ describe("PGAS: claim + spend on revive", () => {
       const balanceBefore =
         (await assetHubApi.query.Assets.Account.getValue(PGAS_ASSET_ID, address))?.balance ??
         0n;
-      // Claim test mints 5 × 50M = 250M, which covers the ~206M storage
-      // deposit for one new child-trie storage item with margin. If we see
-      // less than that, the claim half regressed (or upstream PgasClaimAmount
-      // was lowered) and the failure mode below would be StorageDepositNotEnoughFunds.
+      // Claim test sizes its slots to cover the ~206M storage deposit for
+      // one new child-trie storage item with margin. If we see less than
+      // that here, the claim half regressed and the failure mode below would
+      // be StorageDepositNotEnoughFunds.
       const MIN_PGAS_FOR_ONE_OP = 206_400_000n;
       if (balanceBefore < MIN_PGAS_FOR_ONE_OP) {
         throw new Error(
           `[pgas] insufficient PGAS to spend: have ${balanceBefore}, need ≥${MIN_PGAS_FOR_ONE_OP}. ` +
-            `The prior claim test must run first and mint enough; see docs/issues/pgas-claim-amount-undersized.md.`,
+            `The prior claim test must run first and mint enough.`,
         );
       }
       console.log(`[pgas] revive: PGAS balance before = ${balanceBefore}`);
