@@ -1,6 +1,8 @@
 node_modules/
 dist/
 test-results/
+playwright-report/
+.claude/scheduled_tasks.lock
 *.tsbuildinfo
 .DS_Store
 .env
