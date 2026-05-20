@@ -27,19 +27,10 @@ export interface NetworkConfig {
 }
 
 export const NETWORKS: Record<string, NetworkConfig> = {
-  "paseo-next": {
-    name: "Paseo Next",
-    assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
-    people: { ws: "wss://paseo-people-next-rpc.polkadot.io" },
-    bulletin: { ws: "wss://paseo-bulletin-rpc.polkadot.io" },
-    contracts: {
-      dotnsRegistry: "0x4Da0d37aBe96C06ab19963F31ca2DC0412057a6f",
-      dotnsContentResolver: "0x7756DF72CBc7f062e7403cD59e45fBc78bed1cD7",
-    },
-    identityBackend: "https://identity-backend.parity-testnet.parity.io",
-    ipfsGateway: "https://paseo-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: false },
-  },
+  // paseo-next v1 is sunset — no more testing against it. The runtime
+  // doesn't ship the rich AssetHub (`MembersSubscriber`, pallet-pgas,
+  // pallet-revive) we depend on, and product flows have all migrated to
+  // paseo-next-v2 anyway. v2 + previewnet are the supported targets.
   "paseo-next-v2": {
     name: "Paseo Next v2",
     // Paseo Asset Hub Next (1500), Bulletin Next (1501), People Next System
@@ -69,7 +60,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
 };
 
 export function getNetworkConfig(): NetworkConfig {
-  const name = process.env.NETWORK ?? "paseo-next";
+  const name = process.env.NETWORK ?? "paseo-next-v2";
   const config = NETWORKS[name];
   if (!config) {
     throw new Error(
