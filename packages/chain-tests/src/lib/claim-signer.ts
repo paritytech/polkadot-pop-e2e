@@ -24,7 +24,7 @@ import {
 } from "@polkadot-api/substrate-bindings";
 import { mergeUint8 } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { one_shot } from "verifiablejs/nodejs";
+import { verifiableFor } from "./verifiable-loader.js";
 
 const EXTENSION_VERSION = 0;
 
@@ -91,7 +91,10 @@ export function createClaimSigner(opts: ClaimSignerOpts): PolkadotSigner {
       ]);
       const message = blake2b256(inheritedImplication);
 
-      // Generate the ring-VRF proof bound to (context, message).
+      // Generate the ring-VRF proof bound to (context, message). The
+      // verifiablejs build is network-aware — ThinVRF (v0.7.0+) vs
+      // pre-ThinVRF (v0.6.5).
+      const { one_shot } = verifiableFor();
       const result = one_shot(
         opts.verifiableEntropy,
         opts.encodedMembers,

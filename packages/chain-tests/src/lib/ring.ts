@@ -8,7 +8,7 @@
  * The proof is verified on chain against the ring's stored root.
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
-import { member_from_entropy, one_shot } from "verifiablejs/nodejs";
+import { verifiableFor } from "./verifiable-loader.js";
 import { toHex } from "@polkadot-api/utils";
 import type { PeopleApi } from "./client.js";
 
@@ -120,6 +120,7 @@ export async function generateRingVrfProof(
   if (message.length !== 32) {
     throw new Error(`message must be 32 bytes (blake2_256), got ${message.length}`);
   }
+  const { member_from_entropy, one_shot } = verifiableFor();
   const memberKeys = await fetchRingMembers(peopleApi, collection, 0);
   if (memberKeys.length === 0) {
     throw new Error(
@@ -139,9 +140,12 @@ export async function generateRingVrfProof(
   }
   const encodedMembers = encodeMembers(memberKeys);
   const result = one_shot(verifiableEntropy, encodedMembers, context, message);
-  if (result.proof.length !== 788) {
+  // Proof length: 788 pre-ThinVRF (v0.6.5), 787 post-ThinVRF (v0.7.0+).
+  // Keeping the assertion as a regression guard against silent verifiablejs
+  // misalignment — drop the alternation once every network is on v0.7.0+.
+  if (result.proof.length !== 788 && result.proof.length !== 787) {
     throw new Error(
-      `Unexpected proof length: ${result.proof.length} (expected 788)`,
+      `Unexpected proof length: ${result.proof.length} (expected 787 or 788)`,
     );
   }
   return { proof: result.proof, alias: result.alias };
@@ -202,6 +206,7 @@ export async function waitForInclusion(
   // same hash and the "stability" check is a no-op).
   const stabilityWaitMs = 18_000;
   const collectionId = Binary.toHex(identifierFor(collection));
+  const { member_from_entropy } = verifiableFor();
   const ownKey = member_from_entropy(verifiableEntropy);
   const ownKeyHex = Binary.toHex(ownKey);
   // Captured once so both the initial finalized read and the stability

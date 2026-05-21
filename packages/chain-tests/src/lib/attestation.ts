@@ -10,9 +10,9 @@ import {
   entropyToMiniSecret,
 } from "@polkadot-labs/hdkd-helpers";
 import { toHex, mergeUint8 } from "@polkadot-api/utils";
-import { member_from_entropy, sign } from "verifiablejs/nodejs";
 import { AccountId } from "polkadot-api";
 import { createSr25519Secret, deriveSr25519PublicKey } from "@novasamatech/statement-store";
+import { verifiableFor } from "./verifiable-loader.js";
 
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 const accountId = AccountId();
@@ -66,6 +66,8 @@ export function generateAttestationParams(): {
   const publicKey = keyPair.publicKey;
   const address = accountId.dec(publicKey);
 
+  const { member_from_entropy, sign } = verifiableFor();
+
   // Ring VRF key from entropy
   const verifiableEntropy = blake2b256(entropy);
   const ringVrfKey = member_from_entropy(verifiableEntropy);
@@ -76,7 +78,7 @@ export function generateAttestationParams(): {
   // Candidate signature (sr25519)
   const candidateSignature = keyPair.sign(message);
 
-  // Ring VRF proof of ownership
+  // Bandersnatch proof of ownership — 64 or 96 bytes depending on network
   const proofOfOwnership = sign(verifiableEntropy, message);
 
   // Identifier key (65 bytes — ECDH public key format)
