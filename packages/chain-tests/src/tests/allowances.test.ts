@@ -23,7 +23,7 @@ import {
   type RichAssetHubApi,
   type AssetHubApi,
 } from "../lib/client.js";
-import { loadCredentials } from "../lib/credentials.js";
+import { ensureAttested } from "../lib/attested-fixture.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
@@ -114,12 +114,7 @@ describe("PGAS: claim + spend on revive", () => {
     assetHubClient = ahConn.client;
     assetHubApi = ahConn.api;
 
-    const creds = loadCredentials();
-    if (!creds.attested) {
-      throw new Error(
-        "[pgas] Need an attested account; globalSetup must succeed first.",
-      );
-    }
+    const creds = await ensureAttested();
     verifiableEntropy = blake2b256(creds.entropy);
     address = creds.address;
     console.log(`[pgas] Lite-person: ${address} (${creds.username})`);
@@ -325,8 +320,7 @@ describe("PGAS: claim + spend on revive", () => {
 
       // Build sr25519 signer from the attestation entropy — same key the
       // claim test used, so it owns the PGAS we just minted.
-      const creds = loadCredentials();
-      if (!creds.attested) throw new Error("[pgas] no creds");
+      const creds = await ensureAttested();
       const keyPair = deriveKeyPair(creds.entropy);
       const signer = getPolkadotSigner(
         keyPair.publicKey,

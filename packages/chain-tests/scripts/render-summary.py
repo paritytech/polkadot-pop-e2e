@@ -207,27 +207,97 @@ def matrix_summary(dirs: list[str]) -> None:
             print(f"- ✅ **{network}** — {tests}/{tests} passed ({time:.0f}s)")
 
 
+def _failure_body(tc: ET.Element) -> str:
+    """Concatenate failure/error message attributes and inner text for a testcase."""
+    parts: list[str] = []
+    for tag in ("failure", "error"):
+        el = tc.find(tag)
+        if el is None:
+            continue
+        msg = el.get("message") or ""
+        text = (el.text or "").strip()
+        parts.append(f"{msg}\n{text}".strip())
+    return "\n".join(p for p in parts if p)
+
+
+# When ensureAttested cascades into a dependent suite's beforeAll, the
+# fixture tags the cached failure with this marker — see attested-fixture.ts.
+# Matching either the cascade marker OR the upstream IB error text catches
+# both the IB-health probe's own failure AND any beforeAll downstream that
+# tried to attest. Listing "PGAS / Statement / Storage" alongside the IB
+# probe in the Matrix message would be misleading: those features were never
+# actually exercised. Group them under one IB-attribution line instead.
+_IB_FAILURE_MARKERS = (
+    "[ib-cascade]",
+    "[attested-fixture]",
+    "ASSIGNED timeout",
+    "Identity Backend",
+)
+
+# Mirrors `ASSIGNED_TIMEOUT_MS` in attested-fixture.ts. Duplicated rather
+# than parsed out of TS because this renderer runs in the workflow's
+# Python step where importing TS isn't an option; the number changes
+# rarely and a stale value here only affects the human-readable budget
+# in the Matrix line, not the actual test behavior.
+_IB_ASSIGNED_BUDGET_SECONDS = 100
+
+
+def _is_ib_attributed(body: str) -> bool:
+    return any(m in body for m in _IB_FAILURE_MARKERS)
+
+
 def matrix_failures(dirs: list[str]) -> None:
     """Failed tests grouped by network as a markdown nested list.
 
-    Renders to something like:
+    When the Identity Backend probe (or any dependent suite cascading off
+    `ensureAttested`) fails, those entries are collapsed into a single
+    "Identity Backend attestation degraded" line per network — listing
+    each blocked suite as "PGAS failed / Statement failed / Storage failed"
+    is misleading when those features were never actually exercised.
 
-        - **paseo-next-v2**
-          - PGAS: claim + spend on revive > claim PGAS gas allowance
-          - Storage: Bulletin Chain > uploaded CID is retrievable …
-        - **previewnet**
-          - PGAS: claim + spend on revive > claim PGAS gas allowance
+    Non-IB failures (real product bugs in PGAS, Statement, etc.) still get
+    listed individually, so a coincidental real failure during an IB outage
+    isn't hidden by the grouping.
     """
     for network, tree in parse_dirs(dirs):
-        names = [
-            tc.get("name", "")
-            for tc in tree.iter("testcase")
-            if tc.find("failure") is not None or tc.find("error") is not None
-        ]
-        if not names:
+        ib_blocked: list[str] = []
+        other_failures: list[str] = []
+        for tc in tree.iter("testcase"):
+            if tc.find("failure") is None and tc.find("error") is None:
+                continue
+            name = tc.get("name", "")
+            body = _failure_body(tc)
+            if _is_ib_attributed(body):
+                ib_blocked.append(name)
+            else:
+                other_failures.append(name)
+
+        if not ib_blocked and not other_failures:
             continue
+
         print(f"- **{network}**")
-        for n in names:
+        if ib_blocked:
+            # The Identity Backend Health probe IS the diagnosis, not a
+            # consequence. Strip it from the "Blocked" enumeration so we
+            # don't list IB as blocking itself.
+            blocked_suites = sorted(
+                {
+                    n.split(" > ")[0]
+                    for n in ib_blocked
+                    if "Identity Backend Health" not in n
+                }
+            )
+            line = (
+                "  - **Identity Backend attestation degraded** — "
+                f"reconciler did not flip a fresh account to ASSIGNED within "
+                f"the {_IB_ASSIGNED_BUDGET_SECONDS} s poll budget. "
+                "Identity Backend Health runs first and gates the suite: "
+                "downstream features below were never exercised."
+            )
+            if blocked_suites:
+                line += f" Blocked: {', '.join(blocked_suites)}."
+            print(line)
+        for n in other_failures:
             print(f"  - {n}")
 
 

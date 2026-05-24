@@ -12,7 +12,8 @@ import {
 } from "../lib/client.js";
 import { type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
-import { loadCredentials, type AttestedCredentials } from "../lib/credentials.js";
+import type { AttestedCredentials } from "../lib/credentials.js";
+import { ensureAttested } from "../lib/attested-fixture.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -103,13 +104,7 @@ describe("Storage: Bulletin Chain", () => {
           `runtime supports XCM-driven authorise_account from People.`,
       );
     }
-    const creds = loadCredentials();
-    if (!creds.attested) {
-      throw new Error(
-        `[storage] No attested credentials — globalSetup must succeed before the ` +
-          `Bulletin upload tests can run.`,
-      );
-    }
+    const creds = await ensureAttested();
     testAccount = createAccountFromCredentials(creds);
     console.log(`[storage] Test account (attested): ${testAccount.address} (${creds.username})`);
 

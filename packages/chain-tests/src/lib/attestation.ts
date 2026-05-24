@@ -182,6 +182,32 @@ export async function signAndRegister(
   return { username: result.username };
 }
 
+export interface UsernameEntry {
+  candidateAccountId?: string;
+  username?: string;
+  status?: string;
+  onchainData?: { blockNumber?: number } | null;
+}
+
+/**
+ * GET /api/v1/usernames?prefix=<username> and return the first entry whose
+ * username starts with the prefix. Used by ib-health to poll for the
+ * status flip from RESERVED → ASSIGNED.
+ */
+export async function fetchUsernameStatus(
+  backendUrl: string,
+  username: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<UsernameEntry | null> {
+  const res = await fetch(
+    `${backendUrl}/api/v1/usernames?prefix=${encodeURIComponent(username)}`,
+    { signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000) },
+  );
+  if (!res.ok) return null;
+  const entries = (await res.json()) as UsernameEntry[];
+  return entries.find((e) => e.username?.startsWith(username)) ?? null;
+}
+
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
   const bytes = new Uint8Array(clean.length / 2);

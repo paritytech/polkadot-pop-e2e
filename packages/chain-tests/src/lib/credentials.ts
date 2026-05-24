@@ -1,10 +1,9 @@
 /**
- * Read the attested account credentials written by globalSetup.
+ * Shape of the attested-account credentials that `ensureAttested()`
+ * (in `attested-fixture.ts`) produces and caches to
+ * `.test-credentials.json`. Importable as a type-only dependency by
+ * helpers that build signers / accounts from a registered lite-person.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
 
 export interface AttestedCredentials {
   attested: true;
@@ -20,17 +19,3 @@ interface NoCredentials {
 }
 
 export type Credentials = AttestedCredentials | NoCredentials;
-
-export function loadCredentials(): Credentials {
-  const raw = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf-8"));
-  if (!raw.attested) return { attested: false };
-
-  return {
-    attested: true,
-    address: raw.address,
-    publicKey: Uint8Array.from(raw.publicKey),
-    statementStoreSecret: Uint8Array.from(raw.statementStoreSecret),
-    entropy: Uint8Array.from(raw.entropy),
-    username: raw.username,
-  };
-}

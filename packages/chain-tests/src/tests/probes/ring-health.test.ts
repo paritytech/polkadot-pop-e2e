@@ -44,9 +44,9 @@ import {
   type PeopleApi,
   type AssetHubApi,
   type RichAssetHubApi,
-} from "../lib/client.js";
-import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
-import { LITE_PEOPLE_IDENTIFIER } from "../lib/ring.js";
+} from "../../lib/client.js";
+import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
+import { LITE_PEOPLE_IDENTIFIER } from "../../lib/ring.js";
 
 // How many finalized blocks back to walk. 200 blocks × ~6 s ≈ 20 min of
 // history. Wide enough to catch sparse onboarding traffic on testnets;

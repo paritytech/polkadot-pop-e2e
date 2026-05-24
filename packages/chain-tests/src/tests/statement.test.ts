@@ -13,7 +13,7 @@ import {
 } from "@novasamatech/statement-store";
 import { stringToTopic, createExpiryFromDuration } from "@novasamatech/sdk-statement";
 import { createPeopleClient } from "../lib/client.js";
-import { loadCredentials } from "../lib/credentials.js";
+import { ensureAttested } from "../lib/attested-fixture.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 describe("Statement: People Chain + Identity Backend", () => {
@@ -37,11 +37,9 @@ describe("Statement: People Chain + Identity Backend", () => {
       lazyClient = createLazyClient(getWsProvider(network.people.ws));
       adapter = createPapiStatementStoreAdapter(lazyClient);
 
-      const creds = loadCredentials();
-      if (creds.attested) {
-        prover = createSr25519Prover(creds.statementStoreSecret);
-        console.log(`[statement] Attested account: ${creds.address} (${creds.username})`);
-      }
+      const creds = await ensureAttested();
+      prover = createSr25519Prover(creds.statementStoreSecret);
+      console.log(`[statement] Attested account: ${creds.address} (${creds.username})`);
     }
   });
 

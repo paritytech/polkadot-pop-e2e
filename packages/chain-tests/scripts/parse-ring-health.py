@@ -47,8 +47,8 @@ ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 # the same content is timestamp-prefixed. Tolerate either.
 FAILURE_DETAIL_RE = re.compile(r"(?:^|\s)→\s+(.+?)\s*$")
 # vitest summary lines look like:
-#   ✓ src/tests/ring-health.test.ts (4 tests) 130414ms
-#   ✘ src/tests/ring-health.test.ts > People-chain ring rebuild latency > X
+#   ✓ src/tests/probes/ring-health.test.ts (4 tests) 130414ms
+#   ✘ src/tests/probes/ring-health.test.ts > People-chain ring rebuild latency > X
 #   Tests  4 passed (4)
 #   Tests  1 failed | 1 passed (2)
 TEST_OK_RE = re.compile(r"^\s*✓\s+(.+?)\s+\(\d+ms\)\s*$")
