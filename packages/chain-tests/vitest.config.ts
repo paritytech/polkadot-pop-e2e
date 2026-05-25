@@ -21,6 +21,28 @@ export default defineConfig({
     poolOptions: {
       forks: { singleFork: true },
     },
+    // The IB-Health probe seeds an attested account via `ensureAttested()`
+    // in attested-fixture.ts; subsequent test files that import the same
+    // fixture are supposed to reuse the cached success — OR fast-fail off
+    // the cached `[ib-cascade]` rejection when IB is down. With vitest's
+    // default `isolate: true`, every test file gets its own VM context
+    // and the module's `inflight` / `cachedFailure` state is per-file,
+    // not shared. Result: when IB is degraded, every dependent file
+    // re-registers a fresh username and burns 100 s polling — observed
+    // 4 × 100 s on run 26398574954/previewnet against ONE outage.
+    // Setting `isolate: false` shares one VM context across files in the
+    // single fork, so module state actually persists. Safe because none
+    // of our test files mutate shared module exports — they only read
+    // from `getNetworkConfig`, `createPeopleClient`, etc.
+    isolate: false,
+    // Also pin to sequential file execution. With `singleFork: true` we
+    // get one process; without this option vitest can still parallelise
+    // files inside that process via tinypool. JUnit timestamps on the
+    // 2026-05-25 run show all six files reporting the same suite-start
+    // millisecond — they were running concurrently, so the probe and
+    // dependent files raced for IB registration instead of the probe
+    // running first and seeding the cache.
+    fileParallelism: false,
     bail: 0,
   },
 });

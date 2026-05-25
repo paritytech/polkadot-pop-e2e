@@ -301,13 +301,48 @@ def matrix_failures(dirs: list[str]) -> None:
             print(f"  - {n}")
 
 
+def network_statuses(dirs: list[str]) -> None:
+    """Emit per-network pass/fail verdicts as JSON.
+
+    Output shape: `{"paseo-next-v2": "pass", "previewnet": "fail"}`.
+    Used by the health-check workflow's flip-detection step — read this
+    once, diff against the previously-cached snapshot, notify only on the
+    networks whose verdict changed. The set of networks is whatever's
+    present on disk: adding or removing a matrix entry needs no change
+    here or in the workflow's flip logic.
+
+    A "fail" verdict covers all three not-green shapes — failures > 0,
+    artifact missing, junit empty/malformed — collapsing them into the
+    same operator-visible signal "this network's last run did not pass."
+    """
+    import json
+    out: dict[str, str] = {}
+    for path in dirs:
+        if not os.path.isdir(path):
+            continue
+        network = network_from_dir(path)
+        junit = os.path.join(path, "junit.xml")
+        if not os.path.exists(junit) or os.path.getsize(junit) == 0:
+            out[network] = "fail"
+            continue
+        try:
+            root = ET.parse(junit).getroot()
+        except ET.ParseError:
+            out[network] = "fail"
+            continue
+        out[network] = "pass" if int(root.get("failures", "0")) == 0 else "fail"
+    print(json.dumps(out, sort_keys=True))
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("usage: render-summary.py overview     <dirs...>", file=sys.stderr)
-        print("       render-summary.py compare      <dirs...>", file=sys.stderr)
-        print("       render-summary.py failures     <dirs...>", file=sys.stderr)
-        print("       render-summary.py matrix-summary <dirs...>", file=sys.stderr)
-        print("       render-summary.py per-network  <junit.xml>", file=sys.stderr)
+        print("usage: render-summary.py overview         <dirs...>", file=sys.stderr)
+        print("       render-summary.py compare          <dirs...>", file=sys.stderr)
+        print("       render-summary.py failures         <dirs...>", file=sys.stderr)
+        print("       render-summary.py matrix-summary   <dirs...>", file=sys.stderr)
+        print("       render-summary.py matrix-failures  <dirs...>", file=sys.stderr)
+        print("       render-summary.py network-statuses <dirs...>", file=sys.stderr)
+        print("       render-summary.py per-network      <junit.xml>", file=sys.stderr)
         return 2
     mode = argv[1]
     if mode == "overview":
@@ -325,6 +360,8 @@ def main(argv: list[str]) -> int:
         matrix_summary(argv[2:])
     elif mode == "matrix-failures":
         matrix_failures(argv[2:])
+    elif mode == "network-statuses":
+        network_statuses(argv[2:])
     else:
         print(f"unknown mode: {mode}", file=sys.stderr)
         return 2

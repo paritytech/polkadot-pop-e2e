@@ -21,8 +21,44 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
+
+
+# Map a free-form ring-health failure message to a stable category slug.
+# We compare CATEGORIES rather than raw error strings between runs because
+# the numbers inside the message (queue size, block-delta, latency) drift
+# every run even when the underlying failure mode is identical — comparing
+# raw strings would flap on every tick. Verdict change still always
+# notifies; category change additionally surfaces "failing for a *different*
+# reason than last run" (e.g. builder went from "completely stuck" to
+# "running but slow") which the prior verdict-only diff missed.
+#
+# Keep this list in sync with the `throw new Error(...)` sites in
+# tests/probes/ring-health.test.ts. A category that doesn't match anything
+# falls into "other" — which is still distinct from the empty-error
+# "no failures" baseline, so a brand-new failure mode still flips.
+_ERROR_CATEGORIES: list[tuple[str, re.Pattern[str]]] = [
+    ("builder-stuck", re.compile(r"Builder appears stuck|zero RingBuilt events across", re.I)),
+    ("stale-onboarded", re.compile(r"Onboarded event\(s\) with no matching RingBuilt", re.I)),
+    ("slow-rebuilds", re.compile(r"worst submit.*rebuild latency was", re.I)),
+    ("ah-lag", re.compile(r"AssetHub is \d+ revision\(s\) behind", re.I)),
+    ("ah-no-root", re.compile(r"AH RingRoots window is empty|never propagated to AssetHub", re.I)),
+]
+
+
+def categorise(message: str) -> str:
+    for cat, pat in _ERROR_CATEGORIES:
+        if pat.search(message):
+            return cat
+    return "other"
+
+
+def categories_of(state: dict | None) -> set[str]:
+    if not state:
+        return set()
+    return {categorise(e) for e in state.get("errors", []) if isinstance(e, str)}
 
 
 def fmt_litepeople_metrics(metrics: dict) -> list[str]:
@@ -65,12 +101,27 @@ def build_message(state: dict, prev: dict | None, run_url: str) -> str:
     metrics = state.get("metrics", {})
     errors = state.get("errors", [])
 
+    prev_cats = categories_of(prev)
+    curr_cats = categories_of(state)
     if prev_verdict is None:
         header = f"📊 Ring health on `{network}`: **{verdict.upper()}** (first observation)"
     elif verdict == "fail" and prev_verdict == "pass":
         header = f"❌ Ring health on `{network}`: **{verdict.upper()}** (was PASS)"
     elif verdict == "pass" and prev_verdict == "fail":
         header = f"✅ Ring health on `{network}`: **{verdict.upper()}** (recovered from FAIL)"
+    elif verdict == "fail" and prev_verdict == "fail" and prev_cats != curr_cats:
+        # Same verdict, *different* failure mode — e.g. went from "builder
+        # stuck" (zero rebuilds) to "slow rebuilds" (rebuilds happening
+        # but past threshold). Surface the transition because it changes
+        # what the operator should do next.
+        added = sorted(curr_cats - prev_cats)
+        cleared = sorted(prev_cats - curr_cats)
+        bits = []
+        if cleared:
+            bits.append("no longer " + ", ".join(cleared))
+        if added:
+            bits.append("now " + ", ".join(added))
+        header = f"🔀 Ring health on `{network}`: still FAIL — {'; '.join(bits)}"
     else:
         header = f"📊 Ring health on `{network}`: {verdict.upper()}"
 
@@ -104,7 +155,16 @@ def main() -> int:
 
     curr_verdict = curr.get("verdict")
     prev_verdict = prev.get("verdict") if prev else None
-    state_changed = prev_verdict != curr_verdict
+    # State is considered changed when either:
+    #   - the verdict flipped (pass↔fail), OR
+    #   - the verdict stayed FAIL but the *category* of failure changed.
+    # Same verdict + same categories with drifting numbers (queue=42 → 43)
+    # is NOT a state change, so persistent failures don't spam every 15 min.
+    prev_cats = categories_of(prev)
+    curr_cats = categories_of(curr)
+    state_changed = (prev_verdict != curr_verdict) or (
+        curr_verdict == "fail" and prev_verdict == "fail" and prev_cats != curr_cats
+    )
 
     message = ""
     if state_changed:
