@@ -23,7 +23,7 @@
     "multiformats": "^13.4.2",
     "polkadot-api": "^2.1.2",
     "verifiablejs": "1.2.0",
-    "verifiablejs-thinvrf": "npm:verifiablejs@1.3.0-beta.0",
+    "verifiablejs-thinvrf": "file:../../vendor/verifiablejs-thinvrf",
     "viem": "^2.43.1"
   },
   "devDependencies": {

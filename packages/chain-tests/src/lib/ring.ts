@@ -216,6 +216,15 @@ export async function waitForInclusion(
   const peopleClient = opts?.peopleClient;
   const startedAt = Date.now();
   let lastTag: string | undefined;
+  // Capture a baseline snapshot so a timeout can prove whether the chain
+  // was making progress at all. Without this the failure message just
+  // says "300s, Onboarding" and the on-call has no idea whether to page
+  // the runtime team (reconciler stuck) or bump the budget (slow but
+  // healthy).
+  const startSnap = peopleClient
+    ? await captureRingDiagnostic(peopleApi, peopleClient, collectionId)
+    : null;
+  const statusLog: Array<{ atSec: number; tag: string }> = [];
   while (Date.now() - startedAt < timeoutMs) {
     // Pin both reads to a finalized block so Members status and RingKeys
     // see the same state. If we read at HEAD, the chain may have flipped
@@ -308,10 +317,136 @@ export async function waitForInclusion(
         `[ring] member ${tag} (${Math.round((Date.now() - startedAt) / 1000)}s) — waiting…`,
       );
       lastTag = tag;
+      statusLog.push({ atSec: Math.round((Date.now() - startedAt) / 1000), tag });
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  throw new Error(
-    `Member not Included after ${timeoutMs / 1000}s — last status: ${lastTag ?? "unknown"}`,
-  );
+  const endSnap = peopleClient
+    ? await captureRingDiagnostic(peopleApi, peopleClient, collectionId)
+    : null;
+  throw new Error(formatInclusionTimeout({
+    timeoutMs,
+    lastTag,
+    statusLog,
+    startSnap,
+    endSnap,
+    collection,
+  }));
+}
+
+interface RingDiagnostic {
+  blockNumber: number;
+  ringZeroRevision: number | null;
+  onboardingCount: number;
+  includedCount: number;
+}
+
+/**
+ * Snapshot the chain-side ring state for diagnostic comparison across a
+ * wait window. Reads ring-0 revision (the active ring for both People
+ * and LitePeople collections during onboarding) plus the full Members
+ * map count broken down by status. Cheap enough to run twice in the
+ * lifetime of a `waitForInclusion` call (start + on-timeout).
+ */
+async function captureRingDiagnostic(
+  peopleApi: PeopleApi,
+  peopleClient: PolkadotClient,
+  collectionIdHex: string,
+): Promise<RingDiagnostic> {
+  const fin = await peopleClient.getFinalizedBlock();
+  const at = { at: fin.hash as `0x${string}` };
+  const [root, allMembers] = await Promise.all([
+    peopleApi.query.Members.Root.getValue(collectionIdHex, 0, at),
+    peopleApi.query.Members.Members.getEntries(collectionIdHex, at),
+  ]);
+  let onboarding = 0;
+  let included = 0;
+  for (const entry of allMembers) {
+    const t = entry.value?.type;
+    if (t === "Onboarding") onboarding++;
+    else if (t === "Included") included++;
+  }
+  return {
+    blockNumber: fin.number,
+    ringZeroRevision: root?.revision ?? null,
+    onboardingCount: onboarding,
+    includedCount: included,
+  };
+}
+
+/**
+ * Render the `waitForInclusion` timeout error with enough diagnostic
+ * detail that an on-call reading the test output can immediately classify
+ * the failure: chain-side reconciler stalled, ring at capacity, RPC slow,
+ * or our extrinsic never landed. Each "Likely cause" bullet maps to a
+ * different remediation, so the formatter spells them out rather than
+ * leaving the reader to triangulate.
+ */
+function formatInclusionTimeout(args: {
+  timeoutMs: number;
+  lastTag: string | undefined;
+  statusLog: Array<{ atSec: number; tag: string }>;
+  startSnap: RingDiagnostic | null;
+  endSnap: RingDiagnostic | null;
+  collection: Collection;
+}): string {
+  const { timeoutMs, lastTag, statusLog, startSnap, endSnap, collection } = args;
+  const secs = timeoutMs / 1000;
+  const lines: string[] = [
+    `Ring inclusion timed out: the People-chain ring builder did not include this new attested account after ${secs}s.`,
+    `Effect: no ring-VRF proof can be generated for this account, so any test that depends on attestation (allowances, PGAS claim, statement-store write, bulletin upload) cannot run.`,
+    `Last on-chain status seen: ${lastTag ?? "unknown"}.`,
+  ];
+  if (startSnap && endSnap) {
+    const blockDelta = endSnap.blockNumber - startSnap.blockNumber;
+    const expectedBlocks = Math.round(secs / 6); // ~6s block time
+    const revDelta =
+      endSnap.ringZeroRevision != null && startSnap.ringZeroRevision != null
+        ? endSnap.ringZeroRevision - startSnap.ringZeroRevision
+        : null;
+    // Classify based on what the chain numbers tell us — the test
+    // produces an explicit verdict so a non-runtime engineer doesn't have
+    // to reason about block deltas / revision counters in the moment.
+    let verdict: string;
+    if (blockDelta < expectedBlocks / 2) {
+      verdict =
+        `→ Chain side: the People chain barely advanced (${blockDelta} blocks in ${secs}s, expected ~${expectedBlocks}). The chain itself is slow or its RPC is degraded. Action: re-run; if persistent, check the People-chain RPC endpoint.`;
+    } else if (revDelta === 0) {
+      verdict =
+        `→ Chain side: the People chain is producing blocks fine, but the ring builder (individuality offchain worker) has not produced a new ring revision in the last ${secs}s. This is the "builder stuck" fault — new attestations cannot become usable until it recovers. Action: notify the individuality runtime team; this is NOT a test bug.`;
+    } else if (revDelta != null && revDelta > 0 && lastTag === "Onboarding") {
+      verdict =
+        `→ Chain side: the ring builder ran (${revDelta} new revision(s)) but did not pick up this member. Ring may be at capacity, or the builder is processing the onboarding queue slower than members are arriving. Action: file an issue against individuality runtime.`;
+    } else if (lastTag === "missing" || lastTag == null) {
+      verdict =
+        `→ Backend side: this account never appeared in Members storage at all — the IB never landed its registration extrinsic. Action: re-check IB attestation logs (this is the same failure class the IB-vendored wasm change was meant to fix; if it shows up again, look there first).`;
+    } else {
+      verdict =
+        `→ Ambiguous: chain advanced, ring revision advanced, but member still not Included after waiting. May indicate the stability re-check window keeps invalidating us (ring rebuilds back-to-back). Worth raising with the individuality team.`;
+    }
+    const transitions = statusLog.length
+      ? statusLog.map((e) => `[${e.atSec}s] ${e.tag}`).join(" → ")
+      : "(none — status never changed)";
+    lines.push(
+      ``,
+      `Verdict:`,
+      `  ${verdict}`,
+      ``,
+      `Raw chain numbers (for the runtime team):`,
+      `  collection:         ${collection}`,
+      `  finalized block:    #${startSnap.blockNumber} → #${endSnap.blockNumber} (+${blockDelta} blocks; ~${expectedBlocks} expected at 6s/block)`,
+      `  ring 0 revision:    ${startSnap.ringZeroRevision ?? "null"} → ${endSnap.ringZeroRevision ?? "null"} (${
+        revDelta == null ? "n/a" : revDelta === 0 ? "UNCHANGED" : `+${revDelta}`
+      })`,
+      `  onboarding queue:   ${startSnap.onboardingCount} → ${endSnap.onboardingCount} members`,
+      `  included members:   ${startSnap.includedCount} → ${endSnap.includedCount}`,
+      `  status transitions: ${transitions}`,
+    );
+  } else {
+    lines.push(
+      ``,
+      `(Diagnostic snapshot unavailable — caller did not pass opts.peopleClient. Plumb the client through to enable richer error reports.)`,
+    );
+  }
+  return lines.join("\n");
 }

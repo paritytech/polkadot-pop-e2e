@@ -476,11 +476,13 @@ describe("People-chain ring rebuild latency", () => {
             `queue_now=${queueNow} ring_now=${snap?.ringSize ?? "na"} rev_now=${snap?.revision ?? "na"}`,
         );
         if (queueNow > 0 && stats.rebuiltCount === 0) {
+          const windowBlocks = walk.endBlock - walk.startBlock + 1;
+          const windowMin = Math.round((windowBlocks * PEOPLE_BLOCK_SECONDS) / 60);
           throw new Error(
-            `[ring-health] ${name}: ${queueNow} member(s) in Onboarding right now, ` +
-              `but zero RingBuilt events across the last ${walk.endBlock - walk.startBlock + 1} blocks ` +
-              `(~${Math.round(((walk.endBlock - walk.startBlock + 1) * PEOPLE_BLOCK_SECONDS) / 60)} min). ` +
-              `Builder appears stuck — new attestations cannot generate ring-VRF proofs.`,
+            `[ring-health] Ring builder STUCK on ${name} (${network.name}).\n` +
+              `Effect: new attestations cannot generate ring-VRF proofs. Allowance claims, PGAS claims, statement-store writes, and bulletin uploads will fail for any freshly-attested account on this network until the builder recovers.\n` +
+              `Action: notify the individuality runtime team — this is a chain-side fault, NOT a test bug.\n` +
+              `Numbers: ${queueNow} member(s) waiting in Onboarding right now; zero RingBuilt events across the last ${windowBlocks} People-chain blocks (~${windowMin} min); ring size=${snap?.ringSize ?? "na"}, current ring revision=${snap?.revision ?? "na"}.`,
           );
         }
         expect(true).toBe(true);
@@ -500,10 +502,12 @@ describe("People-chain ring rebuild latency", () => {
           a.blockNumber < b.blockNumber ? a : b,
         );
         const ageBlocks = walk.endBlock - oldest.blockNumber;
+        const ageSec = ageBlocks * PEOPLE_BLOCK_SECONDS;
         throw new Error(
-          `[ring-health] ${name}: ${stuckTail.length} Onboarded event(s) with no matching RingBuilt — ` +
-            `oldest at block ${oldest.blockNumber}, ${ageBlocks} blocks (~${ageBlocks * PEOPLE_BLOCK_SECONDS} s) ago. ` +
-            `New attestations can't generate ring-VRF proofs.`,
+          `[ring-health] Ring builder STUCK on ${name} (${network.name}).\n` +
+            `Effect: new attestations cannot generate ring-VRF proofs. ${stuckTail.length} attestation(s) have been waiting for a ring rebuild that never came — allowance claims, PGAS claims, statement-store writes, and bulletin uploads from those accounts will fail until the builder catches up.\n` +
+            `Action: notify the individuality runtime team — this is a chain-side fault, NOT a test bug.\n` +
+            `Numbers: ${stuckTail.length} unpaired Onboarded event(s); oldest at block ${oldest.blockNumber}, waiting ${ageBlocks} blocks (~${ageSec} s); healthy threshold is ${MAX_PEOPLE_REBUILD_BLOCKS} block(s).`,
         );
       }
 
@@ -511,9 +515,13 @@ describe("People-chain ring rebuild latency", () => {
       // healthy threshold. Worth flagging — the chain is recovering but
       // user-facing latency is degraded.
       if (worst != null && worst > MAX_PEOPLE_REBUILD_BLOCKS) {
+        const worstSec = worst * PEOPLE_BLOCK_SECONDS;
+        const thresholdSec = MAX_PEOPLE_REBUILD_BLOCKS * PEOPLE_BLOCK_SECONDS;
         throw new Error(
-          `[ring-health] ${name}: worst submit→rebuild latency was ${worst} blocks ` +
-            `(~${worst * PEOPLE_BLOCK_SECONDS} s), threshold is ${MAX_PEOPLE_REBUILD_BLOCKS} blocks (~${MAX_PEOPLE_REBUILD_BLOCKS * PEOPLE_BLOCK_SECONDS} s).`,
+          `[ring-health] Ring builder SLOW on ${name} (${network.name}) — degraded but recovering.\n` +
+            `Effect: new attestations are eventually included, but with extended lag. Tests against freshly-attested accounts may pass on retry; real users will see longer-than-expected onboarding waits.\n` +
+            `Action: monitor — if this fires across multiple health runs in a row, raise with the individuality runtime team. A single occurrence is usually a transient backlog and clears on its own.\n` +
+            `Numbers: worst submit→rebuild latency was ${worst} blocks (~${worstSec} s); healthy threshold is ${MAX_PEOPLE_REBUILD_BLOCKS} block(s) (~${thresholdSec} s) — ${Math.round(worst / MAX_PEOPLE_REBUILD_BLOCKS)}× over budget.`,
         );
       }
 

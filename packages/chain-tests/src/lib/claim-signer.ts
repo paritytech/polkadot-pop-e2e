@@ -130,7 +130,14 @@ export function createClaimSigner(opts: ClaimSignerOpts): PolkadotSigner {
 
 /**
  * Hand-encode the `RegisterStatementStoreAllowance` variant.
- * Layout: `0x01 0x02 || proof(788) || ringIndex u32 LE || collectionTag u8`.
+ * Layout: `0x01 0x02 || proof(N) || ringIndex u32 LE || collectionTag u8`.
+ *
+ * Proof byte length is dictated by the wasm/runtime pairing — `verifiablejs`
+ * (paseo-next-v2, pre-ThinVRF) returns 788 bytes; the IB-vendored
+ * `verifiablejs-thinvrf` (previewnet, v0.7.0+) returns 787. We size the
+ * buffer to `proof.length` so the encoder follows whichever build the
+ * loader picked. `assertProof()` keeps a sanity range so a wildly malformed
+ * proof fails loud rather than producing a corrupted extrinsic.
  */
 export function encodeRegisterStmtStore({
   proof,
@@ -141,26 +148,25 @@ export function encodeRegisterStmtStore({
   ringIndex: number;
   litePeople: boolean;
 }): Uint8Array {
-  if (proof.length !== 788) {
-    throw new Error(`proof must be 788 bytes, got ${proof.length}`);
-  }
-  const out = new Uint8Array(1 + 1 + 788 + 4 + 1);
+  assertProof(proof);
+  const out = new Uint8Array(1 + 1 + proof.length + 4 + 1);
   out[0] = 0x01; // Option::Some
   out[1] = 0x02; // variant: RegisterStatementStoreAllowance
   out.set(proof, 2);
-  new DataView(out.buffer).setUint32(2 + 788, ringIndex, true); // u32 LE
-  out[2 + 788 + 4] = litePeople ? 1 : 0;
+  new DataView(out.buffer).setUint32(2 + proof.length, ringIndex, true); // u32 LE
+  out[2 + proof.length + 4] = litePeople ? 1 : 0;
   return out;
 }
 
 /**
  * Hand-encode the AsPgas extension's only variant, `Claim` (named struct).
- * Layout: `0x01 0x00 || proof(788) || ringIndex u32 LE || revision u32 LE
+ * Layout: `0x01 0x00 || proof(N) || ringIndex u32 LE || revision u32 LE
  *          || collectionTag u8 || day u32 LE`.
  *
  * Note the asymmetry vs AsResources: PGAS keeps `day` in the extension data
  * (so the runtime can derive the proof context on-chain) while the dispatch
- * call only carries `slot_index` + `target`.
+ * call only carries `slot_index` + `target`. Proof length follows the
+ * wasm/runtime build — see `encodeRegisterStmtStore` for the rationale.
  */
 export function encodePgasClaim({
   proof,
@@ -175,24 +181,22 @@ export function encodePgasClaim({
   litePeople: boolean;
   day: number;
 }): Uint8Array {
-  if (proof.length !== 788) {
-    throw new Error(`proof must be 788 bytes, got ${proof.length}`);
-  }
-  const out = new Uint8Array(1 + 1 + 788 + 4 + 4 + 1 + 4);
+  assertProof(proof);
+  const out = new Uint8Array(1 + 1 + proof.length + 4 + 4 + 1 + 4);
   out[0] = 0x01; // Option::Some
   out[1] = 0x00; // variant: Claim (only variant)
   out.set(proof, 2);
   const dv = new DataView(out.buffer);
-  dv.setUint32(2 + 788, ringIndex, true);
-  dv.setUint32(2 + 788 + 4, revisionIndex, true);
-  out[2 + 788 + 4 + 4] = litePeople ? 1 : 0;
-  dv.setUint32(2 + 788 + 4 + 4 + 1, day, true);
+  dv.setUint32(2 + proof.length, ringIndex, true);
+  dv.setUint32(2 + proof.length + 4, revisionIndex, true);
+  out[2 + proof.length + 4 + 4] = litePeople ? 1 : 0;
+  dv.setUint32(2 + proof.length + 4 + 4 + 1, day, true);
   return out;
 }
 
 /**
  * Hand-encode the `ClaimLongTermStorage` variant of AsResources.
- * Layout: `0x01 0x03 || proof(788) || ringIndex u32 LE || revisionIndex u32 LE
+ * Layout: `0x01 0x03 || proof(N) || ringIndex u32 LE || revisionIndex u32 LE
  *          || collectionTag u8`.
  *
  * The runtime uses `verify_membership_at_rev` for this flow, so the proof can
@@ -211,16 +215,29 @@ export function encodeClaimLongTermStorage({
   revisionIndex: number;
   litePeople: boolean;
 }): Uint8Array {
-  if (proof.length !== 788) {
-    throw new Error(`proof must be 788 bytes, got ${proof.length}`);
-  }
-  const out = new Uint8Array(1 + 1 + 788 + 4 + 4 + 1);
+  assertProof(proof);
+  const out = new Uint8Array(1 + 1 + proof.length + 4 + 4 + 1);
   out[0] = 0x01; // Option::Some
   out[1] = 0x03; // variant: ClaimLongTermStorage
   out.set(proof, 2);
   const dv = new DataView(out.buffer);
-  dv.setUint32(2 + 788, ringIndex, true); // u32 LE
-  dv.setUint32(2 + 788 + 4, revisionIndex, true); // u32 LE
-  out[2 + 788 + 4 + 4] = litePeople ? 1 : 0;
+  dv.setUint32(2 + proof.length, ringIndex, true); // u32 LE
+  dv.setUint32(2 + proof.length + 4, revisionIndex, true); // u32 LE
+  out[2 + proof.length + 4 + 4] = litePeople ? 1 : 0;
   return out;
+}
+
+/**
+ * Sanity check ring-VRF proof length. Real values are 787 (ThinVRF) or 788
+ * (pre-ThinVRF). Anything outside that range means the wasm produced
+ * garbage or we picked the wrong loader branch — fail loud instead of
+ * encoding a malformed extrinsic that surfaces later as an opaque chain
+ * decode error.
+ */
+function assertProof(proof: Uint8Array): void {
+  if (proof.length !== 787 && proof.length !== 788) {
+    throw new Error(
+      `ring-VRF proof length out of expected range: got ${proof.length}, expected 787 (ThinVRF) or 788 (pre-ThinVRF)`,
+    );
+  }
 }

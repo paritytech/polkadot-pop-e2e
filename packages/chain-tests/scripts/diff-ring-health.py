@@ -94,7 +94,12 @@ def fmt_litepeople_metrics(metrics: dict) -> list[str]:
     return lines
 
 
-def build_message(state: dict, prev: dict | None, run_url: str) -> str:
+def build_message(
+    state: dict,
+    prev: dict | None,
+    run_url: str,
+    pr_context: str = "",
+) -> str:
     verdict = state.get("verdict", "?")
     prev_verdict = prev.get("verdict") if prev else None
     network = state.get("network", "?")
@@ -125,7 +130,10 @@ def build_message(state: dict, prev: dict | None, run_url: str) -> str:
     else:
         header = f"📊 Ring health on `{network}`: {verdict.upper()}"
 
-    body = [header, ""]
+    body = [header]
+    if pr_context:
+        body.append(pr_context)
+    body.append("")
     body.extend(fmt_litepeople_metrics(metrics))
 
     if errors:
@@ -143,6 +151,15 @@ def main() -> int:
     parser.add_argument("--prev", default="")
     parser.add_argument("--curr", required=True)
     parser.add_argument("--run-url", default="")
+    parser.add_argument(
+        "--pr-context",
+        default="",
+        help=(
+            "Optional pre-formatted line (e.g. '🔗 PR #38 · branch `mak/foo`') "
+            "shown under the header. Empty on scheduled runs so they read as "
+            "main; populated on PR / manual-from-branch triggers."
+        ),
+    )
     args = parser.parse_args()
 
     curr = json.loads(Path(args.curr).read_text())
@@ -168,7 +185,7 @@ def main() -> int:
 
     message = ""
     if state_changed:
-        message = build_message(curr, prev, args.run_url)
+        message = build_message(curr, prev, args.run_url, args.pr_context)
 
     out_path = os.environ.get("GITHUB_OUTPUT")
     out_lines = [

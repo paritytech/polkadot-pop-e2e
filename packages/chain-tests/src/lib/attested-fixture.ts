@@ -173,6 +173,18 @@ async function waitForAssigned(backendUrl: string, username: string): Promise<vo
           );
           return;
         }
+        // FAILED is terminal: the IB reconciler tried to submit the
+        // registration extrinsic and the People chain rejected it. Bail
+        // immediately rather than burn the rest of the poll budget — and
+        // include the full entry so a future debugger has the on-chain
+        // pointers (or lack thereof) without having to add probe logs.
+        if (entry.status === "FAILED") {
+          throw new Error(
+            `[attested-fixture] IB reconciler returned FAILED for ${username} after ${
+              Date.now() - start
+            }ms (${polls} polls). Entry: ${JSON.stringify(entry)}`,
+          );
+        }
       }
     } catch (e: any) {
       console.log(`[attested-fixture] poll error: ${e.message}`);
