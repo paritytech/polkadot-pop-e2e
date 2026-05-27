@@ -9,3 +9,5 @@ playwright-report/
 .test-credentials.json
 .account-state.json
 artifacts/
+.worktrees
+.playwright-mcp

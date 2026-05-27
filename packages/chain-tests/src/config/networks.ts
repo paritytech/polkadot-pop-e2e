@@ -49,7 +49,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     contracts: null,
     identityBackend: "https://identity-backend-next.parity-testnet.parity.io",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, thinVrf: false },
+    features: { resources: true, pgas: true, thinVrf: true },
   },
   previewnet: {
     name: "Previewnet",
