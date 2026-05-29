@@ -177,6 +177,19 @@ export interface MemberLocation {
   at: string;
 }
 
+// Once one waitForInclusion call observes the ring builder stuck (300s
+// without a rebuild), every other ring-dependent test in this vitest run
+// would burn its own 5 min waiting for the same stuck builder. With
+// `singleFork` + `isolate: false` the module-level cache here is shared
+// across files, so subsequent callers fail-fast off the cached verdict.
+// Same shape as `attested-fixture.ts`'s IB-cascade pattern — the cascaded
+// error carries an explicit prefix so the matrix-message renderer can
+// group it under one "Ring builder stuck" line instead of listing PGAS,
+// Statement, Storage, Bulletin as four independent failures.
+let ringStuckFailure: Error | null = null;
+const RING_CASCADE_PREFIX =
+  "[ring-cascade] Ring builder already determined stuck earlier in this run — see the first Ring inclusion timeout for the chain-side diagnostic";
+
 /**
  * Wait until the lite-person derived from `verifiableEntropy` is `Included`
  * in the on-chain ring AND its key is present in `RingKeys` at the latest
@@ -198,6 +211,10 @@ export async function waitForInclusion(
     peopleClient?: PolkadotClient;
   },
 ): Promise<MemberLocation> {
+  // Fail-fast off a previous timeout in this run. Once the builder is
+  // determined stuck, waiting another 5 min for THIS account won't change
+  // anything — the diagnostic is already on the first failure.
+  if (ringStuckFailure) throw ringStuckFailure;
   const timeoutMs = opts?.timeoutMs ?? 300_000; // 5 min
   const pollMs = opts?.pollMs ?? 5_000;
   // Block time on these chains is ~6s — wait at least 3 blocks between
@@ -324,7 +341,7 @@ export async function waitForInclusion(
   const endSnap = peopleClient
     ? await captureRingDiagnostic(peopleApi, peopleClient, collectionId)
     : null;
-  throw new Error(formatInclusionTimeout({
+  const err = new Error(formatInclusionTimeout({
     timeoutMs,
     lastTag,
     statusLog,
@@ -332,6 +349,11 @@ export async function waitForInclusion(
     endSnap,
     collection,
   }));
+  // Cache the cascade marker (not the verbose original — second callers
+  // don't need to re-print the whole diagnostic; they're effects, not the
+  // cause). The first failure still surfaces in full.
+  ringStuckFailure = new Error(`${RING_CASCADE_PREFIX}\n\nFirst failure was:\n${err.message}`);
+  throw err;
 }
 
 interface RingDiagnostic {

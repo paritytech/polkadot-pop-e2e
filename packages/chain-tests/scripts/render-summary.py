@@ -119,7 +119,20 @@ def overview(dirs: list[str]) -> int:
 
 
 def per_network(junit_path: str) -> None:
-    tree = ET.parse(junit_path)
+    # Defensive: an empty / missing / malformed junit.xml is itself a verdict
+    # ("vitest never finalised — likely SIGKILL'd at the wrapper timeout").
+    # Without this guard, ET.parse raises ParseError → `set -e` in the Build
+    # report step aborts before outputs are set → flip + Notify Matrix are
+    # skipped → the room goes silent on the exact runs we most need to ping
+    # the team about. Render a one-line "no results" row and return cleanly.
+    if not os.path.exists(junit_path) or os.path.getsize(junit_path) == 0:
+        print("| _vitest produced no junit.xml — see workflow logs_ | :x: | — |")
+        return
+    try:
+        tree = ET.parse(junit_path)
+    except ET.ParseError as err:
+        print(f"| _malformed junit.xml ({err})_ | :x: | — |")
+        return
     for tc in tree.iter("testcase"):
         name = tc.get("name", "")
         time = tc.get("time", "0")
@@ -234,6 +247,17 @@ _IB_FAILURE_MARKERS = (
     "Identity Backend",
 )
 
+# Same pattern as IB: once one waitForInclusion timeout proves the
+# People-chain ring builder is stuck, dependent tests fail-fast off a
+# cached `[ring-cascade]` error rather than each burning their own
+# 5 min. The first failure carries the full chain-side diagnostic; the
+# others are tagged effects and should be grouped under one line.
+_RING_FAILURE_MARKERS = (
+    "[ring-cascade]",
+    "Ring inclusion timed out",
+    "ring builder",
+)
+
 # Mirrors `ASSIGNED_TIMEOUT_MS` in attested-fixture.ts. Duplicated rather
 # than parsed out of TS because this renderer runs in the workflow's
 # Python step where importing TS isn't an option; the number changes
@@ -246,40 +270,47 @@ def _is_ib_attributed(body: str) -> bool:
     return any(m in body for m in _IB_FAILURE_MARKERS)
 
 
+def _is_ring_attributed(body: str) -> bool:
+    return any(m in body for m in _RING_FAILURE_MARKERS)
+
+
 def matrix_failures(dirs: list[str]) -> None:
     """Failed tests grouped by network as a markdown nested list.
 
-    When the Identity Backend probe (or any dependent suite cascading off
-    `ensureAttested`) fails, those entries are collapsed into a single
-    "Identity Backend attestation degraded" line per network — listing
-    each blocked suite as "PGAS failed / Statement failed / Storage failed"
-    is misleading when those features were never actually exercised.
+    Two cascade groupings:
 
-    Non-IB failures (real product bugs in PGAS, Statement, etc.) still get
-    listed individually, so a coincidental real failure during an IB outage
-    isn't hidden by the grouping.
+    - **IB**: when the Identity Backend probe (or any beforeAll calling
+      `ensureAttested`) fails, downstream entries collapse to one
+      "Identity Backend attestation degraded" line.
+    - **Ring**: when the People-chain ring builder is stuck, downstream
+      ring-dependent tests collapse to one "Ring builder stuck" line.
+
+    Real, unrelated failures still surface individually so a coincidental
+    product bug during an IB or ring outage isn't hidden by the grouping.
     """
     for network, tree in parse_dirs(dirs):
         ib_blocked: list[str] = []
+        ring_blocked: list[str] = []
         other_failures: list[str] = []
         for tc in tree.iter("testcase"):
             if tc.find("failure") is None and tc.find("error") is None:
                 continue
             name = tc.get("name", "")
             body = _failure_body(tc)
+            # IB wins over ring when both markers are present — IB cascades
+            # often include ring-shaped errors downstream, but the root is IB.
             if _is_ib_attributed(body):
                 ib_blocked.append(name)
+            elif _is_ring_attributed(body):
+                ring_blocked.append(name)
             else:
                 other_failures.append(name)
 
-        if not ib_blocked and not other_failures:
+        if not ib_blocked and not ring_blocked and not other_failures:
             continue
 
         print(f"- **{network}**")
         if ib_blocked:
-            # The Identity Backend Health probe IS the diagnosis, not a
-            # consequence. Strip it from the "Blocked" enumeration so we
-            # don't list IB as blocking itself.
             blocked_suites = sorted(
                 {
                     n.split(" > ")[0]
@@ -293,6 +324,19 @@ def matrix_failures(dirs: list[str]) -> None:
                 f"the {_IB_ASSIGNED_BUDGET_SECONDS} s poll budget. "
                 "Identity Backend Health runs first and gates the suite: "
                 "downstream features below were never exercised."
+            )
+            if blocked_suites:
+                line += f" Blocked: {', '.join(blocked_suites)}."
+            print(line)
+        if ring_blocked:
+            blocked_suites = sorted({n.split(" > ")[0] for n in ring_blocked})
+            line = (
+                "  - **Ring builder stuck** — the People-chain ring builder "
+                "did not include a new attested account within 300 s. "
+                "Ring-VRF proofs can't be generated, so any test that "
+                "depends on attestation (PGAS, Statement, Storage, Bulletin) "
+                "fails-fast off a shared cascade marker after the first "
+                "timeout. This is a chain-side fault — ping the runtime team."
             )
             if blocked_suites:
                 line += f" Blocked: {', '.join(blocked_suites)}."
