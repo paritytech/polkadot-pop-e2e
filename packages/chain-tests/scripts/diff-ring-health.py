@@ -55,6 +55,15 @@ def categorise(message: str) -> str:
     return "other"
 
 
+# Pass→fail flips require this many consecutive observed fails before we
+# notify the room. A single transient RPC flake on a load-balanced public
+# endpoint shouldn't ping anyone — the probe self-retries once inside the
+# test, but if even that fails we want a second sample before treating it
+# as real. Recoveries (fail→pass) always notify on the first observation;
+# silence after a flake-driven false-alarm would mask the real recovery.
+FLIP_TO_FAIL_THRESHOLD = 2
+
+
 def categories_of(state: dict | None) -> set[str]:
     if not state:
         return set()
@@ -172,26 +181,71 @@ def main() -> int:
 
     curr_verdict = curr.get("verdict")
     prev_verdict = prev.get("verdict") if prev else None
+
+    # Consecutive-fail debounce. `verdict` is what the probe observed THIS
+    # run; `notified_verdict` is what the room currently thinks. We only
+    # promote observed→notified for FAIL after FLIP_TO_FAIL_THRESHOLD
+    # consecutive observed fails — that absorbs a single RPC blip without
+    # paging anyone. Pass promotes immediately so a recovery isn't delayed.
+    prev_consecutive_fails = (prev or {}).get("consecutive_fails", 0)
+    prev_notified = (prev or {}).get("notified_verdict", prev_verdict)
+    if curr_verdict == "fail":
+        consecutive_fails = (
+            prev_consecutive_fails + 1 if prev_verdict == "fail" else 1
+        )
+    else:
+        consecutive_fails = 0
+
+    if curr_verdict == "pass":
+        notified_verdict = "pass"
+    elif consecutive_fails >= FLIP_TO_FAIL_THRESHOLD:
+        notified_verdict = "fail"
+    else:
+        # Below threshold: don't tell the room yet. Carry forward what they
+        # last heard (pass on first-ever fail observation; otherwise prev).
+        notified_verdict = prev_notified
+
     # State is considered changed when either:
-    #   - the verdict flipped (pass↔fail), OR
-    #   - the verdict stayed FAIL but the *category* of failure changed.
-    # Same verdict + same categories with drifting numbers (queue=42 → 43)
-    # is NOT a state change, so persistent failures don't spam every 15 min.
+    #   - the notified verdict flipped (pass↔fail), OR
+    #   - the notified verdict stayed FAIL but the *category* of failure
+    #     changed (e.g. "builder stuck" → "slow rebuilds"). Persistent same-
+    #     category failures don't spam every tick.
     prev_cats = categories_of(prev)
     curr_cats = categories_of(curr)
-    state_changed = (prev_verdict != curr_verdict) or (
-        curr_verdict == "fail" and prev_verdict == "fail" and prev_cats != curr_cats
+    state_changed = (prev_notified != notified_verdict) or (
+        notified_verdict == "fail"
+        and prev_notified == "fail"
+        and prev_cats != curr_cats
     )
+
+    # Persist debounce state back into curr-state.json so the next run
+    # reads it via the workflow's cache restore. Done in-place — the
+    # workflow's `cp curr-state.json prev-state.json` then picks it up.
+    curr["consecutive_fails"] = consecutive_fails
+    curr["notified_verdict"] = notified_verdict
+    Path(args.curr).write_text(json.dumps(curr, indent=2))
 
     message = ""
     if state_changed:
-        message = build_message(curr, prev, args.run_url, args.pr_context)
+        # Header references the notified transition (the user-visible one),
+        # not the observed verdict. Pass an overlay so build_message reads
+        # `verdict` as the notified value without mutating curr's original.
+        state_for_msg = {**curr, "verdict": notified_verdict}
+        prev_for_msg = (
+            {**prev, "verdict": prev_notified} if prev is not None else None
+        )
+        message = build_message(state_for_msg, prev_for_msg, args.run_url, args.pr_context)
 
     out_path = os.environ.get("GITHUB_OUTPUT")
     out_lines = [
         f"state_changed={'true' if state_changed else 'false'}",
+        # `verdict` reports what the probe OBSERVED this run, so the workflow
+        # summary line stays accurate even when we suppressed the notification.
+        # The notified state is separate so the operator can see both.
         f"verdict={curr_verdict or 'unknown'}",
         f"prev_verdict={prev_verdict or 'none'}",
+        f"notified_verdict={notified_verdict or 'unknown'}",
+        f"consecutive_fails={consecutive_fails}",
     ]
     if message:
         # multi-line output via heredoc-style delimiter

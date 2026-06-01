@@ -357,7 +357,7 @@ describe("People-chain ring rebuild latency", () => {
     assetHubClient = ahConn.client;
     assetHubApi = ahConn.api;
 
-    walk = await collectMembersEvents(peopleApi, peopleClient);
+    walk = await walkWithRetry();
     console.log(
       `[ring-health] Walked blocks ${walk.startBlock}..${walk.endBlock} (${walk.endBlock - walk.startBlock + 1} blocks, ~${Math.round(((walk.endBlock - walk.startBlock + 1) * PEOPLE_BLOCK_SECONDS) / 60)} min of People-chain history)`,
     );
@@ -370,7 +370,44 @@ describe("People-chain ring rebuild latency", () => {
         await snapshotCurrentState(peopleApi, peopleClient, cid),
       );
     }
-  }, 180_000);
+    // 240s budget. The 200-block walk does ~600 sequential RPC reads
+    // (header + 2 event reads per block); on a slow public RPC the
+    // healthy 30–60 s baseline can stretch to 150–180 s. 180 s used to
+    // be the cap, but run 26750621748 came in at 180.01 s and vitest
+    // killed beforeAll mid-walk — destroying the client and producing
+    // a confusing `DestroyedError` from afterAll cleanup. 240 s gives
+    // an extra minute of headroom; if the walk genuinely needs longer
+    // than that, the RPC is sick enough to be a real signal.
+  }, 240_000);
+
+  // Public load-balanced RPC endpoints occasionally route consecutive
+  // requests to nodes with slightly divergent fork views; PAPI's chainHead
+  // middleware surfaces that as `RpcError: Invalid block hash` and kills
+  // the whole probe before any measurement is taken. The chain is fine,
+  // the RPC just blinked. One retry with a fresh People client almost
+  // always succeeds; if the second attempt fails too, it's structural and
+  // worth flipping the verdict. AssetHub client is unaffected (the walk
+  // only touches People), so we don't churn it.
+  async function walkWithRetry(): Promise<typeof walk> {
+    const isTransientRpc = (err: unknown): boolean => {
+      const msg = err instanceof Error ? err.message : String(err);
+      return /RpcError|Invalid block hash/i.test(msg);
+    };
+    try {
+      return await collectMembersEvents(peopleApi, peopleClient);
+    } catch (err) {
+      if (!isTransientRpc(err)) throw err;
+      console.warn(
+        `[ring-health] transient RPC error on first walk — reopening People client and retrying once in 5 s: ${err instanceof Error ? err.message : err}`,
+      );
+      peopleClient.destroy();
+      await new Promise((r) => setTimeout(r, 5_000));
+      const conn = createPeopleClient(network.people.ws);
+      peopleClient = conn.client;
+      peopleApi = conn.api;
+      return collectMembersEvents(peopleApi, peopleClient);
+    }
+  }
 
   afterAll(() => {
     peopleClient?.destroy();
