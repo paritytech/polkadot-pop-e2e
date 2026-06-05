@@ -23,7 +23,8 @@ import {
   type RichAssetHubApi,
   type AssetHubApi,
 } from "../lib/client.js";
-import { ensureAttested } from "../lib/attested-fixture.js";
+import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
@@ -87,7 +88,9 @@ async function waitForAssetHubRing(
   );
 }
 
-describe("PGAS: claim + spend on revive", () => {
+describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
+  "PGAS: claim + spend on revive",
+() => {
   let network: NetworkConfig;
   let peopleClient: PolkadotClient;
   let peopleApi: PeopleApi;
@@ -97,13 +100,13 @@ describe("PGAS: claim + spend on revive", () => {
   let address: string;
 
   beforeAll(async () => {
+    // Fail-fast off the chain-health probe if either chain we touch
+    // here was already marked unhealthy — no point spending the 6-min
+    // test budget hanging on RPC subscriptions to a sick node.
+    assertChainHealthy("people");
+    assertChainHealthy("asset-hub");
+
     network = getNetworkConfig();
-    if (!network.features.pgas) {
-      console.log(
-        `[pgas] Skipping — ${network.name} doesn't ship pallet-pgas / pallet-revive`,
-      );
-      return;
-    }
     console.log(`[pgas] Network: ${network.name}`);
 
     const peopleConn = createPeopleClient(network.people.ws);
@@ -125,7 +128,7 @@ describe("PGAS: claim + spend on revive", () => {
     assetHubClient?.destroy();
   });
 
-  it.skipIf(!getNetworkConfig().features.pgas)(
+  it(
     "claim PGAS gas allowance (auto-sized to cover one Revive op)",
     async () => {
       // `features.pgas` gated this test; assert at the top so the rest of
@@ -268,11 +271,14 @@ describe("PGAS: claim + spend on revive", () => {
       // run shouldn't fail health. We just need enough to spend.
       expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // Setup (waitForInclusion 60-90s + ring stability 18s + AH ring sync
-    // 30-180s) ≈ 90-180s, plus up to 10 claim txs at ~30s each. Budget
-    // generously so vitest finalises junit.xml on overrun instead of being
-    // SIGKILLed by an outer timeout.
-    360_000,
+    // Tight bound: chain-health probe already shed slow-chain days
+    // upstream (AH ring-roots lag check + per-chain liveness), so a
+    // PGAS hang here is a real bug, not a degrading-chain symptom.
+    // Setup ≈ 90-180s (waitForInclusion + ring stability + AH ring
+    // sync) + up to ~30s for the claim tx. 180s fits under the
+    // per-attempt retry budget (10 min) even when stacked with IB
+    // setup (~60s) and the rest of the suite.
+    180_000,
   );
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
@@ -283,7 +289,7 @@ describe("PGAS: claim + spend on revive", () => {
   // tx extension on Asset Hub. For `RuntimeCall::Revive(..)` it auto-
   // detects PGAS balance and charges in PGAS — no `asset:` option needed
   // (that's the inner ChargeAssetTxPayment fallback for non-revive calls).
-  it.skipIf(!getNetworkConfig().features.pgas)(
+  it(
     "call counter contract via revive, paying with claimed PGAS",
     async () => {
       const PGAS_ASSET_ID = 2_000_000_000;
@@ -396,4 +402,5 @@ describe("PGAS: claim + spend on revive", () => {
     },
     300_000,
   );
-});
+},
+);

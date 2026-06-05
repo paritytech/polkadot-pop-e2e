@@ -29,17 +29,23 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { ensureAttested } from "../../lib/attested-fixture.js";
+import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js";
+import { assertChainHealthy } from "../../lib/chain-cascade.js";
 import { getNetworkConfig } from "../../config/networks.js";
 
 describe("Identity Backend Health", () => {
   beforeAll(() => {
+    // IB writes attestation results to People — if People is dead the
+    // ASSIGNED transition will never land. Cascade out instead of
+    // burning the 100s poll budget.
+    assertChainHealthy("people");
+
     const network = getNetworkConfig();
     console.log(`[ib-health] Network: ${network.name}`);
     console.log(`[ib-health] Identity Backend: ${network.identityBackend ?? "none"}`);
   });
 
-  it.skipIf(getNetworkConfig().identityBackend === null)(
+  it.skipIf(!needsAttestation())(
     "registration reaches ASSIGNED within poll budget",
     async () => {
       const creds = await ensureAttested();

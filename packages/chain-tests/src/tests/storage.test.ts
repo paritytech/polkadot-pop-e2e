@@ -13,7 +13,8 @@ import {
 import { type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
 import type { AttestedCredentials } from "../lib/credentials.js";
-import { ensureAttested } from "../lib/attested-fixture.js";
+import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -89,6 +90,11 @@ describe("Storage: Bulletin Chain", () => {
   let uploadedPayload: Uint8Array;
 
   beforeAll(async () => {
+    assertChainHealthy("bulletin");
+    // Storage authorisation flows from People (lite-people allowance)
+    // through XCM to Bulletin, so a People outage also breaks Storage.
+    assertChainHealthy("people");
+
     network = getNetworkConfig();
     console.log(`[storage] Network: ${network.name}`);
     console.log(`[storage] Bulletin: ${network.bulletin.ws}`);
@@ -103,6 +109,13 @@ describe("Storage: Bulletin Chain", () => {
           `authorisation path we support. Set features.resources=true once the ` +
           `runtime supports XCM-driven authorise_account from People.`,
       );
+    }
+    if (!needsAttestation()) {
+      // No IB deployed for this network — leave testAccount unset. The
+      // attestation-dependent it()s below all `skipIf(!needsAttestation)`
+      // so they never reach for it; only the chain-liveness check runs.
+      console.log(`[storage] No Identity Backend configured — skipping attested-account setup`);
+      return;
     }
     const creds = await ensureAttested();
     testAccount = createAccountFromCredentials(creds);
@@ -148,7 +161,7 @@ describe("Storage: Bulletin Chain", () => {
     expect(block.hash).toBeTruthy();
   });
 
-  it(
+  it.skipIf(!needsAttestation())(
     "authorized account uploads data and gets CID",
     async () => {
       // Nondeterministic payload — different CID every run
@@ -178,7 +191,7 @@ describe("Storage: Bulletin Chain", () => {
     120_000,
   );
 
-  it(
+  it.skipIf(!needsAttestation())(
     "uploaded CID is retrievable from IPFS gateway",
     async () => {
       const url = `${network.ipfsGateway}/${uploadedCid}`;
@@ -209,7 +222,7 @@ describe("Storage: Bulletin Chain", () => {
   // counters here would race the upload's finalization (state queries hit
   // the finalized block; the upload is in best). Not worth the wait.
 
-  it(
+  it.skipIf(!needsAttestation())(
     "unauthorized account is rejected",
     async () => {
       const fresh = createRandomAccount();

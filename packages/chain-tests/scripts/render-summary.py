@@ -39,6 +39,24 @@ def status_icon(tc: ET.Element) -> str:
     return ":white_check_mark:"
 
 
+def _counts(root: ET.Element) -> tuple[int, int, int, int, float]:
+    """Return (total, passed, failed, skipped, time) for a junit root.
+
+    Vitest's junit reporter puts `failures="N" errors="N"` on the
+    `<testsuites>` root but does NOT include a `skipped` attribute there
+    — skips are only visible per-`<testcase>` via a `<skipped/>` child.
+    So `tests - failures` overcounts pass by the skip total, which is
+    the exact bug behind "17/21 passed" when reality was "2 passed, 15
+    skipped, 2 failed".
+    """
+    total = int(root.get("tests", "0"))
+    failed = int(root.get("failures", "0")) + int(root.get("errors", "0"))
+    skipped = sum(1 for tc in root.iter("testcase") if tc.find("skipped") is not None)
+    passed = total - failed - skipped
+    time = float(root.get("time", "0") or "0")
+    return total, passed, failed, skipped, time
+
+
 def network_from_dir(path: str) -> str:
     name = os.path.basename(path.rstrip("/"))
     return name[len("test-results-") :] if name.startswith("test-results-") else name
@@ -71,8 +89,8 @@ def parse_dirs(dirs: list[str]) -> list[tuple[str, ET.ElementTree]]:
 
 
 def overview(dirs: list[str]) -> int:
-    print("| Network | Status | Tests | Passed | Failed | Duration |")
-    print("|---------|--------|-------|--------|--------|----------|")
+    print("| Network | Status | Tests | Passed | Failed | Skipped | Duration |")
+    print("|---------|--------|-------|--------|--------|---------|----------|")
     any_fail = False
     seen_any = False
     for path in dirs:
@@ -83,7 +101,7 @@ def overview(dirs: list[str]) -> int:
 
         def emit_no_results(reason: str) -> None:
             nonlocal any_fail
-            print(f"| **{network}** | :x: NO RESULTS ({reason}) | - | - | - | - |")
+            print(f"| **{network}** | :x: NO RESULTS ({reason}) | - | - | - | - | - |")
             any_fail = True
 
         if not os.path.exists(junit):
@@ -101,17 +119,14 @@ def overview(dirs: list[str]) -> int:
             continue
 
         seen_any = True
-        tests = int(root.get("tests", "0"))
-        failures = int(root.get("failures", "0"))
-        time = float(root.get("time", "0") or "0")
-        passed = tests - failures
-        if failures > 0:
+        tests, passed, failed, skipped, time = _counts(root)
+        if failed > 0:
             any_fail = True
             status = ":x: FAIL"
         else:
             status = ":white_check_mark: PASS"
         print(
-            f"| **{network}** | {status} | {tests} | {passed} | {failures} | {time:.1f}s |"
+            f"| **{network}** | {status} | {tests} | {passed} | {failed} | {skipped} | {time:.1f}s |"
         )
     if not seen_any:
         any_fail = True
@@ -208,16 +223,21 @@ def matrix_summary(dirs: list[str]) -> None:
         except ET.ParseError:
             print(f"- ⚠️ **{network}** — malformed junit")
             continue
-        tests = int(root.get("tests", "0"))
-        failures_n = int(root.get("failures", "0"))
-        time = float(root.get("time", "0") or "0")
-        passed = tests - failures_n
-        if failures_n > 0:
+        tests, passed, failed, skipped, time = _counts(root)
+        suffix = f" ({time:.0f}s)" if time else ""
+        skip_suffix = f", {skipped} skipped" if skipped else ""
+        if failed > 0:
             print(
-                f"- ❌ **{network}** — {passed}/{tests} passed, {failures_n} failed ({time:.0f}s)"
+                f"- ❌ **{network}** — {passed}/{tests} passed, {failed} failed{skip_suffix}{suffix}"
             )
+        elif skipped and passed == 0:
+            # Everything that ran was skipped — surface that rather than
+            # rendering "0/N passed" as a green check.
+            print(f"- ⚠️ **{network}** — all {skipped} tests skipped{suffix}")
         else:
-            print(f"- ✅ **{network}** — {tests}/{tests} passed ({time:.0f}s)")
+            print(
+                f"- ✅ **{network}** — {passed}/{tests} passed{skip_suffix}{suffix}"
+            )
 
 
 def _failure_body(tc: ET.Element) -> str:
@@ -258,6 +278,15 @@ _RING_FAILURE_MARKERS = (
     "ring builder",
 )
 
+# Top-of-suite chain-liveness probe (src/tests/probes/chain-health.test.ts)
+# writes the verdict to chain-cascade; every downstream beforeAll fail-
+# fasts off the cached marker. Grouping under one "Chain X degraded"
+# line keeps the message focused on the chain, not the unrelated
+# attestation/ring symptoms that would otherwise dominate the list.
+_CHAIN_FAILURE_MARKERS = (
+    "[chain-cascade]",
+)
+
 # Mirrors `ASSIGNED_TIMEOUT_MS` in attested-fixture.ts. Duplicated rather
 # than parsed out of TS because this renderer runs in the workflow's
 # Python step where importing TS isn't an option; the number changes
@@ -272,6 +301,25 @@ def _is_ib_attributed(body: str) -> bool:
 
 def _is_ring_attributed(body: str) -> bool:
     return any(m in body for m in _RING_FAILURE_MARKERS)
+
+
+def _is_chain_attributed(body: str) -> bool:
+    return any(m in body for m in _CHAIN_FAILURE_MARKERS)
+
+
+_CHAIN_NAMES = ("people", "asset-hub", "bulletin")
+
+
+def _chains_in_body(body: str) -> list[str]:
+    """Return the chain names that appear in a `[chain-cascade]` body.
+
+    The probe and the assertChainHealthy helper both emit `<name> chain`
+    in the message — match on that substring to attribute the cascade
+    to the right chain (or chains, if multiple were unhealthy at probe
+    time).
+    """
+    found = [c for c in _CHAIN_NAMES if c in body.lower()]
+    return found or list(_CHAIN_NAMES)  # fall back to all if message shape changed
 
 
 def matrix_failures(dirs: list[str]) -> None:
@@ -291,25 +339,45 @@ def matrix_failures(dirs: list[str]) -> None:
     for network, tree in parse_dirs(dirs):
         ib_blocked: list[str] = []
         ring_blocked: list[str] = []
+        chain_blocked: list[str] = []
+        chain_unhealthy_names: set[str] = set()
         other_failures: list[str] = []
         for tc in tree.iter("testcase"):
             if tc.find("failure") is None and tc.find("error") is None:
                 continue
             name = tc.get("name", "")
             body = _failure_body(tc)
-            # IB wins over ring when both markers are present — IB cascades
-            # often include ring-shaped errors downstream, but the root is IB.
-            if _is_ib_attributed(body):
+            # Chain cascade wins over IB / ring — a dead chain produces
+            # IB/ring symptoms downstream but the root cause is the chain.
+            if _is_chain_attributed(body):
+                chain_blocked.append(name)
+                chain_unhealthy_names.update(_chains_in_body(body))
+            elif _is_ib_attributed(body):
                 ib_blocked.append(name)
             elif _is_ring_attributed(body):
                 ring_blocked.append(name)
             else:
                 other_failures.append(name)
 
-        if not ib_blocked and not ring_blocked and not other_failures:
+        if not ib_blocked and not ring_blocked and not chain_blocked and not other_failures:
             continue
 
         print(f"- **{network}**")
+        if chain_blocked:
+            chains = ", ".join(sorted(chain_unhealthy_names)) or "unknown"
+            blocked_suites = sorted(
+                {n.split(" > ")[0] for n in chain_blocked if "Chain Health" not in n}
+            )
+            line = (
+                f"  - **Chain unhealthy ({chains})** — the Chain Health probe "
+                "failed at the top of the suite; downstream beforeAlls fail-fast "
+                "off a cached cascade marker. See the Chain Health suite for the "
+                "first symptom (no finalized blocks, AH ring-roots window lagging "
+                "People, etc.)."
+            )
+            if blocked_suites:
+                line += f" Blocked: {', '.join(blocked_suites)}."
+            print(line)
         if ib_blocked:
             blocked_suites = sorted(
                 {
@@ -318,6 +386,10 @@ def matrix_failures(dirs: list[str]) -> None:
                     if "Identity Backend Health" not in n
                 }
             )
+            # Networks without IB deployed are gated via `needsAttestation()`
+            # `describe.skipIf` / `it.skipIf` upstream — those tests skip
+            # cleanly and never reach this branch. So reaching here means
+            # the IB exists but failed: a genuine reconciler issue.
             line = (
                 "  - **Identity Backend attestation degraded** — "
                 f"reconciler did not flip a fresh account to ASSIGNED within "

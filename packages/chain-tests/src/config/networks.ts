@@ -51,6 +51,24 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
     features: { resources: true, pgas: true, thinVrf: true },
   },
+  summit: {
+    name: "Summit",
+    // Summit testnet — relay + AH + Bulletin + People all under the
+    // `summit-*.polkadot.io` umbrella. No relay field in NetworkConfig
+    // (chain-tests doesn't drive the relay directly), but the endpoint
+    // is wss://summit-rpc.polkadot.io if a future probe needs it.
+    assetHub: { ws: "wss://summit-asset-hub-rpc.polkadot.io" },
+    people: { ws: "wss://summit-people-rpc.polkadot.io" },
+    bulletin: { ws: "wss://summit-bulletin-rpc.polkadot.io" },
+    contracts: null,
+    // IB + IPFS gateway not deployed yet — Statement, attested-PGAS, and
+    // authorized-Bulletin tests will fail loudly until these come online.
+    // That's the desired signal: we want to know when Summit's auxiliary
+    // services land, not silently green-pass against placeholders.
+    identityBackend: null,
+    ipfsGateway: "",
+    features: { resources: true, pgas: true, thinVrf: true },
+  },
   previewnet: {
     name: "Previewnet",
     assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },

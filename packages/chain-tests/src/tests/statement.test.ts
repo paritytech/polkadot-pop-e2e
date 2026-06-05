@@ -13,7 +13,8 @@ import {
 } from "@novasamatech/statement-store";
 import { stringToTopic, createExpiryFromDuration } from "@novasamatech/sdk-statement";
 import { createPeopleClient } from "../lib/client.js";
-import { ensureAttested } from "../lib/attested-fixture.js";
+import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 describe("Statement: People Chain + Identity Backend", () => {
@@ -22,9 +23,10 @@ describe("Statement: People Chain + Identity Backend", () => {
   let adapter: StatementStoreAdapter;
   let prover: StatementProver;
   let lazyClient: ReturnType<typeof createLazyClient>;
-  const hasBackend = () => getNetworkConfig().identityBackend !== null;
 
   beforeAll(async () => {
+    assertChainHealthy("people");
+
     network = getNetworkConfig();
     console.log(`[statement] Network: ${network.name}`);
     console.log(`[statement] People: ${network.people.ws}`);
@@ -56,7 +58,7 @@ describe("Statement: People Chain + Identity Backend", () => {
     expect(block.hash).toBeTruthy();
   });
 
-  it.skipIf(!hasBackend())("identity backend is healthy", async () => {
+  it.skipIf(!needsAttestation())("identity backend is healthy", async () => {
     const start = Date.now();
     const res = await fetch(`${network.identityBackend}/healthcheck`, {
       signal: AbortSignal.timeout(10_000),
@@ -71,7 +73,7 @@ describe("Statement: People Chain + Identity Backend", () => {
     expect(body.message).toBe("OK");
   });
 
-  it.skipIf(!hasBackend())(
+  it.skipIf(!needsAttestation())(
     "Statement Store write succeeds (after attestation)",
     async () => {
       // Wait for daemon to process attestation from global setup
@@ -113,7 +115,7 @@ describe("Statement: People Chain + Identity Backend", () => {
     120_000,
   );
 
-  it.skipIf(!hasBackend())(
+  it.skipIf(!needsAttestation())(
     "Statement Store write + read roundtrip",
     async () => {
       const uniqueId = `triangle-e2e-roundtrip-${Date.now()}`;
@@ -165,7 +167,7 @@ describe("Statement: People Chain + Identity Backend", () => {
     60_000,
   );
 
-  it.skipIf(!hasBackend())(
+  it.skipIf(!needsAttestation())(
     "non-attested account is rejected by Statement Store",
     async () => {
       const entropy = new Uint8Array(32);

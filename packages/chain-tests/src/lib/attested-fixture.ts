@@ -73,6 +73,21 @@ let cachedFailure: Error | null = null;
 const IB_CASCADE_PREFIX =
   "[ib-cascade] Identity Backend attestation already failed earlier in this run — see Identity Backend Health probe for the real signal";
 
+/**
+ * Capability check: does the active network advertise an Identity Backend
+ * we can attest against? Use this in `describe.skipIf` / `it.skipIf` to
+ * skip attestation-dependent tests cleanly on networks where IB isn't
+ * deployed yet — same pattern as `features.pgas` for Revive-paid tests.
+ *
+ * Treat IB presence as a capability, not a hard requirement: a missing IB
+ * is a known-network-state, not a test failure. Tests that bypass this
+ * gate and call `ensureAttested()` directly will still throw a loud error
+ * (see below) so the omission shows up as a fixable bug, not a silent skip.
+ */
+export function needsAttestation(): boolean {
+  return getNetworkConfig().identityBackend !== null;
+}
+
 export function ensureAttested(): Promise<AttestedCredentials> {
   if (cachedFailure) return Promise.reject(cachedFailure);
   if (inflight) return inflight;
@@ -104,8 +119,13 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
 
   const network = getNetworkConfig();
   if (!network.identityBackend) {
+    // Reaching this branch means a test forgot to gate itself with
+    // `needsAttestation()` / `describe.skipIf(!needsAttestation())`. Loud
+    // throw is the desired behavior — the gate is the contract.
     throw new Error(
-      `[attested-fixture] Network ${network.name} has no identityBackend configured`,
+      `[attested-fixture] Network ${network.name} has no identityBackend configured. ` +
+        "Gate attestation-dependent tests with `describe.skipIf(!needsAttestation())` " +
+        "or `it.skipIf(!needsAttestation())`.",
     );
   }
 

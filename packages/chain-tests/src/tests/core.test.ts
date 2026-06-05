@@ -4,6 +4,7 @@ import { createAssetHubClient, type AssetHubApi } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { submitAndWatchBestBlock } from "../lib/tx.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { assertChainHealthy } from "../lib/chain-cascade.js";
 
 describe("Core: Asset Hub", () => {
   let network: NetworkConfig;
@@ -12,6 +13,8 @@ describe("Core: Asset Hub", () => {
   let account: TestAccount;
 
   beforeAll(async () => {
+    assertChainHealthy("asset-hub");
+
     network = getNetworkConfig();
     console.log(`[core] Network: ${network.name}`);
     console.log(`[core] Asset Hub: ${network.assetHub.ws}`);
