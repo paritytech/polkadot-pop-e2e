@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import OrderedSequencer from "./src/tests/test-sequencer.ts";
 
 export default defineConfig({
   test: {
@@ -44,5 +45,15 @@ export default defineConfig({
     // running first and seeding the cache.
     fileParallelism: false,
     bail: 0,
+    // Vitest's default sequencer prioritises previously-failed files
+    // first then sorts by duration descending — great for CI fail-fast,
+    // wrong for us because we depend on a strict probe → feature
+    // ordering (chain-health → ring-health → ib-health →
+    // ring-inclusion → feature suites). The custom sequencer below
+    // enforces that order deterministically across runs and ignores
+    // failed-first heuristics. See src/tests/test-sequencer.ts.
+    sequence: {
+      sequencer: OrderedSequencer,
+    },
   },
 });

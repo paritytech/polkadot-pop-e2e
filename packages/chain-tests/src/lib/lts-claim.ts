@@ -22,6 +22,7 @@ import {
   LITE_PEOPLE_IDENTIFIER,
   waitForInclusion,
 } from "./ring.js";
+import { getCachedRingLocation } from "./ring-cascade.js";
 import {
   longTermStorageContext,
   longTermStoragePeriodFromTimestamp,
@@ -46,9 +47,16 @@ export async function claimLongTermStorage(
   counter = 0,
 ): Promise<LtsClaimResult> {
   const verifiableEntropy = blake2b256(creds.entropy);
-  const location = await waitForInclusion(peopleApi, "LitePeople", verifiableEntropy, {
-    peopleClient,
-  });
+  // Prefer the cached ring location set by the `Ring Inclusion` probe —
+  // the inclusion wait already happened once under that probe's name and
+  // re-running it here would burn 20–40 s of identical work on a
+  // healthy chain. Fall back to `waitForInclusion` when the cache is
+  // empty (e.g. ad-hoc invocation outside the main `pnpm test` order).
+  const location =
+    getCachedRingLocation() ??
+    (await waitForInclusion(peopleApi, "LitePeople", verifiableEntropy, {
+      peopleClient,
+    }));
   const ringIndex = location.ringIndex;
   // Reuse the same finalized hash that confirmed inclusion. Re-reading
   // `getFinalizedBlock()` here would race past a ring rebuild and bump

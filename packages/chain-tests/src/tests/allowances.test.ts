@@ -31,11 +31,11 @@ import {
   createClaimSigner,
   encodePgasClaim,
 } from "../lib/claim-signer.js";
+import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
 import {
-  encodeMembers,
-  fetchRingMembers,
-  waitForInclusion,
-} from "../lib/ring.js";
+  assertRingBuilderHealthy,
+  getCachedRingLocation,
+} from "../lib/ring-cascade.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
 
@@ -105,6 +105,12 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     // test budget hanging on RPC subscriptions to a sick node.
     assertChainHealthy("people");
     assertChainHealthy("asset-hub");
+    // Fail-fast off the ring-cascade marker. When the People-chain ring
+    // builder is stuck, the Ring Health / Ring Inclusion probes earlier
+    // in this run have already produced the verbose chain-side verdict
+    // under the right name — re-running it here would just slap "PGAS"
+    // attribution on a chain-side fault and bury the real signal.
+    assertRingBuilderHealthy();
 
     network = getNetworkConfig();
     console.log(`[pgas] Network: ${network.name}`);
@@ -161,11 +167,19 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       );
 
       // PGAS lives on Asset Hub, but the lite-people ring is on People chain.
-      // We fetch members from People (atomic snapshot at finalized block hash)
-      // and submit the claim on Asset Hub.
-      const location = await waitForInclusion(peopleApi, "LitePeople", verifiableEntropy, {
-        peopleClient,
-      });
+      // The Ring Inclusion probe earlier in the suite already paid the
+      // multi-minute ring-inclusion wait under its own clearly-named
+      // test and cached the result here. If it's missing, that's a
+      // test-ordering bug (probe didn't run), not a chain bug — surface
+      // it loudly with a fixable message rather than silently calling
+      // waitForInclusion again under a PGAS-named test.
+      const location = getCachedRingLocation();
+      if (!location) {
+        throw new Error(
+          "[pgas] No cached ring location — the Ring Inclusion probe " +
+            "must run before this test. Check `pnpm test` script order.",
+        );
+      }
 
       const PGAS_ASSET_ID = 2_000_000_000;
       const ringIndex = location.ringIndex;

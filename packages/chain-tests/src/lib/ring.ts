@@ -15,6 +15,11 @@ import type { PeopleApi } from "./client.js";
 // SCALE-Vec of u8 prefix length (compact) — we encode members manually as
 // length-prefixed concatenation rather than depending on PAPI types.
 import { compact } from "@polkadot-api/substrate-bindings";
+import {
+  markRingStuck,
+  getRingStuckReason,
+  RING_CASCADE_PREFIX,
+} from "./ring-cascade.js";
 
 /** 32-byte ASCII identifiers for the on-chain Members collections. */
 export const PEOPLE_IDENTIFIER = new TextEncoder().encode(
@@ -177,19 +182,6 @@ export interface MemberLocation {
   at: string;
 }
 
-// Once one waitForInclusion call observes the ring builder stuck (300s
-// without a rebuild), every other ring-dependent test in this vitest run
-// would burn its own 5 min waiting for the same stuck builder. With
-// `singleFork` + `isolate: false` the module-level cache here is shared
-// across files, so subsequent callers fail-fast off the cached verdict.
-// Same shape as `attested-fixture.ts`'s IB-cascade pattern — the cascaded
-// error carries an explicit prefix so the matrix-message renderer can
-// group it under one "Ring builder stuck" line instead of listing PGAS,
-// Statement, Storage, Bulletin as four independent failures.
-let ringStuckFailure: Error | null = null;
-const RING_CASCADE_PREFIX =
-  "[ring-cascade] Ring builder already determined stuck earlier in this run — see the first Ring inclusion timeout for the chain-side diagnostic";
-
 /**
  * Wait until the lite-person derived from `verifiableEntropy` is `Included`
  * in the on-chain ring AND its key is present in `RingKeys` at the latest
@@ -211,10 +203,18 @@ export async function waitForInclusion(
     peopleClient?: PolkadotClient;
   },
 ): Promise<MemberLocation> {
-  // Fail-fast off a previous timeout in this run. Once the builder is
-  // determined stuck, waiting another 5 min for THIS account won't change
-  // anything — the diagnostic is already on the first failure.
-  if (ringStuckFailure) throw ringStuckFailure;
+  // Fail-fast off the shared ring-cascade marker. Set by the Ring Health
+  // probe when it detects a stuck builder, and by this function below
+  // when its own poll budget expires. Once the builder is determined
+  // stuck, waiting another 5 min for THIS account won't change anything
+  // — the diagnostic is already on the first failure.
+  const cascadeReason = getRingStuckReason();
+  if (cascadeReason !== null) {
+    throw new Error(
+      `${RING_CASCADE_PREFIX} ${cascadeReason}\n\n` +
+        `(This caller hit waitForInclusion after the ring builder was already determined stuck — see the first failure for the full chain-side diagnostic.)`,
+    );
+  }
   const timeoutMs = opts?.timeoutMs ?? 300_000; // 5 min
   const pollMs = opts?.pollMs ?? 5_000;
   // Block time on these chains is ~6s — wait at least 3 blocks between
@@ -349,10 +349,12 @@ export async function waitForInclusion(
     endSnap,
     collection,
   }));
-  // Cache the cascade marker (not the verbose original — second callers
-  // don't need to re-print the whole diagnostic; they're effects, not the
-  // cause). The first failure still surfaces in full.
-  ringStuckFailure = new Error(`${RING_CASCADE_PREFIX}\n\nFirst failure was:\n${err.message}`);
+  // Seed the shared cascade marker. Stored as a plain reason string (not
+  // the verbose multi-line diagnostic) — downstream callers re-print one
+  // tagged line, the original verbose verdict is already on this stack
+  // trace below. Subsequent ring-dependent tests in this vitest run will
+  // fail-fast off this marker in milliseconds.
+  markRingStuck(`waitForInclusion timed out after ${timeoutMs / 1000}s — see the original diagnostic above`);
   throw err;
 }
 

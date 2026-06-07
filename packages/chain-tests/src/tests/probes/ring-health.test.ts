@@ -47,6 +47,7 @@ import {
 } from "../../lib/client.js";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 import { LITE_PEOPLE_IDENTIFIER } from "../../lib/ring.js";
+import { markRingStuck } from "../../lib/ring-cascade.js";
 
 // How many finalized blocks back to walk. 200 blocks × ~6 s ≈ 20 min of
 // history. Wide enough to catch sparse onboarding traffic on testnets;
@@ -515,11 +516,19 @@ describe("People-chain ring rebuild latency", () => {
         if (queueNow > 0 && stats.rebuiltCount === 0) {
           const windowBlocks = walk.endBlock - walk.startBlock + 1;
           const windowMin = Math.round((windowBlocks * PEOPLE_BLOCK_SECONDS) / 60);
+          const reason =
+            `Ring builder STUCK on ${name} (${network.name}). ` +
+            `${queueNow} member(s) waiting in Onboarding right now; zero RingBuilt events across the last ${windowBlocks} People-chain blocks (~${windowMin} min); ring size=${snap?.ringSize ?? "na"}, current ring revision=${snap?.revision ?? "na"}. ` +
+            `Chain-side fault, NOT a test bug — notify the individuality runtime team.`;
+          // Seed the cross-suite cascade marker so ring-dependent suites
+          // (PGAS, Statement, Storage) running later in this same vitest
+          // invocation fail-fast with chain-side attribution instead of
+          // each hanging on their own ring-inclusion wait and reporting
+          // a misleading "Test timed out" under a feature-flavoured name.
+          markRingStuck(reason);
           throw new Error(
-            `[ring-health] Ring builder STUCK on ${name} (${network.name}).\n` +
-              `Effect: new attestations cannot generate ring-VRF proofs. Allowance claims, PGAS claims, statement-store writes, and bulletin uploads will fail for any freshly-attested account on this network until the builder recovers.\n` +
-              `Action: notify the individuality runtime team — this is a chain-side fault, NOT a test bug.\n` +
-              `Numbers: ${queueNow} member(s) waiting in Onboarding right now; zero RingBuilt events across the last ${windowBlocks} People-chain blocks (~${windowMin} min); ring size=${snap?.ringSize ?? "na"}, current ring revision=${snap?.revision ?? "na"}.`,
+            `[ring-health] ${reason}\n` +
+              `Effect: new attestations cannot generate ring-VRF proofs. Allowance claims, PGAS claims, statement-store writes, and bulletin uploads will fail for any freshly-attested account on this network until the builder recovers.`,
           );
         }
         expect(true).toBe(true);
@@ -540,11 +549,16 @@ describe("People-chain ring rebuild latency", () => {
         );
         const ageBlocks = walk.endBlock - oldest.blockNumber;
         const ageSec = ageBlocks * PEOPLE_BLOCK_SECONDS;
+        const reason =
+          `Ring builder STUCK on ${name} (${network.name}). ` +
+          `${stuckTail.length} unpaired Onboarded event(s); oldest at block ${oldest.blockNumber}, waiting ${ageBlocks} blocks (~${ageSec} s); healthy threshold is ${MAX_PEOPLE_REBUILD_BLOCKS} block(s). ` +
+          `Chain-side fault, NOT a test bug — notify the individuality runtime team.`;
+        // See the queueNow branch above for the rationale on seeding the
+        // cascade here — same shape, the alternate detection path.
+        markRingStuck(reason);
         throw new Error(
-          `[ring-health] Ring builder STUCK on ${name} (${network.name}).\n` +
-            `Effect: new attestations cannot generate ring-VRF proofs. ${stuckTail.length} attestation(s) have been waiting for a ring rebuild that never came — allowance claims, PGAS claims, statement-store writes, and bulletin uploads from those accounts will fail until the builder catches up.\n` +
-            `Action: notify the individuality runtime team — this is a chain-side fault, NOT a test bug.\n` +
-            `Numbers: ${stuckTail.length} unpaired Onboarded event(s); oldest at block ${oldest.blockNumber}, waiting ${ageBlocks} blocks (~${ageSec} s); healthy threshold is ${MAX_PEOPLE_REBUILD_BLOCKS} block(s).`,
+          `[ring-health] ${reason}\n` +
+            `Effect: new attestations cannot generate ring-VRF proofs. ${stuckTail.length} attestation(s) have been waiting for a ring rebuild that never came — allowance claims, PGAS claims, statement-store writes, and bulletin uploads from those accounts will fail until the builder catches up.`,
         );
       }
 

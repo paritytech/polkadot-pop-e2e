@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ib-health.test.ts src/tests/core.test.ts src/tests/allowances.test.ts src/tests/dotns.test.ts src/tests/statement.test.ts src/tests/storage.test.ts",
+    "test": "vitest run",
     "test:ring-health": "vitest run src/tests/probes/ring-health.test.ts",
     "test:watch": "vitest",
     "deploy-counter": "tsx scripts/deploy-counter.ts"
