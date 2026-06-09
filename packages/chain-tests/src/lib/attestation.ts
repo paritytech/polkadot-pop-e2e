@@ -13,6 +13,9 @@ import { toHex, mergeUint8 } from "@polkadot-api/utils";
 import { AccountId } from "polkadot-api";
 import { createSr25519Secret, deriveSr25519PublicKey } from "@novasamatech/statement-store";
 import { verifiableFor } from "./verifiable-loader.js";
+import { ibAuthHeader } from "./ib-auth.js";
+
+const READ_SUB = "triangle-e2e-chain-tests";
 
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 const accountId = AccountId();
@@ -128,6 +131,7 @@ export async function signAndRegister(
 ): Promise<{ username: string }> {
   // Fetch attester public key
   const attesterRes = await fetch(`${backendUrl}/api/v1/attester`, {
+    headers: ibAuthHeader(params.candidateAccountId),
     signal: AbortSignal.timeout(10_000),
   });
   if (!attesterRes.ok) {
@@ -161,7 +165,10 @@ export async function signAndRegister(
   // POST to register
   const registerRes = await fetch(`${backendUrl}/api/v1/usernames`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...ibAuthHeader(params.candidateAccountId),
+    },
     body: JSON.stringify(params),
     signal: AbortSignal.timeout(30_000),
   });
@@ -201,7 +208,10 @@ export async function fetchUsernameStatus(
 ): Promise<UsernameEntry | null> {
   const res = await fetch(
     `${backendUrl}/api/v1/usernames?prefix=${encodeURIComponent(username)}`,
-    { signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000) },
+    {
+      headers: ibAuthHeader(READ_SUB),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 8_000),
+    },
   );
   if (!res.ok) return null;
   const entries = (await res.json()) as UsernameEntry[];
