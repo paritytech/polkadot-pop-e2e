@@ -35,6 +35,26 @@ import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 // than this, the WS subscription isn't seeing chainHead events at all.
 const FINALIZED_BLOCK_PROBE_MS = 15_000;
 
+// Per-chain block authoring cadence. People + Bulletin run at ~6s/block,
+// AssetHub at ~2s/block (relay-driven async backing on parachains using
+// the AH runtime). The freshness budgets below are derived from these so
+// they stay correct if/when chain cadence changes — and so a slow
+// AssetHub doesn't get the same generous slack as People just because
+// they share a probe.
+const PEOPLE_BLOCK_SECONDS = 6;
+const AH_BLOCK_SECONDS = 2;
+const BULLETIN_BLOCK_SECONDS = 6;
+
+// "Latest finalized block is stale" budget per chain, expressed in
+// blocks. A healthy chain finalizes within ~3-5 blocks behind head, so
+// 30 blocks of staleness means production has actually stopped, not
+// that the RPC is briefly slow. FINALIZED_BLOCK_PROBE_MS above catches
+// RPC death; this catches chain stalls that still respond to RPC.
+const MAX_BLOCKS_STALE = 30;
+const MAX_PEOPLE_FRESHNESS_MS = PEOPLE_BLOCK_SECONDS * MAX_BLOCKS_STALE * 1000;
+const MAX_AH_FRESHNESS_MS = AH_BLOCK_SECONDS * MAX_BLOCKS_STALE * 1000;
+const MAX_BULLETIN_FRESHNESS_MS = BULLETIN_BLOCK_SECONDS * MAX_BLOCKS_STALE * 1000;
+
 // Acceptable lag between People's latest LitePeople ring revision and
 // the highest revision visible in AH's MembersSubscriber.RingRoots
 // window. XCM carries revisions with a 30s–2min lag normally; ≥3
@@ -81,8 +101,19 @@ describe("Chain Health", () => {
     async () => {
       try {
         const block = await peopleClient.getFinalizedBlock();
-        console.log(`[chain-health] People finalized #${block.number} (${block.hash.slice(0, 10)}…)`);
+        const tsMs = Number(
+          await peopleApi.query.Timestamp.Now.getValue({ at: block.hash as `0x${string}` }),
+        );
+        const ageMs = Date.now() - tsMs;
+        console.log(
+          `[chain-health] People finalized #${block.number} (${block.hash.slice(0, 10)}…) age=${(ageMs / 1000).toFixed(1)}s (budget ${MAX_PEOPLE_FRESHNESS_MS / 1000}s @ ${PEOPLE_BLOCK_SECONDS}s/block)`,
+        );
         expect(block.number).toBeGreaterThan(0);
+        if (ageMs > MAX_PEOPLE_FRESHNESS_MS) {
+          const msg = `People latest finalized block is ${(ageMs / 1000).toFixed(0)}s stale (>${MAX_PEOPLE_FRESHNESS_MS / 1000}s budget; ${MAX_BLOCKS_STALE} blocks at ${PEOPLE_BLOCK_SECONDS}s/block). RPC responds but the chain is not producing.`;
+          markChainUnhealthy("people", msg);
+          throw new Error(msg);
+        }
       } catch (err) {
         markChainUnhealthy("people", err instanceof Error ? err.message : String(err));
         throw err;
@@ -96,8 +127,19 @@ describe("Chain Health", () => {
     async () => {
       try {
         const block = await assetHubClient.getFinalizedBlock();
-        console.log(`[chain-health] Asset Hub finalized #${block.number} (${block.hash.slice(0, 10)}…)`);
+        const tsMs = Number(
+          await assetHubApi.query.Timestamp.Now.getValue({ at: block.hash as `0x${string}` }),
+        );
+        const ageMs = Date.now() - tsMs;
+        console.log(
+          `[chain-health] Asset Hub finalized #${block.number} (${block.hash.slice(0, 10)}…) age=${(ageMs / 1000).toFixed(1)}s (budget ${MAX_AH_FRESHNESS_MS / 1000}s @ ${AH_BLOCK_SECONDS}s/block)`,
+        );
         expect(block.number).toBeGreaterThan(0);
+        if (ageMs > MAX_AH_FRESHNESS_MS) {
+          const msg = `Asset Hub latest finalized block is ${(ageMs / 1000).toFixed(0)}s stale (>${MAX_AH_FRESHNESS_MS / 1000}s budget; ${MAX_BLOCKS_STALE} blocks at ${AH_BLOCK_SECONDS}s/block). RPC responds but the chain is not producing.`;
+          markChainUnhealthy("asset-hub", msg);
+          throw new Error(msg);
+        }
       } catch (err) {
         markChainUnhealthy("asset-hub", err instanceof Error ? err.message : String(err));
         throw err;
@@ -111,8 +153,19 @@ describe("Chain Health", () => {
     async () => {
       try {
         const block = await bulletinClient.getFinalizedBlock();
-        console.log(`[chain-health] Bulletin finalized #${block.number} (${block.hash.slice(0, 10)}…)`);
+        const tsMs = Number(
+          await bulletinApi.query.Timestamp.Now.getValue({ at: block.hash as `0x${string}` }),
+        );
+        const ageMs = Date.now() - tsMs;
+        console.log(
+          `[chain-health] Bulletin finalized #${block.number} (${block.hash.slice(0, 10)}…) age=${(ageMs / 1000).toFixed(1)}s (budget ${MAX_BULLETIN_FRESHNESS_MS / 1000}s @ ${BULLETIN_BLOCK_SECONDS}s/block)`,
+        );
         expect(block.number).toBeGreaterThan(0);
+        if (ageMs > MAX_BULLETIN_FRESHNESS_MS) {
+          const msg = `Bulletin latest finalized block is ${(ageMs / 1000).toFixed(0)}s stale (>${MAX_BULLETIN_FRESHNESS_MS / 1000}s budget; ${MAX_BLOCKS_STALE} blocks at ${BULLETIN_BLOCK_SECONDS}s/block). RPC responds but the chain is not producing.`;
+          markChainUnhealthy("bulletin", msg);
+          throw new Error(msg);
+        }
       } catch (err) {
         markChainUnhealthy("bulletin", err instanceof Error ? err.message : String(err));
         throw err;

@@ -446,10 +446,20 @@ describe("People-chain ring rebuild latency", () => {
         }
         const cid = Binary.toHex(id);
         const lag = await ahCatchupLag(assetHubApi, peopleApi, peopleClient, cid);
+        // Wall-clock estimate of XCM propagation lag: each revision is one
+        // People rebuild (~PEOPLE_BLOCK_SECONDS) plus the XCM message taking
+        // ~3 AH blocks to land. Adds an estimate to the METRIC line so the
+        // runtime team doesn't have to mentally convert revisions to seconds
+        // when triaging an alert.
+        const estAhLagSec =
+          lag.deltaRev != null
+            ? lag.deltaRev * (PEOPLE_BLOCK_SECONDS + 3 * AH_BLOCK_SECONDS)
+            : null;
         console.log(
           `[ring-health] METRIC collection=${name} ah_lag_applicable=true ` +
             `people_rev=${lag.peopleRev ?? "na"} ah_max_rev=${lag.ahMaxRev ?? "na"} ` +
-            `delta_rev=${lag.deltaRev ?? "na"} budget_revs=${ahCatchupBudgetRevs}`,
+            `delta_rev=${lag.deltaRev ?? "na"} budget_revs=${ahCatchupBudgetRevs} ` +
+            `est_seconds_behind=${estAhLagSec ?? "na"}`,
         );
 
         if (lag.peopleRev == null) {
@@ -467,7 +477,9 @@ describe("People-chain ring rebuild latency", () => {
           throw new Error(
             `[ring-health] ${name}: AssetHub is ${lag.deltaRev} revision(s) behind People ` +
               `(People=${lag.peopleRev}, AH max=${lag.ahMaxRev}). Budget is ${ahCatchupBudgetRevs} ` +
-              `revision(s) — XCM ring-root propagation is lagging.`,
+              `revision(s) — XCM ring-root propagation is lagging. ` +
+              `Estimated wall-clock delay ≈ ${estAhLagSec}s ` +
+              `(${lag.deltaRev} × People rebuild ~${PEOPLE_BLOCK_SECONDS}s + XCM ~${3 * AH_BLOCK_SECONDS}s on AH @ ${AH_BLOCK_SECONDS}s/block).`,
           );
         }
       },
