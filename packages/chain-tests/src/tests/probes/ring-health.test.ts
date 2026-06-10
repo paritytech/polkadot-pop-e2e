@@ -111,6 +111,30 @@ function emptyStats(): CollectionStats {
 }
 
 /**
+ * Race a single RPC call against a tight timeout. The walk does ~600
+ * sequential calls; a single one stalling silently used to consume the
+ * whole 240 s hook budget and surface as `skipped` (vitest behaviour
+ * when a `beforeAll` is killed). With this wrapper we instead throw a
+ * specific error naming the call that stalled — which then trips
+ * `walkWithRetry` (retries once) or surfaces to the operator as
+ * "test failed, RPC stuck on getBlockHeader for block #X".
+ */
+async function withRpcTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`[ring-health] RPC call timed out after ${ms}ms: ${label}`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Walk the last `HISTORY_BLOCKS` finalized blocks and collect Members
  * pallet events. Returns events grouped by event type → array of
  * `{ blockNumber, blockHash, collectionId }`.
@@ -141,7 +165,16 @@ async function collectMembersEvents(
   // finishes in 30–90 s on a healthy RPC. We log progress every
   // `PROGRESS_EVERY_N` blocks so a stuck step is visible rather than
   // appearing as a 90 s silence in CI logs.
+  //
+  // Per-call timeout: bravo's probe-1-20260610104006 stalled at 175/200
+  // event-reads and ran the 240 s beforeAll hook off a cliff — vitest
+  // killed the hook, both `it` blocks reported as `skipped`, which reads
+  // to operators as "ring is stale" rather than "RPC stuck mid-walk".
+  // Wrapping each RPC call in a tight timeout surfaces the real failure
+  // shape (a named, located RPC call that didn't respond) long before
+  // the hook cap fires.
   const PROGRESS_EVERY_N = 25;
+  const RPC_CALL_TIMEOUT_MS = 15_000;
   console.log(
     `[ring-health] Collecting hashes for blocks ${startBlock}..${endBlock} from tip ${fin.hash.slice(0, 10)}…`,
   );
@@ -150,7 +183,11 @@ async function collectMembersEvents(
   ];
   let cursorHash: string = fin.hash;
   for (let n = endBlock - 1; n >= startBlock; n--) {
-    const header = await peopleClient.getBlockHeader(cursorHash);
+    const header = await withRpcTimeout(
+      peopleClient.getBlockHeader(cursorHash),
+      RPC_CALL_TIMEOUT_MS,
+      `getBlockHeader(${cursorHash.slice(0, 10)}…) for block #${n + 1}`,
+    );
     cursorHash = header.parentHash;
     blocks.push({ number: n, hash: cursorHash });
     const fetched = blocks.length;
@@ -168,8 +205,10 @@ async function collectMembersEvents(
   let onboardedTotal = 0;
   let rebuiltTotal = 0;
   for (const blk of blocks) {
-    const onboarded = await peopleApi.event.Members.MembersOnboarded.get(
-      blk.hash as `0x${string}`,
+    const onboarded = await withRpcTimeout(
+      peopleApi.event.Members.MembersOnboarded.get(blk.hash as `0x${string}`),
+      RPC_CALL_TIMEOUT_MS,
+      `MembersOnboarded.get(#${blk.number} ${blk.hash.slice(0, 10)}…)`,
     );
     for (const ev of onboarded) {
       const cid = ev.payload.identifier;
@@ -179,8 +218,10 @@ async function collectMembersEvents(
       onboardedTotal++;
     }
 
-    const rebuilt = await peopleApi.event.Members.RingBuilt.get(
-      blk.hash as `0x${string}`,
+    const rebuilt = await withRpcTimeout(
+      peopleApi.event.Members.RingBuilt.get(blk.hash as `0x${string}`),
+      RPC_CALL_TIMEOUT_MS,
+      `RingBuilt.get(#${blk.number} ${blk.hash.slice(0, 10)}…)`,
     );
     for (const ev of rebuilt) {
       const cid = ev.payload.identifier;
@@ -330,56 +371,73 @@ describe("People-chain ring rebuild latency", () => {
     string,
     Awaited<ReturnType<typeof snapshotCurrentState>>
   >();
+  // If beforeAll setup blows up (stuck RPC, dead endpoint, …) we stash the
+  // error here and rethrow it from each `it` instead. If we let beforeAll
+  // throw or hit its hook timeout, vitest marks every test under this
+  // describe as `skipped` rather than `failed` — which surfaces in the
+  // report as "ring is stale" (a benign skip code path) when the truth is
+  // "we couldn't even measure it". Failing the tests explicitly preserves
+  // the actual signal.
+  let setupError: Error | null = null;
 
   beforeAll(async () => {
-    network = getNetworkConfig();
-    console.log(`[ring-health] Network: ${network.name}`);
-    console.log(`[ring-health] People RPC: ${network.people.ws}`);
-    console.log(`[ring-health] AssetHub RPC: ${network.assetHub.ws}`);
+    try {
+      network = getNetworkConfig();
+      console.log(`[ring-health] Network: ${network.name}`);
+      console.log(`[ring-health] People RPC: ${network.people.ws}`);
+      console.log(`[ring-health] AssetHub RPC: ${network.assetHub.ws}`);
 
-    // `network.name` is the display name ("Paseo Next v2"); the threshold
-    // map keys on the env-var-style slug ("paseo-next-v2"). Use the env
-    // value when present, fall back to slugifying the display name so the
-    // probe still gets a sensible budget if invoked without NETWORK set.
-    const networkKey =
-      process.env.NETWORK ?? network.name.toLowerCase().replace(/\s+/g, "-");
-    ahCatchupBudgetRevs =
-      AH_CATCHUP_BUDGET_REVS_BY_NETWORK[networkKey] ??
-      DEFAULT_AH_CATCHUP_BUDGET_REVS;
-    console.log(
-      `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey}): ${ahCatchupBudgetRevs} revision(s) behind`,
-    );
-
-    const peopleConn = createPeopleClient(network.people.ws);
-    peopleClient = peopleConn.client;
-    peopleApi = peopleConn.api;
-
-    const ahConn = createAssetHubClient(network.assetHub.ws);
-    assetHubClient = ahConn.client;
-    assetHubApi = ahConn.api;
-
-    walk = await walkWithRetry();
-    console.log(
-      `[ring-health] Walked blocks ${walk.startBlock}..${walk.endBlock} (${walk.endBlock - walk.startBlock + 1} blocks, ~${Math.round(((walk.endBlock - walk.startBlock + 1) * PEOPLE_BLOCK_SECONDS) / 60)} min of People-chain history)`,
-    );
-
-    // Snapshot per collection once — both `it` blocks read from the map.
-    for (const id of [LITE_PEOPLE_IDENTIFIER]) {
-      const cid = Binary.toHex(id);
-      snapshotByCollection.set(
-        cid,
-        await snapshotCurrentState(peopleApi, peopleClient, cid),
+      // `network.name` is the display name ("Paseo Next v2"); the threshold
+      // map keys on the env-var-style slug ("paseo-next-v2"). Use the env
+      // value when present, fall back to slugifying the display name so the
+      // probe still gets a sensible budget if invoked without NETWORK set.
+      const networkKey =
+        process.env.NETWORK ?? network.name.toLowerCase().replace(/\s+/g, "-");
+      ahCatchupBudgetRevs =
+        AH_CATCHUP_BUDGET_REVS_BY_NETWORK[networkKey] ??
+        DEFAULT_AH_CATCHUP_BUDGET_REVS;
+      console.log(
+        `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey}): ${ahCatchupBudgetRevs} revision(s) behind`,
       );
+
+      const peopleConn = createPeopleClient(network.people.ws);
+      peopleClient = peopleConn.client;
+      peopleApi = peopleConn.api;
+
+      const ahConn = createAssetHubClient(network.assetHub.ws);
+      assetHubClient = ahConn.client;
+      assetHubApi = ahConn.api;
+
+      walk = await walkWithRetry();
+      console.log(
+        `[ring-health] Walked blocks ${walk.startBlock}..${walk.endBlock} (${walk.endBlock - walk.startBlock + 1} blocks, ~${Math.round(((walk.endBlock - walk.startBlock + 1) * PEOPLE_BLOCK_SECONDS) / 60)} min of People-chain history)`,
+      );
+
+      // Snapshot per collection once — both `it` blocks read from the map.
+      for (const id of [LITE_PEOPLE_IDENTIFIER]) {
+        const cid = Binary.toHex(id);
+        snapshotByCollection.set(
+          cid,
+          await snapshotCurrentState(peopleApi, peopleClient, cid),
+        );
+      }
+    } catch (err) {
+      setupError =
+        err instanceof Error
+          ? err
+          : new Error(typeof err === "string" ? err : JSON.stringify(err));
+      console.error(`[ring-health] setup failed — tests will fail with: ${setupError.message}`);
     }
     // 240s budget. The 200-block walk does ~600 sequential RPC reads
-    // (header + 2 event reads per block); on a slow public RPC the
-    // healthy 30–60 s baseline can stretch to 150–180 s. 180 s used to
-    // be the cap, but run 26750621748 came in at 180.01 s and vitest
-    // killed beforeAll mid-walk — destroying the client and producing
-    // a confusing `DestroyedError` from afterAll cleanup. 240 s gives
-    // an extra minute of headroom; if the walk genuinely needs longer
-    // than that, the RPC is sick enough to be a real signal.
+    // (header + 2 event reads per block); each RPC call is bounded by
+    // `withRpcTimeout` (15 s), so a stuck endpoint trips a clear error
+    // long before this cap. The cap remains a safety net in case the
+    // walk completes but a single AH snapshot afterwards hangs.
   }, 240_000);
+
+  function assertSetupOk(): void {
+    if (setupError) throw setupError;
+  }
 
   // Public load-balanced RPC endpoints occasionally route consecutive
   // requests to nodes with slightly divergent fork views; PAPI's chainHead
@@ -392,7 +450,9 @@ describe("People-chain ring rebuild latency", () => {
   async function walkWithRetry(): Promise<typeof walk> {
     const isTransientRpc = (err: unknown): boolean => {
       const msg = err instanceof Error ? err.message : String(err);
-      return /RpcError|Invalid block hash/i.test(msg);
+      // Per-call timeout from `withRpcTimeout` is also transient — a single
+      // stuck RPC call on a public endpoint usually clears on a fresh client.
+      return /RpcError|Invalid block hash|RPC call timed out/i.test(msg);
     };
     try {
       return await collectMembersEvents(peopleApi, peopleClient);
@@ -432,6 +492,7 @@ describe("People-chain ring rebuild latency", () => {
       `${name}: AssetHub ring-root mirror caught up`,
       { timeout: 60_000 },
       async () => {
+        assertSetupOk();
         // paseo-next-v2 + previewnet ship the rich AssetHub runtime with
         // `MembersSubscriber`. Defensive narrow: if we ever point at a chain
         // that doesn't, emit "not applicable" and pass instead of crashing.
@@ -486,6 +547,7 @@ describe("People-chain ring rebuild latency", () => {
     );
 
     it(`${name} rebuilds within ${MAX_PEOPLE_REBUILD_BLOCKS} blocks of submit`, () => {
+      assertSetupOk();
       const cid = Binary.toHex(id);
       const onboarded = walk.onboardedByCollection.get(cid) ?? [];
       const rebuilt = walk.rebuiltByCollection.get(cid) ?? [];

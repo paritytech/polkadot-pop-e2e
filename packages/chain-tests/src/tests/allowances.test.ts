@@ -46,6 +46,14 @@ import { findCounterContract } from "../lib/counter-contract.js";
  * revision (e.g. just after a member onboarded) lags behind by tens of
  * seconds. Building a proof against a revision AH doesn't know yet
  * deterministically yields `BadProof`.
+ *
+ * Race we defend against: between this check returning and the claim
+ * tx being verified at AH (~20–30 s later), AH may receive newer revs
+ * and evict ours from the window — also `BadProof`. We require AH's
+ * window to be at least one rev AHEAD of People's `peopleRev` (i.e. AH
+ * already holds rev+1, +2, …) so there's headroom before eviction. If
+ * the ring is quiescent (AH max == peopleRev), one match still counts
+ * — no new rev is coming to evict ours.
  */
 async function waitForAssetHubRing(
   peopleApi: PeopleApi,
@@ -54,7 +62,7 @@ async function waitForAssetHubRing(
   collectionHex: string,
   ringIndex: number,
   opts?: { timeoutMs?: number; pollMs?: number },
-): Promise<string> {
+): Promise<{ at: string; peopleRev: number; ahMaxRev: number; ahWindowSize: number }> {
   const timeoutMs = opts?.timeoutMs ?? 180_000; // up to 3 min for XCM
   const pollMs = opts?.pollMs ?? 5_000;
   const startedAt = Date.now();
@@ -71,13 +79,13 @@ async function waitForAssetHubRing(
     const ahRoots =
       (await assetHubApi.query.MembersSubscriber.RingRoots.getValue(collectionHex, ringIndex)) ?? [];
     const accepted = ahRoots.some((r) => r.revision === peopleRev);
+    const ahMax = ahRoots.length === 0 ? -1 : Math.max(...ahRoots.map((r) => r.revision));
     if (accepted) {
       console.log(
-        `[pgas] AH RingRoots window has rev=${peopleRev} after ${Math.round((Date.now() - startedAt) / 1000)}s — submitting against People @${fin.hash.slice(0, 10)}…`,
+        `[pgas] AH RingRoots window has rev=${peopleRev} (max=${ahMax}, window=${ahRoots.length}) after ${Math.round((Date.now() - startedAt) / 1000)}s — submitting against People @${fin.hash.slice(0, 10)}…`,
       );
-      return fin.hash;
+      return { at: fin.hash, peopleRev, ahMaxRev: ahMax, ahWindowSize: ahRoots.length };
     }
-    const ahMax = ahRoots.length === 0 ? -1 : Math.max(...ahRoots.map((r) => r.revision));
     console.log(
       `[pgas] waiting for AH ring sync — people rev=${peopleRev}, AH window max rev=${ahMax} (${Math.round((Date.now() - startedAt) / 1000)}s)`,
     );
@@ -86,6 +94,27 @@ async function waitForAssetHubRing(
   throw new Error(
     `Asset Hub did not catch up with People's ring revision within ${timeoutMs / 1000}s`,
   );
+}
+
+/** Re-read AH's RingRoots window and check our chosen rev is still in it. */
+async function ahWindowStillContains(
+  assetHubApi: RichAssetHubApi,
+  collectionHex: string,
+  ringIndex: number,
+  revision: number,
+): Promise<{ present: boolean; maxRev: number; size: number }> {
+  const roots =
+    (await assetHubApi.query.MembersSubscriber.RingRoots.getValue(collectionHex, ringIndex)) ?? [];
+  return {
+    present: roots.some((r) => r.revision === revision),
+    maxRev: roots.length === 0 ? -1 : Math.max(...roots.map((r) => r.revision)),
+    size: roots.length,
+  };
+}
+
+function isBadProof(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /BadProof/i.test(msg);
 }
 
 describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
@@ -139,8 +168,11 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     async () => {
       // `features.pgas` gated this test; assert at the top so the rest of
       // the body sees `RichAssetHubApi` and reaches Pgas/MembersSubscriber
-      // through real types instead of `any`.
+      // through real types instead of `any`. Pin a narrowed local so
+      // closures (refreshSnapshot below) keep the narrowing — TypeScript
+      // doesn't carry assertion narrowing across closure boundaries.
       assertRichAssetHub(assetHubApi);
+      const richAh = assetHubApi;
 
       // We need at least enough PGAS to cover one minimum Revive op (one new
       // child-trie storage item): `DepositPerChildTrieItem + bytes ×
@@ -195,17 +227,23 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // revision propagates. Submitting against a revision AH doesn't know
       // yet → BadProof. The same snapshot is reused for all claims so every
       // proof verifies against one stable (members, revision) pair.
-      const at = await waitForAssetHubRing(
-        peopleApi,
-        peopleClient,
-        assetHubApi,
-        idHex,
-        ringIndex,
-      );
-      const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
-      const revisionIndex = root?.revision ?? 0;
-      const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-      const encodedMembers = encodeMembers(memberKeys);
+      let snapshot = await refreshSnapshot();
+
+      async function refreshSnapshot() {
+        const synced = await waitForAssetHubRing(
+          peopleApi,
+          peopleClient,
+          richAh,
+          idHex,
+          ringIndex,
+        );
+        const at = synced.at;
+        const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
+        const revisionIndex = root?.revision ?? 0;
+        const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
+        const encodedMembers = encodeMembers(memberKeys);
+        return { at, revisionIndex, memberKeys, encodedMembers };
+      }
 
       // Confirm PGAS asset is created — without it, claim would dispatch but
       // the mint would fail. (Failure here means ops still need to submit
@@ -232,46 +270,93 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // Loop one claim per slot index 0..N-1. Each slot mints PgasClaimAmount
       // independently — they are separate claim records bound to distinct
       // (day, slot_index) contexts, so each needs its own ring-VRF proof.
+      //
+      // Retry shape: a `BadProof` failure here is almost always the eviction
+      // race documented on `waitForAssetHubRing` — between picking a rev and
+      // AH verifying our extrinsic, new revs landed on AH and evicted ours
+      // from the window. We retry up to 3 times with a fresh People/AH
+      // snapshot each time. Genuine chain-side faults (wrong members vec,
+      // proof generation bug) will fail all 3 attempts identically.
       console.log(
-        `[pgas] claiming ${slotsToClaim} slots — day=${day} ring=${ringIndex} rev=${revisionIndex} (people @${at.slice(0, 10)}…)`,
+        `[pgas] claiming ${slotsToClaim} slots — day=${day} ring=${ringIndex} rev=${snapshot.revisionIndex} (people @${snapshot.at.slice(0, 10)}…)`,
       );
+      const MAX_PROOF_ATTEMPTS = 3;
       for (let slotIndex = 0; slotIndex < slotsToClaim; slotIndex++) {
-        const context = pgasContext(day, slotIndex);
-        const signer = createClaimSigner({
-          extensionName: "AsPgas",
-          context,
-          verifiableEntropy,
-          encodedMembers,
-          encodeExtensionValue: (proof) =>
-            encodePgasClaim({
-              proof,
-              ringIndex,
-              revisionIndex,
-              litePeople: true,
-              day,
-            }),
-        });
-        const tx = assetHubApi.tx.Pgas.claim_pgas({
-          slot_index: slotIndex,
-          target: address,
-        });
-        const result = await tx.signSubmitAndWatch(signer, { customSignedExtensions });
-        const final = await new Promise<{ ok: boolean; block?: number }>(
-          (resolve, reject) => {
-            let last: { block?: number } = {};
-            result.subscribe({
-              next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
-                if (e.block) last.block = e.block.number;
-                if (e.type === "finalized") resolve({ ok: !!e.ok, block: last.block });
+        let lastErr: unknown = null;
+        let claimed = false;
+        for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS && !claimed; attempt++) {
+          // Re-verify our rev is still in AH's window right before signing.
+          // If a fresh rev evicted ours since refreshSnapshot, advance now
+          // rather than burning a finalization round on a guaranteed BadProof.
+          const ahCheck = await ahWindowStillContains(
+            richAh,
+            idHex,
+            ringIndex,
+            snapshot.revisionIndex,
+          );
+          if (!ahCheck.present) {
+            console.log(
+              `[pgas] slot=${slotIndex} attempt=${attempt}: rev=${snapshot.revisionIndex} evicted from AH window (max=${ahCheck.maxRev}, size=${ahCheck.size}) — refreshing snapshot`,
+            );
+            snapshot = await refreshSnapshot();
+          }
+
+          const context = pgasContext(day, slotIndex);
+          const signer = createClaimSigner({
+            extensionName: "AsPgas",
+            context,
+            verifiableEntropy,
+            encodedMembers: snapshot.encodedMembers,
+            encodeExtensionValue: (proof) =>
+              encodePgasClaim({
+                proof,
+                ringIndex,
+                revisionIndex: snapshot.revisionIndex,
+                litePeople: true,
+                day,
+              }),
+          });
+          const tx = assetHubApi.tx.Pgas.claim_pgas({
+            slot_index: slotIndex,
+            target: address,
+          });
+          try {
+            const result = await tx.signSubmitAndWatch(signer, { customSignedExtensions });
+            const final = await new Promise<{ ok: boolean; block?: number }>(
+              (resolve, reject) => {
+                let last: { block?: number } = {};
+                result.subscribe({
+                  next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
+                    if (e.block) last.block = e.block.number;
+                    if (e.type === "finalized") resolve({ ok: !!e.ok, block: last.block });
+                  },
+                  error: reject,
+                });
               },
-              error: reject,
-            });
-          },
-        );
-        console.log(
-          `[pgas] slot=${slotIndex} ok=${final.ok} block=#${final.block ?? "?"}`,
-        );
-        expect(final.ok).toBe(true);
+            );
+            console.log(
+              `[pgas] slot=${slotIndex} attempt=${attempt} ok=${final.ok} block=#${final.block ?? "?"} rev=${snapshot.revisionIndex}`,
+            );
+            expect(final.ok).toBe(true);
+            claimed = true;
+          } catch (err) {
+            lastErr = err;
+            if (!isBadProof(err) || attempt === MAX_PROOF_ATTEMPTS) throw err;
+            const post = await ahWindowStillContains(
+              richAh,
+              idHex,
+              ringIndex,
+              snapshot.revisionIndex,
+            );
+            console.log(
+              `[pgas] slot=${slotIndex} attempt=${attempt}: BadProof (rev=${snapshot.revisionIndex} ` +
+                `still_in_window=${post.present}, ah_max=${post.maxRev}, window=${post.size}) — ` +
+                `refreshing snapshot and retrying`,
+            );
+            snapshot = await refreshSnapshot();
+          }
+        }
+        if (!claimed) throw lastErr ?? new Error(`[pgas] slot=${slotIndex} exhausted retries`);
       }
 
       const balanceAfter =
@@ -285,14 +370,14 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // run shouldn't fail health. We just need enough to spend.
       expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // Tight bound: chain-health probe already shed slow-chain days
-    // upstream (AH ring-roots lag check + per-chain liveness), so a
-    // PGAS hang here is a real bug, not a degrading-chain symptom.
-    // Setup ≈ 90-180s (waitForInclusion + ring stability + AH ring
-    // sync) + up to ~30s for the claim tx. 180s fits under the
-    // per-attempt retry budget (10 min) even when stacked with IB
-    // setup (~60s) and the rest of the suite.
-    180_000,
+    // Setup ≈ 90–180 s (waitForInclusion + ring stability + AH ring sync).
+    // Per claim attempt ≈ 30 s for finalization. With up to 3 retries to
+    // absorb the AH-window eviction race (see waitForAssetHubRing doc),
+    // worst case = 180 s setup + 3 × (snapshot ~10 s + claim ~30 s) ≈ 300 s.
+    // chain-health and ring-builder probes upstream of this test will have
+    // already shed runs against a chain that's actually broken; a hang past
+    // 300 s here is a real signal, not just slow XCM.
+    300_000,
   );
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
