@@ -1,0 +1,92 @@
+name: PAPI Metadata Refresh
+
+# Daily run that re-fetches chain metadata for every network defined in
+# `packages/papi/.papi/polkadot-api.json` and opens a PR only when a
+# `.scale` blob actually diverged from what's deployed on chain.
+#
+# Why this exists: when a runtime upgrade lands on a tracked network,
+# our descriptor `.d.ts` shape stops matching the chain — sometimes
+# silently (typed call signatures still compile against the stale
+# snapshot, runtime rejects with a decode error) and sometimes loudly
+# (TS surface errors right away). Catching the drift on a daily cadence
+# beats finding out via a failing health-check at 3am.
+#
+# Skip rule: `papi update` always re-runs descriptor codegen + may bump
+# a timestamp in `.papi/descriptors/package.json` and `pnpm-lock.yaml`
+# even when no `.scale` bytes changed. We only open a PR when a
+# `.scale` is dirty — descriptor + lockfile churn alone gets discarded.
+
+on:
+  schedule:
+    # 07:00 UTC daily. Off-peak for the Polkadot AHs (low cron traffic),
+    # well after any midnight runtime-upgrade window settles.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: parity-int-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refresh PAPI metadata
+        # `papi update` walks every entry in `packages/papi/.papi/polkadot-api.json`,
+        # fetches `state_getMetadata` from the configured WS endpoint, and
+        # rewrites the `.scale` blob + regenerates descriptors. Idempotent
+        # on a chain that hasn't upgraded.
+        run: pnpm --filter @triangle-e2e/papi exec papi update
+
+      - name: Detect .scale drift
+        id: drift
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- 'packages/papi/.papi/metadata/*.scale'; then
+            echo "No .scale changes — descriptor/lockfile churn alone is not PR-worthy."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Detected .scale drift:"
+            git diff --stat -- 'packages/papi/.papi/metadata/*.scale'
+            # Build a list of dirty network slugs for the PR body.
+            networks=$(git diff --name-only -- 'packages/papi/.papi/metadata/*.scale' \
+              | xargs -n1 basename \
+              | sed 's/\.scale$//' \
+              | sort -u \
+              | paste -sd ', ' -)
+            echo "networks=$networks" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR
+        if: steps.drift.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "papi: refresh metadata for ${{ steps.drift.outputs.networks }}"
+          branch: automated/papi-refresh
+          delete-branch: true
+          title: "papi: refresh metadata for ${{ steps.drift.outputs.networks }}"
+          body: |
+            Automated daily PAPI metadata refresh.
+
+            One or more chain `.scale` blobs diverged from what's deployed on chain
+            since the last refresh. Networks affected: **${{ steps.drift.outputs.networks }}**.
+
+            Triggered by `.github/workflows/papi-refresh.yml`. Review the descriptor
+            diff alongside the `.scale` change to verify the new typed API surface
+            still matches what tests + helpers reach for. Health-check workflows on
+            the branch will tell you if anything breaks.
+          labels: |
+            automation
+            papi
