@@ -24,37 +24,37 @@
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
       "genesis": "0x29f7b15e6227f86b90bf5199b5c872c28649a30e5f15fae6dd8fa9d5d48d6fbb",
-      "codeHash": "0x64c56f6b90e0ff907b9cc82897a51ee6477c9836713d4715bf0e085699118532"
+      "codeHash": "0x78bd534c81e9472a5c41eb14f72224b698f6dc1e80731014756d2e3c4df99e3f"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
       "metadata": ".papi/metadata/previewBulletin.scale",
       "genesis": "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
-      "codeHash": "0x4fe167698d8a654b0d832ffa2b22471689331b278d93e1802b4f3d469b807d5a"
+      "codeHash": "0xbf2cd56d20198f00ab6f38d7e77f15a9d5671d47beb5d456012ed45d23572045"
     },
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
       "genesis": "0x3389bc9179d3be32568c67278bd080d05631ac71982d28a3fe545421147b311e",
-      "codeHash": "0x3e8bcec5e860fd9020d4112bdadc8b160f6b47b19493d019a877cde6de2e35b0"
+      "codeHash": "0x9c67e02e23c406403f3f279588a020e77e1f970a39d1804f169911a5bca3ad4e"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextAssetHub.scale",
-      "genesis": "0x173cea9df45656cf612c8b8ece56e04e9a693c69cfaac47d3628dae735067af8",
-      "codeHash": "0x034a12c80512c7b07ca5a875f43b6bea751fc3ce1779b523b031f106dfed4623"
+      "genesis": "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
+      "codeHash": "0x78bd534c81e9472a5c41eb14f72224b698f6dc1e80731014756d2e3c4df99e3f"
     },
     "paseoNextBulletin": {
       "wsUrl": "wss://paseo-bulletin-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextBulletin.scale",
       "genesis": "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-      "codeHash": "0x4fe167698d8a654b0d832ffa2b22471689331b278d93e1802b4f3d469b807d5a"
+      "codeHash": "0xbf2cd56d20198f00ab6f38d7e77f15a9d5671d47beb5d456012ed45d23572045"
     },
     "paseoNextPeople": {
       "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextPeople.scale",
-      "genesis": "0x053e1a785bb0990b98768124d9609e963d9ca3558f5ac6e90a4297aaa0a0bd4b",
-      "codeHash": "0x805ed51627e3ba778e2d760d45445aaa597f3de214e756be1c8e414c28a42cbc"
+      "genesis": "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
+      "codeHash": "0x9c67e02e23c406403f3f279588a020e77e1f970a39d1804f169911a5bca3ad4e"
     }
   }
 }

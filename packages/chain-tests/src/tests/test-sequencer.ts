@@ -34,6 +34,8 @@ const ORDER = [
   "probes/ring-inclusion.test.ts",
   "core.test.ts",
   "allowances.test.ts",
+  "alias-claim.test.ts",
+  "pop-gate.test.ts",
   "dotns.test.ts",
   "statement.test.ts",
   "storage.test.ts",

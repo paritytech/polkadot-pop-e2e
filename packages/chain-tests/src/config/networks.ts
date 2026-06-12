@@ -6,13 +6,6 @@ export interface NetworkFeatures {
   resources: boolean;
   /** `pallet-pgas` claim + `pallet-revive` PGAS-paid contract calls. */
   pgas: boolean;
-  /**
-   * Runtime is on individuality v0.7.0+ (verifiable rev `f65b39df` or newer,
-   * post-ThinVRF). When true, ring-VRF proofs are 64 bytes (ThinVRF); when
-   * false, they're 96 bytes (pre-ThinVRF). Drop this flag the moment every
-   * tracked network is on v0.7.0+ and bump the dep to a single pin.
-   */
-  thinVrf: boolean;
 }
 
 export interface NetworkConfig {
@@ -49,7 +42,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     contracts: null,
     identityBackend: "https://identity-backend-next.parity-testnet.parity.io",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, thinVrf: true },
+    features: { resources: true, pgas: true },
   },
   summit: {
     name: "Summit",
@@ -67,7 +60,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // services land, not silently green-pass against placeholders.
     identityBackend: null,
     ipfsGateway: "",
-    features: { resources: true, pgas: true, thinVrf: true },
+    features: { resources: true, pgas: true },
   },
   previewnet: {
     name: "Previewnet",
@@ -77,7 +70,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     contracts: null,
     identityBackend: "https://polkadot-app-stg.parity.io",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
-    features: { resources: true, pgas: true, thinVrf: true },
+    features: { resources: true, pgas: true },
     // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
     // need a TEST_MNEMONIC secret to drive funded ops.
     testAccountUri: "//Alice",

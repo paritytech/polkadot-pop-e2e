@@ -26,6 +26,23 @@ import { mergeUint8 } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { verifiableFor } from "./verifiable-loader.js";
 
+/**
+ * Prepend a SCALE compact-length prefix to a proof byte array. The
+ * `proof: ProofOf<T>` field in AsPgas / AsResources extensions decodes
+ * via the verifiable crate as a `BoundedVec<u8, _>`, which SCALE-encodes
+ * as `compact_len(N) || N raw bytes`. verifiablejs >= 1.3.0-beta.4
+ * returns the raw canonical proof bytes only — we add the prefix here.
+ * (verifiablejs <= beta.3 baked the prefix into the returned bytes,
+ * which masked the issue; see commit `70f996c` in paritytech/verifiable-js.)
+ */
+function withCompactLen(proof: Uint8Array): Uint8Array {
+  const prefix = compact.enc(proof.length);
+  const out = new Uint8Array(prefix.length + proof.length);
+  out.set(prefix, 0);
+  out.set(proof, prefix.length);
+  return out;
+}
+
 const EXTENSION_VERSION = 0;
 
 export interface ClaimSignerOpts {
@@ -130,14 +147,11 @@ export function createClaimSigner(opts: ClaimSignerOpts): PolkadotSigner {
 
 /**
  * Hand-encode the `RegisterStatementStoreAllowance` variant.
- * Layout: `0x01 0x02 || proof(N) || ringIndex u32 LE || collectionTag u8`.
+ * Layout: `0x01 0x02 || compact_len(proof) || proof(N) || ringIndex u32 LE
+ *          || collectionTag u8`.
  *
- * Proof byte length is dictated by the wasm/runtime pairing — `verifiablejs`
- * (paseo-next-v2, pre-ThinVRF) returns 788 bytes; the IB-vendored
- * `verifiablejs-thinvrf` (previewnet, v0.7.0+) returns 787. We size the
- * buffer to `proof.length` so the encoder follows whichever build the
- * loader picked. `assertProof()` keeps a sanity range so a wildly malformed
- * proof fails loud rather than producing a corrupted extrinsic.
+ * The chain decodes the proof field as `BoundedVec<u8, _>`, so the
+ * compact length prefix is required — see `withCompactLen` rationale.
  */
 export function encodeRegisterStmtStore({
   proof,
@@ -149,24 +163,24 @@ export function encodeRegisterStmtStore({
   litePeople: boolean;
 }): Uint8Array {
   assertProof(proof);
-  const out = new Uint8Array(1 + 1 + proof.length + 4 + 1);
+  const prefixed = withCompactLen(proof);
+  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 1);
   out[0] = 0x01; // Option::Some
   out[1] = 0x02; // variant: RegisterStatementStoreAllowance
-  out.set(proof, 2);
-  new DataView(out.buffer).setUint32(2 + proof.length, ringIndex, true); // u32 LE
-  out[2 + proof.length + 4] = litePeople ? 1 : 0;
+  out.set(prefixed, 2);
+  new DataView(out.buffer).setUint32(2 + prefixed.length, ringIndex, true); // u32 LE
+  out[2 + prefixed.length + 4] = litePeople ? 1 : 0;
   return out;
 }
 
 /**
  * Hand-encode the AsPgas extension's only variant, `Claim` (named struct).
- * Layout: `0x01 0x00 || proof(N) || ringIndex u32 LE || revision u32 LE
- *          || collectionTag u8 || day u32 LE`.
+ * Layout: `0x01 0x00 || compact_len(proof) || proof(N) || ringIndex u32 LE
+ *          || revision u32 LE || collectionTag u8 || day u32 LE`.
  *
  * Note the asymmetry vs AsResources: PGAS keeps `day` in the extension data
  * (so the runtime can derive the proof context on-chain) while the dispatch
- * call only carries `slot_index` + `target`. Proof length follows the
- * wasm/runtime build — see `encodeRegisterStmtStore` for the rationale.
+ * call only carries `slot_index` + `target`.
  */
 export function encodePgasClaim({
   proof,
@@ -182,22 +196,23 @@ export function encodePgasClaim({
   day: number;
 }): Uint8Array {
   assertProof(proof);
-  const out = new Uint8Array(1 + 1 + proof.length + 4 + 4 + 1 + 4);
+  const prefixed = withCompactLen(proof);
+  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 4 + 1 + 4);
   out[0] = 0x01; // Option::Some
   out[1] = 0x00; // variant: Claim (only variant)
-  out.set(proof, 2);
+  out.set(prefixed, 2);
   const dv = new DataView(out.buffer);
-  dv.setUint32(2 + proof.length, ringIndex, true);
-  dv.setUint32(2 + proof.length + 4, revisionIndex, true);
-  out[2 + proof.length + 4 + 4] = litePeople ? 1 : 0;
-  dv.setUint32(2 + proof.length + 4 + 4 + 1, day, true);
+  dv.setUint32(2 + prefixed.length, ringIndex, true);
+  dv.setUint32(2 + prefixed.length + 4, revisionIndex, true);
+  out[2 + prefixed.length + 4 + 4] = litePeople ? 1 : 0;
+  dv.setUint32(2 + prefixed.length + 4 + 4 + 1, day, true);
   return out;
 }
 
 /**
  * Hand-encode the `ClaimLongTermStorage` variant of AsResources.
- * Layout: `0x01 0x03 || proof(N) || ringIndex u32 LE || revisionIndex u32 LE
- *          || collectionTag u8`.
+ * Layout: `0x01 0x03 || compact_len(proof) || proof(N) || ringIndex u32 LE
+ *          || revisionIndex u32 LE || collectionTag u8`.
  *
  * The runtime uses `verify_membership_at_rev` for this flow, so the proof can
  * be valid against an older ring revision as long as the chain still retains
@@ -216,28 +231,32 @@ export function encodeClaimLongTermStorage({
   litePeople: boolean;
 }): Uint8Array {
   assertProof(proof);
-  const out = new Uint8Array(1 + 1 + proof.length + 4 + 4 + 1);
+  const prefixed = withCompactLen(proof);
+  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 4 + 1);
   out[0] = 0x01; // Option::Some
   out[1] = 0x03; // variant: ClaimLongTermStorage
-  out.set(proof, 2);
+  out.set(prefixed, 2);
   const dv = new DataView(out.buffer);
-  dv.setUint32(2 + proof.length, ringIndex, true); // u32 LE
-  dv.setUint32(2 + proof.length + 4, revisionIndex, true); // u32 LE
-  out[2 + proof.length + 4 + 4] = litePeople ? 1 : 0;
+  dv.setUint32(2 + prefixed.length, ringIndex, true); // u32 LE
+  dv.setUint32(2 + prefixed.length + 4, revisionIndex, true); // u32 LE
+  out[2 + prefixed.length + 4 + 4] = litePeople ? 1 : 0;
   return out;
 }
 
 /**
- * Sanity check ring-VRF proof length. Real values are 787 (ThinVRF) or 788
- * (pre-ThinVRF). Anything outside that range means the wasm produced
- * garbage or we picked the wrong loader branch — fail loud instead of
- * encoding a malformed extrinsic that surfaces later as an opaque chain
+ * Sanity check ring-VRF proof length. The canonical post-fix ThinVRF
+ * size is 785 bytes (verifiablejs >= 1.3.0-beta.4). Older builds
+ * appended a 2-byte SCALE compact-length prefix (787) or used the
+ * pre-ThinVRF 96-byte signature scheme (788). We now only ship
+ * beta.4+ via `verifiable-loader.ts`, so anything other than 785
+ * means a misaligned dep — fail loud instead of producing a
+ * malformed extrinsic that surfaces later as an opaque chain
  * decode error.
  */
 function assertProof(proof: Uint8Array): void {
-  if (proof.length !== 787 && proof.length !== 788) {
+  if (proof.length !== 785) {
     throw new Error(
-      `ring-VRF proof length out of expected range: got ${proof.length}, expected 787 (ThinVRF) or 788 (pre-ThinVRF)`,
+      `ring-VRF proof length out of expected range: got ${proof.length}, expected 785 (ThinVRF raw, verifiablejs >= 1.3.0-beta.4)`,
     );
   }
 }
