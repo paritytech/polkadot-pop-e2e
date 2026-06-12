@@ -8,6 +8,7 @@
     "test:ring-health": "vitest run src/tests/probes/ring-health.test.ts",
     "test:alias-claim": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/allowances.test.ts src/tests/alias-claim.test.ts",
     "test:pop-gate": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/allowances.test.ts src/tests/alias-claim.test.ts src/tests/pop-gate.test.ts",
+    "test:storage": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/storage.test.ts",
     "test:watch": "vitest",
     "deploy-counter": "tsx scripts/deploy-counter.ts",
     "compile-pop-counter": "tsx scripts/compile-pop-counter.ts"
