@@ -7,6 +7,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "@polkadot-api/json-rpc-provider": "^0.2.0"
+    }
   }
 }

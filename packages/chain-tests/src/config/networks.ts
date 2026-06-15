@@ -54,11 +54,10 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     people: { ws: "wss://summit-people-rpc.polkadot.io" },
     bulletin: { ws: "wss://summit-bulletin-rpc.polkadot.io" },
     contracts: null,
-    // IB + IPFS gateway not deployed yet — Statement, attested-PGAS, and
-    // authorized-Bulletin tests will fail loudly until these come online.
-    // That's the desired signal: we want to know when Summit's auxiliary
-    // services land, not silently green-pass against placeholders.
-    identityBackend: null,
+    // Summit IB is hosted by the polkadotcommunity.foundation deployment.
+    // IPFS gateway is still pending; tests depending on it remain failing
+    // until that lands — that's the desired loud signal.
+    identityBackend: "https://polkadot-app.api.polkadotcommunity.foundation",
     ipfsGateway: "",
     features: { resources: true, pgas: true },
   },

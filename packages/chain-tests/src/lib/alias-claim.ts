@@ -23,8 +23,18 @@
  *
  * `proof_valid_at` must satisfy: `proof_valid_at ≤ now ≤ proof_valid_at + ProofValidityWindow`
  * The window is `300s` on paseo-next-v2; we anchor `proof_valid_at` to
- * `now - 5s` so we have headroom for clock drift in either direction and
- * still 295s of validity left when the extrinsic actually finalizes.
+ * `now - 60s` so we have headroom for clock drift in either direction and
+ * still 240s of validity left when the extrinsic actually finalizes.
+ *
+ * ## Resilience
+ *
+ * Mirrors the lts-claim pattern (PR #85): fresh People-finalized
+ * snapshot on every attempt, retry on transient Invalid-tx variants up
+ * to `MAX_PROOF_ATTEMPTS`. The OCW can rebuild the LitePeople ring
+ * mid-flight between snapshot and submit, in which case the chain
+ * rejects with `Module::AliasAccounts::BadProof` even though the proof
+ * itself is well-formed — re-snapshotting picks up the new revision and
+ * the next attempt lands. Observed 2026-06-15 on paseo-next-v2 cron.
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
@@ -43,6 +53,26 @@ import type { PeopleApi, RichAssetHubApi } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const PROOF_PREFIX = new TextEncoder().encode("alias-accounts"); // 14 bytes
+
+const MAX_PROOF_ATTEMPTS = 3;
+
+/**
+ * Match the Invalid-tx variants that *we know* can be transient on this
+ * chain shape — anything else escapes the retry loop so a real bug
+ * surfaces loud instead of being papered over.
+ *
+ *   - `BadProof` — pallet's ring-proof validate failed, almost always
+ *     because the ring rebuilt between snapshot and submit (revision
+ *     advanced past our proof's `ring_revision`).
+ *   - `AncientBirthBlock` / `Future` — mortality era anchor no longer
+ *     valid (re-org, slow tx propagation, big clock skew).
+ *   - `Stale` — nonce / replay defence; a refreshed snapshot picks up
+ *     the new nonce.
+ */
+function isRetryableInvalidTx(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /BadProof|AncientBirthBlock|Future|Stale/i.test(msg);
+}
 
 /**
  * Compute the proof message the alias-accounts pallet expects. Mirrors
@@ -92,6 +122,29 @@ export interface SetAliasResult {
   ringIndex: number;
   ringRevision: number;
   proofValidAt: bigint;
+  attempts: number;
+}
+
+interface Snapshot {
+  at: `0x${string}`;
+  ringRevision: number;
+  encodedMembers: Uint8Array;
+  memberCount: number;
+}
+
+async function takeSnapshot(
+  peopleApi: PeopleApi,
+  peopleClient: PolkadotClient,
+  ringIndex: number,
+): Promise<Snapshot> {
+  const fin = await peopleClient.getFinalizedBlock();
+  const at = fin.hash as `0x${string}`;
+  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
+  const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
+  const ringRevision = root?.revision ?? 0;
+  const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
+  const encodedMembers = encodeMembers(memberKeys);
+  return { at, ringRevision, encodedMembers, memberCount: memberKeys.length };
 }
 
 /**
@@ -106,6 +159,12 @@ export interface SetAliasResult {
  *     waiting on AH ring sync (`waitForAssetHubRing` in allowances tests).
  *   - The signer holds enough PGAS for `AliasFee` (~1000 planck on
  *     paseo-next-v2; effectively free).
+ *
+ * Takes a fresh People-finalized snapshot per attempt and retries on
+ * transient Invalid-tx variants (BadProof / AncientBirthBlock / Future
+ * / Stale) up to MAX_PROOF_ATTEMPTS. The most common transient is
+ * BadProof from a mid-flight ring rebuild — re-snapshotting picks up
+ * the new revision and the next attempt lands.
  */
 export async function setAliasAccount(args: {
   peopleApi: PeopleApi;
@@ -121,14 +180,10 @@ export async function setAliasAccount(args: {
 
   const verifiableEntropy = blake2b256(args.creds.entropy);
 
-  // Find the lite-person's ring assignment (which ring index they live
-  // in). Prefer the Ring Inclusion probe's cached result for the
-  // ringIndex — that part is stable. We deliberately ignore the cached
-  // `at` here: the runtime's `is_revision_in_grace` rejects revisions
-  // that are no longer the current one once `CleanupGracePeriod` has
-  // elapsed since the revision was committed. So we always re-snapshot
-  // against the latest People-finalized block, which carries the
-  // current revision.
+  // Find the lite-person's ring assignment. Prefer the Ring Inclusion
+  // probe's cached ring index — that part is stable for the account's
+  // lifetime. The cached `at` is deliberately ignored; we always
+  // re-snapshot (see file header).
   const location =
     getCachedRingLocation() ??
     (await waitForInclusion(args.peopleApi, "LitePeople", verifiableEntropy, {
@@ -136,50 +191,9 @@ export async function setAliasAccount(args: {
     }));
   const ringIndex = location.ringIndex;
 
-  // Fresh snapshot at the latest People-finalized block. Pin every
-  // subsequent read to this exact hash so members + revision stay
-  // consistent across a possible ring rebuild mid-call.
-  const fin = await args.peopleClient.getFinalizedBlock();
-  const at = fin.hash;
-  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
-  const root = await args.peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
-  const ringRevision = root?.revision ?? 0;
-  const memberKeys = await fetchRingMembers(args.peopleApi, "LitePeople", ringIndex, at);
-  const encodedMembers = encodeMembers(memberKeys);
-
-  // Anchor `proof_valid_at` 60s before now. The runtime requires
-  //   proof_valid_at ≤ now_at_block ≤ proof_valid_at + ProofValidityWindow
-  // The chain's `UnixTime::now()` is the latest block timestamp, which
-  // can lag wall-clock by a few seconds (parachain block time is 2s,
-  // plus any catch-up jitter). Anchoring 60s in the past tolerates
-  // up to a minute of drift while still leaving 240s of forward
-  // window for tx propagation + finalization. Cast to bigint
-  // because the descriptor types `proof_valid_at` as u64 → bigint.
-  const proofValidAt = BigInt(Math.floor(Date.now() / 1000) - 60);
-
-  const ctxPreview = Binary.toHex(args.context).slice(0, 14);
-  console.log(
-    `[alias-claim] ctx=${ctxPreview}… ring=${ringIndex} rev=${ringRevision} ` +
-      `proof_valid_at=${proofValidAt} (people @${at.slice(0, 10)}…)`,
-  );
-
-  const message = proofMessage(args.creds.publicKey, proofValidAt);
-  const { one_shot } = verifiableFor();
-  const { proof, alias } = one_shot(
-    verifiableEntropy,
-    encodedMembers,
-    args.context,
-    message,
-  );
-
-  // Sign with the attested account's sr25519 key — same key the PGAS
-  // test uses, so it already holds (or just minted) enough PGAS to
-  // pay `AliasFee`.
+  // Derive the attested account's sr25519 keypair once — same key
+  // across all retry attempts.
   const keyPair = deriveKeyPair(args.creds.entropy);
-  // Sanity: the public key the runtime sees as `who` must equal the
-  // one we baked into proof_message. Diverging here would mean creds
-  // and keypair drifted, e.g. across an attestation derivation
-  // change.
   if (Binary.toHex(keyPair.publicKey) !== Binary.toHex(args.creds.publicKey)) {
     throw new Error(
       `[alias-claim] keypair pubkey ${Binary.toHex(keyPair.publicKey)} != creds.publicKey ${Binary.toHex(args.creds.publicKey)}`,
@@ -191,36 +205,72 @@ export async function setAliasAccount(args: {
     async (input) => keyPair.sign(input),
   );
 
-  const tx = args.assetHubApi.tx.AliasAccounts.set_alias_account({
-    proof,
-    collection: Binary.toHex(LITE_PEOPLE_IDENTIFIER),
-    ring_index: ringIndex,
-    ring_revision: ringRevision,
-    context: Binary.toHex(args.context),
-    proof_valid_at: proofValidAt,
-  });
+  const { one_shot } = verifiableFor();
+  const ctxPreview = Binary.toHex(args.context).slice(0, 14);
 
-  // Caller is responsible for ensuring the signer has enough native
-  // PAS to cover the outer tx fee. Revive-auto-PGAS routing only kicks
-  // in for `RuntimeCall::Revive(..)`; a regular AliasAccounts call
-  // pays through `ChargeAssetTxPayment` which defaults to native.
-  const result = await tx.signAndSubmit(signer);
-  if (!result.ok) {
-    throw new Error(
-      `[alias-claim] set_alias_account failed: ${JSON.stringify(result.dispatchError)}`,
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
+    const snap = await takeSnapshot(args.peopleApi, args.peopleClient, ringIndex);
+
+    // Anchor `proof_valid_at` 60s before now per attempt. The runtime
+    // requires proof_valid_at ≤ now_at_block ≤ proof_valid_at +
+    // ProofValidityWindow. Refreshing per attempt absorbs clock drift
+    // between attempts and keeps the 240s forward window healthy.
+    const proofValidAt = BigInt(Math.floor(Date.now() / 1000) - 60);
+
+    console.log(
+      `[alias-claim] attempt=${attempt} ctx=${ctxPreview}… ring=${ringIndex} rev=${snap.ringRevision} ` +
+        `members=${snap.memberCount} proof_valid_at=${proofValidAt} (people @${snap.at.slice(0, 10)}…)`,
     );
-  }
-  const aliasHex = Binary.toHex(alias);
-  console.log(
-    `[alias-claim] OK block=#${result.block.number} alias=${aliasHex.slice(0, 14)}…`,
-  );
 
-  return {
-    ok: true,
-    block: result.block.number,
-    alias,
-    ringIndex,
-    ringRevision,
-    proofValidAt,
-  };
+    const message = proofMessage(args.creds.publicKey, proofValidAt);
+    const { proof, alias } = one_shot(
+      verifiableEntropy,
+      snap.encodedMembers,
+      args.context,
+      message,
+    );
+
+    const tx = args.assetHubApi.tx.AliasAccounts.set_alias_account({
+      proof,
+      collection: Binary.toHex(LITE_PEOPLE_IDENTIFIER),
+      ring_index: ringIndex,
+      ring_revision: snap.ringRevision,
+      context: Binary.toHex(args.context),
+      proof_valid_at: proofValidAt,
+    });
+
+    try {
+      const result = await tx.signAndSubmit(signer);
+      if (!result.ok) {
+        throw new Error(
+          `[alias-claim] set_alias_account failed: ${JSON.stringify(result.dispatchError)}`,
+        );
+      }
+      const aliasHex = Binary.toHex(alias);
+      console.log(
+        `[alias-claim] attempt=${attempt} OK block=#${result.block.number} alias=${aliasHex.slice(0, 14)}…`,
+      );
+
+      return {
+        ok: true,
+        block: result.block.number,
+        alias,
+        ringIndex,
+        ringRevision: snap.ringRevision,
+        proofValidAt,
+        attempts: attempt,
+      };
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableInvalidTx(err) || attempt === MAX_PROOF_ATTEMPTS) throw err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(
+        `[alias-claim] attempt=${attempt} rejected (${errMsg.slice(0, 120)}); ` +
+          `re-snapshotting + retrying`,
+      );
+    }
+  }
+  // Unreachable — the loop either returns or throws on the final attempt.
+  throw lastErr ?? new Error("[alias-claim] exhausted retry budget");
 }
