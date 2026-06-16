@@ -46,6 +46,7 @@ import { ApiPromise, WsProvider } from "@polkadot/api";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 import { LITE_PEOPLE_IDENTIFIER } from "../../lib/ring.js";
 import { markRingStuck } from "../../lib/ring-cascade.js";
+import { markChainUnhealthy } from "../../lib/chain-cascade.js";
 
 // Both People and AssetHub run at 2 s/block on every network we probe.
 const PEOPLE_BLOCK_SECONDS = 2;
@@ -67,6 +68,16 @@ const AH_CATCHUP_BUDGET_REVS_BY_NETWORK: Record<string, number> = {
   previewnet: 1,
 };
 const DEFAULT_AH_CATCHUP_BUDGET_REVS = 1;
+
+// Downstream fail-fast gate for the AH-catchup verdict. The verdict
+// itself FAILS at budget (1 rev) to flag the SLA breach, but we only
+// mark asset-hub unhealthy — short-circuiting every feature suite's
+// beforeAll via `assertChainHealthy("asset-hub")` — once AH is far
+// enough behind that PGAS's `waitForAssetHubRing` would hang rather
+// than catch up. Mirrors the threshold the Chain Health probe used
+// before this check moved here (2026-06-03 paseo-next-v2 incident);
+// keeps transient 1-2 rev XCM jitter from fail-fasting the whole suite.
+const AH_CASCADE_LAG_THRESHOLD = 3;
 
 // 32-byte ASCII collection identifier → 0x-prefixed hex string for
 // event-data comparison and storage key prefixing.
@@ -292,17 +303,27 @@ describe("LitePeople ring health", () => {
 
     if (lag.peopleRev === null) return;
     if (lag.ahMaxRev === null) {
-      throw new Error(
-        `[ring-health] AssetHub mirror empty: People rev=${lag.peopleRev}, AH RingRoots empty. ` +
-          `Ring root has never propagated to AssetHub for LitePeople.`,
-      );
+      // People has a ring but AH mirrors nothing — definitively stuck,
+      // not transient lag. Fail-fast every AH-dependent feature suite so
+      // PGAS / ring-VRF tests don't hang on `waitForAssetHubRing`.
+      const reason =
+        `AssetHub mirror empty: People rev=${lag.peopleRev}, AH RingRoots empty. ` +
+        `Ring root has never propagated to AssetHub for LitePeople.`;
+      markChainUnhealthy("asset-hub", `[ring-health] ${reason}`);
+      throw new Error(`[ring-health] ${reason}`);
     }
     if (lag.deltaRev !== null && lag.deltaRev > ahCatchupBudgetRevs) {
-      throw new Error(
-        `[ring-health] AssetHub mirror behind by ${lag.deltaRev} revision(s) (budget=${ahCatchupBudgetRevs}): ` +
-          `People=${lag.peopleRev}, AH max=${lag.ahMaxRev}. ` +
-          `XCM ring-root propagation lagging; estimated ~${estAhLagSec}s behind.`,
-      );
+      const reason =
+        `AssetHub mirror behind by ${lag.deltaRev} revision(s) (budget=${ahCatchupBudgetRevs}): ` +
+        `People=${lag.peopleRev}, AH max=${lag.ahMaxRev}. ` +
+        `XCM ring-root propagation lagging; estimated ~${estAhLagSec}s behind.`;
+      // Only fail-fast downstream once AH is definitively stuck — a
+      // 1-2 rev lag is normal XCM jitter that PGAS's own ring-sync wait
+      // absorbs, so cascading there would turn jitter into a red suite.
+      if (lag.deltaRev > AH_CASCADE_LAG_THRESHOLD) {
+        markChainUnhealthy("asset-hub", `[ring-health] ${reason}`);
+      }
+      throw new Error(`[ring-health] ${reason}`);
     }
   });
 

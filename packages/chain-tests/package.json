@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:chain-health": "vitest run src/tests/probes/chain-health.test.ts",
     "test:ring-health": "vitest run src/tests/probes/ring-health.test.ts",
     "test:ib-health": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts",
     "test:alias-claim": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/allowances.test.ts src/tests/alias-claim.test.ts",
