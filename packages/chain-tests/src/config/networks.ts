@@ -6,13 +6,31 @@ export interface NetworkFeatures {
   resources: boolean;
   /** `pallet-pgas` claim + `pallet-revive` PGAS-paid contract calls. */
   pgas: boolean;
+  /**
+   * Bulletin collator exposes the `hop_*` RPCs (HOP submit/claim/ack/poolStatus)
+   * AND the runtime has `pallet-bulletin-hop-promotion` wired in. Both are
+   * required: missing the pallet means `is_promoted_on_chain` is unavailable;
+   * missing `--enable-hop` on the collator means `hop_submit` returns nothing.
+   * Check with `hop_poolStatus` over WS before flipping this on.
+   */
+  hop: boolean;
 }
 
 export interface NetworkConfig {
   name: string;
   assetHub: { ws: string };
   people: { ws: string };
-  bulletin: { ws: string };
+  bulletin: {
+    ws: string;
+    /**
+     * Optional dedicated HOP collator endpoint — a Bulletin collator run
+     * with `--enable-hop`. The hop test points its `HopClient` here when
+     * set, falling back to `ws` otherwise. Lets HOP target a specific
+     * collator distinct from the public Bulletin RPC (which may be a plain
+     * full node that doesn't serve the `hop_*` RPCs).
+     */
+    hopWs?: string;
+  };
   contracts: {
     dotnsRegistry: Address;
     dotnsContentResolver: Address;
@@ -38,11 +56,14 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // pallet-pgas + pallet-revive — but with the public Polkadot endpoints.
     assetHub: { ws: "wss://paseo-asset-hub-next-rpc.polkadot.io" },
     people: { ws: "wss://paseo-people-next-system-rpc.polkadot.io" },
-    bulletin: { ws: "wss://paseo-bulletin-next-rpc.polkadot.io" },
+    bulletin: {
+      ws: "wss://paseo-bulletin-next-rpc.polkadot.io",
+      hopWs: "wss://paseo-hop-next-0.polkadot.io",
+    },
     contracts: null,
     identityBackend: "https://identity-backend-next.parity-testnet.parity.io",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true },
+    features: { resources: true, pgas: true, hop: true },
   },
   summit: {
     name: "Summit",
@@ -52,7 +73,10 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // is wss://summit-rpc.polkadot.io if a future probe needs it.
     assetHub: { ws: "wss://summit-asset-hub-rpc.polkadot.io" },
     people: { ws: "wss://summit-people-rpc.polkadot.io" },
-    bulletin: { ws: "wss://summit-bulletin-rpc.polkadot.io" },
+    bulletin: {
+      ws: "wss://summit-bulletin-rpc.polkadot.io",
+      hopWs: "wss://summit-hop-1.polkadot.io",
+    },
     contracts: null,
     // Summit IB is hosted by the polkadotcommunity.foundation deployment.
     // IPFS gateway is the Kubo deployment peered with the Summit Bulletin
@@ -61,7 +85,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // resolves Bulletin-stored content over bitswap.
     identityBackend: "https://polkadot-app.api.polkadotcommunity.foundation",
     ipfsGateway: "https://summit-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true },
+    features: { resources: true, pgas: true, hop: true },
   },
   previewnet: {
     name: "Previewnet",
@@ -71,7 +95,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     contracts: null,
     identityBackend: "https://polkadot-app-stg.parity.io",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
-    features: { resources: true, pgas: true },
+    features: { resources: true, pgas: true, hop: true },
     // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
     // need a TEST_MNEMONIC secret to drive funded ops.
     testAccountUri: "//Alice",
