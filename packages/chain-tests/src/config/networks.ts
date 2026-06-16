@@ -55,10 +55,12 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     bulletin: { ws: "wss://summit-bulletin-rpc.polkadot.io" },
     contracts: null,
     // Summit IB is hosted by the polkadotcommunity.foundation deployment.
-    // IPFS gateway is still pending; tests depending on it remain failing
-    // until that lands — that's the desired loud signal.
+    // IPFS gateway is the Kubo deployment peered with the Summit Bulletin
+    // collators (see devops-cloud-infra kubernetes/kubo/values-parity-chains-
+    // summit.yaml) — a path gateway, so storage.test.ts's `${ipfsGateway}/${cid}`
+    // resolves Bulletin-stored content over bitswap.
     identityBackend: "https://polkadot-app.api.polkadotcommunity.foundation",
-    ipfsGateway: "",
+    ipfsGateway: "https://summit-ipfs.polkadot.io/ipfs",
     features: { resources: true, pgas: true },
   },
   previewnet: {
