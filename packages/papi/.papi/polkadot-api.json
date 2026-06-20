@@ -24,7 +24,7 @@
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
       "genesis": "0x29f7b15e6227f86b90bf5199b5c872c28649a30e5f15fae6dd8fa9d5d48d6fbb",
-      "codeHash": "0x970b97e4531a527555f3b89d7a3c2d1beb3b389579eef6c2e3afb7d425066415"
+      "codeHash": "0xc1314017cbdcd76e8e343721350167ddd92a1c312b90ebc0188abff4bc4bdd4a"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
@@ -36,13 +36,13 @@
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
       "genesis": "0x3389bc9179d3be32568c67278bd080d05631ac71982d28a3fe545421147b311e",
-      "codeHash": "0xd0bc39a80882ce2f3587348e070d7425676f04b648fe20897501e50e9f8e8336"
+      "codeHash": "0xdda69368da1e2353f35bcd0ddabf622c0369932e334265f0668e1f6fd67f7c1b"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextAssetHub.scale",
       "genesis": "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
-      "codeHash": "0x970b97e4531a527555f3b89d7a3c2d1beb3b389579eef6c2e3afb7d425066415"
+      "codeHash": "0xf29ad48ce8c0bb6db198f7789778dd8424dcd3cb19ec7084214574f7e4aa86d9"
     },
     "paseoNextBulletin": {
       "wsUrl": "wss://paseo-bulletin-next-rpc.polkadot.io",
@@ -54,7 +54,7 @@
       "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextPeople.scale",
       "genesis": "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
-      "codeHash": "0xd0bc39a80882ce2f3587348e070d7425676f04b648fe20897501e50e9f8e8336"
+      "codeHash": "0xf7333e38f36fd2e369c75fcd4c4be58642440ccf0f5550402a14dc373c0b9304"
     }
   }
 }
