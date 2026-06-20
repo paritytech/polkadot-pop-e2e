@@ -34,10 +34,7 @@ import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { createPeopleClient, type PeopleApi } from "../../lib/client.js";
 import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js";
 import { assertChainHealthy } from "../../lib/chain-cascade.js";
-import {
-  assertRingBuilderHealthy,
-  setCachedRingLocation,
-} from "../../lib/ring-cascade.js";
+import { setCachedRingLocation } from "../../lib/ring-cascade.js";
 import { waitForInclusion } from "../../lib/ring.js";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 
@@ -64,10 +61,6 @@ describe.skipIf(!needsAttestation())(
       // no point waiting 5 min for a ring rebuild on a chain that isn't
       // producing finalized blocks at all.
       assertChainHealthy("people");
-      // Ring-health probe verdict short-circuits us if the builder is
-      // already known stuck from the 200-block historical walk — no
-      // point making our own 5-min observation.
-      assertRingBuilderHealthy();
 
       network = getNetworkConfig();
       console.log(`[ring-inclusion] Network: ${network.name}`);
@@ -95,9 +88,6 @@ describe.skipIf(!needsAttestation())(
         // throws `formatInclusionTimeout` — a verbose, on-call-readable
         // verdict that already classifies the failure into chain-side
         // vs backend-side and tells the reader which team to notify.
-        // It also seeds the ring-cascade marker so PGAS/Statement/Storage
-        // beforeAll calls to `assertRingBuilderHealthy()` later in this
-        // same vitest run fail-fast in milliseconds.
         const location = await waitForInclusion(
           peopleApi,
           "LitePeople",

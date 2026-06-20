@@ -15,7 +15,6 @@ import { stringToTopic, createExpiryFromDuration } from "@novasamatech/sdk-state
 import { createPeopleClient } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { assertRingBuilderHealthy } from "../lib/ring-cascade.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 describe("Statement: People Chain + Identity Backend", () => {
@@ -27,12 +26,6 @@ describe("Statement: People Chain + Identity Backend", () => {
 
   beforeAll(async () => {
     assertChainHealthy("people");
-    // Statement Store writes are gated by the same lite-people ring
-    // inclusion that PGAS/LTS depend on — the daemon checks the ring
-    // before granting allowance. Fail-fast off the ring-cascade marker
-    // so a stuck builder doesn't surface here as a confusing
-    // `NoAllowanceError` deep inside the statement-store SDK.
-    assertRingBuilderHealthy();
 
     network = getNetworkConfig();
     console.log(`[statement] Network: ${network.name}`);

@@ -32,10 +32,7 @@ import {
   encodePgasClaim,
 } from "../lib/claim-signer.js";
 import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
-import {
-  assertRingBuilderHealthy,
-  getCachedRingLocation,
-} from "../lib/ring-cascade.js";
+import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
 
@@ -134,12 +131,6 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     // test budget hanging on RPC subscriptions to a sick node.
     assertChainHealthy("people");
     assertChainHealthy("asset-hub");
-    // Fail-fast off the ring-cascade marker. When the People-chain ring
-    // builder is stuck, the Ring Health / Ring Inclusion probes earlier
-    // in this run have already produced the verbose chain-side verdict
-    // under the right name — re-running it here would just slap "PGAS"
-    // attribution on a chain-side fault and bury the real signal.
-    assertRingBuilderHealthy();
 
     network = getNetworkConfig();
     console.log(`[pgas] Network: ${network.name}`);

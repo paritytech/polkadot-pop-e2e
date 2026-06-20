@@ -15,11 +15,6 @@ import type { PeopleApi } from "./client.js";
 // SCALE-Vec of u8 prefix length (compact) — we encode members manually as
 // length-prefixed concatenation rather than depending on PAPI types.
 import { compact } from "@polkadot-api/substrate-bindings";
-import {
-  markRingStuck,
-  getRingStuckReason,
-  RING_CASCADE_PREFIX,
-} from "./ring-cascade.js";
 
 /** 32-byte ASCII identifiers for the on-chain Members collections. */
 export const PEOPLE_IDENTIFIER = new TextEncoder().encode(
@@ -203,18 +198,6 @@ export async function waitForInclusion(
     peopleClient?: PolkadotClient;
   },
 ): Promise<MemberLocation> {
-  // Fail-fast off the shared ring-cascade marker. Set by the Ring Health
-  // probe when it detects a stuck builder, and by this function below
-  // when its own poll budget expires. Once the builder is determined
-  // stuck, waiting another 5 min for THIS account won't change anything
-  // — the diagnostic is already on the first failure.
-  const cascadeReason = getRingStuckReason();
-  if (cascadeReason !== null) {
-    throw new Error(
-      `${RING_CASCADE_PREFIX} ${cascadeReason}\n\n` +
-        `(This caller hit waitForInclusion after the ring builder was already determined stuck — see the first failure for the full chain-side diagnostic.)`,
-    );
-  }
   const timeoutMs = opts?.timeoutMs ?? 300_000; // 5 min
   const pollMs = opts?.pollMs ?? 5_000;
   // Block time on these chains is ~6s — wait at least 3 blocks between
@@ -349,12 +332,6 @@ export async function waitForInclusion(
     endSnap,
     collection,
   }));
-  // Seed the shared cascade marker. Stored as a plain reason string (not
-  // the verbose multi-line diagnostic) — downstream callers re-print one
-  // tagged line, the original verbose verdict is already on this stack
-  // trace below. Subsequent ring-dependent tests in this vitest run will
-  // fail-fast off this marker in milliseconds.
-  markRingStuck(`waitForInclusion timed out after ${timeoutMs / 1000}s — see the original diagnostic above`);
   throw err;
 }
 

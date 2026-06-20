@@ -34,7 +34,6 @@ import {
 } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { assertRingBuilderHealthy } from "../lib/ring-cascade.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import { LITE_PEOPLE_IDENTIFIER } from "../lib/ring.js";
 import {
@@ -102,7 +101,6 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     beforeAll(async () => {
       assertChainHealthy("people");
       assertChainHealthy("asset-hub");
-      assertRingBuilderHealthy();
 
       network = getNetworkConfig();
       console.log(`[alias-claim] Network: ${network.name}`);

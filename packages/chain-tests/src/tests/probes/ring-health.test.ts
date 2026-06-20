@@ -45,7 +45,6 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 import { LITE_PEOPLE_IDENTIFIER } from "../../lib/ring.js";
-import { markRingStuck } from "../../lib/ring-cascade.js";
 import { markChainUnhealthy } from "../../lib/chain-cascade.js";
 
 // Both People and AssetHub run at 2 s/block on every network we probe.
@@ -341,7 +340,6 @@ describe("LitePeople ring health", () => {
       `The runtime itself flags these as overdue for a rebuild — Members.StaleRings is non-empty. ` +
       `If OCW is alive and submitting, the txpool may be rejecting the rebuild (fork-aware pool rotator-ban pattern). ` +
       `Chain-side fault, NOT a test bug — notify the individuality runtime team.`;
-    markRingStuck(reason);
     throw new Error(
       `[ring-health] ${reason}\n` +
         `Effect: ring-VRF proofs against these rings will be rejected as stale by the runtime, ` +
@@ -389,7 +387,6 @@ describe("LitePeople ring health", () => {
       (lastBuiltKnown
         ? `Last rebuild at block ${walk.lastBuiltBlock}.`
         : `No RingBuilt event found in the last ${HISTORY_BLOCKS} blocks (~${Math.round((HISTORY_BLOCKS * PEOPLE_BLOCK_SECONDS) / 60)} min) — OCW silent or unable to deliver.`);
-    markRingStuck(reason);
     throw new Error(
       `[ring-health] ${reason}\n` +
         `Effect: freshly-attested members cannot generate ring-VRF proofs until the next rebuild lands. ` +

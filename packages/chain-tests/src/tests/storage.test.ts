@@ -15,7 +15,6 @@ import { submitAndWatchBestBlock } from "../lib/tx.js";
 import type { AttestedCredentials } from "../lib/credentials.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { assertRingBuilderHealthy } from "../lib/ring-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -95,11 +94,6 @@ describe("Storage: Bulletin Chain", () => {
     // Storage authorisation flows from People (lite-people allowance)
     // through XCM to Bulletin, so a People outage also breaks Storage.
     assertChainHealthy("people");
-    // LTS allowance claim needs a ring-VRF proof — same dependency as
-    // PGAS. Fail-fast off the ring-cascade marker so a stuck builder
-    // doesn't waste the 5-min `beforeAll` budget here inside
-    // `claimLongTermStorage` -> `waitForInclusion`.
-    assertRingBuilderHealthy();
 
     network = getNetworkConfig();
     console.log(`[storage] Network: ${network.name}`);
