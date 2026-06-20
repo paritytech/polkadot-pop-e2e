@@ -8,6 +8,7 @@ playwright-report/
 .env
 .test-credentials.json
 .account-state.json
+.admin-qr.json
 artifacts/
 .worktrees
 .playwright-mcp
