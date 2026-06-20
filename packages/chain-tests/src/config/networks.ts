@@ -65,28 +65,6 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
     features: { resources: true, pgas: true, hop: true },
   },
-  summit: {
-    name: "Summit",
-    // Summit testnet — relay + AH + Bulletin + People all under the
-    // `summit-*.polkadot.io` umbrella. No relay field in NetworkConfig
-    // (chain-tests doesn't drive the relay directly), but the endpoint
-    // is wss://summit-rpc.polkadot.io if a future probe needs it.
-    assetHub: { ws: "wss://summit-asset-hub-rpc.polkadot.io" },
-    people: { ws: "wss://summit-people-rpc.polkadot.io" },
-    bulletin: {
-      ws: "wss://summit-bulletin-rpc.polkadot.io",
-      hopWs: "wss://summit-hop-1.polkadot.io",
-    },
-    contracts: null,
-    // Summit IB is hosted by the polkadotcommunity.foundation deployment.
-    // IPFS gateway is the Kubo deployment peered with the Summit Bulletin
-    // collators (see devops-cloud-infra kubernetes/kubo/values-parity-chains-
-    // summit.yaml) — a path gateway, so storage.test.ts's `${ipfsGateway}/${cid}`
-    // resolves Bulletin-stored content over bitswap.
-    identityBackend: "https://polkadot-app.api.polkadotcommunity.foundation",
-    ipfsGateway: "https://summit-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, hop: true },
-  },
   previewnet: {
     name: "Previewnet",
     assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },
