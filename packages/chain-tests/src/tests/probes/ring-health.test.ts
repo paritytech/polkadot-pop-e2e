@@ -15,10 +15,13 @@
  *      behind People's `Members.Root`. XCM propagation issue if it falls
  *      further behind.
  *
- *   2. Ring is not marked stale by the chain
- *      `Members.StaleRings` is empty for the LitePeople collection. The
- *      runtime ITSELF flags rings that have gone overdue. No event
- *      timing heuristics — chain-side authoritative signal.
+ *   2. Ring is not STUCK stale
+ *      `Members.StaleRings` flags rings the runtime ITSELF considers overdue
+ *      for a rebuild — chain-side authoritative signal, no event-timing
+ *      heuristics. But a momentary flag is normal churn (chain flags → OCW
+ *      rebuilds → clears), so we re-poll and fail only on a ring that stays
+ *      stale across the confirm window. Mirrors the monitor's RingBuilderStalled
+ *      `for: 30s` so probe and alert agree on "stuck".
  *
  *   3. Build latency within 1 minute
  *      If there are members waiting in `Onboarding`, the last
@@ -61,6 +64,18 @@ const BUILD_SLA_BLOCKS = 30;
 // gives 2× SLA headroom for diagnostics.
 const HISTORY_BLOCKS = 60;
 
+// A ring momentarily appearing in `Members.StaleRings` is the HAPPY path: the
+// chain flags it, the offchain builder rebuilds within a block or two, and the
+// flag clears — all within seconds. Only a ring that stays stale CONTINUOUSLY
+// is genuinely stuck. So we don't fail on a single instantaneous read; we
+// re-poll across this window and fail only on rings stale on every sample.
+// Mirrors the monitor's `RingBuilderStalled` alert, which requires the stale
+// signal to persist for `for: 30s` before firing (monitor/src/alerts.ts). The
+// previous one-shot check flapped red on every run that happened to sample
+// mid-rebuild (e.g. run 27961929575: stale=[77] one instant, clear the next).
+const STALE_CONFIRM_WINDOW_MS = 35_000;
+const STALE_POLL_INTERVAL_MS = 3_000;
+
 // End-to-end ring-root propagation budget in AH revisions.
 const AH_CATCHUP_BUDGET_REVS_BY_NETWORK: Record<string, number> = {
   "paseo-next-v2": 1,
@@ -89,6 +104,8 @@ function uint8ToHex(bytes: Uint8Array): string {
   );
 }
 const COLLECTION_HEX = uint8ToHex(LITE_PEOPLE_IDENTIFIER);
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface WalkResult {
   /** Block number of the most recent RingBuilt(LitePeople), or null if none in window. */
@@ -326,26 +343,68 @@ describe("LitePeople ring health", () => {
     }
   });
 
-  it("LitePeople ring not marked stale by chain", () => {
-    assertSetupOk();
-    console.log(
-      `[ring-health] METRIC test=stale_ring stale_count=${staleRings.length} stale_ring_indices=[${staleRings.join(",")}]`,
-    );
-    if (staleRings.length === 0) {
-      expect(true).toBe(true);
-      return;
-    }
-    const reason =
-      `Ring(s) marked STALE by chain for LitePeople (${network.name}): ring_index=[${staleRings.join(",")}]. ` +
-      `The runtime itself flags these as overdue for a rebuild — Members.StaleRings is non-empty. ` +
-      `If OCW is alive and submitting, the txpool may be rejecting the rebuild (fork-aware pool rotator-ban pattern). ` +
-      `Chain-side fault, NOT a test bug — notify the individuality runtime team.`;
-    throw new Error(
-      `[ring-health] ${reason}\n` +
-        `Effect: ring-VRF proofs against these rings will be rejected as stale by the runtime, ` +
-        `breaking allowance claims, PGAS claims, statement writes, and bulletin uploads.`,
-    );
-  });
+  it(
+    "LitePeople ring not marked stale by chain",
+    { timeout: STALE_CONFIRM_WINDOW_MS + 25_000 },
+    async () => {
+      assertSetupOk();
+      console.log(
+        `[ring-health] METRIC test=stale_ring stale_count=${staleRings.length} stale_ring_indices=[${staleRings.join(",")}]`,
+      );
+      // Fast path: nothing flagged at first observation.
+      if (staleRings.length === 0) {
+        expect(true).toBe(true);
+        return;
+      }
+
+      // A stale flag alone is normal rebuild churn. Re-poll across
+      // STALE_CONFIRM_WINDOW_MS (> the monitor's `for: 30s`) and keep only the
+      // rings that were stale at the start AND remained stale on every sample.
+      // A ring that clears at any point was being rebuilt normally; intersecting
+      // each poll against the survivors drops it. Match the monitor so the probe
+      // and the RingBuilderStalled alert agree on what "stuck" means.
+      let stuck = new Set(staleRings);
+      const deadline = Date.now() + STALE_CONFIRM_WINDOW_MS;
+      let polls = 1;
+      while (Date.now() < deadline && stuck.size > 0) {
+        await delay(STALE_POLL_INTERVAL_MS);
+        polls++;
+        const current = new Set(await readStaleRings(peopleApi));
+        stuck = new Set([...stuck].filter((r) => current.has(r)));
+        console.log(
+          `[ring-health] stale re-poll ${polls}: current=[${[...current]
+            .sort((a, b) => a - b)
+            .join(",")}] still-stuck=[${[...stuck].sort((a, b) => a - b).join(",")}]`,
+        );
+      }
+
+      if (stuck.size === 0) {
+        console.log(
+          `[ring-health] METRIC test=stale_ring stale_verdict=churn stale_polls=${polls} ` +
+            `stale_window_s=${STALE_CONFIRM_WINDOW_MS / 1000}`,
+        );
+        expect(true).toBe(true);
+        return;
+      }
+
+      const stuckIdx = [...stuck].sort((a, b) => a - b);
+      console.log(
+        `[ring-health] METRIC test=stale_ring stale_verdict=stuck stale_polls=${polls} ` +
+          `stuck_ring_indices=[${stuckIdx.join(",")}]`,
+      );
+      const reason =
+        `Ring(s) STUCK stale for LitePeople (${network.name}): ring_index=[${stuckIdx.join(",")}]. ` +
+        `Members.StaleRings flagged these and they did NOT clear within ${STALE_CONFIRM_WINDOW_MS / 1000}s ` +
+        `(${polls} polls) — the offchain builder is not landing a rebuild. ` +
+        `If OCW is alive and submitting, the txpool may be rejecting the rebuild (fork-aware pool rotator-ban pattern). ` +
+        `Chain-side fault, NOT a test bug — notify the individuality runtime team.`;
+      throw new Error(
+        `[ring-health] ${reason}\n` +
+          `Effect: ring-VRF proofs against these rings will be rejected as stale by the runtime, ` +
+          `breaking allowance claims, PGAS claims, statement writes, and bulletin uploads.`,
+      );
+    },
+  );
 
   it(`LitePeople build latency within ${BUILD_SLA_BLOCKS} blocks (~${Math.round((BUILD_SLA_BLOCKS * PEOPLE_BLOCK_SECONDS) / 60)} min)`, () => {
     assertSetupOk();
