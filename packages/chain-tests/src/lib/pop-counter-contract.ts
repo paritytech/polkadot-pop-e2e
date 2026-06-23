@@ -41,6 +41,41 @@ export const BUMP_SELECTOR_HEX: string =
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
 
+/**
+ * Minimal ABI for the functions `pop-gate-by-proof.test.ts` calls via viem's
+ * `encodeFunctionData` / `decodeFunctionResult`. The stateless `bumpByProof`
+ * path verifies a fresh ring-VRF proof inline (no prior alias registration).
+ */
+export const POP_COUNTER_ABI = [
+  { type: "function", name: "bump", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  {
+    type: "function",
+    name: "bumpByProof",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "proof", type: "bytes" },
+      { name: "expectedAlias", type: "bytes32" },
+      { name: "ringIndex", type: "uint32" },
+      { name: "revision", type: "uint32" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "expectedMessage",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "byAliasByProof",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "bytes32" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
 export async function findPopCounterContract(
   assetHubApi: AssetHubApi | RichAssetHubApi,
 ): Promise<SizedHex<20> | null> {
