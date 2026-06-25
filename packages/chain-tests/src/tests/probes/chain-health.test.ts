@@ -39,26 +39,29 @@ import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 // Per-test timeout. Covers the fast path (one RPC roundtrip, ~hundreds
 // of ms on a healthy chain) AND the slow path that waits one
 // ADVANCEMENT_WINDOW_MS to disambiguate "stale finality" from "chain
-// stalled" — see probeChainProducing() below.
-const FINALIZED_BLOCK_PROBE_MS = 30_000;
+// stalled" — see probeChainProducing() below. Must exceed the
+// advancement window plus a couple of RPC roundtrips.
+const FINALIZED_BLOCK_PROBE_MS = 60_000;
 
 // When the fast path trips on stale finality, wait this long and
 // re-read finalized block. If the number advanced, the chain is
 // provably producing and the prior staleness was a normal finality
 // batch — pass. If no advancement, this is a real stall.
 //
-// 12s is enough for both AH (≥6 blocks @ 2s) and People/Bulletin
-// (≥2 blocks @ 6s) to advance at least one block on a healthy chain,
-// regardless of where in the finality round we sampled.
-const ADVANCEMENT_WINDOW_MS = 12_000;
+// MUST exceed one relay-finality round. GRANDPA finalizes these
+// parachains in bursts ~every 13s (relay finality cadence), NOT once
+// per authored block — so a window shorter than that can legitimately
+// catch zero advancement on a perfectly healthy chain and false-fail.
+// 30s spans ~2 finality rounds, well clear of the jitter.
+const ADVANCEMENT_WINDOW_MS = 30_000;
 
-// Per-chain block authoring cadence. People + Bulletin run at ~6s/block,
-// AssetHub at ~2s/block (relay-driven async backing on parachains using
-// the AH runtime). The freshness budgets below are derived from these so
-// they stay correct if/when chain cadence changes — and so a slow
-// AssetHub doesn't get the same generous slack as People just because
-// they share a probe.
-const PEOPLE_BLOCK_SECONDS = 6;
+// Per-chain block authoring cadence. People + AssetHub run at ~2s/block
+// (relay-driven async backing on parachains using the AH runtime),
+// Bulletin at ~6s/block. The freshness budgets below are derived from
+// these so they stay correct if/when chain cadence changes — and so a
+// slow Bulletin doesn't get the same absolute slack as the faster chains
+// just because they share a probe.
+const PEOPLE_BLOCK_SECONDS = 2;
 const AH_BLOCK_SECONDS = 2;
 const BULLETIN_BLOCK_SECONDS = 6;
 
@@ -66,10 +69,11 @@ const BULLETIN_BLOCK_SECONDS = 6;
 // the slow path (after a no-advancement sample). Healthy parachains can
 // run 30-60s behind finality during normal operation (GRANDPA rounds,
 // relay-chain backing); these budgets are deliberately generous so the
-// advancement check is the gating signal, not absolute age. AH gets a
-// bigger block-multiplier because its 2s cadence makes finality-age
-// straddle the operating range — see 2026-06-11 false-fail incident.
-const MAX_PEOPLE_BLOCKS_STALE = 30;
+// advancement check is the gating signal, not absolute age. People + AH
+// share the 60-block multiplier because their 2s cadence makes
+// finality-age straddle the operating range — see 2026-06-11 false-fail
+// incident; a 30-block (60s) budget at 2s would re-introduce it.
+const MAX_PEOPLE_BLOCKS_STALE = 60;
 const MAX_AH_BLOCKS_STALE = 60;
 const MAX_BULLETIN_BLOCKS_STALE = 30;
 const MAX_PEOPLE_FRESHNESS_MS = PEOPLE_BLOCK_SECONDS * MAX_PEOPLE_BLOCKS_STALE * 1000;
