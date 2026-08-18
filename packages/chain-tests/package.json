@@ -14,6 +14,7 @@
     "test:pop-gate-by-proof": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/allowances.test.ts src/tests/pop-gate-by-proof.test.ts",
     "test:storage": "vitest run src/tests/probes/chain-health.test.ts src/tests/probes/ring-health.test.ts src/tests/probes/ib-health.test.ts src/tests/probes/ring-inclusion.test.ts src/tests/storage.test.ts",
     "test:watch": "vitest",
+    "probe:dotns": "tsx scripts/dotns-registry-probe.ts",
     "deploy-counter": "tsx scripts/deploy-counter.ts",
     "compile-pop-counter": "tsx scripts/compile-pop-counter.ts"
   },
