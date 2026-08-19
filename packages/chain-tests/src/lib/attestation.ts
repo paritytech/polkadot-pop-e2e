@@ -13,7 +13,8 @@ import { toHex, mergeUint8 } from "@polkadot-api/utils";
 import { AccountId } from "polkadot-api";
 import { createSr25519Secret, deriveSr25519PublicKey } from "@novasamatech/statement-store";
 import { verifiableFor } from "./verifiable-loader.js";
-import { ibAuthHeader } from "./ib-auth.js";
+import { ibAuthHeader, ibV2AuthHeader } from "./ib-auth.js";
+import { getNetworkConfig } from "../config/networks.js";
 
 const READ_SUB = "triangle-e2e-chain-tests";
 
@@ -84,12 +85,17 @@ export function generateAttestationParams(): {
   // Bandersnatch proof of ownership — 64 or 96 bytes depending on network
   const proofOfOwnership = sign(verifiableEntropy, message);
 
-  // Identifier key (65 bytes — ECDH public key format)
+  // Identifier key (65 bytes), RFC-0004 format: first byte 0x00, matching what the
+  // host SDK emits today. NOT the legacy 0x04 SEC1-style prefix — IBv2's
+  // username-indexer registers, attests and indexes those fine but excludes them
+  // from search results (`get_byte(identifier_key, 0) = 0` is the visibility
+  // filter), which fails the assigned-signal poll with a maximally confusing
+  // "on-chain but never searchable" symptom. Caught live by the release gate.
   const identifierKeyEntropy = blake2b256(new Uint8Array([...entropy, 0x01]));
   const identifierSecret = createSr25519Secret(identifierKeyEntropy);
   const identifierPub = deriveSr25519PublicKey(identifierSecret);
   const identifierKey = new Uint8Array(65);
-  identifierKey[0] = 0x04;
+  identifierKey[0] = 0x00;
   identifierKey.set(identifierPub.slice(0, 32), 1);
   identifierKey.set(identifierPub.slice(0, 32), 33);
 
@@ -129,9 +135,16 @@ export async function signAndRegister(
   entropy: Uint8Array,
   params: RegisterParams,
 ): Promise<{ username: string }> {
+  // IBv2 issues its own token via the challenge flow, bound to the person's key;
+  // IBv1 wants an HS256 token minted from the shared IB_JWT_SECRET.
+  const auth =
+    getNetworkConfig().identityBackendAuth === "challenge"
+      ? await ibV2AuthHeader(backendUrl, deriveKeyPair(entropy))
+      : ibAuthHeader(params.candidateAccountId);
+
   // Fetch attester public key
   const attesterRes = await fetch(`${backendUrl}/api/v1/attester`, {
-    headers: ibAuthHeader(params.candidateAccountId),
+    headers: auth,
     signal: AbortSignal.timeout(10_000),
   });
   if (!attesterRes.ok) {
@@ -167,7 +180,7 @@ export async function signAndRegister(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...ibAuthHeader(params.candidateAccountId),
+      ...auth,
     },
     body: JSON.stringify(params),
     signal: AbortSignal.timeout(30_000),
@@ -216,6 +229,28 @@ export async function fetchUsernameStatus(
   if (!res.ok) return null;
   const entries = (await res.json()) as UsernameEntry[];
   return entries.find((e) => e.username?.startsWith(username)) ?? null;
+}
+
+/**
+ * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection. A hit proves the
+ * whole asynchronous registration pipeline: writer lease, attestation allowance,
+ * signing, submission, finalization and indexing — the same signal preview-net-v1's
+ * own registration e2e uses. IBv2 exposes no RESERVED/ASSIGNED status field, so this
+ * replaces the status poll there.
+ */
+export async function searchUsername(
+  backendUrl: string,
+  username: string,
+): Promise<{ username: string; accountId: string } | null> {
+  const res = await fetch(
+    `${backendUrl}/api/v1/usernames/search?prefix=${encodeURIComponent(username)}`,
+    { signal: AbortSignal.timeout(8_000) },
+  );
+  if (!res.ok) return null;
+  const body = (await res.json()) as {
+    usernames?: Array<{ username: string; accountId: string }>;
+  };
+  return body.usernames?.find((u) => u.username === username) ?? null;
 }
 
 function hexToBytes(hex: string): Uint8Array {

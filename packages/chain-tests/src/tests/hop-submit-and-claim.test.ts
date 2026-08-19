@@ -7,7 +7,7 @@ import {
   type HopTicket,
 } from "hop-sdk";
 import { createBulletinClient, createPeopleClient } from "../lib/client.js";
-import { ensureAttested } from "../lib/attested-fixture.js";
+import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -79,7 +79,10 @@ async function waitForHopAuthorization(
   );
 }
 
-describe("HOP: Submit and Claim on Bulletin", () => {
+// HOP submission rides an attested account's LTS authorization, so the whole suite
+// needs an identity backend — absent on forks of networks whose engine spawns none
+// (paseo-next-v2, devnet), where every other attestation-dependent file skips too.
+describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
   let peopleClient: PolkadotClient | undefined;

@@ -36,6 +36,13 @@ export interface NetworkConfig {
     dotnsContentResolver: Address;
   } | null;
   identityBackend: string | null;
+  /**
+   * How identity-backend writes authenticate. Absent = legacy IBv1: HS256 over the
+   * shared `IB_JWT_SECRET` env (no header when unset). "challenge" = IBv2
+   * (identity-backend-rust): the backend issues the JWT itself via its
+   * challenge→token flow, signed with the person's own key — no shared secret.
+   */
+  identityBackendAuth?: "challenge";
   ipfsGateway: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
@@ -78,14 +85,76 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // need a TEST_MNEMONIC secret to drive funded ops.
     testAccountUri: "//Alice",
   },
+  // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
+  // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
+  // https://docs.polkadotcommunity.foundation/reference/networks/. None of the
+  // next-runtime features exist here (no pallet-resources/pgas, no HOP, no
+  // identity backend), so only the chain-level health portion of the suite runs.
+  // Exists primarily as a release-gate base network (FORK_OF=devnet).
+  devnet: {
+    name: "Polkadot Products Devnet",
+    assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
+    people: { ws: "wss://people-paseo.rotko.net" },
+    bulletin: { ws: "wss://bulletin-paseo.tservices.es:8443" },
+    contracts: null,
+    identityBackend: null,
+    ipfsGateway: "https://devnet-ipfs.api.polkadotcommunity.foundation/ipfs",
+    features: { resources: false, pgas: false, hop: false },
+  },
 };
+
+/**
+ * A locally spawned fork of a known network — `make start FORK=1` in the engine
+ * (paritytech/preview-net-v1), as used by the release-gate workflow.
+ *
+ * Fork configs are DERIVED, not enumerated: a fork of X carries X's capability flags
+ * and chain set (it is X's state), so everything is inherited from `NETWORKS[X]` and
+ * only the transport is swapped — the engine's fixed local ports (its config/ports.env;
+ * `FORK_*` env overrides for a remotely spawned instance), the local IBv2 gateway when
+ * the base network runs an identity backend, and `//Alice` as the test account
+ * (sudo on every fork by bite override, and fundable on every fork). Adding a network
+ * to the gate therefore needs no new entry here — `FORK_OF=<network>` is enough.
+ */
+function localForkConfig(baseName: string): NetworkConfig {
+  const base = NETWORKS[baseName];
+  if (!base) {
+    throw new Error(
+      `Unknown FORK_OF network: ${baseName}. Available: ${Object.keys(NETWORKS).join(", ")}`,
+    );
+  }
+  return {
+    ...base,
+    name: `Local fork of ${base.name}`,
+    assetHub: { ws: process.env.FORK_ASSET_HUB_WS ?? "ws://127.0.0.1:10020" },
+    people: { ws: process.env.FORK_PEOPLE_WS ?? "ws://127.0.0.1:10010" },
+    // Replacing the whole object deliberately drops any remote `hopWs` from the base:
+    // on a fork the local collator runs `--enable-hop`, so the plain ws serves HOP.
+    bulletin: { ws: process.env.FORK_BULLETIN_WS ?? "ws://127.0.0.1:10030" },
+    // The engine runs identity-backend-rust (IBv2) locally — even when the base
+    // network's deployment is IBv1. FORK_IDENTITY_BACKEND=none says this network's
+    // fork spawns NO identity backend at all (pnv2/devnet forks run only eth-rpc
+    // beside the chains) — attestation-dependent tests then skip.
+    identityBackend:
+      base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
+        ? (process.env.FORK_IDENTITY_BACKEND ?? "http://127.0.0.1:8092")
+        : null,
+    ...(base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
+      ? { identityBackendAuth: "challenge" as const }
+      : {}),
+    ipfsGateway: process.env.FORK_IPFS_GATEWAY ?? "http://127.0.0.1:8080/ipfs",
+    testAccountUri: "//Alice",
+  };
+}
 
 export function getNetworkConfig(): NetworkConfig {
   const name = process.env.NETWORK ?? "paseo-next-v2";
+  if (name === "local-fork") {
+    return localForkConfig(process.env.FORK_OF ?? "previewnet");
+  }
   const config = NETWORKS[name];
   if (!config) {
     throw new Error(
-      `Unknown network: ${name}. Available: ${Object.keys(NETWORKS).join(", ")}`,
+      `Unknown network: ${name}. Available: ${Object.keys(NETWORKS).join(", ")}, local-fork`,
     );
   }
   return config;

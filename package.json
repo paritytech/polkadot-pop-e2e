@@ -2,7 +2,9 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "postinstall": "pnpm --filter @triangle-e2e/papi generate"
+    "postinstall": "pnpm --filter @triangle-e2e/papi generate",
+    "test:environments": "node --test environments/*.test.mjs",
+    "resolve:environment": "node environments/resolve.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

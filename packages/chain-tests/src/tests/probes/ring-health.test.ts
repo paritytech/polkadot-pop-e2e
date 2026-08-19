@@ -209,10 +209,20 @@ async function ahCatchupLag(
   )) as unknown as { isSome: boolean; unwrap(): { revision: { toNumber(): number } } };
   const peopleRev = peopleRoot.isSome ? peopleRoot.unwrap().revision.toNumber() : null;
 
-  const ahRoots = (await ahApi.query.membersSubscriber.ringRoots(
-    COLLECTION_HEX,
-    ringIndex,
-  )) as unknown as { toJSON(): { revision: number }[] | null | undefined };
+  // individuality v0.12.0 (previewnet AH 2000038) keys RingRoots by
+  // (generation, identifier, ring_index), with CurrentGeneration holding the live
+  // prefix; older runtimes (pnv2's 2000036) key by (identifier, ring_index).
+  // Query whichever shape this runtime exposes.
+  const ringRootsQuery = ahApi.query.membersSubscriber.ringRoots;
+  const ahRoots = (ahApi.query.membersSubscriber.currentGeneration
+    ? await ringRootsQuery(
+        await ahApi.query.membersSubscriber.currentGeneration(),
+        COLLECTION_HEX,
+        ringIndex,
+      )
+    : await ringRootsQuery(COLLECTION_HEX, ringIndex)) as unknown as {
+    toJSON(): { revision: number }[] | null | undefined;
+  };
   const roots = ahRoots.toJSON();
   const ahMaxRev =
     Array.isArray(roots) && roots.length > 0

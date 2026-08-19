@@ -64,13 +64,21 @@ describe("Statement: People Chain + Identity Backend", () => {
       signal: AbortSignal.timeout(10_000),
     });
     const elapsed = Date.now() - start;
-    const body = (await res.json()) as { message: string; uptime: number };
-
-    console.log(
-      `[statement] Backend health: ${body.message}, uptime=${Math.floor(body.uptime)}s (${elapsed}ms)`,
-    );
     expect(res.ok).toBe(true);
-    expect(body.message).toBe("OK");
+
+    // The generations answer different shapes: IBv1 `{message: "OK", uptime}`,
+    // IBv2 (identity-backend-rust) `{status: "ok", service}`.
+    if (network.identityBackendAuth === "challenge") {
+      const body = (await res.json()) as { status: string; service: string };
+      console.log(`[statement] Backend health: ${body.status} (${body.service}, ${elapsed}ms)`);
+      expect(body.status).toBe("ok");
+    } else {
+      const body = (await res.json()) as { message: string; uptime: number };
+      console.log(
+        `[statement] Backend health: ${body.message}, uptime=${Math.floor(body.uptime)}s (${elapsed}ms)`,
+      );
+      expect(body.message).toBe("OK");
+    }
   });
 
   it.skipIf(!needsAttestation())(

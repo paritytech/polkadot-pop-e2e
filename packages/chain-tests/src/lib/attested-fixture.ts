@@ -21,6 +21,7 @@ import { resolve } from "node:path";
 import {
   fetchUsernameStatus,
   generateAttestationParams,
+  searchUsername,
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
@@ -41,6 +42,12 @@ const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.j
 // pollers' tolerance.
 const ASSIGNED_TIMEOUT_MS = 100_000;
 const ASSIGNED_POLL_INTERVAL_MS = 2_000;
+
+// IBv2 registration is asynchronous end to end (outbox → chain-writer → attest →
+// finalize → index) and on a freshly spawned fork the writer starts cold, so the
+// budget matches preview-net-v1's own registration e2e rather than IBv1's SLA probe.
+const V2_INDEXED_TIMEOUT_MS = 240_000;
+const V2_POLL_INTERVAL_MS = 5_000;
 
 function parseAttested(path: string): AttestedCredentials | null {
   if (!existsSync(path)) return null;
@@ -176,6 +183,32 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
  * up as the IB-health signal.
  */
 async function waitForAssigned(backendUrl: string, username: string): Promise<void> {
+  // IBv2 exposes no status field; landing in the indexer's search projection IS the
+  // assigned signal, and it proves the full pipeline (see searchUsername).
+  if (getNetworkConfig().identityBackendAuth === "challenge") {
+    const start = Date.now();
+    let polls = 0;
+    while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
+      polls++;
+      try {
+        const hit = await searchUsername(backendUrl, username);
+        if (hit) {
+          console.log(
+            `[attested-fixture] indexed in ${Date.now() - start}ms (${polls} polls)`,
+          );
+          return;
+        }
+      } catch (e: any) {
+        console.log(`[attested-fixture] poll error: ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
+    }
+    throw new Error(
+      `[attested-fixture] ${username} never reached the search projection within ` +
+        `${V2_INDEXED_TIMEOUT_MS / 1000}s (${polls} polls) — check identity-chain-writer's log`,
+    );
+  }
+
   const start = Date.now();
   let polls = 0;
   let lastStatus: string | undefined;

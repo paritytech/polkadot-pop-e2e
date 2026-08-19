@@ -1,0 +1,23 @@
+{
+  "network": "devnet",
+  "base": "fork",
+  "binaries": {
+    "polkadot": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
+    "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
+  },
+  "chains": {
+    "relay": {
+      "runtime": "paseo-network/runtimes@v2.4.4"
+    },
+    "asset-hub": {
+      "runtime": "paseo-network/runtimes@v2.4.4"
+    },
+    "people": {
+      "runtime": "paseo-network/runtimes@v2.4.4"
+    }
+  },
+  "services": {
+    "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
+  },
+  "tests": ["test:network-health"]
+}

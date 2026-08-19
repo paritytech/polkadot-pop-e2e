@@ -1,0 +1,364 @@
+name: Release Gate
+
+# Pre-release gate, driven by the canonical environment manifests in environments/:
+# fork the live network, spawn it on the manifest's binaries, converge every chain's
+# runtime to the manifest's pins (byte-identical → no-op, different → a real on-chain
+# upgrade), then run the manifest's chain-tests against the upgraded environment.
+#
+# The manifest diff is the test plan. A PR that moves BOTH binaries and runtimes fans
+# out into a candidate matrix — the target state (gating) plus two informational cross
+# terms: new binaries × current runtimes ("can the fleet bump binaries first?") and
+# current binaries × new runtimes ("does the upgrade enact without the binary bump?").
+# Single-dimension PRs collapse to one run. Merging the PR records the gated state.
+#
+# The payload is packages/chain-tests: every candidate run ends with
+# `pnpm --filter @triangle-e2e/chain-tests <script>` (per the manifest's `tests:`)
+# against the upgraded fork via NETWORK=local-fork.
+#
+# The engine is paritytech/preview-net-v1 (`make start FORK=1`, `make runtime-upgrade`);
+# this workflow only composes it. See environments/README.md.
+
+on:
+  pull_request:
+    paths:
+      - "environments/**"
+      - ".github/workflows/release-gate.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment manifest to gate (environments/<name>.json)
+        type: choice
+        options: [previewnet, paseo-next-v2, devnet]
+        default: previewnet
+      target:
+        description: >
+          Optional sparse target overlay (JSON) — only the pins to test, everything
+          else stays canonical, e.g.
+          {"chains":{"bulletin":{"runtime":"paritytech/polkadot-bulletin-chain@v0.0.23-paseo"}}}.
+          Empty = steady-state assertion run.
+        required: false
+      ppn_ref:
+        description: preview-net-v1 ref to take the engine from
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Engine default; `ppn_ref` overrides it for ad-hoc runs against engine branches.
+  # The gate targets the multi-network-workspace API (ppn CLI, PPN_BINARIES
+  # overrides) — flip to `main` when preview-net-v1 #159 merges.
+  PPN_REF_DEFAULT: multi-network-workspace
+  SOURCE_MANIFEST: environments/networks/${{ inputs.environment || 'previewnet' }}.json
+
+jobs:
+  # Decompose the manifest change into candidates — cheap, fails fast on a bad
+  # manifest before any beefy runner spins up.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The manifest on main is the canonical X (deployed state); the ask Y arrives
+      # either as a PR editing it (the diff IS the ask; merging later IS the
+      # promotion) or as the dispatch `target` overlay (ephemeral, no PR). A PR may
+      # touch several manifests at once; every touched network fans out its own
+      # candidates, so the full matrix is networks × candidates, all in parallel.
+      - name: Compute the candidate matrix
+        id: plan
+        env:
+          TARGET_JSON: ${{ inputs.target }}
+        run: |
+          matrix='[]'
+          add() { matrix=$(node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).concat(JSON.parse(process.argv[2]))))' "$matrix" "$1"); }
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
+            changed=$(git diff --name-only "origin/${{ github.base_ref }}" HEAD -- 'environments/networks/*.json')
+            [ -n "$changed" ] || changed="$SOURCE_MANIFEST"
+            for c in $changed; do
+              [ -f "$c" ] || continue  # manifest deleted in this PR
+              # Engine-blocked networks stay out of PR runs; dispatch/issue can
+              # still run them deliberately (NETWORK_META.gateable).
+              meta=$(node environments/resolve.mjs meta "$c")
+              if [ "$(echo "$meta" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).gateable===false?"no":"yes"))')" = "no" ]; then
+                reason=$(echo "$meta" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).blockedBy??""))')
+                echo "::notice::$c is not PR-gateable — $reason"
+                echo "- \`$c\` skipped: $reason" >> "$GITHUB_STEP_SUMMARY"
+                skipped=1
+                continue
+              fi
+              BASE_ARGS=""
+              if git show "origin/${{ github.base_ref }}:$c" > /tmp/base-manifest.json 2>/dev/null; then
+                BASE_ARGS="--base /tmp/base-manifest.json"
+              fi
+              # shellcheck disable=SC2086 # BASE_ARGS is deliberately two words
+              add "$(node environments/resolve.mjs candidates "$c" $BASE_ARGS)"
+            done
+          else
+            TARGET_ARGS=""
+            if [ -n "$TARGET_JSON" ]; then
+              printf '%s' "$TARGET_JSON" > /tmp/target-overlay.json
+              TARGET_ARGS="--target /tmp/target-overlay.json"
+            fi
+            # shellcheck disable=SC2086 # TARGET_ARGS is deliberately two words
+            add "$(node environments/resolve.mjs candidates "$SOURCE_MANIFEST" $TARGET_ARGS)"
+          fi
+          if [ "$matrix" = "[]" ] && [ -z "${skipped:-}" ]; then
+            echo "::error::no gateable manifests in this change"; exit 1
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: plan
+    # An empty matrix is legitimate: every touched manifest was an
+    # engine-blocked (non-PR-gateable) network.
+    if: needs.plan.outputs.matrix != '[]'
+    # Its own beefy runner per candidate: each fork binds the engine's fixed ports
+    # and runs a five-chain network.
+    runs-on: parity-large
+    # Budget for the slowest shape: fresh bite (~15m) + two public-relay epoch
+    # boundaries (~135m worst case, see NETWORK_META) + converge + suite.
+    # Previewnet runs finish in ~25m.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: gate (${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }})
+    # Cross terms are rollout-ordering findings, not defects of the target state —
+    # only the target gates the PR.
+    continue-on-error: ${{ !matrix.candidate.gating }}
+    env:
+      MANIFEST: candidate-manifest.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Materialize the candidate manifest
+        run: |
+          cat > candidate-manifest.json <<'MANIFEST_EOF'
+          ${{ toJSON(matrix.candidate.manifest) }}
+          MANIFEST_EOF
+          {
+            echo "### gate (${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }})"
+            echo "${{ matrix.candidate.purpose }}"
+            echo ""
+            echo "**Transitions under test:** ${{ join(matrix.candidate.transitions, ' · ') }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # GITHUB_TOKEN cannot read a sibling private repo; GH_PAT must be able
+      # to read paritytech/preview-net-v1 (code and releases). Guarded so a missing
+      # secret fails with instructions instead of an opaque "repository not found".
+      - name: Check prerequisites
+        env:
+          HAVE_TOKEN: ${{ secrets.GH_PAT != '' }}
+        run: |
+          if [ "$HAVE_TOKEN" != "true" ]; then
+            echo "::error::secrets.GH_PAT is not set on this repo — the gate checks out and fetches releases from the private paritytech/preview-net-v1. Grant the GH_PAT token read access to preview-net-v1"
+            exit 1
+          fi
+
+      - name: Checkout the engine (preview-net-v1)
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/preview-net-v1
+          ref: ${{ inputs.ppn_ref || env.PPN_REF_DEFAULT }}
+          token: ${{ secrets.GH_PAT }}
+          path: ppn
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install make and jq
+        run: |
+          which make || (apt-get update && apt-get install -y make)
+          which jq || (apt-get update && apt-get install -y jq)
+
+      # Resolve before spending minutes on a spawn: a bad manifest (wrong repo, missing
+      # asset, unknown chain) should fail in seconds. Binary pins become PPN_BINARIES
+      # overrides — exported once here, they reach every engine invocation below
+      # (fetch, start, show), applied inside PPN's loader so what fetches, what runs
+      # and what `show --json` reports cannot disagree.
+      - name: Resolve the manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          node environments/resolve.mjs overrides "$MANIFEST" | tee -a "$GITHUB_ENV"
+          node environments/resolve.mjs runtimes "$MANIFEST" --dir "$GITHUB_WORKSPACE/fork-runtimes" > upgrade-plan.env
+          echo "runtime convergence plan:"
+          cat upgrade-plan.env
+
+      # FORK=1 so this also downloads (or, with FRESH_BITE=1, bites) the fork bundle.
+      # The bite sometimes hangs indefinitely — a known zombie-bite issue; when it
+      # works it finishes well inside 30 minutes (observed one CI hang past 2h) — so
+      # each attempt is capped and retried from a clean slate.
+      - name: Ensure engine dependencies and fetch the fork bundle
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 1800 make -C ppn ensure-deps FORK=1; then
+              jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion)"' "ppn/$FORK_DIR_NAME/manifest.json"
+              exit 0
+            fi
+            echo "::warning::ensure-deps attempt $attempt failed or hung — cleaning up for a retry"
+            make -C ppn kill || true
+            pkill -f doppelganger || true
+            rm -rf "ppn/$FORK_DIR_NAME"
+          done
+          echo "::error::no fork bundle after 3 attempts — see the attempts above"
+          exit 1
+
+      # `ppn show --json` under the exported overrides is what will actually execute,
+      # each overridden slot marked. Fail here on any drift between the engine's
+      # wiring and our map, or a pin the engine did not apply — before the spawn.
+      - name: Assert the engine agrees with the manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          network=$(node -p "require('./$MANIFEST').network")
+          node ppn/bin/ppn.mjs show "$network" --json > engine-show.json
+          node environments/assert-engine.mjs "$MANIFEST" engine-show.json > engine-agrees.txt
+          {
+            echo ""
+            echo "**Engine resolution (\`ppn show --json\` under our overrides):**"
+            sed 's/^/- /' engine-agrees.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reap anything left behind on the runner
+        run: make -C ppn kill || true
+
+      - name: Start the fork on the manifest's binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          nohup make -C ppn start FORK=1 > /tmp/fork-spawn.log 2>&1 &
+          pid=$!
+          # Poll for the relay, but give up the moment the spawn dies — otherwise a make
+          # failure in the first second still burns the full timeout before reporting.
+          for i in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::spawn exited after $((i * 10))s"; tail -40 /tmp/fork-spawn.log; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              echo "relay is up after $((i * 10))s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::relay never came up"; tail -40 /tmp/fork-spawn.log; exit 1
+
+      # The relay answers within a minute; the collators are still restoring their DB
+      # snapshots for several more. Upgrading a chain that is not finalizing yet would
+      # time out waiting for enactment and blame the release for a spawn problem.
+      # The budget is per-network (FORK_WAIT_SECONDS): forks of the public Paseo
+      # relay finalize parachains only at the next hourly session boundary, when
+      # the bite's local validator set gets its core assignments.
+      - name: Wait for every chain to produce and finalize
+        run: node ppn/bin/ppn.mjs fork wait "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" "$FORK_WAIT_SECONDS"
+
+      - name: Verify the fork is healthy pre-upgrade
+        run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
+
+      # Relay first (plan order): parachain upgrades pass through the relay's PVF
+      # pre-check, so the upgraded relay validates its parachains' new code. A blob the
+      # fork already runs is a built-in no-op; each real upgrade exits only after
+      # enactment plus five finalized blocks.
+      #
+      # Downgrades fail the gate: a manifest pin behind what production runs means the
+      # manifest is stale, and silently rolling the fork back would gate the wrong
+      # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
+      - name: Converge runtimes to the manifest
+        run: |
+          # The manifest names only the TARGET runtime (Y); what the fork was running
+          # (X) is read from its own state here, and the X → Y line per chain goes to
+          # the run summary — an upgrade when they differ, a byte-compare assertion
+          # when they match ("already-installed").
+          # pipefail, or a failed upgrade hides behind the tee and the loop keeps
+          # "converging" a wedged network (observed locally: a bricked relay cost
+          # three more 600s waits before anything reported).
+          set -o pipefail
+          echo "#### Runtime convergence (fork's state → manifest pin)" >> "$GITHUB_STEP_SUMMARY"
+          while IFS='=' read -r chain wasm; do
+            echo "::group::runtime-upgrade $chain"
+            out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr)
+            echo "$out" | grep -E '^OK ' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+            read -r from to < <(echo "$out" | sed -n 's/.*OK [^:]*: [a-z0-9-]* \([0-9][0-9]*\) -> \([0-9][0-9]*\).*/\1 \2/p' | tail -1) || true
+            if [ -n "${from:-}" ] && [ -n "${to:-}" ] && [ "$to" -lt "$from" ]; then
+              echo "::error::$chain: the manifest pin DOWNGRADES the chain ($from -> $to) — the manifest is behind production, bump the pin"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done < upgrade-plan.env
+
+      - name: Verify the fork is healthy post-upgrade
+        run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
+
+      # A polkadot-api client created within a minute or two of an enactment can spiral
+      # (see waitForQuiescence in the engine's spawner/src/upgrade/upgrade.ts) — give
+      # the swapped runtimes a settle window before pointing fresh test clients at them.
+      - name: Let the runtime changes settle
+        run: sleep 120
+
+      # postinstall generates the PAPI descriptors from committed .scale metadata.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The suite derives its fork config from the base network's entry — the manifest
+      # knows which network this is a fork of.
+      - name: Point the suite at the fork
+        run: |
+          echo "FORK_OF=$(node -p "require('./$MANIFEST').network")" >> "$GITHUB_ENV"
+          echo "NETWORK=local-fork" >> "$GITHUB_ENV"
+
+      # Mirrors _health-check.yml: idempotently deploy the counter contract the
+      # PGAS-paid Revive call test uses; the fork usually carries production's already.
+      - name: Deploy counter contract
+        run: pnpm --filter @triangle-e2e/chain-tests deploy-counter
+
+      - name: Run the manifest's chain-tests against the upgraded fork
+        run: |
+          # Every fork is a fresh world — a cached attested account from an earlier
+          # run does not exist on this one (same freshness rule as _health-check.yml).
+          rm -f packages/chain-tests/.test-credentials.json
+          for t in $(node environments/resolve.mjs tests "$MANIFEST"); do
+            echo "::group::$t"
+            pnpm --filter @triangle-e2e/chain-tests "$t"
+            echo "::endgroup::"
+          done
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-test-results-${{ matrix.candidate.manifest.network }}-${{ matrix.candidate.id }}
+          path: packages/chain-tests/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop the network
+        if: always()
+        run: make -C ppn kill || true
+
+      - name: Upload fork logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-fork-logs-${{ matrix.candidate.manifest.network }}-${{ matrix.candidate.id }}
+          path: |
+            /tmp/fork-spawn.log
+            ppn/data*/*/*.log
+          retention-days: 7
+          if-no-files-found: ignore

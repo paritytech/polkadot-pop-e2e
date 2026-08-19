@@ -1,0 +1,97 @@
+name: Release Gate (issue trigger)
+
+# The issue-form channel into the release gate: an issue created from the
+# "Release gate request" template carries a network and a sparse target overlay;
+# this workflow validates the ask, dispatches the Release Gate with it, and
+# comments the run link back on the issue. The gate itself is untouched — this is
+# the same `workflow_dispatch` a human (or a future GH Pages UI) would fire.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: write
+  issues: write
+
+jobs:
+  dispatch:
+    if: contains(github.event.issue.labels.*.name, 'release-gate')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # One field per override (environments/issue-form.mjs assembles the overlay —
+      # requesters never write the JSON shape; the advanced textarea still can).
+      - name: Parse the request
+        id: parse
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          printf '%s' "$BODY" | node environments/issue-form.mjs > /tmp/ask.json
+          {
+            echo "network=$(jq -r .network /tmp/ask.json)"
+            echo "target=$(jq -c '.target // empty' /tmp/ask.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Fail fast with a useful comment when the overlay is malformed — before any
+      # beefy runner spins up.
+      - name: Validate the overlay against the canonical manifest
+        id: validate
+        run: |
+          TARGET_ARGS=""
+          if [ -n '${{ steps.parse.outputs.target }}' ]; then
+            printf '%s' '${{ steps.parse.outputs.target }}' > /tmp/target-overlay.json
+            TARGET_ARGS="--target /tmp/target-overlay.json"
+          fi
+          # shellcheck disable=SC2086 # TARGET_ARGS is deliberately two words
+          if node environments/resolve.mjs candidates "environments/networks/${{ steps.parse.outputs.network }}.json" \
+               $TARGET_ARGS > /dev/null 2> /tmp/validate.log; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reject an invalid request
+        if: steps.validate.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "The target overlay did not validate:"
+            echo '```'
+            tail -5 /tmp/validate.log
+            echo '```'
+            echo "Allowed sources for **${{ steps.parse.outputs.network }}** (pins are \`owner/repo@tag\`):"
+            node environments/resolve.mjs sources "environments/networks/${{ steps.parse.outputs.network }}.json"
+            echo ""
+            echo "Fix the JSON in the issue body and open a new request (edits do not re-trigger)."
+          } > /tmp/comment.md
+          gh issue comment ${{ github.event.issue.number }} --body-file /tmp/comment.md
+          exit 1
+
+      - name: Dispatch the gate and link the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run release-gate.yml --ref "${{ github.event.repository.default_branch }}" \
+            -f environment="${{ steps.parse.outputs.network }}" \
+            -f target='${{ steps.parse.outputs.target }}'
+          sleep 10
+          run_url=$(gh run list --workflow release-gate.yml --limit 1 --json url --jq '.[0].url')
+          {
+            if [ -n '${{ steps.parse.outputs.target }}' ]; then
+              echo "Release Gate dispatched for **${{ steps.parse.outputs.network }}** with:"
+              echo '```json'
+              printf '%s\n' '${{ steps.parse.outputs.target }}'
+              echo '```'
+            else
+              echo "Release Gate dispatched for **${{ steps.parse.outputs.network }}** — no overrides, a steady-state assertion run."
+            fi
+            echo "Run: ${run_url:-see Actions → Release Gate}"
+          } > /tmp/comment.md
+          gh issue comment ${{ github.event.issue.number }} --body-file /tmp/comment.md

@@ -13,7 +13,7 @@
  * authenticate. No silent fallback to a stub secret.
  */
 
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 const ISSUER = "polkadot-app";
 const TOKEN_TTL_SECONDS = 60 * 60 * 24; // 24h, matches IB JWTAuthServiceDefaults
@@ -38,4 +38,56 @@ export function ibAuthHeader(sub: string): Record<string, string> {
   const secret = process.env.IB_JWT_SECRET;
   if (!secret) return {};
   return { Authorization: `Bearer ${mintIbJwt(secret, sub)}` };
+}
+
+/**
+ * Bearer token from IBv2's (identity-backend-rust) challenge flow — the backend
+ * issues the JWT itself, bound to the person's own key, so no shared secret exists:
+ * `POST /api/v1/auth/challenges` → sign `SHA256(challenge ‖ clientId ‖ SHA256(body))`
+ * with the person's sr25519 key → `POST /api/v1/auth/token`. Mirrors
+ * preview-net-v1's tests/scripts/test-identity-registration.ts, which mirrors the
+ * host SDK.
+ */
+export async function ibV2AuthHeader(
+  backendUrl: string,
+  keyPair: { publicKey: Uint8Array; sign: (msg: Uint8Array) => Uint8Array },
+): Promise<Record<string, string>> {
+  const sha256 = (data: Uint8Array) =>
+    new Uint8Array(createHash("sha256").update(data).digest());
+  const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
+  const body = "{}";
+
+  const chRes = await fetch(`${backendUrl}/api/v1/auth/challenges`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!chRes.ok) {
+    throw new Error(`IBv2 auth challenge failed: ${chRes.status} ${await chRes.text()}`);
+  }
+  const { challenge } = (await chRes.json()) as { challenge: string };
+
+  const challengeBytes = new Uint8Array(Buffer.from(challenge, "base64"));
+  const bodyHash = sha256(new TextEncoder().encode(body));
+  const signingInput = new Uint8Array([...challengeBytes, ...keyPair.publicKey, ...bodyHash]);
+  const proof = keyPair.sign(sha256(signingInput));
+
+  const tokenRes = await fetch(`${backendUrl}/api/v1/auth/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Auth-ClientId": b64(keyPair.publicKey),
+      "Auth-Challenge": challenge,
+      "Auth-ClientProof": b64(proof),
+      "Auth-Attestation-Type": "none",
+    },
+    body,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!tokenRes.ok) {
+    throw new Error(`IBv2 auth token failed: ${tokenRes.status} ${await tokenRes.text()}`);
+  }
+  const { token } = (await tokenRes.json()) as { token: string };
+  return { Authorization: `Bearer ${token}` };
 }

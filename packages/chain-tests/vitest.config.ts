@@ -1,6 +1,15 @@
 import { defineConfig } from "vitest/config";
 import OrderedSequencer from "./src/tests/test-sequencer.ts";
 
+// Must exceed the attested-fixture poll budget plus headroom for
+// signAndRegister + chain client setup, or vitest aborts the test/hook before
+// our attributed "IB reconciler lagging" message can throw and the operator
+// sees a generic timeout instead. Production (IBv1 SLA probe): 100 s budget →
+// 120 s. Forks (IBv2, cold chain-writer/indexer): 240 s budget
+// (V2_INDEXED_TIMEOUT_MS) → 300 s, matching preview-net-v1's own registration
+// e2e allowance.
+const IB_TIMEOUT_MS = process.env.NETWORK === "local-fork" ? 300_000 : 120_000;
+
 export default defineConfig({
   test: {
     // Broad include lets vitest discover both the main functional
@@ -8,14 +17,8 @@ export default defineConfig({
     // exactly which files to run so probes and suite stay separate.
     include: ["src/tests/**/*.test.ts"],
     setupFiles: ["src/tests/setup.ts"],
-    testTimeout: 120_000,
-    // Must exceed `ASSIGNED_TIMEOUT_MS` (100 s in attested-fixture.ts) plus
-    // a small headroom for signAndRegister + chain client setup. With a 60 s
-    // hook timeout, vitest aborts beforeAll before our nice "IB reconciler
-    // lagging" message can throw — the operator sees a generic
-    // `Hook timed out` and the actual IB attribution gets lost. 120 s gives
-    // us the full 100 s poll budget plus 20 s for register + client setup.
-    hookTimeout: 120_000,
+    testTimeout: IB_TIMEOUT_MS,
+    hookTimeout: IB_TIMEOUT_MS,
     reporters: ["default", "junit", "./src/tests/reporter.ts"],
     outputFile: { junit: "./test-results/junit.xml" },
     pool: "forks",

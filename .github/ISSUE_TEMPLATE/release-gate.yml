@@ -1,0 +1,127 @@
+name: Release gate request
+description: Test release pins against a fork of a live network — no PR needed
+title: "[gate] "
+labels: [release-gate]
+body:
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      description: Which environment to fork and gate against.
+      options:
+        - previewnet
+        - paseo-next-v2
+        - devnet
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Fill in **only what you want tested** — every field left empty stays at the
+        canonical (deployed) state from `environments/networks/<network>.json`. Every
+        pin is an `owner/repo@tag` release ref (`@latest` works, but pin exact tags
+        for reproducible runs). Which release *asset* to take is resolved per network
+        automatically — you never name files.
+
+        Allowed sources per field are listed in its description (enforced by
+        validation; an invalid ask gets a comment naming the options instead of a
+        run). A run that moves both a binary and a runtime fans out into the
+        candidate matrix (target + binaries-only + runtimes-only) automatically.
+  - type: input
+    id: bin-polkadot
+    attributes:
+      label: "Node binary: polkadot"
+      description: >
+        The relay-chain validator binary (+ its PVF workers, which travel with it).
+        The fork SPAWNS on this binary, so it exercises "can this node version drive
+        the network's current state". From paritytech/preview-net-v1,
+        paritytech/polkadot-sdk or paritytech/release-automation (complete tags
+        only — some release-automation releases are partial re-publishes).
+      placeholder: paritytech/release-automation@polkadot-weekly2026w34-rc1
+  - type: input
+    id: bin-omni-node
+    attributes:
+      label: "Node binary: polkadot-omni-node"
+      description: >
+        The collator binary EVERY parachain execs — one file, so this override moves
+        all parachains together. Same sources as polkadot.
+      placeholder: paritytech/polkadot-sdk@polkadot-stable2606-1
+  - type: input
+    id: rt-relay
+    attributes:
+      label: "Runtime: relay"
+      description: >
+        The fork's relay runtime is UPGRADED from whatever production runs (X) to
+        this release (Y) via sudo authorize+apply — byte-identical pins become a
+        no-op assertion, a pin OLDER than production fails the gate as stale. From
+        paseo-network/runtimes (previewnet also: paritytech/preview-net-v1). The
+        right build variant (previewnet = fast epochs) is chosen automatically.
+      placeholder: paseo-network/runtimes@v2.4.5
+  - type: input
+    id: rt-asset-hub
+    attributes:
+      label: "Runtime: asset-hub"
+      description: >
+        Same upgrade semantics as the relay. previewnet/paseo-next-v2: from
+        paritytech/individuality or paritytech/preview-net-v1; devnet: from
+        paseo-network/runtimes.
+      placeholder: paritytech/individuality@v0.12.0
+  - type: input
+    id: rt-people
+    attributes:
+      label: "Runtime: people"
+      description: >
+        Same upgrade semantics. previewnet/paseo-next-v2: from
+        paritytech/individuality or paritytech/preview-net-v1; devnet: from
+        paseo-network/runtimes.
+      placeholder: paritytech/individuality@v0.12.0
+  - type: input
+    id: rt-bulletin
+    attributes:
+      label: "Runtime: bulletin"
+      description: >
+        Same upgrade semantics. From paritytech/polkadot-bulletin-chain — pin the
+        network's flavor explicitly (…-paseo), never latest (it can resolve to a
+        westend build). Not pinnable on devnet (its deployed build is on no public
+        release).
+      placeholder: paritytech/polkadot-bulletin-chain@v0.0.25-paseo
+  - type: input
+    id: rt-web3-storage
+    attributes:
+      label: "Runtime: web3-storage"
+      description: >
+        Same upgrade semantics. From paritytech/web3-storage. previewnet only.
+      placeholder: paritytech/web3-storage@v0.4.2-paseo
+  - type: input
+    id: svc-eth-rpc
+    attributes:
+      label: "Service: eth-rpc"
+      description: >
+        The eth-rpc sidecar binary the fork runs. Same sources as the node binaries.
+      placeholder: paritytech/release-automation@polkadot-weekly2026w34-rc1
+  - type: input
+    id: svc-identity-backend
+    attributes:
+      label: "Service: identity-backend"
+      description: >
+        The identity service quadruple (identity-api, chain-writer,
+        registration-queue, username-indexer — they travel together). From
+        paritytech/device-uniqueness-backend releases (the engine pins the tag via
+        DUB_TAG). previewnet only.
+      placeholder: paritytech/device-uniqueness-backend@v0.2.0
+  - type: textarea
+    id: target
+    attributes:
+      label: "Advanced: raw target overlay (JSON)"
+      description: >
+        Full control for asks the fields can't express (e.g. a different `tests`
+        list). When filled, this REPLACES the fields above. Shape: see
+        environments/README.md.
+      render: json
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: >
+        Submitting dispatches a Release Gate run; a comment lands here with the run
+        link (or the validation error naming the allowed sources).
