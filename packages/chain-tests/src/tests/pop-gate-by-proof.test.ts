@@ -21,6 +21,7 @@ import { Binary, type PolkadotClient } from "polkadot-api";
 import { getPolkadotSigner } from "polkadot-api/signer";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { compact } from "@polkadot-api/substrate-bindings";
+import { ringRootsWindow } from "../lib/individuality-compat.js";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { encodeFunctionData, decodeFunctionResult } from "viem";
 import {
@@ -161,8 +162,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     ): Promise<void> {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeoutMs) {
-        const roots =
-          (await richAh.query.MembersSubscriber.RingRoots.getValue(COLLECTION_HEX, ringIndex)) ?? [];
+        const roots = await ringRootsWindow(assetHubClient, COLLECTION_HEX, ringIndex);
         if (roots.some((r) => r.revision === targetRevision)) return;
         const max = roots.length === 0 ? -1 : Math.max(...roots.map((r) => r.revision));
         console.log(`[pop-by-proof] waiting AH ring sync — target=${targetRevision} max=${max}`);

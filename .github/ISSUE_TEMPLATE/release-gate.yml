@@ -106,9 +106,10 @@ body:
       description: >
         The identity service quadruple (identity-api, chain-writer,
         registration-queue, username-indexer — they travel together). From
-        paritytech/device-uniqueness-backend releases (the engine pins the tag via
-        DUB_TAG). previewnet only.
-      placeholder: paritytech/device-uniqueness-backend@v0.2.0
+        paritytech/device-uniqueness-backend releases. Leave empty to run the
+        engine's default tag; naming one here exports DUB_TAG to gate that
+        release. previewnet only.
+      placeholder: paritytech/device-uniqueness-backend@v0.3.0
   - type: textarea
     id: target
     attributes:

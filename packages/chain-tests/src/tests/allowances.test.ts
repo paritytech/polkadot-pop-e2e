@@ -24,6 +24,7 @@ import {
   type AssetHubApi,
 } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { pgasContextV012, ringRootsWindow, usesProductContexts } from "../lib/individuality-compat.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -55,7 +56,7 @@ import { findCounterContract } from "../lib/counter-contract.js";
 async function waitForAssetHubRing(
   peopleApi: PeopleApi,
   peopleClient: PolkadotClient,
-  assetHubApi: RichAssetHubApi,
+  assetHubClient: PolkadotClient,
   collectionHex: string,
   ringIndex: number,
   opts?: { timeoutMs?: number; pollMs?: number },
@@ -73,8 +74,7 @@ async function waitForAssetHubRing(
       await new Promise((r) => setTimeout(r, pollMs));
       continue;
     }
-    const ahRoots =
-      (await assetHubApi.query.MembersSubscriber.RingRoots.getValue(collectionHex, ringIndex)) ?? [];
+    const ahRoots = await ringRootsWindow(assetHubClient, collectionHex, ringIndex);
     const accepted = ahRoots.some((r) => r.revision === peopleRev);
     const ahMax = ahRoots.length === 0 ? -1 : Math.max(...ahRoots.map((r) => r.revision));
     if (accepted) {
@@ -95,13 +95,12 @@ async function waitForAssetHubRing(
 
 /** Re-read AH's RingRoots window and check our chosen rev is still in it. */
 async function ahWindowStillContains(
-  assetHubApi: RichAssetHubApi,
+  assetHubClient: PolkadotClient,
   collectionHex: string,
   ringIndex: number,
   revision: number,
 ): Promise<{ present: boolean; maxRev: number; size: number }> {
-  const roots =
-    (await assetHubApi.query.MembersSubscriber.RingRoots.getValue(collectionHex, ringIndex)) ?? [];
+  const roots = await ringRootsWindow(assetHubClient, collectionHex, ringIndex);
   return {
     present: roots.some((r) => r.revision === revision),
     maxRev: roots.length === 0 ? -1 : Math.max(...roots.map((r) => r.revision)),
@@ -224,7 +223,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         const synced = await waitForAssetHubRing(
           peopleApi,
           peopleClient,
-          richAh,
+          assetHubClient,
           idHex,
           ringIndex,
         );
@@ -280,7 +279,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
           // If a fresh rev evicted ours since refreshSnapshot, advance now
           // rather than burning a finalization round on a guaranteed BadProof.
           const ahCheck = await ahWindowStillContains(
-            richAh,
+            assetHubClient,
             idHex,
             ringIndex,
             snapshot.revisionIndex,
@@ -292,7 +291,9 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             snapshot = await refreshSnapshot();
           }
 
-          const context = pgasContext(day, slotIndex);
+          const context = (await usesProductContexts(assetHubClient))
+            ? pgasContextV012(network.networkSuffix ?? "paseo", day, slotIndex)
+            : pgasContext(day, slotIndex);
           const signer = createClaimSigner({
             extensionName: "AsPgas",
             context,
@@ -334,7 +335,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             lastErr = err;
             if (!isBadProof(err) || attempt === MAX_PROOF_ATTEMPTS) throw err;
             const post = await ahWindowStillContains(
-              richAh,
+              assetHubClient,
               idHex,
               ringIndex,
               snapshot.revisionIndex,

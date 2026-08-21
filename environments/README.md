@@ -63,7 +63,7 @@ Binaries are pinned **once per engine binary slot**; runtimes **per chain**:
   "asset-hub": { "runtime": "paritytech/individuality@vY" },
   "bulletin":  { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" }
 },
-"services":  { "eth-rpc": "…", "identity-backend": "…", "storage-provider-node": "…", "kubo": "…" }
+"services":  { "eth-rpc": "…", "storage-provider-node": "…", "kubo": "…" }
 ```
 
 **Which binary *file* a chain execs is engine wiring, not a manifest choice** — relay → `polkadot`, every previewnet parachain → `polkadot-omni-node`, mirrored as read-only fact in the map (`CHAINS.<network>.<chain>.node` in `release-map.mjs`). The engine keeps one file per slot, so the manifest pins the slot, not the chain: a split pin ("bulletin on X, people on Y") is inexpressible rather than merely rejected, and if the engine ever rewires a chain to a different binary, no manifest changes — only the map does. On kusama/polkadot, where parachains genuinely run different node binaries (`polkadot-parachain` vs omni-node), the slots differ per chain in the map and each slot gets its own pin.
@@ -74,7 +74,7 @@ A slot may come from **any repo in its allow-list**: preview-net-v1, polkadot-sd
 
 Runtimes are allow-listed the same way, with the asset name looked up **per repo** (naming conventions differ): previewnet's people and asset-hub runtimes may pin `paritytech/preview-net-v1` (PPN's re-publish, plain `.wasm`) or `paritytech/individuality` (the upstream source of the next-* runtimes, `.compact.compressed.wasm`) — so gating `paritytech/individuality@v0.11.2` before PPN ever re-publishes it is one manifest line. Bulletin and web3-storage already pin their upstream repos directly.
 
-`identity-backend` pins the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend`'s own releases since its v0.2.0. Delivery is the engine's `DUB_TAG` env var (the repo is engine wiring); the resolver's `overrides` mode emits it alongside `PPN_BINARIES`, so nothing is file-replaced anymore.
+`identity-backend` names the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend`'s own releases since its v0.2.0. The canonical manifest deliberately does **not** pin it: the engine's own default tag (preview-net-v1 `config/versions.env`) governs the baseline, so this pin can never go stale here. A candidate override may still name it — then the resolver's `overrides` mode emits the engine's `DUB_TAG` env var alongside `PPN_BINARIES`, which is how a new dub release gets gated.
 
 Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, doppelganger (bite-time only), the portable Postgres the identity services use, `chain-spec-builder` (genesis mode only; a fork uses the bundle's specs). Those version the *engine*, not the environment under test, and stay pinned in preview-net-v1's `versions.env`.
 
@@ -88,7 +88,7 @@ Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, dopp
 
 The gate targets PPN's multi-network API: PPN stopped building anything itself — binaries come from `paritytech/release-automation` (weekly cuts from polkadot-sdk master), runtimes from their upstreams, the identity quadruple from `paritytech/device-uniqueness-backend` — and the engine is driven through the `ppn` CLI. What that means here:
 
-- Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality`, bulletin/web3-storage from their repos, identity-backend from `device-uniqueness-backend`.
+- Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality`, bulletin/web3-storage from their repos; identity-backend rides the engine's default (`device-uniqueness-backend`, overridable per candidate).
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
 - `PPN_REF_DEFAULT` is the `multi-network-workspace` branch until #159 merges — then flip to `main`.
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain exact runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).

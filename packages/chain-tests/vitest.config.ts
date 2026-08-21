@@ -4,11 +4,11 @@ import OrderedSequencer from "./src/tests/test-sequencer.ts";
 // Must exceed the attested-fixture poll budget plus headroom for
 // signAndRegister + chain client setup, or vitest aborts the test/hook before
 // our attributed "IB reconciler lagging" message can throw and the operator
-// sees a generic timeout instead. Production (IBv1 SLA probe): 100 s budget →
-// 120 s. Forks (IBv2, cold chain-writer/indexer): 240 s budget
-// (V2_INDEXED_TIMEOUT_MS) → 300 s, matching preview-net-v1's own registration
-// e2e allowance.
-const IB_TIMEOUT_MS = process.env.NETWORK === "local-fork" ? 300_000 : 120_000;
+// sees a generic timeout instead. Every network now runs the IBv2
+// (device-uniqueness-backend) — its assigned signal is the search projection
+// with a 240 s poll budget (V2_INDEXED_TIMEOUT_MS) — so forks and live
+// networks share the same 300 s ceiling.
+const IB_TIMEOUT_MS = 300_000;
 
 export default defineConfig({
   test: {

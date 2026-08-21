@@ -50,6 +50,7 @@ import {
   ppnOverrides,
   envTagPins,
   NETWORK_META,
+  SERVICES,
 } from './release-map.mjs';
 
 const API = 'https://api.github.com';
@@ -170,7 +171,10 @@ if (mode === 'binaries') {
   console.log(`FORK_DIR_NAME=fork-bundle${net === 'previewnet' ? '' : `-${net}`}`);
   console.log(`FRESH_BITE=${NETWORK_META[net]?.freshBite ? 1 : 0}`);
   console.log(`FORK_WAIT_SECONDS=${NETWORK_META[net]?.waitSeconds ?? 900}`);
-  if (!manifest.services?.['identity-backend']) console.log('FORK_IDENTITY_BACKEND=none');
+  // Whether the fork RUNS an identity backend is engine wiring (SERVICES), not a
+  // manifest pin — the canonical deliberately omits identity-backend so the engine's
+  // own default tag governs; only a candidate override exports DUB_TAG.
+  if (!SERVICES[net]?.['identity-backend']) console.log('FORK_IDENTITY_BACKEND=none');
   for (const [envVar, tag] of Object.entries(envTagPins(manifest))) console.log(`${envVar}=${tag}`);
   console.log(`PPN_BINARIES=${ppnOverrides(manifest)}`);
 } else if (mode === 'candidates') {

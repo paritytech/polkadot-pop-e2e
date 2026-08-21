@@ -187,7 +187,11 @@ export const SERVICES = {
     },
     // The identity service quadruple (identity-api, chain-writer, registration-queue,
     // username-indexer) ships on device-uniqueness-backend's own releases since its
-    // v0.2.0; the engine fetches them and DUB_TAG pins the tag.
+    // v0.2.0; the engine fetches them and DUB_TAG pins the tag. The canonical manifest
+    // deliberately does NOT pin this service: the engine's own default tag
+    // (config/versions.env in preview-net-v1) governs the baseline, so it can't go
+    // stale here. A candidate override may still name it — that exports DUB_TAG for
+    // gating a new dub release.
     'identity-backend': {
       envTag: 'DUB_TAG',
       repos: ['paritytech/device-uniqueness-backend'],
@@ -445,8 +449,11 @@ export function mergeTarget(canonical, target) {
   }
   const services = { ...(canonical.services ?? {}) };
   for (const [name, ref] of Object.entries(target.services ?? {})) {
-    if (!(name in services)) {
-      throw new Error(`target names service "${name}" absent from the canonical manifest`);
+    // A service the canonical doesn't pin is still overridable if the network
+    // declares it (SERVICES) — e.g. identity-backend, whose baseline tag is the
+    // engine's own default and only a candidate override exports DUB_TAG.
+    if (!(name in services) && !SERVICES[canonical.network]?.[name]) {
+      throw new Error(`target names service "${name}" unknown to ${canonical.network}`);
     }
     services[name] = ref;
   }
@@ -473,6 +480,7 @@ export function transitions(canonical, manifest) {
   for (const [name, ref] of Object.entries(manifest.services ?? {})) {
     const from = (canonical.services ?? {})[name];
     if (from && from !== ref) out.push(`${name}: ${from} → ${ref}`);
+    if (!from) out.push(`${name}: (engine default) → ${ref}`);
   }
   return out.length ? out : ['steady state — no pin moves; the run asserts canonical matches production'];
 }

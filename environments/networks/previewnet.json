@@ -10,10 +10,10 @@
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paritytech/individuality@v0.12.0-previewnet"
+      "runtime": "paritytech/individuality@v0.12.1-previewnet"
     },
     "people": {
-      "runtime": "paritytech/individuality@v0.12.0-previewnet"
+      "runtime": "paritytech/individuality@v0.12.1-previewnet"
     },
     "bulletin": {
       "runtime": "paritytech/polkadot-bulletin-chain@v0.0.25-paseo"
@@ -24,7 +24,6 @@
   },
   "services": {
     "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
-    "identity-backend": "paritytech/device-uniqueness-backend@v0.2.0",
     "storage-provider-node": "paritytech/web3-storage@v0.4.1-paseo",
     "kubo": "ipfs/kubo@v0.39.0"
   },

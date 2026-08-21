@@ -239,26 +239,34 @@ jobs:
       - name: Reap anything left behind on the runner
         run: make -C ppn kill || true
 
+      # Two attempts: fresh-bite spawns have a rare restore hiccup where a validator
+      # never reports up ("Did not finalize blocks in sequential order" family) — a
+      # FORK=1 restart wipes the data dir and re-restores the bundle, which clears it.
       - name: Start the fork on the manifest's binaries
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          nohup make -C ppn start FORK=1 > /tmp/fork-spawn.log 2>&1 &
-          pid=$!
-          # Poll for the relay, but give up the moment the spawn dies — otherwise a make
-          # failure in the first second still burns the full timeout before reporting.
-          for i in $(seq 1 60); do
-            if ! kill -0 "$pid" 2>/dev/null; then
-              echo "::error::spawn exited after $((i * 10))s"; tail -40 /tmp/fork-spawn.log; exit 1
-            fi
-            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
-                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
-                 http://127.0.0.1:10000 >/dev/null 2>&1; then
-              echo "relay is up after $((i * 10))s"; exit 0
-            fi
-            sleep 10
+          for attempt in 1 2; do
+            make -C ppn kill >/dev/null 2>&1 || true
+            nohup make -C ppn start FORK=1 > /tmp/fork-spawn.log 2>&1 &
+            pid=$!
+            # Poll for the relay, but move on the moment the spawn dies — otherwise a
+            # make failure in the first second still burns the full timeout.
+            for i in $(seq 1 60); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                echo "::warning::spawn attempt $attempt exited after $((i * 10))s"
+                tail -20 /tmp/fork-spawn.log
+                break
+              fi
+              if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                   -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                   http://127.0.0.1:10000 >/dev/null 2>&1; then
+                echo "relay is up after $((i * 10))s (attempt $attempt)"; exit 0
+              fi
+              sleep 10
+            done
           done
-          echo "::error::relay never came up"; tail -40 /tmp/fork-spawn.log; exit 1
+          echo "::error::the fork did not come up in 2 spawn attempts"; tail -40 /tmp/fork-spawn.log; exit 1
 
       # The relay answers within a minute; the collators are still restoring their DB
       # snapshots for several more. Upgrading a chain that is not finalizing yet would
