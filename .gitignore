@@ -9,6 +9,7 @@ playwright-report/
 .test-credentials.json
 .account-state.json
 .admin-qr.json
-artifacts/
+artifacts
 .worktrees
 .playwright-mcp
+.brevity-identity.json
