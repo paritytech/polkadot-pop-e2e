@@ -295,10 +295,17 @@ describe('guard rails', () => {
   });
 
   it('resolves the per-repo asset name for runtimes with several allowed sources', () => {
+    // Pin every probed chain explicitly: the canonical manifest's repo choices are
+    // the baseline scan's to rewrite, and this test is about the MAP's per-repo
+    // asset resolution, not about what production happens to run today.
     const m = withChain(
-      withChain(previewnet, 'people', { runtime: 'paritytech/individuality@v0.11.2' }),
-      'asset-hub',
-      { runtime: 'paritytech/individuality@v0.11.2' }
+      withChain(
+        withChain(previewnet, 'people', { runtime: 'paritytech/individuality@v0.11.2' }),
+        'asset-hub',
+        { runtime: 'paritytech/individuality@v0.11.2' }
+      ),
+      'relay',
+      { runtime: 'paseo-network/runtimes@v2.4.4' }
     );
     const plan = runtimePlan(m);
     const byChain = Object.fromEntries(plan.map((p) => [p.chain, p]));

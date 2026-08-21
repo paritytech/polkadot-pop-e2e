@@ -49,7 +49,7 @@ env:
   # Engine default; `ppn_ref` overrides it for ad-hoc runs against engine branches.
   # The gate targets the multi-network-workspace API (ppn CLI, PPN_BINARIES
   # overrides) — flip to `main` when preview-net-v1 #159 merges.
-  PPN_REF_DEFAULT: multi-network-workspace
+  PPN_REF_DEFAULT: main # multi-network-workspace merged (preview-net-v1#159) and its branch is gone
   SOURCE_MANIFEST: environments/networks/${{ inputs.environment || 'previewnet' }}.json
 
 jobs:

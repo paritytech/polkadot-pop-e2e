@@ -52,60 +52,15 @@ import {
   NETWORK_META,
   SERVICES,
 } from './release-map.mjs';
-
-const API = 'https://api.github.com';
+import { getRelease, downloadAssetBytes } from './github.mjs';
 
 function usage(msg) {
   console.error(`${msg}\n\nusage: node environments/resolve.mjs <binaries|runtimes|tests> <manifest.json> [--dir <outDir>]`);
   process.exit(1);
 }
 
-function ghHeaders(accept) {
-  const h = { Accept: accept, 'X-GitHub-Api-Version': '2022-11-28' };
-  if (process.env.GITHUB_TOKEN) h.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  return h;
-}
-
-// CI egress drops connections mid-transfer now and then (ECONNRESET); a 4xx is an
-// answer, a socket error is not — retry only the latter, briefly.
-async function fetchWithRetry(url, opts, attempts = 3) {
-  for (let i = 1; ; i++) {
-    try {
-      return await fetch(url, opts);
-    } catch (err) {
-      if (i >= attempts) throw err;
-      console.error(`fetch ${url} failed (${err.cause?.code ?? err.message}), retry ${i}/${attempts - 1}`);
-      await new Promise((r) => setTimeout(r, 2000 * i));
-    }
-  }
-}
-
-async function getRelease(repo, tag) {
-  const url =
-    tag === 'latest'
-      ? `${API}/repos/${repo}/releases/latest`
-      : `${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
-  const res = await fetchWithRetry(url, { headers: ghHeaders('application/vnd.github+json') });
-  if (res.status === 404) {
-    // Fine-grained PATs answer 404 (not 403) for private repos they were never
-    // granted — say so, or a correct pin reads like a missing release.
-    throw new Error(
-      `GET ${url} -> 404. Either the tag does not exist, or ${repo} is private and the token (GITHUB_TOKEN / secrets.GH_PAT) has no read access to it — grant the PAT that repo`
-    );
-  }
-  if (!res.ok) throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
-  return res.json();
-}
-
-// The asset API endpoint + octet-stream, not browser_download_url: the latter 404s on
-// private repos.
 async function downloadAsset(asset, dest) {
-  const res = await fetchWithRetry(asset.url, {
-    headers: ghHeaders('application/octet-stream'),
-    redirect: 'follow',
-  });
-  if (!res.ok) throw new Error(`download ${asset.name} -> ${res.status} ${res.statusText}`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  const buf = await downloadAssetBytes(asset);
   fs.writeFileSync(dest, buf);
   return buf.length;
 }

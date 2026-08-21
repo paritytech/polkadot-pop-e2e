@@ -63,7 +63,8 @@ body:
       label: "Runtime: asset-hub"
       description: >
         Same upgrade semantics as the relay. previewnet/paseo-next-v2: from
-        paritytech/individuality or paritytech/preview-net-v1; devnet: from
+        paritytech/individuality, paritytech/individuality-community
+        (public nightlies) or paritytech/preview-net-v1; devnet: from
         paseo-network/runtimes.
       placeholder: paritytech/individuality@v0.12.0
   - type: input
@@ -72,7 +73,8 @@ body:
       label: "Runtime: people"
       description: >
         Same upgrade semantics. previewnet/paseo-next-v2: from
-        paritytech/individuality or paritytech/preview-net-v1; devnet: from
+        paritytech/individuality, paritytech/individuality-community
+        (public nightlies) or paritytech/preview-net-v1; devnet: from
         paseo-network/runtimes.
       placeholder: paritytech/individuality@v0.12.0
   - type: input

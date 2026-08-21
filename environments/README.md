@@ -78,6 +78,14 @@ Runtimes are allow-listed the same way, with the asset name looked up **per repo
 
 Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, doppelganger (bite-time only), the portable Postgres the identity services use, `chain-spec-builder` (genesis mode only; a fork uses the bundle's specs). Those version the *engine*, not the environment under test, and stay pinned in preview-net-v1's `versions.env`.
 
+## Baseline scan — the record stays true without a human chasing production
+
+The networks these manifests describe upgrade on their own schedule; a pin that was true on Monday is a lie by Friday, and the gate's downgrade guard turns that lie into a red run (observed five times in one month before this existed). `pnpm scan:baseline` closes the loop: for every pinned chain it reads the LIVE runtime — spec version, block, and the raw `:code` bytes — and attributes it to a release by **byte equality** with the release asset. Attribution is proof, never a tag-name guess. With `--write` it rewrites drifted pins; the scheduled workflow (`baseline-scan.yml`, every 6h) commits those to `baseline/bump` and keeps one auto-PR open, whose own release-gate run validates the new baseline before a human merges it.
+
+One honest exception: the public Paseo relay is upstream-operated and its deployed blob byte-matches no published asset (same declared spec, different build). Chains marked `scanPolicy: 'spec'` in the map are compared by the RuntimeVersion the pinned artifact declares (parsed from the wasm itself — `wasm-spec.mjs`) instead of bytes, and render as `[spec]` in the summary.
+
+The scan goes red only when a human is needed: **unattributed** (production runs bytes/spec no allow-listed release carries — someone deployed unpublished code) or an unreachable scan endpoint. Drift alone is not a failure; the auto-PR is the fix. The gate never uses the scan's endpoints — forks get state from the engine's bite; the pre-existing downgrade guard stays as the backstop for the hours between scans.
+
 ## Current limitations
 
 - Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
@@ -90,6 +98,6 @@ The gate targets PPN's multi-network API: PPN stopped building anything itself �
 
 - Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality`, bulletin/web3-storage from their repos; identity-backend rides the engine's default (`device-uniqueness-backend`, overridable per candidate).
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
-- `PPN_REF_DEFAULT` is the `multi-network-workspace` branch until #159 merges — then flip to `main`.
+- `PPN_REF_DEFAULT` is `main` (#159 merged 2026-08-21; a dispatch can still pin `ppn_ref`).
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain exact runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).
 - Later: replace the map's mirrored wiring with `@parity/ppn-network-config` once it's on npm (until then the runtime drift assert keeps the mirror honest); publish pnv2 fork bundles so its gate stops biting live; a full raw Paseo Asset Hub spec to unblock devnet.

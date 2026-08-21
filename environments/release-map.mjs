@@ -20,10 +20,14 @@
  * whose parachains run different node binaries — kusama's polkadot-parachain vs
  * omni-node — the slots simply differ per chain here and each gets its own pin.
  */
+// Per-chain `ws` is the public RPC the baseline scan reads truth from (spec
+// version, :code bytes). It is NOT used by the gate itself — forks get their
+// state from the engine's bite.
 export const CHAINS = {
   previewnet: {
     relay: {
       node: 'polkadot',
+      ws: 'wss://previewnet.substrate.dev/relay/alice',
       // The _fast build (1-minute epochs), NOT paseo_runtime: previewnet was spawned
       // with fast epochs, and enacting a runtime whose BABE EpochDuration differs
       // wedges the chain on the spot — every block after the swap fails import with
@@ -34,31 +38,39 @@ export const CHAINS = {
         'paseo-network/runtimes': 'paseo_fast_runtime.compressed.wasm',
       },
     },
-    // The next-* runtimes are developed in paritytech/individuality, whose releases
-    // ship them directly — pin either the upstream release or PPN's re-publish. The
-    // asset name is per-repo: same wasm, different naming convention.
+    // The next-* runtimes are developed in paritytech/individuality and published
+    // publicly on paritytech/individuality-community (nightly-YYYY-MM-DD tags, the
+    // repo individuality is migrating to) — pin either upstream, the community
+    // re-publish, or PPN's. Asset names are per-repo. The attribution walk prefers
+    // the community repo over the private one for identical bytes.
     'asset-hub': {
       node: 'polkadot-omni-node',
+      ws: 'wss://previewnet.substrate.dev/asset-hub',
       runtime: {
         'paritytech/preview-net-v1': 'next_asset_hub_paseo_runtime.wasm',
+        'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
     },
     people: {
       node: 'polkadot-omni-node',
+      ws: 'wss://previewnet.substrate.dev/people',
       runtime: {
         'paritytech/preview-net-v1': 'next_people_paseo_runtime.wasm',
+        'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
     },
     bulletin: {
       node: 'polkadot-omni-node',
+      ws: 'wss://previewnet.substrate.dev/bulletin',
       runtime: {
         'paritytech/polkadot-bulletin-chain': 'bulletin_paseo_runtime.compact.compressed.wasm',
       },
     },
     'web3-storage': {
       node: 'polkadot-omni-node',
+      ws: 'wss://previewnet.substrate.dev/web3-storage',
       runtime: {
         'paritytech/web3-storage': 'storage_paseo_runtime.compact.compressed.wasm',
       },
@@ -70,24 +82,36 @@ export const CHAINS = {
   'paseo-next-v2': {
     relay: {
       node: 'polkadot',
+      ws: 'wss://paseo-rpc.n.dwellir.com',
+      // Public Paseo is upstream-operated: the deployed :code predates the current
+      // release pipeline and byte-matches NO release asset (verified 2026-08-21:
+      // live blob 1.98MB vs every paseo_runtime.compressed.wasm ~1.68MB, same
+      // spec 2003001). The strongest honest check is spec equality, so the scan
+      // compares the RuntimeVersion the pinned artifact declares, not its bytes.
+      scanPolicy: 'spec',
       runtime: { 'paseo-network/runtimes': 'paseo_runtime.compressed.wasm' },
     },
     'asset-hub': {
       node: 'polkadot-omni-node',
+      ws: 'wss://paseo-asset-hub-next-rpc.polkadot.io',
       runtime: {
         'paritytech/preview-net-v1': 'next_asset_hub_paseo_runtime.wasm',
+        'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
     },
     people: {
       node: 'polkadot-omni-node',
+      ws: 'wss://paseo-people-next-system-rpc.polkadot.io',
       runtime: {
         'paritytech/preview-net-v1': 'next_people_paseo_runtime.wasm',
+        'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
     },
     bulletin: {
       node: 'polkadot-omni-node',
+      ws: 'wss://paseo-bulletin-next-rpc.polkadot.io',
       runtime: {
         'paritytech/polkadot-bulletin-chain': 'bulletin_paseo_runtime.compact.compressed.wasm',
       },
@@ -98,18 +122,23 @@ export const CHAINS = {
   devnet: {
     relay: {
       node: 'polkadot',
+      ws: 'wss://paseo-rpc.n.dwellir.com',
+      scanPolicy: 'spec', // same public relay as paseo-next-v2 — see that note
       runtime: { 'paseo-network/runtimes': 'paseo_runtime.compressed.wasm' },
     },
     'asset-hub': {
       node: 'polkadot-omni-node',
+      ws: 'wss://asset-hub-paseo-rpc.n.dwellir.com',
       runtime: { 'paseo-network/runtimes': 'asset-hub-paseo_runtime.compressed.wasm' },
     },
     people: {
       node: 'polkadot-omni-node',
+      ws: 'wss://people-paseo.rotko.net',
       runtime: { 'paseo-network/runtimes': 'people-paseo_runtime.compressed.wasm' },
     },
     bulletin: {
       node: 'polkadot-omni-node',
+      ws: 'wss://bulletin-paseo.tservices.es:8443',
       runtime: {
         'paritytech/polkadot-bulletin-chain': 'bulletin_paseo_runtime.compact.compressed.wasm',
       },

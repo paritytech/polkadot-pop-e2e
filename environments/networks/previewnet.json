@@ -7,7 +7,7 @@
   },
   "chains": {
     "relay": {
-      "runtime": "paseo-network/runtimes@v2.4.4"
+      "runtime": "paritytech/preview-net-v1@v20260820.184459"
     },
     "asset-hub": {
       "runtime": "paritytech/individuality@v0.12.1-previewnet"
@@ -27,5 +27,7 @@
     "storage-provider-node": "paritytech/web3-storage@v0.4.1-paseo",
     "kubo": "ipfs/kubo@v0.39.0"
   },
-  "tests": ["test:network-health"]
+  "tests": [
+    "test:network-health"
+  ]
 }

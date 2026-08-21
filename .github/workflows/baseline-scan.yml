@@ -1,0 +1,73 @@
+name: Baseline Scan
+
+# Keeps environments/networks/*.json true to production. Every few hours the
+# scan reads each pinned chain's LIVE runtime and attributes it to a release
+# (byte equality; declared-spec equality for the upstream-operated public
+# relay). Drift becomes a pin-bump commit on `baseline/bump` and one auto-PR —
+# whose release-gate run then validates the new baseline. The job goes red only
+# when a human is needed: production running bytes no allow-listed release
+# carries, or a dead scan endpoint.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A PAT (not the default GITHUB_TOKEN) so pushes to baseline/bump
+          # trigger the PR's own CI — default-token pushes run no workflows.
+          # GH_PAT_REFRESH needs Contents + Pull requests read/write on
+          # THIS repo only; the read-side GH_PAT stays read-only elsewhere.
+          token: ${{ secrets.GH_PAT_REFRESH }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+
+      - name: Scan production and rewrite drifted pins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -o pipefail
+          pnpm scan:baseline --write 2>&1 | tee scan.out
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat scan.out >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the pin-bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT_REFRESH }}
+        run: |
+          if git diff --quiet -- environments/networks; then
+            echo "record matches production — nothing to bump"
+            exit 0
+          fi
+          git config user.name "triangle-baseline-scan"
+          git config user.email "triangle-e2e@parity.io"
+          git checkout -B baseline/bump
+          git add environments/networks
+          git commit -m "baseline: production moved — $(git diff --cached --name-only -- environments/networks | xargs -n1 basename | sed 's/.json//' | paste -sd, -)"
+          git push -f origin baseline/bump
+          if ! gh pr list --head baseline/bump --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr create \
+              --head baseline/bump \
+              --title "baseline: sync manifests to what production runs" \
+              --body-file scan.out
+          fi
