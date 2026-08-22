@@ -6,55 +6,55 @@
       "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
       "metadata": ".papi/metadata/paseo.scale",
       "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
-      "codeHash": "0xfddf30fb88912790c5c7efd5918a9498821a80e22d5604ae115f4ed4b3580048"
+      "codeHash": "0x73bb1c8197a2d7786be576b499faa2703c52b88580f1c7d03f141cf6642bcd5b"
     },
     "bulletin": {
-      "wsUrl": "wss://paseo-bulletin-rpc.polkadot.io",
+      "wsUrl": "wss://bulletin-paseo.tservices.es:8443",
       "metadata": ".papi/metadata/bulletin.scale",
-      "genesis": "0x744960c32e3a3df5440e1ecd4d34096f1ce2230d7016a5ada8a765d5a622b4ea",
-      "codeHash": "0x049a00c0c4dbf257d4647d087d05bbb0b0fcad45b67cb88b8b855aab3e392cea"
+      "genesis": "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
+      "codeHash": "0x919b08470811f08edef7c2d15d387182adf5b501c2a2c8486c5b829a2c78018b"
     },
     "people": {
-      "wsUrl": "wss://paseo-people-next-rpc.polkadot.io",
+      "wsUrl": "wss://people-paseo.rotko.net",
       "metadata": ".papi/metadata/people.scale",
-      "genesis": "0xa22a2424d2cbf561eaecf7da8b1b548fa9d1939f60265e942b1049616a012f71",
-      "codeHash": "0x0e48da626edc33a96d18d81fdc5eebe5d6a9b624af4ca4b9dbcc1345a3b03bb6"
+      "genesis": "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
+      "codeHash": "0x5b6cc3fee11a33ca75d7aff18921247d783c6d1a1dea8eac072fe28010e746da"
     },
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
-      "genesis": "0x29f7b15e6227f86b90bf5199b5c872c28649a30e5f15fae6dd8fa9d5d48d6fbb",
-      "codeHash": "0xc1314017cbdcd76e8e343721350167ddd92a1c312b90ebc0188abff4bc4bdd4a"
+      "genesis": "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
+      "codeHash": "0x1ab78678006052f5d8d5c2b5e058752cf2a600780025a6b6a3ae3678ade9e87c"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
       "metadata": ".papi/metadata/previewBulletin.scale",
-      "genesis": "0xf37fa1f1450ea120edbf64c3fc447f671a00e1f1095a698f42eeec073c7ee487",
-      "codeHash": "0xbf2cd56d20198f00ab6f38d7e77f15a9d5671d47beb5d456012ed45d23572045"
+      "genesis": "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
+      "codeHash": "0x6b3a2edbb13251cc3f6291cb753a213970c6af5217bd91400aaccc65b4f95aff"
     },
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
-      "genesis": "0x3389bc9179d3be32568c67278bd080d05631ac71982d28a3fe545421147b311e",
-      "codeHash": "0xdda69368da1e2353f35bcd0ddabf622c0369932e334265f0668e1f6fd67f7c1b"
+      "genesis": "0x34999c298555e25bf17a7f3ea20efe7f6fdab1dfec7f808fbcfd36ca8aa5d220",
+      "codeHash": "0x6dbb302e73393b7ceb73700734edcbbdf25ea02947f78ba83f0d014a8e4d3adc"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextAssetHub.scale",
-      "genesis": "0xbf0488dbe9daa1de1c08c5f743e26fdc2a4ecd74cf87dd1b4b1eeb99ae4ef19f",
-      "codeHash": "0xf29ad48ce8c0bb6db198f7789778dd8424dcd3cb19ec7084214574f7e4aa86d9"
+      "genesis": "0x23e730eb1c6fecae09c917439a5038cb6122d0d48980e8b9bbf0ff56f94a2ca6",
+      "codeHash": "0xbe7baeef2ed57543b860933d78ee5a1dc3b46a74aa42250bd3f24bfdd1ce06b8"
     },
     "paseoNextBulletin": {
       "wsUrl": "wss://paseo-bulletin-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextBulletin.scale",
       "genesis": "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-      "codeHash": "0xbf2cd56d20198f00ab6f38d7e77f15a9d5671d47beb5d456012ed45d23572045"
+      "codeHash": "0x6b3a2edbb13251cc3f6291cb753a213970c6af5217bd91400aaccc65b4f95aff"
     },
     "paseoNextPeople": {
       "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextPeople.scale",
-      "genesis": "0xc5af1826b31493f08b7e2a823842f98575b806a784126f28da9608c68665afa5",
-      "codeHash": "0xf7333e38f36fd2e369c75fcd4c4be58642440ccf0f5550402a14dc373c0b9304"
+      "genesis": "0x89a63b11fef2c0273fc72c0d864da0793a665dade5db153e0cab995348c5440f",
+      "codeHash": "0x3973b0f94d593b0018753766422f4898987115b5261ba368ccda84619a8bf582"
     }
   }
 }

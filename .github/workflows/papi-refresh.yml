@@ -30,6 +30,10 @@ permissions:
 jobs:
   refresh:
     runs-on: parity-int-ubuntu
+    # A dead WS endpoint makes `papi update` hang forever — without a ceiling the
+    # job died daily at GitHub's 6h limit as a silent "cancelled" (observed
+    # 2026-08-14..21, the sunset paseo-next-v1 hosts). Fail fast and red instead.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +77,10 @@ jobs:
         if: steps.drift.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
+          # A PAT, not the default GITHUB_TOKEN: PRs opened with the default
+          # token trigger NO workflows, so refresh PRs would arrive with an
+          # empty checks section and merge unvalidated.
+          token: ${{ secrets.GH_PAT_REFRESH }}
           commit-message: "papi: refresh metadata for ${{ steps.drift.outputs.networks }}"
           branch: automated/papi-refresh
           delete-branch: true
