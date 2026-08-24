@@ -16,11 +16,13 @@
       "runtime": "paritytech/individuality@v0.11.2"
     },
     "bulletin": {
-      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.25-paseo"
+      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.26-paseo"
     }
   },
   "services": {
     "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
   },
-  "tests": ["test:network-health"]
+  "tests": [
+    "test:network-health"
+  ]
 }
