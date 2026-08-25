@@ -1,5 +1,6 @@
 {
   "private": true,
+  "license": "Apache-2.0",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "postinstall": "pnpm --filter @triangle-e2e/papi generate",
