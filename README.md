@@ -73,14 +73,18 @@ Three ways to start one:
     advanced: >-
       {"chains":{"asset-hub":{"runtime":"OWNER/REPO@TAG"},
                  "people":{"runtime":"OWNER/REPO@TAG"}}}
-    runs_on: ubuntu-latest      # or your own label
+    runs_on: parity-large       # your own label; a fork needs real capacity
   secrets:
     GH_PAT: ${{ secrets.YOUR_READ_TOKEN }}
   ```
 
-  A fork spawns five chains, so a standard hosted runner may not carry it — pass a
-  label with enough capacity. A pin a named network does not carry fails that
-  network's run, naming the chain, rather than silently skipping it.
+  A reusable workflow runs on the **caller's** runners, so `runs_on` is a label
+  from your org, not this one. It defaults to `ubuntu-latest` because that is all
+  every caller can reach — but a fork spawns five chains, so pass something with
+  real capacity if the spawn dies on resources.
+
+  A pin a named network does not carry fails that network's run, naming the chain,
+  rather than silently skipping it.
 
 See [`environments/README.md`](environments/README.md) for how manifests, the
 release map and the candidate matrix work.
