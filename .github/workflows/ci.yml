@@ -1,0 +1,62 @@
+name: CI
+
+# Typecheck plus the unit tests for the release map, resolver and gate-form
+# parsing. Everything here is offline — no chain, no RPC, no secrets — so it runs
+# on any PR including one from a fork.
+#
+# The suite's own tests are NOT here: they need a live network or a fork, which a
+# hosted runner on an untrusted PR should not be given. The release gate runs
+# those.
+#
+# This exists because the environments tests previously ran in no workflow at all,
+# which is how three of them sat red on main for two days after the baseline scan
+# bumped a manifest pin the fixtures depended on.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      # Descriptors are generated from live chain metadata by the postinstall, and
+      # chain-tests cannot typecheck without them — so this install does NOT skip
+      # scripts. If an upstream chain is unreachable the job fails here, loudly,
+      # which is the correct signal: the daily PAPI refresh has drifted.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Unit tests (release map, resolver, gate form)
+        run: pnpm test:environments
+
+      - name: Typecheck the suite
+        run: pnpm --filter @pop-e2e/chain-tests exec tsc --noEmit -p .
+
+      # The manifests are the gate's input; a malformed one should fail here in
+      # seconds rather than after a runner has spent 25 minutes forking a network.
+      - name: Every manifest resolves
+        run: |
+          set -euo pipefail
+          for m in environments/networks/*.json; do
+            echo "::group::$m"
+            node environments/resolve.mjs tests "$m"
+            echo "::endgroup::"
+          done
