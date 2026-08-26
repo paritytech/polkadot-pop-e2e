@@ -10,7 +10,7 @@ import {
   previewAssetHub,
   previewBulletin,
   previewPeople,
-} from "@triangle-e2e/papi";
+} from "@pop-e2e/papi";
 import { getNetworkConfig } from "../config/networks.js";
 
 /**

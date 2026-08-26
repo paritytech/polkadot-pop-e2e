@@ -15,8 +15,8 @@
  * this mapping statically; this probe is how you check the mirror is right.
  *
  * Usage:
- *   pnpm --filter @triangle-e2e/chain-tests probe:dotns
- *   NETWORK=previewnet pnpm --filter @triangle-e2e/chain-tests probe:dotns
+ *   pnpm --filter @pop-e2e/chain-tests probe:dotns
+ *   NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests probe:dotns
  *
  * Reads only (`view` calls via dry-run), so the signing account needs an
  * address but no funds.

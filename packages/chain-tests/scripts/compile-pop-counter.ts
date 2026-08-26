@@ -5,7 +5,7 @@
  * carries its bytecode as a hand-pinned constant — no runtime solc
  * dependency at test time.
  *
- * Usage: `pnpm --filter @triangle-e2e/chain-tests compile-pop-counter`
+ * Usage: `pnpm --filter @pop-e2e/chain-tests compile-pop-counter`
  */
 // solc-js's typings are export-default-cjs; treat as `any` to keep types simple.
 // eslint-disable-next-line @typescript-eslint/no-require-imports

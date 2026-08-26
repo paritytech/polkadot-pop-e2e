@@ -51,7 +51,7 @@ jobs:
         # fetches `state_getMetadata` from the configured WS endpoint, and
         # rewrites the `.scale` blob + regenerates descriptors. Idempotent
         # on a chain that hasn't upgraded.
-        run: pnpm --filter @triangle-e2e/papi exec papi update
+        run: pnpm --filter @pop-e2e/papi exec papi update
 
       - name: Detect .scale drift
         id: drift

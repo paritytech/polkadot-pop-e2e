@@ -1,4 +1,4 @@
-# @triangle-e2e/chain-tests
+# @pop-e2e/chain-tests
 
 Vitest suite that hits the testnet chains directly — Asset Hub, People, Bulletin — plus the Identity Backend. Used by CI on a schedule (Network Health, Ring Health workflows) and locally for debugging.
 
@@ -6,8 +6,8 @@ Vitest suite that hits the testnet chains directly — Asset Hub, People, Bullet
 
 ```
 pnpm install
-pnpm --filter @triangle-e2e/chain-tests test            # full network-health on paseo-next-v2
-NETWORK=previewnet pnpm --filter @triangle-e2e/chain-tests test    # switch network
+pnpm --filter @pop-e2e/chain-tests test            # full network-health on paseo-next-v2
+NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests test    # switch network
 ```
 
 ## Scripts

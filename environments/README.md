@@ -44,7 +44,7 @@ So the target file *is* the test plan, with no mode flags — and a target that 
 
 Single-dimension targets collapse to just `target` (a binaries-only ask is then itself the mixed-version rollout test — every runtime converge no-ops; a runtimes-only ask is the pure upgrade gate). The cross terms are rollout-*ordering* findings — a red `runtimes-only` means "don't enact until every node runs the new binary", not "don't merge". One PR may carry targets for several networks; each fans out its own candidates, all in parallel.
 
-Each candidate ends by running the manifest's `tests:` — `pnpm --filter @triangle-e2e/chain-tests <script>` per entry, with `NETWORK=local-fork` — against its upgraded fork; that suite is the actual verdict on the environment.
+Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `NETWORK=local-fork` — against its upgraded fork; that suite is the actual verdict on the environment.
 
 The engine's own pins are its business (per-network `networks/<name>.json` after preview-net-v1 #159; `config/versions.env` keeps only the shared toolchain); this directory answers "what is deployed as we know it" (canonical) and "what is being asked" (target).
 
@@ -58,7 +58,7 @@ The engine's own pins are its business (per-network `networks/<name>.json` after
   pnpm resolve:environment overrides environments/networks/previewnet.json  # engine env (PPN_BINARIES, NETWORK, ...)
   pnpm resolve:environment runtimes environments/networks/previewnet.json   # downloads, prints chain=path
   # in a preview-net-v1 checkout: make start FORK=1 → make runtime-upgrade per line
-  NETWORK=local-fork pnpm --filter @triangle-e2e/chain-tests test:network-health
+  NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
 ## Binary slots and chain pins
