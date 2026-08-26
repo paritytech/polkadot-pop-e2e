@@ -67,15 +67,20 @@ Three ways to start one:
   ```yaml
   uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
   with:
-    environment: previewnet
-    advanced: '{"chains":{"asset-hub":{"runtime":"paritytech/individuality-community@nightly-2026-08-26"}}}'
+    # One runtime is baked into several networks — name them all and each gets
+    # its own fork, diffed against its own deployed pin.
+    environment: previewnet,paseo-next-v2
+    advanced: >-
+      {"chains":{"asset-hub":{"runtime":"OWNER/REPO@TAG"},
+                 "people":{"runtime":"OWNER/REPO@TAG"}}}
     runs_on: ubuntu-latest      # or your own label
   secrets:
     GH_PAT: ${{ secrets.YOUR_READ_TOKEN }}
   ```
 
   A fork spawns five chains, so a standard hosted runner may not carry it — pass a
-  label with enough capacity.
+  label with enough capacity. A pin a named network does not carry fails that
+  network's run, naming the chain, rather than silently skipping it.
 
 See [`environments/README.md`](environments/README.md) for how manifests, the
 release map and the candidate matrix work.

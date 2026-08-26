@@ -30,7 +30,9 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: Environment manifest to gate (environments/<name>.json)
+        description: >
+          Networks to gate, comma-separated — e.g. `previewnet,paseo-next-v2`.
+          Each gets its own fork, and the same overlay is applied to each.
         type: string
         required: true
       advanced:
@@ -80,9 +82,13 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment manifest to gate (environments/<name>.json)
+        description: Networks to gate — one, or a comma-separated pair
         type: choice
-        options: [previewnet, paseo-next-v2, devnet]
+        options:
+          - previewnet
+          - paseo-next-v2
+          - devnet
+          - previewnet,paseo-next-v2
         default: previewnet
       binary_polkadot:
         description: >
@@ -165,7 +171,10 @@ env:
   # The gate targets the multi-network-workspace API (ppn CLI, PPN_BINARIES
   # overrides) — flip to `main` when preview-net-v1 #159 merges.
   PPN_REF_DEFAULT: main # multi-network-workspace merged (preview-net-v1#159) and its branch is gone
-  SOURCE_MANIFEST: environments/networks/${{ inputs.environment || 'previewnet' }}.json
+  # Comma-separated: one release can gate several networks. Individuality cuts a
+  # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
+  # for both in one call and gets a fork of each.
+  ENVIRONMENTS: ${{ inputs.environment || 'previewnet' }}
 
 jobs:
   # Decompose the manifest change into candidates — cheap, fails fast on a bad
@@ -221,7 +230,10 @@ jobs:
           if [ -n "${{ github.base_ref }}" ]; then
             git fetch --depth=1 origin "${{ github.base_ref }}"
             changed=$(git diff --name-only "origin/${{ github.base_ref }}" HEAD -- 'environments/networks/*.json')
-            [ -n "$changed" ] || changed="$SOURCE_MANIFEST"
+            # A PR that touches no manifest still gates the default set.
+            if [ -z "$changed" ]; then
+              for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do changed="$changed environments/networks/$net.json"; done
+            fi
             for c in $changed; do
               [ -f "$c" ] || continue  # manifest deleted in this PR
               # Engine-blocked networks stay out of PR runs; dispatch/issue can
@@ -247,8 +259,16 @@ jobs:
               printf '%s' "$TARGET_JSON" > /tmp/target-overlay.json
               TARGET_ARGS="--target /tmp/target-overlay.json"
             fi
-            # shellcheck disable=SC2086 # TARGET_ARGS is deliberately two words
-            add "$(node environments/resolve.mjs candidates "$SOURCE_MANIFEST" $TARGET_ARGS)"
+            for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do
+              manifest="environments/networks/$net.json"
+              if [ ! -f "$manifest" ]; then
+                echo "::error::unknown environment \"$net\" — no $manifest"; exit 1
+              fi
+              # The same overlay is applied to every named network. A pin the
+              # network does not carry fails here, per-network, naming the chain.
+              # shellcheck disable=SC2086 # TARGET_ARGS is deliberately two words
+              add "$(node environments/resolve.mjs candidates "$manifest" $TARGET_ARGS)"
+            done
           fi
           if [ "$matrix" = "[]" ] && [ -z "${skipped:-}" ]; then
             echo "::error::no gateable manifests in this change"; exit 1
@@ -259,7 +279,14 @@ jobs:
     needs: plan
     # An empty matrix is legitimate: every touched manifest was an
     # engine-blocked (non-PR-gateable) network.
-    if: needs.plan.outputs.matrix != '[]'
+    # A fork PR must never reach the fork job: it runs on Parity's self-hosted
+    # runners, and a PR can edit the workflow it runs under. Same-repo branches
+    # are fine — only untrusted forks are excluded. Belt and braces alongside the
+    # repo's "require approval for outside collaborators" setting.
+    if: >-
+      needs.plan.outputs.matrix != '[]'
+      && (github.event_name != 'pull_request'
+          || github.event.pull_request.head.repo.full_name == github.repository)
     # Its own beefy runner per candidate: each fork binds the engine's fixed ports
     # and runs a five-chain network.
     runs-on: ${{ inputs.runs_on || 'parity-large' }}
