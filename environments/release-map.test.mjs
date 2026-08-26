@@ -27,6 +27,14 @@ import {
   validateManifest,
 } from './release-map.mjs';
 
+// A bulletin pin production can never catch up to. The fan-out and transition
+// fixtures below need a runtime that DIFFERS from the canonical manifest; they
+// used to hardcode a real tag, so when the baseline scan bumped the manifest to
+// that same tag (2026-08-24) the "bump" quietly became a no-op and three tests
+// started asserting the collapsed shape instead of the fan-out. A tag no release
+// will ever carry keeps the fixture honest whatever production does.
+const UNREACHABLE_BULLETIN = 'paritytech/polkadot-bulletin-chain@v9.9.9-paseo';
+
 const previewnet = JSON.parse(
   fs.readFileSync(path.join(import.meta.dirname, 'networks', 'previewnet.json'), 'utf8')
 );
@@ -103,10 +111,10 @@ describe('candidateMatrix', () => {
     },
   };
   const bumpRuntimes = withChain(previewnet, 'bulletin', {
-    runtime: 'paritytech/polkadot-bulletin-chain@v0.0.26-paseo',
+    runtime: UNREACHABLE_BULLETIN,
   });
   const bumpBoth = withChain(bumpBinaries, 'bulletin', {
-    runtime: 'paritytech/polkadot-bulletin-chain@v0.0.26-paseo',
+    runtime: UNREACHABLE_BULLETIN,
   });
 
   it('a both-dimensions PR fans out into target plus two informational cross terms', () => {
@@ -166,9 +174,9 @@ describe('candidateMatrix', () => {
 describe('target overlays (X = canonical, Y = canonical ⊕ target)', () => {
   it('merges a sparse ask onto the canonical, leaving everything else untouched', () => {
     const effective = mergeTarget(previewnet, {
-      chains: { bulletin: { runtime: 'paritytech/polkadot-bulletin-chain@v0.0.26-paseo' } },
+      chains: { bulletin: { runtime: UNREACHABLE_BULLETIN } },
     });
-    assert.equal(effective.chains.bulletin.runtime, 'paritytech/polkadot-bulletin-chain@v0.0.26-paseo');
+    assert.equal(effective.chains.bulletin.runtime, UNREACHABLE_BULLETIN);
     assert.deepEqual(effective.binaries, previewnet.binaries);
     assert.deepEqual(effective.chains.relay, previewnet.chains.relay);
     assert.deepEqual(effective.services, previewnet.services);
@@ -210,11 +218,11 @@ describe('target overlays (X = canonical, Y = canonical ⊕ target)', () => {
 
   it('reports exactly the moved pins as transitions', () => {
     const effective = mergeTarget(previewnet, {
-      chains: { bulletin: { runtime: 'paritytech/polkadot-bulletin-chain@v0.0.26-paseo' } },
+      chains: { bulletin: { runtime: UNREACHABLE_BULLETIN } },
       services: { 'eth-rpc': 'paritytech/polkadot-sdk@polkadot-stable2606-1' },
     });
     assert.deepEqual(transitions(previewnet, effective), [
-      `bulletin: runtime ${previewnet.chains.bulletin.runtime} → paritytech/polkadot-bulletin-chain@v0.0.26-paseo`,
+      `bulletin: runtime ${previewnet.chains.bulletin.runtime} → ${UNREACHABLE_BULLETIN}`,
       `eth-rpc: ${previewnet.services['eth-rpc']} → paritytech/polkadot-sdk@polkadot-stable2606-1`,
     ]);
   });
