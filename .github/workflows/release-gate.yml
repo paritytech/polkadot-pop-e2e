@@ -23,6 +23,31 @@ on:
     paths:
       - "environments/**"
       - ".github/workflows/release-gate.yml"
+  # One field per override, mirroring the "Release gate request" issue form — the
+  # field list lives in environments/gate-form.mjs and both channels read it, so
+  # they cannot drift. Fill in only what you want tested; every empty field stays
+  # at the canonical (deployed) pin from environments/networks/<environment>.json.
+  # Every pin is an `owner/repo@tag` release ref; which release ASSET to take is
+  # resolved per network, so you never name files.
+  #
+  # `@latest` is accepted everywhere and resolves through the repo's GitHub "latest
+  # release", with the run log naming the concrete tag it landed on. It is only
+  # SAFE on repos whose latest release is the one you mean — preview-net-v1,
+  # polkadot-sdk, release-automation, web3-storage, device-uniqueness-backend.
+  # Three sources where it misfires, verified 2026-08-25:
+  #   - paseo-network/runtimes@latest → v2.4.3 while production runs v2.4.4 (GitHub
+  #     ranks releases/latest by tag created_at, not publish date), so the gate
+  #     rejects it as a downgrade.
+  #   - paritytech/individuality-community@latest → 404: every release there is a
+  #     prerelease nightly, and releases/latest skips prereleases.
+  #   - flavored repos (polkadot-bulletin-chain, individuality) resolve to whichever
+  #     flavor sorts first, not your network's — individuality@latest is the
+  #     -previewnet build, wrong for paseo-next-v2.
+  # Pin an exact tag whenever you want the run to stay reproducible.
+  #
+  # workflow_dispatch caps at 10 inputs, which is what `advanced` is for: it holds
+  # the asks no field expresses (a `tests` list, asset-hub split from people, a
+  # `ppn_ref`) and REPLACES every field above it when filled.
   workflow_dispatch:
     inputs:
       environment:
@@ -30,15 +55,75 @@ on:
         type: choice
         options: [previewnet, paseo-next-v2, devnet]
         default: previewnet
-      target:
+      binary_polkadot:
         description: >
-          Optional sparse target overlay (JSON) — only the pins to test, everything
-          else stays canonical, e.g.
-          {"chains":{"bulletin":{"runtime":"paritytech/polkadot-bulletin-chain@v0.0.23-paseo"}}}.
-          Empty = steady-state assertion run.
+          Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it. From
+          paritytech/preview-net-v1, paritytech/polkadot-sdk or
+          paritytech/release-automation (complete tags only — some
+          release-automation releases are partial re-publishes). `@latest` is safe
+          on all three. e.g. paritytech/preview-net-v1@latest or
+          paritytech/release-automation@polkadot-weekly2026w34-rc1
         required: false
-      ppn_ref:
-        description: preview-net-v1 ref to take the engine from
+      binary_polkadot_omni_node:
+        description: >
+          Node binary polkadot-omni-node — one file every parachain execs, so this
+          moves all of them together. Same sources as polkadot, `@latest` equally
+          safe. e.g. paritytech/preview-net-v1@latest or
+          paritytech/polkadot-sdk@polkadot-stable2606-1
+        required: false
+      runtime_relay:
+        description: >
+          Runtime relay — UPGRADED from whatever production runs to this release; a
+          byte-identical pin is a no-op assertion, an older one fails as stale. From
+          paseo-network/runtimes (previewnet also: paritytech/preview-net-v1). Do
+          NOT use paseo-network/runtimes@latest — it resolves to v2.4.3, behind the
+          deployed v2.4.4, and the gate rejects the downgrade.
+          e.g. paseo-network/runtimes@v2.4.5 or paritytech/preview-net-v1@latest
+        required: false
+      runtime_individuality:
+        description: >
+          Runtime asset-hub AND people — two runtimes out of one individuality build,
+          so one pin moves both. previewnet/paseo-next-v2: paritytech/individuality,
+          paritytech/individuality-community or paritytech/preview-net-v1; devnet:
+          paseo-network/runtimes. `@latest` is flavor-blind here — individuality
+          @latest is the -previewnet build (wrong for paseo-next-v2) and
+          individuality-community@latest 404s (its nightlies are all prereleases),
+          so name the tag. Split the two chains via `advanced`.
+          e.g. paritytech/individuality@v0.12.0-previewnet
+        required: false
+      runtime_bulletin:
+        description: >
+          Runtime bulletin, from paritytech/polkadot-bulletin-chain — pin the
+          network's flavor (…-paseo) explicitly, never @latest (it can resolve to a
+          westend build). Not pinnable on devnet.
+          e.g. paritytech/polkadot-bulletin-chain@v0.0.25-paseo
+        required: false
+      runtime_web3_storage:
+        description: >
+          Runtime web3-storage, from paritytech/web3-storage. previewnet only.
+          `@latest` is safe. e.g. paritytech/web3-storage@v0.4.2-paseo or
+          paritytech/web3-storage@latest
+        required: false
+      service_eth_rpc:
+        description: >
+          The eth-rpc sidecar the fork runs. Same sources as the node binaries,
+          `@latest` equally safe. e.g. paritytech/preview-net-v1@latest or
+          paritytech/release-automation@polkadot-weekly2026w34-rc1
+        required: false
+      service_identity_backend:
+        description: >
+          The identity service quadruple (identity-api, chain-writer,
+          registration-queue, username-indexer — they travel together), from
+          paritytech/device-uniqueness-backend. Empty runs the engine's default tag.
+          previewnet only. `@latest` is safe.
+          e.g. paritytech/device-uniqueness-backend@latest
+        required: false
+      advanced:
+        description: >
+          Raw target overlay (JSON) for asks the fields cannot express — REPLACES
+          them when set. Also the only route for `ppn_ref` (the preview-net-v1 ref
+          to take the engine from), e.g. {"ppn_ref":"mak/engine-branch"}. Shape:
+          environments/README.md.
         required: false
 
 concurrency:
@@ -46,7 +131,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Engine default; `ppn_ref` overrides it for ad-hoc runs against engine branches.
+  # Engine default; a `ppn_ref` key in the dispatch form's `advanced` overlay
+  # overrides it for ad-hoc runs against engine branches.
   # The gate targets the multi-network-workspace API (ppn CLI, PPN_BINARIES
   # overrides) — flip to `main` when preview-net-v1 #159 merges.
   PPN_REF_DEFAULT: main # multi-network-workspace merged (preview-net-v1#159) and its branch is gone
@@ -59,12 +145,37 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      # Fold the dispatch form's fields into the one sparse overlay the resolver
+      # takes, and lift `ppn_ref` back out of it. No-op on a PR run (the manifest
+      # diff is the ask there) — the fields are dispatch-only.
+      - name: Assemble the ask
+        id: ask
+        env:
+          GATE_BINARY_POLKADOT: ${{ inputs.binary_polkadot }}
+          GATE_BINARY_POLKADOT_OMNI_NODE: ${{ inputs.binary_polkadot_omni_node }}
+          GATE_RUNTIME_RELAY: ${{ inputs.runtime_relay }}
+          GATE_RUNTIME_INDIVIDUALITY: ${{ inputs.runtime_individuality }}
+          GATE_RUNTIME_BULLETIN: ${{ inputs.runtime_bulletin }}
+          GATE_RUNTIME_WEB3_STORAGE: ${{ inputs.runtime_web3_storage }}
+          GATE_SERVICE_ETH_RPC: ${{ inputs.service_eth_rpc }}
+          GATE_SERVICE_IDENTITY_BACKEND: ${{ inputs.service_identity_backend }}
+          GATE_ADVANCED: ${{ inputs.advanced }}
+        run: |
+          set -euo pipefail
+          node environments/gate-form.mjs dispatch > ask.json
+          {
+            echo "target=$(jq -c '.target // empty' ask.json)"
+            echo "ppn_ref=$(jq -r '.ppn_ref // empty' ask.json)"
+          } >> "$GITHUB_OUTPUT"
+          echo "ask: $(cat ask.json)"
 
       # The manifest on main is the canonical X (deployed state); the ask Y arrives
       # either as a PR editing it (the diff IS the ask; merging later IS the
@@ -74,7 +185,7 @@ jobs:
       - name: Compute the candidate matrix
         id: plan
         env:
-          TARGET_JSON: ${{ inputs.target }}
+          TARGET_JSON: ${{ steps.ask.outputs.target }}
         run: |
           matrix='[]'
           add() { matrix=$(node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).concat(JSON.parse(process.argv[2]))))' "$matrix" "$1"); }
@@ -169,7 +280,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/preview-net-v1
-          ref: ${{ inputs.ppn_ref || env.PPN_REF_DEFAULT }}
+          ref: ${{ needs.plan.outputs.ppn_ref || env.PPN_REF_DEFAULT }}
           token: ${{ secrets.GH_PAT }}
           path: ppn
 
