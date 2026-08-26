@@ -12,7 +12,7 @@ name: Release Gate
 # Single-dimension PRs collapse to one run. Merging the PR records the gated state.
 #
 # The payload is packages/chain-tests: every candidate run ends with
-# `pnpm --filter @triangle-e2e/chain-tests <script>` (per the manifest's `tests:`)
+# `pnpm --filter @pop-e2e/chain-tests <script>` (per the manifest's `tests:`)
 # against the upgraded fork via NETWORK=local-fork.
 #
 # The engine is paritytech/preview-net-v1 (`make start FORK=1`, `make runtime-upgrade`);
@@ -23,6 +23,35 @@ on:
     paths:
       - "environments/**"
       - ".github/workflows/release-gate.yml"
+  # The machine-facing door: another repo's CI calls this when it cuts a release.
+  # Deliberately NOT the ten per-field inputs below — a calling workflow builds the
+  # overlay programmatically, so one JSON blob is friendlier there than ten fields,
+  # and workflow_call gets its own input budget separate from workflow_dispatch's.
+  workflow_call:
+    inputs:
+      environment:
+        description: Environment manifest to gate (environments/<name>.json)
+        type: string
+        required: true
+      advanced:
+        description: >
+          Sparse target overlay (JSON) — the pins to test. May carry `ppn_ref`.
+          Empty = a steady-state assertion run.
+        type: string
+        required: false
+      runs_on:
+        description: >
+          Runner label for the fork job. Defaults to Parity's; callers with their
+          own capacity pass their label. A fork spawns a five-chain network, so a
+          standard 4-core hosted runner is unlikely to carry it.
+        type: string
+        required: false
+        default: parity-large
+    secrets:
+      GH_PAT:
+        description: Read access to the engine repo and the pinned release sources.
+        required: true
+
   # One field per override, mirroring the "Release gate request" issue form — the
   # field list lives in environments/gate-form.mjs and both channels read it, so
   # they cannot drift. Fill in only what you want tested; every empty field stays
@@ -233,7 +262,7 @@ jobs:
     if: needs.plan.outputs.matrix != '[]'
     # Its own beefy runner per candidate: each fork binds the engine's fixed ports
     # and runs a five-chain network.
-    runs-on: parity-large
+    runs-on: ${{ inputs.runs_on || 'parity-large' }}
     # Budget for the slowest shape: fresh bite (~15m) + two public-relay epoch
     # boundaries (~135m worst case, see NETWORK_META) + converge + suite.
     # Previewnet runs finish in ~25m.
@@ -445,7 +474,7 @@ jobs:
       # Mirrors _health-check.yml: idempotently deploy the counter contract the
       # PGAS-paid Revive call test uses; the fork usually carries production's already.
       - name: Deploy counter contract
-        run: pnpm --filter @triangle-e2e/chain-tests deploy-counter
+        run: pnpm --filter @pop-e2e/chain-tests deploy-counter
 
       - name: Run the manifest's chain-tests against the upgraded fork
         run: |
@@ -454,7 +483,7 @@ jobs:
           rm -f packages/chain-tests/.test-credentials.json
           for t in $(node environments/resolve.mjs tests "$MANIFEST"); do
             echo "::group::$t"
-            pnpm --filter @triangle-e2e/chain-tests "$t"
+            pnpm --filter @pop-e2e/chain-tests "$t"
             echo "::endgroup::"
           done
 
