@@ -6,8 +6,7 @@
     "postinstall": "pnpm --filter @pop-e2e/papi generate",
     "test:environments": "node --test environments/*.test.mjs",
     "resolve:environment": "node environments/resolve.mjs",
-    "scan:baseline": "node environments/baseline-scan.mjs",
-    "check:token": "node scripts/check-token.mjs"
+    "scan:baseline": "node environments/baseline-scan.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

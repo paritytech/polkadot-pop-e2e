@@ -49,18 +49,6 @@ NETWORK=local-fork FORK_OF=previewnet \
 On a fork `//Alice` is funded and holds sudo, and the engine spawns a local
 identity backend — so the full suite runs with no secrets at all.
 
-## Will my token run the gate?
-
-```bash
-GH_PAT=<token> pnpm check:token                 # defaults to previewnet
-GH_PAT=<token> pnpm check:token environments/networks/paseo-next-v2.json
-```
-
-Reports what the token is, its scopes, whether org SSO is still unauthorised, and
-which of the manifest's source repos it can actually read — the same preflight the
-gate runs, minus the CI minute. Only private sources need a grant; public ones
-answer with no token at all.
-
 ## The release gate
 
 [`.github/workflows/release-gate.yml`](.github/workflows/release-gate.yml) forks a
