@@ -46,6 +46,7 @@ import {
   binaryPlan,
   candidateMatrix,
   mergeTarget,
+  parseReleaseRef,
   allowedSources,
   ppnOverrides,
   envTagPins,
@@ -114,6 +115,20 @@ if (mode === 'binaries') {
   }
 } else if (mode === 'tests') {
   for (const t of manifest.tests) console.log(t);
+} else if (mode === 'repos') {
+  // Every GitHub repo this manifest's pins are fetched from, plus the engine —
+  // what a token must be able to read for THIS run. Emitted so the gate can
+  // preflight exactly what it needs rather than a hardcoded list that drifts as
+  // manifests move between private and public (…-community) sources.
+  const repos = new Set(['paritytech/preview-net-v1']);
+  for (const pin of [
+    ...Object.values(manifest.binaries ?? {}),
+    ...Object.values(manifest.services ?? {}),
+    ...Object.values(manifest.chains ?? {}).map((c) => c.runtime),
+  ]) {
+    if (typeof pin === 'string') repos.add(parseReleaseRef(pin).repo);
+  }
+  for (const r of [...repos].sort()) console.log(r);
 } else if (mode === 'sources') {
   console.log(allowedSources(manifest.network));
 } else if (mode === 'meta') {
