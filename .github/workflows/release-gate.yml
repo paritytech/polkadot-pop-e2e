@@ -333,12 +333,34 @@ jobs:
       # GITHUB_TOKEN cannot read a sibling private repo; GH_PAT must be able
       # to read paritytech/preview-net-v1 (code and releases). Guarded so a missing
       # secret fails with instructions instead of an opaque "repository not found".
+      # Checks the token can actually REACH each private source, not merely that a
+      # string is set. The previous version only tested non-emptiness, so a token
+      # with the wrong scope sailed through here and died 20 seconds later in the
+      # engine checkout with a bare 403 (observed 2026-08-27). Naming the repo
+      # that refused is the whole value of a preflight.
       - name: Check prerequisites
         env:
-          HAVE_TOKEN: ${{ secrets.GH_PAT != '' }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          if [ "$HAVE_TOKEN" != "true" ]; then
-            echo "::error::secrets.GH_PAT is not set on this repo — the gate checks out and fetches releases from the private paritytech/preview-net-v1. Grant the GH_PAT token read access to preview-net-v1"
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::secrets.GH_PAT is not set on this repo. The gate checks out paritytech/preview-net-v1 and downloads release assets from private repos; it needs a token with contents:read on them."
+            exit 1
+          fi
+          missing=""
+          for repo in paritytech/preview-net-v1 paritytech/individuality paritytech/device-uniqueness-backend; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$repo")
+            if [ "$code" = "200" ]; then
+              echo "  ok       $repo"
+            else
+              echo "  HTTP $code $repo"
+              missing="$missing $repo"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::GH_PAT cannot read:$missing — grant contents:read on each. A fine-grained PAT must select them explicitly; a classic PAT needs SSO authorised for the paritytech org."
             exit 1
           fi
 
