@@ -43,10 +43,10 @@ on:
         required: false
       runtime_artifact:
         description: >
-          Name of an artifact in the CALLING run holding freshly built runtime
-          wasm. A called workflow's jobs live in the caller's run, so a plain
-          download reaches whatever the caller's build job uploaded — no token,
-          no cross-repo API.
+          Artifact name or glob in the CALLING run holding freshly built runtime
+          wasm. `*-runtime` collects a build matrix that uploads one artifact
+          each. A called workflow's jobs live in the caller's run, so a plain
+          download reaches them — no token, no cross-repo API.
 
           Files are matched to chains by the asset names the releases use, e.g.
           next_asset_hub_paseo_runtime.compact.compressed.wasm. Upload the build
@@ -59,11 +59,12 @@ on:
         description: >
           Runner label for the fork job.
 
-          Defaults to `parity-large`. A fork spawns a five-chain network, which is
-          more than a standard hosted runner carries.
+          Defaults to `parity-large`, which is what Parity runs on.
 
           A reusable workflow runs on the CALLER's runners, not this repo's, so a
-          caller outside Parity passes a label of their own with enough capacity.
+          caller outside Parity passes a label of their own. `ubuntu-latest` is
+          enough: a full run — spawn five chains, converge, test — finished on one
+          in 32 minutes (2026-08-28), against ~25 on parity-large.
         type: string
         required: false
         default: parity-large
@@ -245,7 +246,11 @@ jobs:
         if: inputs.runtime_artifact != ''
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.runtime_artifact }}
+          # A pattern, not a name: callers commonly upload one artifact per
+          # runtime (a build matrix), so `*-runtime` collects them all. A plain
+          # name is a pattern that matches itself.
+          pattern: ${{ inputs.runtime_artifact }}
+          merge-multiple: true
           path: incoming
 
       - name: Fold the built runtimes into the ask
@@ -414,7 +419,11 @@ jobs:
         if: inputs.runtime_artifact != ''
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.runtime_artifact }}
+          # A pattern, not a name: callers commonly upload one artifact per
+          # runtime (a build matrix), so `*-runtime` collects them all. A plain
+          # name is a pattern that matches itself.
+          pattern: ${{ inputs.runtime_artifact }}
+          merge-multiple: true
           path: incoming
 
       - name: Checkout the engine (preview-net-v1)

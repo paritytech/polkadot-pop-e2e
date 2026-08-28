@@ -79,9 +79,8 @@ Three ways to start one:
   ```
 
   A reusable workflow runs on the **caller's** runners, so `runs_on` is a label
-  from your org, not this one. It defaults to `ubuntu-latest` because that is all
-  every caller can reach — but a fork spawns five chains, so pass something with
-  real capacity if the spawn dies on resources.
+  from your org, not this one. It defaults to `parity-large`; `ubuntu-latest`
+  works too — a full run finished on one in 32 minutes.
 
   A pin a named network does not carry fails that network's run, naming the chain,
   rather than silently skipping it.

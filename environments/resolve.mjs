@@ -134,20 +134,36 @@ if (mode === 'binaries') {
   // their canonical pin, which is what makes a partial build work: upload only
   // asset-hub and only asset-hub is swapped.
   if (!outDir) usage('local-overlay needs --dir <downloaded artifact dir>');
+  // Recursive: one artifact per runtime is the common shape, and each unpacks
+  // into its own subdirectory unless the caller merged them.
+  const walk = (dir) =>
+    fs.existsSync(dir)
+      ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+          const full = path.join(dir, e.name);
+          return e.isDirectory() ? walk(full) : [full];
+        })
+      : [];
+  const found = new Map();
+  for (const file of walk(outDir)) {
+    // Last one wins is fine: two files with the same asset name are the same
+    // runtime, and the manifest can only carry one pin per chain anyway.
+    found.set(path.basename(file), file);
+  }
+
   const chains = {};
   const matched = [];
   for (const [chain, entry] of Object.entries(CHAINS[manifest.network] ?? {})) {
     for (const asset of new Set(Object.values(entry.runtime ?? {}))) {
-      const candidate = path.join(outDir, asset);
-      if (fs.existsSync(candidate)) {
-        chains[chain] = { runtime: `file:${candidate}` };
-        matched.push(`${chain} <- ${asset}`);
+      const hit = found.get(asset);
+      if (hit) {
+        chains[chain] = { runtime: `file:${hit}` };
+        matched.push(`${chain} <- ${hit}`);
         break;
       }
     }
   }
   if (matched.length === 0) {
-    const present = fs.existsSync(outDir) ? fs.readdirSync(outDir) : [];
+    const present = [...found.keys()];
     throw new Error(
       `no file in ${outDir} matches a runtime asset name for ${manifest.network}. ` +
         `Found: ${present.join(', ') || '(empty)'}. Upload the build output under the ` +
