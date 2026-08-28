@@ -41,6 +41,20 @@ on:
           Empty = a steady-state assertion run.
         type: string
         required: false
+      runtime_artifact:
+        description: >
+          Name of an artifact in the CALLING run holding freshly built runtime
+          wasm. A called workflow's jobs live in the caller's run, so a plain
+          download reaches whatever the caller's build job uploaded — no token,
+          no cross-repo API.
+
+          Files are matched to chains by the asset names the releases use, e.g.
+          next_asset_hub_paseo_runtime.compact.compressed.wasm. Upload the build
+          output under those names and name nothing here but the artifact.
+          Chains with no matching file stay on their canonical pin, so a partial
+          build gates only what it built.
+        type: string
+        required: false
       runs_on:
         description: >
           Runner label for the fork job.
@@ -224,6 +238,32 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "ask: $(cat ask.json)"
 
+      # A caller that built runtimes in this same run hands them over as an
+      # artifact. Downloaded here so `plan` can compute transitions against them,
+      # and again in the gate job, which is where the files are actually used.
+      - name: Download the caller's runtime artifact
+        if: inputs.runtime_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.runtime_artifact }}
+          path: incoming
+
+      - name: Fold the built runtimes into the ask
+        id: local
+        if: inputs.runtime_artifact != ''
+        env:
+          NETWORKS: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          # One network is enough to name the chains: asset names are per-chain,
+          # not per-network, so the overlay applies to every gated network.
+          first=$(echo "$NETWORKS" | cut -d, -f1)
+          # --dir is relative on purpose: the overlay travels to the gate job on
+          # another runner, where an absolute path from this one means nothing.
+          node environments/resolve.mjs local-overlay \
+            "environments/networks/$first.json" --dir incoming > local-overlay.json
+          echo "overlay=$(cat local-overlay.json)" >> "$GITHUB_OUTPUT"
+
       # The manifest on main is the canonical X (deployed state); the ask Y arrives
       # either as a PR editing it (the diff IS the ask; merging later IS the
       # promotion) or as the dispatch `target` overlay (ephemeral, no PR). A PR may
@@ -232,7 +272,7 @@ jobs:
       - name: Compute the candidate matrix
         id: plan
         env:
-          TARGET_JSON: ${{ steps.ask.outputs.target }}
+          TARGET_JSON: ${{ steps.local.outputs.overlay || steps.ask.outputs.target }}
         run: |
           matrix='[]'
           add() { matrix=$(node -e 'console.log(JSON.stringify(JSON.parse(process.argv[1]).concat(JSON.parse(process.argv[2]))))' "$matrix" "$1"); }
@@ -367,6 +407,15 @@ jobs:
             echo "::error::GH_PAT cannot read:$unreachable — grant contents:read on each. A fine-grained PAT must select them explicitly; a classic PAT needs SSO authorised for the paritytech org. Public repos need no token at all, so anything listed here is either private or misspelt in the manifest."
             exit 1
           fi
+
+      # The plan job folded these into the pins; this job needs the bytes. Same
+      # relative path, so the `file:` pins in the candidate manifest resolve.
+      - name: Download the caller's runtime artifact
+        if: inputs.runtime_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.runtime_artifact }}
+          path: incoming
 
       - name: Checkout the engine (preview-net-v1)
         uses: actions/checkout@v4

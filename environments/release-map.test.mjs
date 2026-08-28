@@ -20,6 +20,7 @@ import {
   mergeTarget,
   envTagPins,
   parseReleaseRef,
+  assertNoLocalPins,
   platformAssetSuffix,
   ppnOverrides,
   runtimePlan,
@@ -437,6 +438,71 @@ describe('guard rails', () => {
           `${network}/${name} has a delivery kind`
         );
       }
+    }
+  });
+});
+
+describe('file: pins', () => {
+  const local = (m) => ({
+    ...m,
+    chains: { ...m.chains, 'asset-hub': { runtime: 'file:./incoming/ah.wasm' } },
+  });
+
+  it('parses to a path, with no repo or tag to look up', () => {
+    assert.deepEqual(parseReleaseRef('file:./incoming/ah.wasm'), {
+      local: true,
+      file: './incoming/ah.wasm',
+    });
+  });
+
+  it('leaves the release form exactly as it was', () => {
+    assert.deepEqual(parseReleaseRef('owner/repo@v1.2.3'), { repo: 'owner/repo', tag: 'v1.2.3' });
+  });
+
+  it('rejects an empty path rather than resolving to the current directory', () => {
+    assert.throws(() => parseReleaseRef('file:'), /needs a path/);
+  });
+
+  it('reaches runtimePlan as a path, skipping the asset lookup', () => {
+    const entry = runtimePlan(local(previewnet)).find((e) => e.chain === 'asset-hub');
+    assert.equal(entry.local, true);
+    assert.equal(entry.file, './incoming/ah.wasm');
+    assert.equal(entry.repo, undefined, 'a local pin has no repo to fetch from');
+  });
+
+  it('is allowed in a merged manifest — that is the whole feature', () => {
+    assert.doesNotThrow(() => validateManifest(local(previewnet)));
+  });
+
+  it('is refused in a manifest we commit', () => {
+    // The baseline scan re-downloads the pinned release every few hours to check
+    // the manifest still describes production. A path points at a file on a CI
+    // runner that no longer exists, so nothing can be checked.
+    assert.throws(() => assertNoLocalPins(local(previewnet)), /may not use file: pins/);
+    assert.throws(() => assertNoLocalPins(local(previewnet)), /chains.asset-hub.runtime/);
+  });
+
+  it('names every offending field, not just the first', () => {
+    const many = {
+      ...previewnet,
+      chains: { ...previewnet.chains, people: { runtime: 'file:./p.wasm' } },
+      binaries: { ...previewnet.binaries, polkadot: 'file:./polkadot' },
+    };
+    const err = (() => { try { assertNoLocalPins(many); } catch (e) { return e.message; } })();
+    assert.match(err, /chains.people.runtime/);
+    assert.match(err, /binaries.polkadot/);
+  });
+
+  it('passes a manifest with no local pins straight through', () => {
+    assert.equal(assertNoLocalPins(previewnet), previewnet);
+  });
+
+  it('every checked-in manifest is free of them', () => {
+    for (const net of ['previewnet', 'paseo-next-v2', 'devnet']) {
+      const m = JSON.parse(
+        fs.readFileSync(path.join(import.meta.dirname, 'networks', `${net}.json`), 'utf8')
+      );
+      assert.doesNotThrow(() => assertNoLocalPins(m), net);
     }
   });
 });
