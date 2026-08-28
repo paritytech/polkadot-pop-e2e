@@ -209,7 +209,27 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
     steps:
+      # This workflow's OWN repo, pinned to the commit of the workflow being run.
+      #
+      # A reusable workflow's `actions/checkout` takes the CALLER's repository by
+      # default, so a call from elsewhere would check that out and find none of
+      # the resolver, release map or manifests. `github.job_workflow_sha` is the
+      # commit of this workflow file, so the code always matches the workflow
+      # version the caller pinned.
       - uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-pop-e2e
+          ref: ${{ github.job_workflow_sha || github.sha }}
+
+      - name: Which code is this running
+        run: |
+          echo "  caller repo   : ${{ github.repository }}"
+          echo "  event         : ${{ github.event_name }}"
+          echo "  job_workflow_sha: '${{ github.job_workflow_sha }}'"
+          echo "  github.sha    : ${{ github.sha }}"
+          test -f environments/resolve.mjs \
+            && echo "  resolver present — correct repo checked out" \
+            || { echo "::error::the gate checked out the wrong repository"; exit 1; }
 
       - uses: actions/setup-node@v4
         with:
@@ -363,8 +383,18 @@ jobs:
     env:
       MANIFEST: candidate-manifest.json
     steps:
+      # This workflow's OWN repo, pinned to the commit of the workflow being run.
+      #
+      # A reusable workflow's `actions/checkout` takes the CALLER's repository by
+      # default, so a call from elsewhere would check that out and find none of
+      # the resolver, release map or manifests. `github.job_workflow_sha` is the
+      # commit of this workflow file, so the code always matches the workflow
+      # version the caller pinned.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-pop-e2e
+          ref: ${{ github.job_workflow_sha || github.sha }}
 
       - name: Materialize the candidate manifest
         run: |
