@@ -45,17 +45,14 @@ on:
         description: >
           Runner label for the fork job.
 
-          A reusable workflow runs on the CALLER's runners, not this repo's — so a
-          caller inside an org with beefy self-hosted capacity passes that label
-          (Parity: `parity-large`) and gets it. The default stays `ubuntu-latest`
-          because that is the only thing every caller can reach, including this
-          repo itself.
+          Defaults to `parity-large`. A fork spawns a five-chain network, which is
+          more than a standard hosted runner carries.
 
-          A fork spawns a five-chain network, so a 4-core hosted runner may not
-          carry it. If the spawn dies on resources, that is what to change first.
+          A reusable workflow runs on the CALLER's runners, not this repo's, so a
+          caller outside Parity passes a label of their own with enough capacity.
         type: string
         required: false
-        default: ubuntu-latest
+        default: parity-large
     secrets:
       GH_PAT:
         description: Read access to the engine repo and the pinned release sources.
@@ -296,10 +293,11 @@ jobs:
           || github.event.pull_request.head.repo.full_name == github.repository)
     # Its own beefy runner per candidate: each fork binds the engine's fixed ports
     # and runs a five-chain network.
-    # ubuntu-latest, not a Parity label: this repo is public and cannot reach
-    # Parity's self-hosted groups, so a parity-large default would leave every
-    # run queued forever (observed 2026-08-26). Callers with capacity override it.
-    runs-on: ${{ inputs.runs_on || 'ubuntu-latest' }}
+    # Parity's self-hosted groups are enabled for this repo, and a fork spawns a
+    # five-chain network — more than a standard hosted runner carries. External
+    # callers without that capacity override `runs_on`; a reusable workflow runs
+    # on the CALLER's runners, so their label is what applies.
+    runs-on: ${{ inputs.runs_on || 'parity-large' }}
     # Budget for the slowest shape: fresh bite (~15m) + two public-relay epoch
     # boundaries (~135m worst case, see NETWORK_META) + converge + suite.
     # Previewnet runs finish in ~25m.
