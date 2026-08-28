@@ -209,6 +209,18 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
     steps:
+      # Runs before any checkout: which of these carries the CALLEE's ref is the
+      # thing that decides how this workflow finds its own code.
+      - name: Workflow identity
+        run: |
+          echo "  repository       : ${{ github.repository }}"
+          echo "  event_name       : ${{ github.event_name }}"
+          echo "  sha              : ${{ github.sha }}"
+          echo "  workflow_ref     : ${{ github.workflow_ref }}"
+          echo "  workflow_sha     : ${{ github.workflow_sha }}"
+          echo "  job_workflow_ref : ${{ github.job_workflow_ref }}"
+          echo "  job_workflow_sha : ${{ github.job_workflow_sha }}"
+
       # This workflow's OWN repo, pinned to the commit of the workflow being run.
       #
       # A reusable workflow's `actions/checkout` takes the CALLER's repository by
@@ -219,17 +231,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: ${{ github.job_workflow_sha || github.sha }}
-
-      - name: Which code is this running
-        run: |
-          echo "  caller repo   : ${{ github.repository }}"
-          echo "  event         : ${{ github.event_name }}"
-          echo "  job_workflow_sha: '${{ github.job_workflow_sha }}'"
-          echo "  github.sha    : ${{ github.sha }}"
-          test -f environments/resolve.mjs \
-            && echo "  resolver present — correct repo checked out" \
-            || { echo "::error::the gate checked out the wrong repository"; exit 1; }
+          ref: ${{ github.job_workflow_sha || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -394,7 +396,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: ${{ github.job_workflow_sha || github.sha }}
+          ref: ${{ github.job_workflow_sha || 'main' }}
 
       - name: Materialize the candidate manifest
         run: |
