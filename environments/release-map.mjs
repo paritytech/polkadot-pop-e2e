@@ -286,11 +286,62 @@ export function platformAssetSuffix(platform = process.platform, arch = process.
   throw new Error(`no release assets exist for ${platform}/${arch}`);
 }
 
-/** Parse "owner/repo@tag". The tag may be "latest". */
+/**
+ * Parse a runtime or binary pin. Two forms:
+ *
+ *   owner/repo@tag   a published release. The tag may be "latest".
+ *   file:<path>      a wasm already on disk — a build from a PR that has no
+ *                    release yet. Legal only in a temporary overlay; see
+ *                    assertNoLocalPins for why a committed manifest may not
+ *                    carry one.
+ */
 export function parseReleaseRef(ref) {
-  const m = /^([\w.-]+\/[\w.-]+)@(\S+)$/.exec(String(ref).trim());
-  if (!m) throw new Error(`invalid release ref "${ref}" — expected owner/repo@tag`);
+  const raw = String(ref).trim();
+  if (raw.startsWith('file:')) {
+    const file = raw.slice('file:'.length);
+    if (!file) throw new Error(`invalid pin "${ref}" — file: needs a path`);
+    return { local: true, file };
+  }
+  const m = /^([\w.-]+\/[\w.-]+)@(\S+)$/.exec(raw);
+  if (!m) throw new Error(`invalid release ref "${ref}" — expected owner/repo@tag or file:<path>`);
   return { repo: m[1], tag: m[2] };
+}
+
+/**
+ * Refuse `file:` pins in a manifest we commit.
+ *
+ * Two things need to know WHICH RELEASE a runtime came from, and a path tells
+ * them nothing:
+ *
+ *   - the baseline scan downloads the pinned release every few hours and
+ *     byte-compares it against what the chain is actually running. That is how
+ *     we know a manifest is still true. A path points at a file on a CI runner
+ *     that was deleted minutes later, so there is nothing to download and the
+ *     scan cannot check anything.
+ *   - the gate refuses a pin older than what production runs, so nobody tests a
+ *     rollback by accident. It compares release tags. A path has no tag.
+ *
+ * So a `file:` pin is fine for "run the tests against these bytes once" and
+ * wrong for "record this as what we deployed".
+ */
+export function assertNoLocalPins(manifest) {
+  const bad = [];
+  for (const [chain, entry] of Object.entries(manifest.chains ?? {})) {
+    if (String(entry?.runtime ?? '').startsWith('file:')) bad.push(`chains.${chain}.runtime`);
+  }
+  for (const [slot, pin] of Object.entries(manifest.binaries ?? {})) {
+    if (String(pin).startsWith('file:')) bad.push(`binaries.${slot}`);
+  }
+  for (const [name, pin] of Object.entries(manifest.services ?? {})) {
+    if (String(pin).startsWith('file:')) bad.push(`services.${name}`);
+  }
+  if (bad.length) {
+    throw new Error(
+      `a committed manifest may not use file: pins (${bad.join(', ')}) — nothing can re-fetch ` +
+        `or version-compare a path later. Pass a local build as a target overlay instead.`
+    );
+  }
+  return manifest;
 }
 
 /** Basic manifest shape check — fail fast with a message that names the field. */
@@ -357,7 +408,13 @@ export function runtimePlan(manifest) {
   const plan = [];
   for (const [chain, entry] of Object.entries(manifest.chains)) {
     const sources = known[chain].runtime;
-    const { repo, tag } = parseReleaseRef(entry.runtime);
+    const ref = parseReleaseRef(entry.runtime);
+    if (ref.local) {
+      // Already a file. Nothing to look up: the converge step only ever wanted a path.
+      plan.push({ chain, local: true, file: ref.file });
+      continue;
+    }
+    const { repo, tag } = ref;
     const asset = sources[repo];
     if (!asset) {
       throw new Error(

@@ -42,6 +42,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   validateManifest,
+  assertNoLocalPins,
   runtimePlan,
   binaryPlan,
   candidateMatrix,
@@ -51,6 +52,7 @@ import {
   ppnOverrides,
   envTagPins,
   NETWORK_META,
+  CHAINS,
   SERVICES,
 } from './release-map.mjs';
 import { getRelease, downloadAssetBytes } from './github.mjs';
@@ -89,6 +91,13 @@ if (mode === 'binaries' && !outDir) {
 
 const manifest = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
 
+// `file:` pins are refused in a COMMITTED manifest and allowed everywhere else.
+// The test is the path: environments/networks/*.json is the durable record of
+// what is deployed, and a path cannot be re-fetched or version-compared later
+// (see assertNoLocalPins). The gate's own candidate-manifest.json is a merged,
+// throwaway file and may carry them — that is the whole point of the feature.
+if (/environments[/\\]networks[/\\]/.test(manifestPath)) assertNoLocalPins(manifest);
+
 if (mode === 'binaries') {
   const { plan, recorded } = binaryPlan(manifest);
   for (const c of recorded) {
@@ -115,6 +124,54 @@ if (mode === 'binaries') {
   }
 } else if (mode === 'tests') {
   for (const t of manifest.tests) console.log(t);
+} else if (mode === 'local-overlay') {
+  // Turn a directory of freshly built wasm into a target overlay.
+  //
+  // A repo that builds runtimes in CI uploads them as an artifact; the gate
+  // downloads it and calls this. Files are matched by the exact asset name the
+  // release map already expects for each chain, so the caller uploads its build
+  // output as-is and names nothing. Chains with no matching file are left on
+  // their canonical pin, which is what makes a partial build work: upload only
+  // asset-hub and only asset-hub is swapped.
+  if (!outDir) usage('local-overlay needs --dir <downloaded artifact dir>');
+  // Recursive: one artifact per runtime is the common shape, and each unpacks
+  // into its own subdirectory unless the caller merged them.
+  const walk = (dir) =>
+    fs.existsSync(dir)
+      ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+          const full = path.join(dir, e.name);
+          return e.isDirectory() ? walk(full) : [full];
+        })
+      : [];
+  const found = new Map();
+  for (const file of walk(outDir)) {
+    // Last one wins is fine: two files with the same asset name are the same
+    // runtime, and the manifest can only carry one pin per chain anyway.
+    found.set(path.basename(file), file);
+  }
+
+  const chains = {};
+  const matched = [];
+  for (const [chain, entry] of Object.entries(CHAINS[manifest.network] ?? {})) {
+    for (const asset of new Set(Object.values(entry.runtime ?? {}))) {
+      const hit = found.get(asset);
+      if (hit) {
+        chains[chain] = { runtime: `file:${hit}` };
+        matched.push(`${chain} <- ${hit}`);
+        break;
+      }
+    }
+  }
+  if (matched.length === 0) {
+    const present = [...found.keys()];
+    throw new Error(
+      `no file in ${outDir} matches a runtime asset name for ${manifest.network}. ` +
+        `Found: ${present.join(', ') || '(empty)'}. Upload the build output under the ` +
+        `same names the releases use, e.g. next_asset_hub_paseo_runtime.compact.compressed.wasm`
+    );
+  }
+  for (const m of matched) console.error(`local-overlay: ${m}`);
+  console.log(JSON.stringify({ chains }));
 } else if (mode === 'repos') {
   // Every GitHub repo this manifest's pins are fetched from, plus the engine —
   // what a token must be able to read for THIS run. Emitted so the gate can
@@ -126,7 +183,9 @@ if (mode === 'binaries') {
     ...Object.values(manifest.services ?? {}),
     ...Object.values(manifest.chains ?? {}).map((c) => c.runtime),
   ]) {
-    if (typeof pin === 'string') repos.add(parseReleaseRef(pin).repo);
+    if (typeof pin !== 'string') continue;
+    const ref = parseReleaseRef(pin);
+    if (!ref.local) repos.add(ref.repo); // a local file needs no token
   }
   for (const r of [...repos].sort()) console.log(r);
 } else if (mode === 'sources') {
@@ -164,6 +223,18 @@ if (mode === 'binaries') {
   const plan = runtimePlan(manifest);
   fs.mkdirSync(outDir, { recursive: true });
   for (const entry of plan) {
+    if (entry.local) {
+      if (!fs.existsSync(entry.file)) {
+        throw new Error(`${entry.chain} pins file:${entry.file}, which does not exist`);
+      }
+      // Copied rather than referenced so every chain's wasm sits in one directory
+      // under the name the converge step expects, local or downloaded alike.
+      const dest = path.join(outDir, `${entry.chain}.wasm`);
+      fs.copyFileSync(entry.file, dest);
+      console.error(`local ${entry.file} -> ${dest}, ${fs.statSync(dest).size} bytes`);
+      console.log(`${entry.chain}=${dest}`);
+      continue;
+    }
     const release = await getRelease(entry.repo, entry.tag);
     const asset = (release.assets ?? []).find((a) => a.name === entry.asset);
     if (!asset) {
