@@ -153,7 +153,15 @@ if (mode === 'binaries') {
   const chains = {};
   const matched = [];
   for (const [chain, entry] of Object.entries(CHAINS[manifest.network] ?? {})) {
-    for (const asset of new Set(Object.values(entry.runtime ?? {}))) {
+    // A chain's sources may name several asset shapes — preview-net-v1 publishes
+    // a plain `.wasm` where individuality publishes `.compact.compressed.wasm` —
+    // and a build directory often holds both. Prefer compressed: an on-chain
+    // upgrade takes that blob, and the plain one is roughly three times the size
+    // and can exceed the block limit on set_code.
+    const assets = [...new Set(Object.values(entry.runtime ?? {}))].sort(
+      (a, b) => Number(b.includes('.compressed')) - Number(a.includes('.compressed'))
+    );
+    for (const asset of assets) {
       const hit = found.get(asset);
       if (hit) {
         chains[chain] = { runtime: `file:${hit}` };
