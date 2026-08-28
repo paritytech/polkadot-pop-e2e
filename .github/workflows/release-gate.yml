@@ -592,6 +592,21 @@ jobs:
           # three more 600s waits before anything reported).
           set -o pipefail
           echo "#### Runtime convergence (fork's state → manifest pin)" >> "$GITHUB_STEP_SUMMARY"
+
+          # Chains whose runtime was SUPPLIED as a build rather than a release.
+          # Those must actually move: a supplied wasm that upgrades nothing means
+          # the build carries the spec_version the chain already runs, so the run
+          # exercises the fork machinery and none of the new code — and reports
+          # success while testing nothing.
+          supplied=$(node -e '
+            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            console.log(Object.entries(m.chains ?? {})
+              .filter(([, c]) => String(c.runtime ?? "").startsWith("file:"))
+              .map(([name]) => name).join(" "));
+          ' "$MANIFEST")
+          [ -n "$supplied" ] && echo "supplied as a build: $supplied"
+          noop=""
+
           while IFS='=' read -r chain wasm; do
             echo "::group::runtime-upgrade $chain"
             out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr)
@@ -601,8 +616,20 @@ jobs:
               echo "::error::$chain: the manifest pin DOWNGRADES the chain ($from -> $to) — the manifest is behind production, bump the pin"
               exit 1
             fi
+            case " $supplied " in
+              *" $chain "*)
+                if [ -n "${from:-}" ] && [ "${from:-}" = "${to:-}" ]; then
+                  noop="$noop $chain"
+                fi
+                ;;
+            esac
             echo "::endgroup::"
           done < upgrade-plan.env
+
+          if [ -n "$noop" ]; then
+            echo "::error::a supplied build changed nothing on:$noop — spec_version is the value the chain already runs, so the upgrade was skipped and none of the new code was tested. Stamp a strictly greater spec_version in the build that produced this wasm."
+            exit 1
+          fi
 
       - name: Verify the fork is healthy post-upgrade
         run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
