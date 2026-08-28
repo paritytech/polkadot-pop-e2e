@@ -608,7 +608,27 @@ jobs:
 
           while IFS='=' read -r chain wasm; do
             echo "::group::runtime-upgrade $chain"
-            out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr)
+            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr); then
+              running=$(echo "$out" | sed -nE 's/.*connected to .* \(([^)]*)\).*/\1/p' | tail -1)
+              size=$(wc -c < "$wasm" | tr -d ' ')
+              {
+                echo "::error::$chain: the runtime was REFUSED by the chain."
+                echo "  the chain is running : ${running:-unknown}"
+                echo "  the runtime offered  : $size bytes${supplied:+ (built by this PR)}"
+                echo ""
+                echo "  The chain rejected the new code before running it, so this is not a"
+                echo "  test failure — nothing was executed against the new runtime."
+                echo ""
+                echo "  Check, in this order:"
+                echo "   1. a missing or failing migration for the state this network is on."
+                echo "      ${running:-this chain} may hold state your runtime cannot read."
+                echo "   2. the blob is too large for one extrinsic. A released runtime is"
+                echo "      around 2 MB; much above that and apply_authorized_upgrade is"
+                echo "      never included."
+                echo "   3. spec_name differs from the chain's, which no upgrade can change."
+              } >&2
+              exit 1
+            fi
             echo "$out" | grep -E '^OK ' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
             read -r from to < <(echo "$out" | sed -n 's/.*OK [^:]*: [a-z0-9-]* \([0-9][0-9]*\) -> \([0-9][0-9]*\).*/\1 \2/p' | tail -1) || true
             if [ -n "${from:-}" ] && [ -n "${to:-}" ] && [ "$to" -lt "$from" ]; then
@@ -630,8 +650,14 @@ jobs:
             exit 1
           fi
 
+      # A chain that took the code and then stopped is the signature of a broken
+      # migration: the runtime swapped in and failed on the state it inherited.
       - name: Verify the fork is healthy post-upgrade
-        run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
+        run: |
+          if ! node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60; then
+            echo "::error::the fork stopped producing blocks AFTER the runtime was applied. The chain accepted the new code and then failed on the state it inherited — that is what a missing or incorrect migration looks like. The upgrade lines above say which chains changed; the fork logs are attached to this run." >&2
+            exit 1
+          fi
 
       # A polkadot-api client created within a minute or two of an enactment can spiral
       # (see waitForQuiescence in the engine's spawner/src/upgrade/upgrade.ts) — give
