@@ -51,11 +51,23 @@ export async function listReleases(repo, perPage = 15) {
 
 // The asset API endpoint + octet-stream, not browser_download_url: the latter 404s on
 // private repos.
-export async function downloadAssetBytes(asset) {
-  const res = await fetchWithRetry(asset.url, {
-    headers: ghHeaders('application/octet-stream'),
-    redirect: 'follow',
-  });
-  if (!res.ok) throw new Error(`download ${asset.name} -> ${res.status} ${res.statusText}`);
-  return Buffer.from(await res.arrayBuffer());
+// The retry covers the BODY, not just the request: a runtime blob is megabytes
+// and a reset part-way through throws from arrayBuffer(), outside fetchWithRetry.
+export async function downloadAssetBytes(asset, attempts = 3) {
+  for (let i = 1; ; i++) {
+    try {
+      const res = await fetch(asset.url, {
+        headers: ghHeaders('application/octet-stream'),
+        redirect: 'follow',
+      });
+      if (!res.ok) throw new Error(`download ${asset.name} -> ${res.status} ${res.statusText}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      if (i >= attempts) throw err;
+      console.error(
+        `download ${asset.name} failed (${err.cause?.code ?? err.message}), retry ${i}/${attempts - 1}`
+      );
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
 }
