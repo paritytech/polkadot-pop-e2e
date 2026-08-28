@@ -178,7 +178,12 @@ env:
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
-  ENVIRONMENTS: ${{ inputs.environment || 'previewnet' }}
+  #
+  # The fallback only fires for `pull_request` (dispatch and call always supply
+  # one). A PR that edits no manifest — a change to this workflow, say — has no
+  # diff to gate, and testing such a change against a single network would miss
+  # anything network-shaped. So both, at two forks instead of one.
+  ENVIRONMENTS: ${{ inputs.environment || 'previewnet,paseo-next-v2' }}
 
 jobs:
   # Decompose the manifest change into candidates — cheap, fails fast on a bad
