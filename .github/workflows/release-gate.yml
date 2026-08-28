@@ -573,6 +573,12 @@ jobs:
       - name: Verify the fork is healthy pre-upgrade
         run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
 
+      # Cheaper than discovering it from a failed upgrade: a blob over the relay's
+      # max_code_size is refused as TooBig, which reads like a broken migration but
+      # is only a build-size problem.
+      - name: Check each runtime fits the relay's max_code_size
+        run: node environments/check-code-size.mjs < upgrade-plan.env
+
       # Relay first (plan order): parachain upgrades pass through the relay's PVF
       # pre-check, so the upgraded relay validates its parachains' new code. A blob the
       # fork already runs is a built-in no-op; each real upgrade exits only after
@@ -622,10 +628,10 @@ jobs:
                 echo "  Check, in this order:"
                 echo "   1. a missing or failing migration for the state this network is on."
                 echo "      ${running:-this chain} may hold state your runtime cannot read."
-                echo "   2. the blob is too large for one extrinsic. A released runtime is"
-                echo "      around 2 MB; much above that and apply_authorized_upgrade is"
-                echo "      never included."
-                echo "   3. spec_name differs from the chain's, which no upgrade can change."
+                echo "   2. spec_name differs from the chain's, which no upgrade can change."
+                echo ""
+                echo "  Size is already ruled out: the step above checked every runtime"
+                echo "  against the relay's max_code_size before this one ran."
               } >&2
               exit 1
             fi
