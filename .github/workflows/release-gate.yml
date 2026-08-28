@@ -573,30 +573,29 @@ jobs:
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
-      - name: Converge runtimes to the manifest
+      - name: Upgrade each chain's runtime
         run: |
-          # The manifest names only the TARGET runtime (Y); what the fork was running
-          # (X) is read from its own state here, and the X → Y line per chain goes to
-          # the run summary — an upgrade when they differ, a byte-compare assertion
-          # when they match ("already-installed").
+          # The manifest names the target; what the fork runs is read from the chain.
+          # Identical pins byte-compare to a no-op ("already-installed").
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
-          # "converging" a wedged network (observed locally: a bricked relay cost
-          # three more 600s waits before anything reported).
+          # going against a wedged network.
           set -o pipefail
-          echo "#### Runtime convergence (fork's state → manifest pin)" >> "$GITHUB_STEP_SUMMARY"
-
-          # Chains whose runtime was SUPPLIED as a build rather than a release.
-          # Those must actually move: a supplied wasm that upgrades nothing means
-          # the build carries the spec_version the chain already runs, so the run
-          # exercises the fork machinery and none of the new code — and reports
-          # success while testing nothing.
+          # One pass: print the plan, and collect the chains whose runtime was
+          # supplied as a build. Those must actually move — see the check below.
           supplied=$(node -e '
             const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-            console.log(Object.entries(m.chains ?? {})
-              .filter(([, c]) => String(c.runtime ?? "").startsWith("file:"))
-              .map(([name]) => name).join(" "));
+            const built = [];
+            console.error(`Planned runtime upgrades for ${m.network}:`);
+            for (const [chain, c] of Object.entries(m.chains ?? {})) {
+              const pin = String(c.runtime ?? "");
+              const local = pin.startsWith("file:");
+              if (local) built.push(chain);
+              console.error(`  ${chain.padEnd(14)} -> ${local ? "supplied build " + pin.slice(5) : pin}`);
+            }
+            console.log(built.join(" "));
           ' "$MANIFEST")
-          [ -n "$supplied" ] && echo "supplied as a build: $supplied"
+          echo ""
+          echo "#### Runtime upgrades (what the fork runs → the manifest pin)" >> "$GITHUB_STEP_SUMMARY"
           noop=""
 
           while IFS='=' read -r chain wasm; do
