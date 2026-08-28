@@ -209,29 +209,19 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
     steps:
-      # Runs before any checkout: which of these carries the CALLEE's ref is the
-      # thing that decides how this workflow finds its own code.
-      - name: Workflow identity
-        run: |
-          echo "  repository       : ${{ github.repository }}"
-          echo "  event_name       : ${{ github.event_name }}"
-          echo "  sha              : ${{ github.sha }}"
-          echo "  workflow_ref     : ${{ github.workflow_ref }}"
-          echo "  workflow_sha     : ${{ github.workflow_sha }}"
-          echo "  job_workflow_ref : ${{ github.job_workflow_ref }}"
-          echo "  job_workflow_sha : ${{ github.job_workflow_sha }}"
-
-      # This workflow's OWN repo, pinned to the commit of the workflow being run.
+      # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
+      # the CALLER's repository by default, so a call from elsewhere would check
+      # that out and find none of the resolver, release map or manifests.
       #
-      # A reusable workflow's `actions/checkout` takes the CALLER's repository by
-      # default, so a call from elsewhere would check that out and find none of
-      # the resolver, release map or manifests. `github.job_workflow_sha` is the
-      # commit of this workflow file, so the code always matches the workflow
-      # version the caller pinned.
+      # Pinned to main, not to the caller's ref. `github.job_workflow_sha` and
+      # `job_workflow_ref` are documented for reusable workflows but both come
+      # back EMPTY in the github context (measured 2026-08-28) — they exist only
+      # in OIDC claims. So a caller pinning @v1 runs main's logic; that is a real
+      # limitation, not an oversight.
       - uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: ${{ github.job_workflow_sha || 'main' }}
+          ref: main
 
       - uses: actions/setup-node@v4
         with:
@@ -385,18 +375,20 @@ jobs:
     env:
       MANIFEST: candidate-manifest.json
     steps:
-      # This workflow's OWN repo, pinned to the commit of the workflow being run.
+      # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
+      # the CALLER's repository by default, so a call from elsewhere would check
+      # that out and find none of the resolver, release map or manifests.
       #
-      # A reusable workflow's `actions/checkout` takes the CALLER's repository by
-      # default, so a call from elsewhere would check that out and find none of
-      # the resolver, release map or manifests. `github.job_workflow_sha` is the
-      # commit of this workflow file, so the code always matches the workflow
-      # version the caller pinned.
+      # Pinned to main, not to the caller's ref. `github.job_workflow_sha` and
+      # `job_workflow_ref` are documented for reusable workflows but both come
+      # back EMPTY in the github context (measured 2026-08-28) — they exist only
+      # in OIDC claims. So a caller pinning @v1 runs main's logic; that is a real
+      # limitation, not an oversight.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: ${{ github.job_workflow_sha || 'main' }}
+          ref: main
 
       - name: Materialize the candidate manifest
         run: |
@@ -592,6 +584,21 @@ jobs:
           # three more 600s waits before anything reported).
           set -o pipefail
           echo "#### Runtime convergence (fork's state → manifest pin)" >> "$GITHUB_STEP_SUMMARY"
+
+          # Chains whose runtime was SUPPLIED as a build rather than a release.
+          # Those must actually move: a supplied wasm that upgrades nothing means
+          # the build carries the spec_version the chain already runs, so the run
+          # exercises the fork machinery and none of the new code — and reports
+          # success while testing nothing.
+          supplied=$(node -e '
+            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            console.log(Object.entries(m.chains ?? {})
+              .filter(([, c]) => String(c.runtime ?? "").startsWith("file:"))
+              .map(([name]) => name).join(" "));
+          ' "$MANIFEST")
+          [ -n "$supplied" ] && echo "supplied as a build: $supplied"
+          noop=""
+
           while IFS='=' read -r chain wasm; do
             echo "::group::runtime-upgrade $chain"
             out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr)
@@ -601,8 +608,20 @@ jobs:
               echo "::error::$chain: the manifest pin DOWNGRADES the chain ($from -> $to) — the manifest is behind production, bump the pin"
               exit 1
             fi
+            case " $supplied " in
+              *" $chain "*)
+                if [ -n "${from:-}" ] && [ "${from:-}" = "${to:-}" ]; then
+                  noop="$noop $chain"
+                fi
+                ;;
+            esac
             echo "::endgroup::"
           done < upgrade-plan.env
+
+          if [ -n "$noop" ]; then
+            echo "::error::a supplied build changed nothing on:$noop — spec_version is the value the chain already runs, so the upgrade was skipped and none of the new code was tested. Stamp a strictly greater spec_version in the build that produced this wasm."
+            exit 1
+          fi
 
       - name: Verify the fork is healthy post-upgrade
         run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
