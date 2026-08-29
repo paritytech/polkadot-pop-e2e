@@ -11,73 +11,99 @@
 //     public Paseo, for one, runs a relay blob that matches no published asset.
 //
 // Reads the fork's own manifest for what each chain runs, and the blob's
-// runtime_version section for what a pin declares. Emits the surviving
-// `chain=wasm` lines on stdout and the reasoning on stderr.
+// runtime_version section for what a pin declares.
 
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { runtimeSpecOf } from './wasm-spec.mjs';
 
-const [planFile, forkManifestFile, candidateManifestFile] = process.argv.slice(2);
-if (!planFile || !forkManifestFile || !candidateManifestFile) {
-  console.error('usage: plan-upgrades.mjs <upgrade-plan.env> <fork-manifest.json> <candidate-manifest.json>');
-  process.exit(2);
+/**
+ * @param plan     [chain, wasm] pairs, in the order they should be applied.
+ * @param running  chain -> spec_version the fork is on.
+ * @param supplied chains whose runtime arrived as a build.
+ * @param specOf   wasm path -> declared spec_version.
+ * @returns {{keep: string[], notes: string[], errors: string[]}}
+ */
+export function planUpgrades({ plan, running, supplied, specOf }) {
+  const keep = [];
+  const notes = [];
+  const errors = [];
+  const asked = new Set(supplied);
+
+  for (const [chain, wasm] of plan) {
+    const at = running[chain];
+    const label = chain.padEnd(14);
+
+    if (asked.size && !asked.has(chain)) {
+      notes.push(`  ${label} skip — not supplied, left as the fork took it from live (${at ?? '?'})`);
+      continue;
+    }
+
+    let offered;
+    try {
+      offered = specOf(wasm);
+    } catch (error) {
+      // Undecidable, so hand it to the upgrade itself rather than skipping silently.
+      notes.push(`  ${label} upgrade — could not read its spec_version (${error.message})`);
+      keep.push([chain, wasm]);
+      continue;
+    }
+
+    if (at === undefined) {
+      notes.push(`  ${label} upgrade — fork manifest does not record this chain, offering ${offered}`);
+      keep.push([chain, wasm]);
+    } else if (offered === at && asked.has(chain)) {
+      // A supplied build that cannot install tests nothing, so it fails rather
+      // than skipping: the caller asked about this chain.
+      errors.push(
+        `${chain}: the supplied build declares spec_version ${offered}, which the chain already runs. ` +
+          `The upgrade would install nothing and none of the new code would be tested. ` +
+          `Stamp a strictly greater spec_version in the build.`,
+      );
+    } else if (offered === at) {
+      notes.push(`  ${label} skip — already runs ${at}`);
+    } else if (offered < at) {
+      errors.push(
+        `${chain}: the pin is spec_version ${offered} but the chain runs ${at}. That is a downgrade — ` +
+          `the manifest is behind what this network deployed, so bump the pin.`,
+      );
+    } else {
+      notes.push(`  ${label} upgrade — ${at} -> ${offered}`);
+      keep.push([chain, wasm]);
+    }
+  }
+
+  return { keep, notes, errors };
 }
 
-const fork = JSON.parse(readFileSync(forkManifestFile, 'utf8'));
-const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
-
-const supplied = new Set(
-  Object.entries(candidate.chains ?? {})
-    .filter(([, c]) => String(c.runtime ?? '').startsWith('file:'))
-    .map(([chain]) => chain),
-);
-
-const plan = readFileSync(planFile, 'utf8')
-  .split('\n')
-  .map((line) => line.trim().split('='))
-  .filter(([chain, wasm]) => chain && wasm);
-
-const keep = [];
-let downgrade = false;
-
-console.error(`Runtime upgrade plan for ${candidate.network}:`);
-for (const [chain, wasm] of plan) {
-  const running = fork.chains?.[chain]?.specVersion;
-  const label = chain.padEnd(14);
-
-  if (supplied.size && !supplied.has(chain)) {
-    console.error(`  ${label} skip — not supplied, left as the fork took it from live (${running ?? '?'})`);
-    continue;
+// CLI: emits the surviving `chain=wasm` lines on stdout, the reasoning on stderr.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [planFile, forkManifestFile, candidateManifestFile] = process.argv.slice(2);
+  if (!planFile || !forkManifestFile || !candidateManifestFile) {
+    console.error('usage: plan-upgrades.mjs <upgrade-plan.env> <fork-manifest.json> <candidate-manifest.json>');
+    process.exit(2);
   }
 
-  let offered;
-  try {
-    offered = runtimeSpecOf(readFileSync(wasm)).specVersion;
-  } catch (error) {
-    // Undecidable, so hand it to the upgrade itself rather than skipping silently.
-    console.error(`  ${label} upgrade — could not read its spec_version (${error.message})`);
-    keep.push(`${chain}=${wasm}`);
-    continue;
-  }
+  const fork = JSON.parse(readFileSync(forkManifestFile, 'utf8'));
+  const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
 
-  if (running === undefined) {
-    console.error(`  ${label} upgrade — fork manifest does not record this chain, offering ${offered}`);
-    keep.push(`${chain}=${wasm}`);
-  } else if (offered === running && supplied.has(chain)) {
-    // A supplied build that cannot install tests nothing, so it fails rather
-    // than skipping: the caller asked about this chain.
-    console.error(`::error::${chain}: the supplied build declares spec_version ${offered}, which the chain already runs. The upgrade would install nothing and none of the new code would be tested. Stamp a strictly greater spec_version in the build.`);
-    downgrade = true;
-  } else if (offered === running) {
-    console.error(`  ${label} skip — already runs ${running}`);
-  } else if (offered < running) {
-    console.error(`::error::${chain}: the pin is spec_version ${offered} but the chain runs ${running}. That is a downgrade — the manifest is behind what this network deployed, so bump the pin.`);
-    downgrade = true;
-  } else {
-    console.error(`  ${label} upgrade — ${running} -> ${offered}`);
-    keep.push(`${chain}=${wasm}`);
-  }
+  const { keep, notes, errors } = planUpgrades({
+    plan: readFileSync(planFile, 'utf8')
+      .split('\n')
+      .map((line) => line.trim().split('='))
+      .filter(([chain, wasm]) => chain && wasm),
+    running: Object.fromEntries(
+      Object.entries(fork.chains ?? {}).map(([chain, c]) => [chain, c.specVersion]),
+    ),
+    supplied: Object.entries(candidate.chains ?? {})
+      .filter(([, c]) => String(c.runtime ?? '').startsWith('file:'))
+      .map(([chain]) => chain),
+    specOf: (wasm) => runtimeSpecOf(readFileSync(wasm)).specVersion,
+  });
+
+  console.error(`Runtime upgrade plan for ${candidate.network}:`);
+  for (const note of notes) console.error(note);
+  for (const error of errors) console.error(`::error::${error}`);
+  if (errors.length) process.exit(1);
+  console.log(keep.map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));
 }
-
-if (downgrade) process.exit(1);
-console.log(keep.join('\n'));
