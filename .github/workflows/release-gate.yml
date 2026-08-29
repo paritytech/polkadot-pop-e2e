@@ -581,74 +581,50 @@ jobs:
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
+      #
+      # Nothing is force-installed: no ALLOW_SAME_SPEC, so every upgrade goes down
+      # the same checked path a real deployment uses. The planner below decides on
+      # spec_version alone, which is why that path is never asked to install a
+      # version the chain already runs.
+      - name: Decide which runtimes to upgrade
+        run: |
+          node environments/plan-upgrades.mjs \
+            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" > upgrades.env
+          echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upgrade each chain's runtime
         run: |
-          # The manifest names the target; what the fork runs is read from the chain.
-          # Identical pins byte-compare to a no-op ("already-installed").
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
           # going against a wedged network.
           set -o pipefail
-          # One pass: print the plan, and collect the chains whose runtime was
-          # supplied as a build. Those must actually move — see the check below.
-          supplied=$(node -e '
-            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-            const built = [];
-            console.error(`Planned runtime upgrades for ${m.network}:`);
-            for (const [chain, c] of Object.entries(m.chains ?? {})) {
-              const pin = String(c.runtime ?? "");
-              const local = pin.startsWith("file:");
-              if (local) built.push(chain);
-              console.error(`  ${chain.padEnd(14)} -> ${local ? "supplied build " + pin.slice(5) : pin}`);
-            }
-            console.log(built.join(" "));
-          ' "$MANIFEST")
-          echo ""
-          echo "#### Runtime upgrades (what the fork runs → the manifest pin)" >> "$GITHUB_STEP_SUMMARY"
-          noop=""
-
           while IFS='=' read -r chain wasm; do
+            [ -n "$chain" ] || continue
             echo "::group::runtime-upgrade $chain"
-            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr); then
+            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" | tee /dev/stderr); then
               running=$(echo "$out" | sed -nE 's/.*connected to .* \(([^)]*)\).*/\1/p' | tail -1)
               size=$(wc -c < "$wasm" | tr -d ' ')
               {
                 echo "::error::$chain: the runtime was REFUSED by the chain."
                 echo "  the chain is running : ${running:-unknown}"
-                echo "  the runtime offered  : $size bytes${supplied:+ (built by this PR)}"
+                echo "  the runtime offered  : $size bytes"
                 echo ""
                 echo "  The chain rejected the new code before running it, so this is not a"
                 echo "  test failure — nothing was executed against the new runtime."
                 echo ""
-                echo "  Check, in this order:"
+                echo "  spec_version was already checked against this chain, so look at:"
                 echo "   1. a missing or failing migration for the state this network is on."
                 echo "      ${running:-this chain} may hold state your runtime cannot read."
-                echo "   2. the blob is too large for one extrinsic. A released runtime is"
-                echo "      around 2 MB; much above that and apply_authorized_upgrade is"
-                echo "      never included."
+                echo "   2. on a parachain, the blob is over the relay's max_code_size"
+                echo "      (3 MiB on Paseo and Polkadot) and parachain_system rejects it"
+                echo "      as TooBig. A release-profile build is far larger than a"
+                echo "      production-profile one; check which profile built this."
                 echo "   3. spec_name differs from the chain's, which no upgrade can change."
               } >&2
               exit 1
             fi
             echo "$out" | grep -E '^OK ' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
-            read -r from to < <(echo "$out" | sed -n 's/.*OK [^:]*: [a-z0-9-]* \([0-9][0-9]*\) -> \([0-9][0-9]*\).*/\1 \2/p' | tail -1) || true
-            if [ -n "${from:-}" ] && [ -n "${to:-}" ] && [ "$to" -lt "$from" ]; then
-              echo "::error::$chain: the manifest pin DOWNGRADES the chain ($from -> $to) — the manifest is behind production, bump the pin"
-              exit 1
-            fi
-            case " $supplied " in
-              *" $chain "*)
-                if [ -n "${from:-}" ] && [ "${from:-}" = "${to:-}" ]; then
-                  noop="$noop $chain"
-                fi
-                ;;
-            esac
             echo "::endgroup::"
-          done < upgrade-plan.env
-
-          if [ -n "$noop" ]; then
-            echo "::error::a supplied build changed nothing on:$noop — spec_version is the value the chain already runs, so the upgrade was skipped and none of the new code was tested. Stamp a strictly greater spec_version in the build that produced this wasm."
-            exit 1
-          fi
+          done < upgrades.env
 
       # A chain that took the code and then stopped is the signature of a broken
       # migration: the runtime swapped in and failed on the state it inherited.
