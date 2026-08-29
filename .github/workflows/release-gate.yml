@@ -24,9 +24,11 @@ on:
       - "environments/**"
       - ".github/workflows/release-gate.yml"
   # The machine-facing door: another repo's CI calls this when it cuts a release.
-  # Deliberately NOT the ten per-field inputs below — a calling workflow builds the
-  # overlay programmatically, so one JSON blob is friendlier there than ten fields,
-  # and workflow_call gets its own input budget separate from workflow_dispatch's.
+  # Same per-field overrides as the dispatch form below, because a caller reading
+  # this file should see what it can set without decoding a JSON schema. Both
+  # triggers land in the same `inputs` context, so the fields are declared twice
+  # and read once. `advanced` stays as the escape hatch for asks no field spells,
+  # e.g. moving asset-hub and people apart.
   workflow_call:
     inputs:
       environment:
@@ -35,6 +37,57 @@ on:
           Each gets its own fork, and the same overlay is applied to each.
         type: string
         required: true
+      binary_polkadot:
+        description: >
+          Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it.
+          owner/repo@tag; never a built file. e.g.
+          paritytech/release-automation@polkadot-weekly2026w34-rc1
+        type: string
+        required: false
+      binary_polkadot_omni_node:
+        description: >
+          Node binary polkadot-omni-node — one file every parachain execs, so this
+          moves all of them together. e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
+        type: string
+        required: false
+      runtime_relay:
+        description: >
+          Runtime relay. Left alone unless set — a chain nobody named keeps the
+          version the fork took from the live network.
+          e.g. paseo-network/runtimes@v2.4.5
+        type: string
+        required: false
+      runtime_individuality:
+        description: >
+          Runtime asset-hub AND people — one individuality build carries both, so
+          one pin moves both. Split them via `advanced`.
+          e.g. paritytech/individuality-community@nightly-2026-08-28
+        type: string
+        required: false
+      runtime_bulletin:
+        description: >
+          Runtime bulletin, from paritytech/polkadot-bulletin-chain.
+          e.g. paritytech/polkadot-bulletin-chain@v0.0.26-paseo
+        type: string
+        required: false
+      runtime_web3_storage:
+        description: >
+          Runtime web3-storage, from paritytech/web3-storage. previewnet only —
+          no other network carries this chain.
+          e.g. paritytech/web3-storage@v0.4.1-paseo
+        type: string
+        required: false
+      service_eth_rpc:
+        description: >
+          Service eth-rpc. e.g. paritytech/release-automation@polkadot-weekly2026w34-rc1
+        type: string
+        required: false
+      service_identity_backend:
+        description: >
+          Service identity-backend, the attestation service the PoP tests call.
+          e.g. paritytech/device-uniqueness-backend@v0.5.0
+        type: string
+        required: false
       advanced:
         description: >
           Sparse target overlay (JSON) — the pins to test. May carry `ppn_ref`.
@@ -179,6 +232,13 @@ on:
           to take the engine from), e.g. {"ppn_ref":"mak/engine-branch"}. Shape:
           environments/README.md.
         required: false
+      runs_on:
+        description: Runner for the fork job
+        type: choice
+        options:
+          - parity-large
+          - ubuntu-latest
+        default: parity-large
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -221,7 +281,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: main
+          # This repo's own PRs run their own code, so a change under environments/
+          # is exercised before it merges. Everyone else gets main. The repository
+          # test matters: a called workflow sees the CALLER's event, so `pull_request`
+          # alone would send a caller's PR looking for its branch in this repo.
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -396,7 +460,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: main
+          # This repo's own PRs run their own code, so a change under environments/
+          # is exercised before it merges. Everyone else gets main. The repository
+          # test matters: a called workflow sees the CALLER's event, so `pull_request`
+          # alone would send a caller's PR looking for its branch in this repo.
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
 
       - name: Materialize the candidate manifest
         run: |
@@ -477,6 +545,13 @@ jobs:
         run: |
           which make || (apt-get update && apt-get install -y make)
           which jq || (apt-get update && apt-get install -y jq)
+
+      # Before the fork, not just before the tests: steps from here on import repo
+      # modules (the upgrade planner reads a blob's runtime_version through fzstd),
+      # and a bare specifier with no node_modules fails the step. postinstall also
+      # generates the PAPI descriptors from committed .scale metadata.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       # Resolve before spending minutes on a spawn: a bad manifest (wrong repo, missing
       # asset, unknown chain) should fail in seconds. Binary pins become PPN_BINARIES
@@ -581,74 +656,50 @@ jobs:
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
+      #
+      # Nothing is force-installed: no ALLOW_SAME_SPEC, so every upgrade goes down
+      # the same checked path a real deployment uses. The planner below decides on
+      # spec_version alone, which is why that path is never asked to install a
+      # version the chain already runs.
+      - name: Decide which runtimes to upgrade
+        run: |
+          node environments/plan-upgrades.mjs \
+            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" > upgrades.env
+          echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upgrade each chain's runtime
         run: |
-          # The manifest names the target; what the fork runs is read from the chain.
-          # Identical pins byte-compare to a no-op ("already-installed").
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
           # going against a wedged network.
           set -o pipefail
-          # One pass: print the plan, and collect the chains whose runtime was
-          # supplied as a build. Those must actually move — see the check below.
-          supplied=$(node -e '
-            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-            const built = [];
-            console.error(`Planned runtime upgrades for ${m.network}:`);
-            for (const [chain, c] of Object.entries(m.chains ?? {})) {
-              const pin = String(c.runtime ?? "");
-              const local = pin.startsWith("file:");
-              if (local) built.push(chain);
-              console.error(`  ${chain.padEnd(14)} -> ${local ? "supplied build " + pin.slice(5) : pin}`);
-            }
-            console.log(built.join(" "));
-          ' "$MANIFEST")
-          echo ""
-          echo "#### Runtime upgrades (what the fork runs → the manifest pin)" >> "$GITHUB_STEP_SUMMARY"
-          noop=""
-
           while IFS='=' read -r chain wasm; do
+            [ -n "$chain" ] || continue
             echo "::group::runtime-upgrade $chain"
-            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" ALLOW_SAME_SPEC=1 | tee /dev/stderr); then
+            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" | tee /dev/stderr); then
               running=$(echo "$out" | sed -nE 's/.*connected to .* \(([^)]*)\).*/\1/p' | tail -1)
               size=$(wc -c < "$wasm" | tr -d ' ')
               {
                 echo "::error::$chain: the runtime was REFUSED by the chain."
                 echo "  the chain is running : ${running:-unknown}"
-                echo "  the runtime offered  : $size bytes${supplied:+ (built by this PR)}"
+                echo "  the runtime offered  : $size bytes"
                 echo ""
                 echo "  The chain rejected the new code before running it, so this is not a"
                 echo "  test failure — nothing was executed against the new runtime."
                 echo ""
-                echo "  Check, in this order:"
+                echo "  spec_version was already checked against this chain, so look at:"
                 echo "   1. a missing or failing migration for the state this network is on."
                 echo "      ${running:-this chain} may hold state your runtime cannot read."
-                echo "   2. the blob is too large for one extrinsic. A released runtime is"
-                echo "      around 2 MB; much above that and apply_authorized_upgrade is"
-                echo "      never included."
+                echo "   2. on a parachain, the blob is over the relay's max_code_size"
+                echo "      (3 MiB on Paseo and Polkadot) and parachain_system rejects it"
+                echo "      as TooBig. A release-profile build is far larger than a"
+                echo "      production-profile one; check which profile built this."
                 echo "   3. spec_name differs from the chain's, which no upgrade can change."
               } >&2
               exit 1
             fi
             echo "$out" | grep -E '^OK ' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
-            read -r from to < <(echo "$out" | sed -n 's/.*OK [^:]*: [a-z0-9-]* \([0-9][0-9]*\) -> \([0-9][0-9]*\).*/\1 \2/p' | tail -1) || true
-            if [ -n "${from:-}" ] && [ -n "${to:-}" ] && [ "$to" -lt "$from" ]; then
-              echo "::error::$chain: the manifest pin DOWNGRADES the chain ($from -> $to) — the manifest is behind production, bump the pin"
-              exit 1
-            fi
-            case " $supplied " in
-              *" $chain "*)
-                if [ -n "${from:-}" ] && [ "${from:-}" = "${to:-}" ]; then
-                  noop="$noop $chain"
-                fi
-                ;;
-            esac
             echo "::endgroup::"
-          done < upgrade-plan.env
-
-          if [ -n "$noop" ]; then
-            echo "::error::a supplied build changed nothing on:$noop — spec_version is the value the chain already runs, so the upgrade was skipped and none of the new code was tested. Stamp a strictly greater spec_version in the build that produced this wasm."
-            exit 1
-          fi
+          done < upgrades.env
 
       # A chain that took the code and then stopped is the signature of a broken
       # migration: the runtime swapped in and failed on the state it inherited.
@@ -664,10 +715,6 @@ jobs:
       # the swapped runtimes a settle window before pointing fresh test clients at them.
       - name: Let the runtime changes settle
         run: sleep 120
-
-      # postinstall generates the PAPI descriptors from committed .scale metadata.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       # The suite derives its fork config from the base network's entry — the manifest
       # knows which network this is a fork of.
