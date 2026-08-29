@@ -24,9 +24,11 @@ on:
       - "environments/**"
       - ".github/workflows/release-gate.yml"
   # The machine-facing door: another repo's CI calls this when it cuts a release.
-  # Deliberately NOT the ten per-field inputs below — a calling workflow builds the
-  # overlay programmatically, so one JSON blob is friendlier there than ten fields,
-  # and workflow_call gets its own input budget separate from workflow_dispatch's.
+  # Same per-field overrides as the dispatch form below, because a caller reading
+  # this file should see what it can set without decoding a JSON schema. Both
+  # triggers land in the same `inputs` context, so the fields are declared twice
+  # and read once. `advanced` stays as the escape hatch for asks no field spells,
+  # e.g. moving asset-hub and people apart.
   workflow_call:
     inputs:
       environment:
@@ -35,6 +37,57 @@ on:
           Each gets its own fork, and the same overlay is applied to each.
         type: string
         required: true
+      binary_polkadot:
+        description: >
+          Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it.
+          owner/repo@tag; never a built file. e.g.
+          paritytech/release-automation@polkadot-weekly2026w34-rc1
+        type: string
+        required: false
+      binary_polkadot_omni_node:
+        description: >
+          Node binary polkadot-omni-node — one file every parachain execs, so this
+          moves all of them together. e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
+        type: string
+        required: false
+      runtime_relay:
+        description: >
+          Runtime relay. Left alone unless set — a chain nobody named keeps the
+          version the fork took from the live network.
+          e.g. paseo-network/runtimes@v2.4.5
+        type: string
+        required: false
+      runtime_individuality:
+        description: >
+          Runtime asset-hub AND people — one individuality build carries both, so
+          one pin moves both. Split them via `advanced`.
+          e.g. paritytech/individuality-community@nightly-2026-08-28
+        type: string
+        required: false
+      runtime_bulletin:
+        description: >
+          Runtime bulletin, from paritytech/polkadot-bulletin-chain.
+          e.g. paritytech/polkadot-bulletin-chain@v0.0.26-paseo
+        type: string
+        required: false
+      runtime_web3_storage:
+        description: >
+          Runtime web3-storage, from paritytech/web3-storage. previewnet only —
+          no other network carries this chain.
+          e.g. paritytech/web3-storage@v0.4.1-paseo
+        type: string
+        required: false
+      service_eth_rpc:
+        description: >
+          Service eth-rpc. e.g. paritytech/release-automation@polkadot-weekly2026w34-rc1
+        type: string
+        required: false
+      service_identity_backend:
+        description: >
+          Service identity-backend, the attestation service the PoP tests call.
+          e.g. paritytech/device-uniqueness-backend@v0.5.0
+        type: string
+        required: false
       advanced:
         description: >
           Sparse target overlay (JSON) — the pins to test. May carry `ppn_ref`.
@@ -179,6 +232,13 @@ on:
           to take the engine from), e.g. {"ppn_ref":"mak/engine-branch"}. Shape:
           environments/README.md.
         required: false
+      runs_on:
+        description: Runner for the fork job
+        type: choice
+        options:
+          - parity-large
+          - ubuntu-latest
+        default: parity-large
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
