@@ -538,6 +538,13 @@ jobs:
           which make || (apt-get update && apt-get install -y make)
           which jq || (apt-get update && apt-get install -y jq)
 
+      # Before the fork, not just before the tests: steps from here on import repo
+      # modules (the upgrade planner reads a blob's runtime_version through fzstd),
+      # and a bare specifier with no node_modules fails the step. postinstall also
+      # generates the PAPI descriptors from committed .scale metadata.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       # Resolve before spending minutes on a spawn: a bad manifest (wrong repo, missing
       # asset, unknown chain) should fail in seconds. Binary pins become PPN_BINARIES
       # overrides — exported once here, they reach every engine invocation below
@@ -700,10 +707,6 @@ jobs:
       # the swapped runtimes a settle window before pointing fresh test clients at them.
       - name: Let the runtime changes settle
         run: sleep 120
-
-      # postinstall generates the PAPI descriptors from committed .scale metadata.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       # The suite derives its fork config from the base network's entry — the manifest
       # knows which network this is a fork of.
