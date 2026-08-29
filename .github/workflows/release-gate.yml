@@ -281,7 +281,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: main
+          # This repo's own PRs run their own code, so a change under environments/
+          # is exercised before it merges. Everyone else gets main. The repository
+          # test matters: a called workflow sees the CALLER's event, so `pull_request`
+          # alone would send a caller's PR looking for its branch in this repo.
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -456,7 +460,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/polkadot-pop-e2e
-          ref: main
+          # This repo's own PRs run their own code, so a change under environments/
+          # is exercised before it merges. Everyone else gets main. The repository
+          # test matters: a called workflow sees the CALLER's event, so `pull_request`
+          # alone would send a caller's PR looking for its branch in this repo.
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
 
       - name: Materialize the candidate manifest
         run: |
