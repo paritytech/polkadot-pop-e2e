@@ -644,6 +644,10 @@ jobs:
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
       #
+      # Called directly, not through `make runtime-upgrade`: that target exports
+      # ALLOW_SAME_SPEC unconditionally, and a defined env var is a set flag to
+      # commander, so the wrapper forced the without-checks path on every run.
+      #
       # Nothing is force-installed: no ALLOW_SAME_SPEC, so every upgrade goes down
       # the same checked path a real deployment uses. The planner below decides on
       # spec_version alone, which is why that path is never asked to install a
@@ -662,7 +666,7 @@ jobs:
           while IFS='=' read -r chain wasm; do
             [ -n "$chain" ] || continue
             echo "::group::runtime-upgrade $chain"
-            if ! out=$(make -C ppn runtime-upgrade CHAIN="$chain" WASM="$wasm" | tee /dev/stderr); then
+            if ! out=$(node ppn/bin/ppn.mjs upgrade "$chain" "$wasm" | tee /dev/stderr); then
               running=$(echo "$out" | sed -nE 's/.*connected to .* \(([^)]*)\).*/\1/p' | tail -1)
               size=$(wc -c < "$wasm" | tr -d ' ')
               {
