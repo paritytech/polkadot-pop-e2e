@@ -137,7 +137,7 @@ if (mode === 'binaries') {
   ]) {
     if (typeof pin !== 'string') continue;
     const ref = parseReleaseRef(pin);
-    if (!ref.local) repos.add(ref.repo); // a local file needs no token
+    if (ref.repo) repos.add(ref.repo); // a file or an artifact needs no token
   }
   for (const r of [...repos].sort()) console.log(r);
 } else if (mode === 'sources') {
