@@ -101,6 +101,15 @@ on:
           Empty = a steady-state assertion run.
         type: string
         required: false
+      gate_ref:
+        description: >
+          Which ref of THIS repo the gate runs. Defaults to main. `uses: ...@branch`
+          selects the workflow file but not the code it runs (job_workflow_ref is
+          empty in the github context), so testing an unmerged gate change from a
+          caller means naming the branch here too.
+        type: string
+        required: false
+        default: main
       runs_on:
         description: >
           Runner label for the fork job.
@@ -277,7 +286,7 @@ jobs:
           # is exercised before it merges. Everyone else gets main. The repository
           # test matters: a called workflow sees the CALLER's event, so `pull_request`
           # alone would send a caller's PR looking for its branch in this repo.
-          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || inputs.gate_ref || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -427,7 +436,7 @@ jobs:
           # is exercised before it merges. Everyone else gets main. The repository
           # test matters: a called workflow sees the CALLER's event, so `pull_request`
           # alone would send a caller's PR looking for its branch in this repo.
-          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || 'main' }}
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.head_ref || inputs.gate_ref || 'main' }}
 
       - name: Materialize the candidate manifest
         run: |
@@ -512,7 +521,13 @@ jobs:
       # what it is called — see environments/artifact-pins.mjs.
       - name: Name the supplied build artifacts
         id: supplied
-        run: echo "pattern=$(node environments/artifact-pins.mjs "$MANIFEST" --names)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          # Assigned first: inside echo "$(...)" a failure here is invisible, and an
+          # empty pattern silently skips the download and gates the canonical pins.
+          pattern=$(node environments/artifact-pins.mjs "$MANIFEST" --names)
+          echo "pattern=$pattern" >> "$GITHUB_OUTPUT"
+          echo "supplied build artifacts: ${pattern:-(none)}"
 
       - name: Download the supplied build artifacts
         if: steps.supplied.outputs.pattern != ''
