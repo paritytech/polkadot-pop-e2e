@@ -35,7 +35,11 @@ const api = client.getUnsafeApi();
 
 const read = async () => {
   const v = await api.query.NetworkSuffix.NetworkSuffix.getValue();
-  return typeof v?.asText === 'function' ? v.asText() : String(v);
+  if (typeof v?.asText === 'function') return v.asText();
+  // ValueQuery hands back raw bytes when it is the pallet default.
+  return Array.isArray(v) || ArrayBuffer.isView(v)
+    ? new TextDecoder().decode(Uint8Array.from(v))
+    : String(v);
 };
 
 try {
@@ -55,7 +59,24 @@ try {
   const inner = api.tx.NetworkSuffix.set_network_suffix({
     network_suffix: Binary.fromText(target),
   });
-  const result = await api.tx.Sudo.sudo({ call: inner.decodedCall }).signAndSubmit(signer);
+  // These runtimes carry People-chain transaction extensions that PAPI will not
+  // fill on its own; passthrough values, same set the suite signs with.
+  const customSignedExtensions = {
+    VerifyMultiSignature: { value: { type: 'Disabled', value: undefined } },
+    AsPerson: { value: undefined },
+    AsProofOfInkParticipant: { value: undefined },
+    ScoreAsParticipant: { value: undefined },
+    GameAsInvited: { value: undefined },
+    PeopleLiteAuth: { value: undefined },
+    AsMember: { value: undefined },
+    AsCoinage: { value: undefined },
+    AsResources: { value: undefined },
+    RestrictOrigins: { value: false },
+  };
+
+  const result = await api.tx.Sudo.sudo({ call: inner.decodedCall }).signAndSubmit(signer, {
+    customSignedExtensions,
+  });
   if (!result.ok) {
     console.error(`sudo call failed: ${JSON.stringify(result.dispatchError)}`);
     client.destroy();
