@@ -124,62 +124,6 @@ if (mode === 'binaries') {
   }
 } else if (mode === 'tests') {
   for (const t of manifest.tests) console.log(t);
-} else if (mode === 'local-overlay') {
-  // Turn a directory of freshly built wasm into a target overlay.
-  //
-  // A repo that builds runtimes in CI uploads them as an artifact; the gate
-  // downloads it and calls this. Files are matched by the exact asset name the
-  // release map already expects for each chain, so the caller uploads its build
-  // output as-is and names nothing. Chains with no matching file are left on
-  // their canonical pin, which is what makes a partial build work: upload only
-  // asset-hub and only asset-hub is swapped.
-  if (!outDir) usage('local-overlay needs --dir <downloaded artifact dir>');
-  // Recursive: one artifact per runtime is the common shape, and each unpacks
-  // into its own subdirectory unless the caller merged them.
-  const walk = (dir) =>
-    fs.existsSync(dir)
-      ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-          const full = path.join(dir, e.name);
-          return e.isDirectory() ? walk(full) : [full];
-        })
-      : [];
-  const found = new Map();
-  for (const file of walk(outDir)) {
-    // Last one wins is fine: two files with the same asset name are the same
-    // runtime, and the manifest can only carry one pin per chain anyway.
-    found.set(path.basename(file), file);
-  }
-
-  const chains = {};
-  const matched = [];
-  for (const [chain, entry] of Object.entries(CHAINS[manifest.network] ?? {})) {
-    // A chain's sources may name several asset shapes — preview-net-v1 publishes
-    // a plain `.wasm` where individuality publishes `.compact.compressed.wasm` —
-    // and a build directory often holds both. Prefer compressed: an on-chain
-    // upgrade takes that blob, and the plain one is roughly three times the size
-    // and can exceed the block limit on set_code.
-    const assets = [...new Set(Object.values(entry.runtime ?? {}))].sort(
-      (a, b) => Number(b.includes('.compressed')) - Number(a.includes('.compressed'))
-    );
-    for (const asset of assets) {
-      const hit = found.get(asset);
-      if (hit) {
-        chains[chain] = { runtime: `file:${hit}` };
-        matched.push(`${chain} <- ${hit}`);
-        break;
-      }
-    }
-  }
-  if (matched.length === 0) {
-    const present = [...found.keys()];
-    throw new Error(
-      `no file in ${outDir} matches a runtime asset name for ${manifest.network}. ` +
-        `Found: ${present.join(', ') || '(empty)'}. Upload the build output under the ` +
-        `same names the releases use, e.g. next_asset_hub_paseo_runtime.compact.compressed.wasm`
-    );
-  }
-  for (const m of matched) console.error(`local-overlay: ${m}`);
-  console.log(JSON.stringify({ chains }));
 } else if (mode === 'repos') {
   // Every GitHub repo this manifest's pins are fetched from, plus the engine —
   // what a token must be able to read for THIS run. Emitted so the gate can
@@ -242,6 +186,13 @@ if (mode === 'binaries') {
       console.error(`local ${entry.file} -> ${dest}, ${fs.statSync(dest).size} bytes`);
       console.log(`${entry.chain}=${dest}`);
       continue;
+    }
+    if (entry.artifact) {
+      throw new Error(
+        `${entry.chain} still pins artifact:${entry.artifact} — the gate resolves those to ` +
+          `files before this step (environments/artifact-pins.mjs). Reaching here means the ` +
+          `download step did not run.`
+      );
     }
     const release = await getRelease(entry.repo, entry.tag);
     const asset = (release.assets ?? []).find((a) => a.name === entry.asset);

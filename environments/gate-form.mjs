@@ -14,13 +14,12 @@
 //
 // One field per override: a requester never has to know the overlay's JSON shape.
 // The advanced raw-JSON escape hatch (GATE_ADVANCED / the issue textarea) stays for
-// asks the fields cannot express — a different `tests` list, splitting asset-hub
-// from people, a `ppn_ref` — and REPLACES the fields entirely when filled.
+// asks the fields cannot express — a different `tests` list, a `ppn_ref` — and
+// REPLACES the fields entirely when filled.
 //
-// `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people
-// share one field: they are two runtimes out of one `paritytech/individuality`
-// build and have never been pinned apart. Splitting them stays possible via the
-// advanced overlay.
+// A value is `owner/repo@tag`, or `artifact:<name>` for a build uploaded in the
+// calling run. One field per chain either way, so what is being tested reads off
+// the call: nothing is inferred from filenames.
 
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -42,12 +41,14 @@ export const FIELDS = [
     paths: [['chains', 'relay', 'runtime']],
   },
   {
-    id: 'runtime_individuality',
-    label: 'Runtime: individuality (asset-hub + people)',
-    paths: [
-      ['chains', 'asset-hub', 'runtime'],
-      ['chains', 'people', 'runtime'],
-    ],
+    id: 'runtime_asset_hub',
+    label: 'Runtime: asset-hub',
+    paths: [['chains', 'asset-hub', 'runtime']],
+  },
+  {
+    id: 'runtime_people',
+    label: 'Runtime: people',
+    paths: [['chains', 'people', 'runtime']],
   },
   {
     id: 'runtime_bulletin',

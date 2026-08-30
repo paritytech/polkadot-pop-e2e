@@ -287,13 +287,18 @@ export function platformAssetSuffix(platform = process.platform, arch = process.
 }
 
 /**
- * Parse a runtime or binary pin. Two forms:
+ * Parse a runtime or binary pin. Three forms:
  *
- *   owner/repo@tag   a published release. The tag may be "latest".
- *   file:<path>      a wasm already on disk — a build from a PR that has no
- *                    release yet. Legal only in a temporary overlay; see
- *                    assertNoLocalPins for why a committed manifest may not
- *                    carry one.
+ *   owner/repo@tag        a published release. The tag may be "latest".
+ *   artifact:<name>       a build uploaded in the calling run, under that
+ *                         artifact name. Which file inside it is this chain's
+ *                         runtime is decided by what each blob declares, not by
+ *                         its filename. `artifact:<name>/<path>` names the file
+ *                         outright when a caller ships two for one chain.
+ *   file:<path>           a wasm already on disk — what artifact: resolves to
+ *                         once downloaded.
+ *
+ * The last two are legal only in a temporary overlay; see assertNoLocalPins.
  */
 export function parseReleaseRef(ref) {
   const raw = String(ref).trim();
@@ -302,10 +307,27 @@ export function parseReleaseRef(ref) {
     if (!file) throw new Error(`invalid pin "${ref}" — file: needs a path`);
     return { local: true, file };
   }
+  if (raw.startsWith('artifact:')) {
+    const rest = raw.slice('artifact:'.length);
+    if (!rest) throw new Error(`invalid pin "${ref}" — artifact: needs an artifact name`);
+    const slash = rest.indexOf('/');
+    return slash === -1
+      ? { artifact: rest }
+      : { artifact: rest.slice(0, slash), within: rest.slice(slash + 1) };
+  }
   const m = /^([\w.-]+\/[\w.-]+)@(\S+)$/.exec(raw);
-  if (!m) throw new Error(`invalid release ref "${ref}" — expected owner/repo@tag or file:<path>`);
+  if (!m) {
+    throw new Error(
+      `invalid release ref "${ref}" — expected owner/repo@tag, artifact:<name> or file:<path>`
+    );
+  }
   return { repo: m[1], tag: m[2] };
 }
+
+/** Pin prefixes that name something only this run can see. */
+export const EPHEMERAL_PREFIXES = ['file:', 'artifact:'];
+
+const isEphemeral = (pin) => EPHEMERAL_PREFIXES.some((p) => String(pin ?? '').startsWith(p));
 
 /**
  * Refuse `file:` pins in a manifest we commit.
@@ -321,24 +343,25 @@ export function parseReleaseRef(ref) {
  *   - the gate refuses a pin older than what production runs, so nobody tests a
  *     rollback by accident. It compares release tags. A path has no tag.
  *
- * So a `file:` pin is fine for "run the tests against these bytes once" and
- * wrong for "record this as what we deployed".
+ * So an ephemeral pin is fine for "run the tests against these bytes once" and
+ * wrong for "record this as what we deployed". `artifact:` is the same story one
+ * step earlier: the artifact expires with the run that uploaded it.
  */
 export function assertNoLocalPins(manifest) {
   const bad = [];
   for (const [chain, entry] of Object.entries(manifest.chains ?? {})) {
-    if (String(entry?.runtime ?? '').startsWith('file:')) bad.push(`chains.${chain}.runtime`);
+    if (isEphemeral(entry?.runtime)) bad.push(`chains.${chain}.runtime`);
   }
   for (const [slot, pin] of Object.entries(manifest.binaries ?? {})) {
-    if (String(pin).startsWith('file:')) bad.push(`binaries.${slot}`);
+    if (isEphemeral(pin)) bad.push(`binaries.${slot}`);
   }
   for (const [name, pin] of Object.entries(manifest.services ?? {})) {
-    if (String(pin).startsWith('file:')) bad.push(`services.${name}`);
+    if (isEphemeral(pin)) bad.push(`services.${name}`);
   }
   if (bad.length) {
     throw new Error(
-      `a committed manifest may not use file: pins (${bad.join(', ')}) — nothing can re-fetch ` +
-        `or version-compare a path later. Pass a local build as a target overlay instead.`
+      `a committed manifest may not use file: or artifact: pins (${bad.join(', ')}) — nothing ` +
+        `can re-fetch or version-compare one later. Pass a build as a target overlay instead.`
     );
   }
   return manifest;
@@ -412,6 +435,13 @@ export function runtimePlan(manifest) {
     if (ref.local) {
       // Already a file. Nothing to look up: the converge step only ever wanted a path.
       plan.push({ chain, local: true, file: ref.file });
+      continue;
+    }
+    if (ref.artifact) {
+      // Not yet bytes: the gate downloads the artifact and rewrites this to file:
+      // before anything needs a path. Validating the source repo is meaningless
+      // here — a build in the calling run came from no release.
+      plan.push({ chain, artifact: ref.artifact, within: ref.within });
       continue;
     }
     const { repo, tag } = ref;

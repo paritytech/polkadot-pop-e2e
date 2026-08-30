@@ -69,17 +69,23 @@ body:
         Do NOT use paseo-network/runtimes@latest — it resolves behind production.
       placeholder: paseo-network/runtimes@v2.4.5
   - type: input
-    id: runtime-individuality
+    id: runtime-asset-hub
     attributes:
-      label: "Runtime: individuality (asset-hub + people)"
+      label: "Runtime: asset-hub"
       description: >
-        Same upgrade semantics as the relay, for both chains at once — asset-hub and
-        people are two runtimes out of one build, so one pin moves both. To pin them
-        apart, use the raw overlay at the bottom. previewnet/paseo-next-v2: from
+        Same upgrade semantics as the relay. previewnet/paseo-next-v2: from
         paritytech/individuality, paritytech/individuality-community
         (public nightlies) or paritytech/preview-net-v1; devnet: from
         paseo-network/runtimes. Name the tag rather than `@latest`: it is
         flavor-blind on individuality and 404s on individuality-community.
+      placeholder: paritytech/individuality@v0.12.0
+  - type: input
+    id: runtime-people
+    attributes:
+      label: "Runtime: people"
+      description: >
+        Same sources as asset-hub. One build usually carries both runtimes, so the
+        two fields normally name the same release.
       placeholder: paritytech/individuality@v0.12.0
   - type: input
     id: runtime-bulletin
