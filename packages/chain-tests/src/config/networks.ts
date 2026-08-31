@@ -90,7 +90,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://identity-previewnet.dotspark.app",
     identityBackendAuth: "challenge",
-    networkSuffix: "testnet",
+    networkSuffix: "test",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
     features: { resources: true, pgas: true, hop: true },
     // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't

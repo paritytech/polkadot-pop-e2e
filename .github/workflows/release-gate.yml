@@ -719,7 +719,7 @@ jobs:
         run: |
           for ws in ws://127.0.0.1:10010 ws://127.0.0.1:10020; do
             pnpm --filter @pop-e2e/chain-tests exec \
-              node scripts/set-network-suffix.mjs "$ws" testnet
+              node scripts/set-network-suffix.mjs "$ws" test
           done
 
       # A chain that took the code and then stopped is the signature of a broken
