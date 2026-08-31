@@ -707,6 +707,21 @@ jobs:
       - name: Let the runtime changes settle
         run: sleep 120
 
+      # Temporary. indiv_pallet_network_suffix is new and nothing seeds it on
+      # upgrade, so an upgraded chain falls back to the pallet default "paseo".
+      # That is right for paseo-next-v2 and wrong for previewnet, and since the
+      # suffix is part of the ring-VRF context preimage the whole proof-carrying
+      # suite fails there as BadProof. Belongs in a runtime migration; until then
+      # a fork has to be told. Both chains configure the pallet, and PGAS is on
+      # asset-hub.
+      - name: Seed the DotNS network suffix
+        if: matrix.candidate.manifest.network == 'previewnet'
+        run: |
+          for ws in ws://127.0.0.1:10010 ws://127.0.0.1:10020; do
+            pnpm --filter @pop-e2e/chain-tests exec \
+              node scripts/set-network-suffix.mjs "$ws" testnet
+          done
+
       # A chain that took the code and then stopped is the signature of a broken
       # migration: the runtime swapped in and failed on the state it inherited.
       - name: Verify the fork is healthy post-upgrade
