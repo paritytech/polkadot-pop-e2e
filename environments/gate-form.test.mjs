@@ -92,15 +92,35 @@ describe('dispatch-form parsing', () => {
   });
 });
 
-describe('the individuality field', () => {
-  it('drives asset-hub and people together', () => {
+describe('per-chain runtime fields', () => {
+  it('pins asset-hub and people independently', () => {
     const { target } = parseDispatchInputs(
-      dispatch({ runtime_individuality: 'paritytech/individuality@v0.12.0' })
+      dispatch({
+        runtime_asset_hub: 'paritytech/individuality@v0.12.0',
+        runtime_people: 'paritytech/individuality-community@nightly-2026-08-28',
+      })
     );
     assert.deepEqual(target, {
       chains: {
         'asset-hub': { runtime: 'paritytech/individuality@v0.12.0' },
-        people: { runtime: 'paritytech/individuality@v0.12.0' },
+        people: { runtime: 'paritytech/individuality-community@nightly-2026-08-28' },
+      },
+    });
+  });
+
+  // The point of the artifact: form — a build from the calling run reads the same
+  // as a release, so the call says which chains are under test either way.
+  it('takes a build from the calling run for one chain and a release for another', () => {
+    const { target } = parseDispatchInputs(
+      dispatch({
+        runtime_asset_hub: 'artifact:e2e-runtime-wasm',
+        runtime_relay: 'paseo-network/runtimes@v2.4.5',
+      })
+    );
+    assert.deepEqual(target, {
+      chains: {
+        'asset-hub': { runtime: 'artifact:e2e-runtime-wasm' },
+        relay: { runtime: 'paseo-network/runtimes@v2.4.5' },
       },
     });
   });

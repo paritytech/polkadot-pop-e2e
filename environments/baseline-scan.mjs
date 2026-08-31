@@ -30,7 +30,7 @@ const RPC_TIMEOUT_MS = 20_000;
 const RELEASE_WALK = 15; // newest-first releases per repo the attribution walk inspects
 
 /** One JSON-RPC call over a fresh WebSocket (public endpoints often cap sessions). */
-async function rpc(url, method, params = []) {
+export async function rpc(url, method, params = []) {
   const ws = new WebSocket(url);
   try {
     return await new Promise((resolve, reject) => {

@@ -442,6 +442,37 @@ describe('guard rails', () => {
   });
 });
 
+describe('artifact: pins', () => {
+  it('parses an artifact name', () => {
+    assert.deepEqual(parseReleaseRef('artifact:e2e-runtime-wasm'), {
+      artifact: 'e2e-runtime-wasm',
+    });
+  });
+
+  it('parses a file named inside the artifact', () => {
+    assert.deepEqual(parseReleaseRef('artifact:build/out/people.wasm'), {
+      artifact: 'build',
+      within: 'out/people.wasm',
+    });
+  });
+
+  it('rejects an empty artifact name', () => {
+    assert.throws(() => parseReleaseRef('artifact:'), /needs an artifact name/);
+  });
+
+  // Same reason file: is refused: the artifact dies with the run that made it,
+  // so nothing can re-fetch it to check the manifest later.
+  it('is refused in a manifest we commit', () => {
+    assert.throws(
+      () =>
+        assertNoLocalPins({
+          chains: { people: { runtime: 'artifact:e2e-runtime-wasm' } },
+        }),
+      /may not use file: or artifact: pins/
+    );
+  });
+});
+
 describe('file: pins', () => {
   const local = (m) => ({
     ...m,
@@ -478,7 +509,7 @@ describe('file: pins', () => {
     // The baseline scan re-downloads the pinned release every few hours to check
     // the manifest still describes production. A path points at a file on a CI
     // runner that no longer exists, so nothing can be checked.
-    assert.throws(() => assertNoLocalPins(local(previewnet)), /may not use file: pins/);
+    assert.throws(() => assertNoLocalPins(local(previewnet)), /may not use file: or artifact: pins/);
     assert.throws(() => assertNoLocalPins(local(previewnet)), /chains.asset-hub.runtime/);
   });
 
