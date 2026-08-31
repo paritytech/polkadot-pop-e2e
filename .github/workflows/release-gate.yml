@@ -718,8 +718,11 @@ jobs:
       - name: Seed the DotNS network suffix (experiment)
         if: matrix.candidate.manifest.network == 'previewnet'
         run: |
+          # Both chains configure the pallet, and PGAS lives on asset-hub.
           pnpm --filter @pop-e2e/chain-tests exec \
             node scripts/set-network-suffix.mjs ws://127.0.0.1:10010 test
+          pnpm --filter @pop-e2e/chain-tests exec \
+            node scripts/set-network-suffix.mjs ws://127.0.0.1:10020 test
 
       # The suite derives its fork config from the base network's entry — the manifest
       # knows which network this is a fork of.
