@@ -43,8 +43,27 @@ const read = async () => {
     : String(v);
 };
 
+// A steady-state run installs a runtime predating the pallet; there is nothing to
+// seed and that is not a failure. Only an unknown pallet/entry is tolerated.
+const missingPallet = (message) =>
+  /NetworkSuffix/i.test(message) &&
+  /(not found|unknown|undefined|no such|cannot read)/i.test(message);
+
+let before;
 try {
-  const before = await read();
+  before = await read();
+} catch (error) {
+  if (missingPallet(error.message)) {
+    console.log(`this runtime has no NetworkSuffix pallet — nothing to seed (${error.message})`);
+    client.destroy();
+    process.exit(0);
+  }
+  console.error(`could not read the network suffix: ${error.message}`);
+  client.destroy();
+  process.exit(1);
+}
+
+try {
   console.log(`network suffix before: ${before}`);
   if (before === target) {
     console.log(`already ${target} — nothing to do`);
