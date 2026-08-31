@@ -10,10 +10,10 @@
       "runtime": "paritytech/preview-net-v1@v20260820.184459"
     },
     "asset-hub": {
-      "runtime": "paritytech/individuality@v0.12.1-previewnet"
+      "runtime": "paritytech/individuality-community@v0.3.0"
     },
     "people": {
-      "runtime": "paritytech/individuality@v0.12.1-previewnet"
+      "runtime": "paritytech/individuality-community@v0.3.0"
     },
     "bulletin": {
       "runtime": "paritytech/polkadot-bulletin-chain@v0.0.26-paseo"
