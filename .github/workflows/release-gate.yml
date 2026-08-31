@@ -722,23 +722,6 @@ jobs:
       - name: Let the runtime changes settle
         run: sleep 120
 
-      # PROOF, NOT A FIX — remove before merge.
-      #
-      # indiv_pallet_network_suffix is new in the candidate runtime and nothing
-      # seeds it on upgrade, so it falls back to its default of "paseo". That is
-      # right for paseo-next-v2 and wrong for previewnet, whose TLD is "test".
-      # The suffix is part of the ring-VRF context preimage, so the whole
-      # proof-carrying suite fails there as BadProof. Setting it by hand here
-      # says whether that is the entire story.
-      - name: Seed the DotNS network suffix (experiment)
-        if: matrix.candidate.manifest.network == 'previewnet'
-        run: |
-          # Both chains configure the pallet, and PGAS lives on asset-hub.
-          pnpm --filter @pop-e2e/chain-tests exec \
-            node scripts/set-network-suffix.mjs ws://127.0.0.1:10010 test
-          pnpm --filter @pop-e2e/chain-tests exec \
-            node scripts/set-network-suffix.mjs ws://127.0.0.1:10020 test
-
       # The suite derives its fork config from the base network's entry — the manifest
       # knows which network this is a fork of.
       - name: Point the suite at the fork
