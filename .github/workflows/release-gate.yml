@@ -707,6 +707,21 @@ jobs:
       - name: Let the runtime changes settle
         run: sleep 120
 
+      # A chain that took the code and then stopped is the signature of a broken
+      # migration: the runtime swapped in and failed on the state it inherited.
+      - name: Verify the fork is healthy post-upgrade
+        run: |
+          if ! node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60; then
+            echo "::error::the fork stopped producing blocks AFTER the runtime was applied. The chain accepted the new code and then failed on the state it inherited — that is what a missing or incorrect migration looks like. The upgrade lines above say which chains changed; the fork logs are attached to this run." >&2
+            exit 1
+          fi
+
+      # A polkadot-api client created within a minute or two of an enactment can spiral
+      # (see waitForQuiescence in the engine's spawner/src/upgrade/upgrade.ts) — give
+      # the swapped runtimes a settle window before pointing fresh test clients at them.
+      - name: Let the runtime changes settle
+        run: sleep 120
+
       # PROOF, NOT A FIX — remove before merge.
       #
       # indiv_pallet_network_suffix is new in the candidate runtime and nothing
