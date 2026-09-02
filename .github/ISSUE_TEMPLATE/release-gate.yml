@@ -131,7 +131,7 @@ body:
       description: >
         Full control for asks the fields can't express — a different `tests` list,
         asset-hub pinned apart from people, or a `ppn_ref` naming the
-        previewnet-engine branch to take the engine from. When filled, this REPLACES
+        previewnet-engine ref to take the engine from. When filled, this REPLACES
         the fields above. Shape: see environments/README.md.
       render: json
     validations:

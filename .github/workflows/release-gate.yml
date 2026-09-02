@@ -244,9 +244,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Which previewnet-engine the gate composes. A `ppn_ref` key in the dispatch
-  # form's `advanced` overlay overrides it for runs against engine branches.
-  PPN_REF_DEFAULT: main
+  # Which previewnet-engine release the gate composes — a tag, so an engine merge
+  # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
+  # `advanced` overlay overrides it for runs against a branch.
+  PPN_REF_DEFAULT: v0.5.0
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
@@ -446,9 +447,9 @@ jobs:
             echo "**Transitions under test:** ${{ join(matrix.candidate.transitions, ' · ') }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # GITHUB_TOKEN cannot read a sibling private repo; GH_PAT must be able
-      # to read paritytech/previewnet-engine (code and releases). Guarded so a missing
-      # secret fails with instructions instead of an opaque "repository not found".
+      # GH_PAT must be able to read every private repo this manifest pulls releases
+      # from. Guarded so a missing grant fails with instructions instead of an opaque
+      # "repository not found".
       # Preflight the token against exactly the repos THIS manifest pulls from —
       # asked of the resolver, not hardcoded, so it follows pins as they move
       # between private and public (…-community) sources.
@@ -489,7 +490,6 @@ jobs:
         with:
           repository: paritytech/previewnet-engine
           ref: ${{ needs.plan.outputs.ppn_ref || env.PPN_REF_DEFAULT }}
-          token: ${{ secrets.GH_PAT }}
           path: ppn
 
       - uses: pnpm/action-setup@v4

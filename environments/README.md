@@ -20,7 +20,7 @@ Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves thr
 | `paritytech/individuality-community` | `404` | Every release is a prerelease nightly, and `releases/latest` skips prereleases |
 | `polkadot-bulletin-chain`, `individuality` | whichever flavor sorts first | Flavor-blind — `individuality@latest` is the `-previewnet` build, wrong for paseo-next-v2; bulletin can land a westend build |
 
-Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine branch to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
+Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine ref to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
 
 Whichever door: the gate forks the live network, converges X → Y — swapping/upgrading **only what differs** (identical pins byte-compare and no-op), never downgrading — runs the chain-tests, and the run summary leads with the exact transitions tested (`bulletin: runtime …v0.0.22-paseo → …v0.0.23-paseo`).
 
@@ -51,7 +51,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `main`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.5.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
@@ -102,7 +102,7 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 - Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
 - Non-chain components beyond the pinned services (dotli, the host apps) are not gateable yet; the map's shape is where they will go.
-- `secrets.GH_PAT` must be able to read previewnet-engine (code and releases) — plus any other private repo the manifest pins releases from (e.g. `paritytech/individuality`, `paritytech/release-automation`).
+- `secrets.GH_PAT` must be able to read every private repo the manifest pins releases from (e.g. `paritytech/individuality`, `paritytech/release-automation`). The engine itself is public, so its checkout needs no token.
 
 ## How the gate drives the engine
 
@@ -110,6 +110,6 @@ The engine builds nothing itself — binaries come from `paritytech/release-auto
 
 - Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality`, bulletin/web3-storage from their repos; identity-backend rides the engine's default (`device-uniqueness-backend`, overridable per candidate).
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
-- `PPN_REF_DEFAULT` is `main`; a dispatch can pin `ppn_ref` via the advanced overlay to run against an engine branch.
+- `PPN_REF_DEFAULT` is a released engine tag, so an engine merge cannot change what a rerun does; a dispatch can pin `ppn_ref` via the advanced overlay to run against a branch.
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain exact runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).
 - Later: `@parity/ppn-network-config` is on npm now, so the map's mirrored wiring can read from it instead of restating it (the runtime drift assert keeps the mirror honest until it does); publish pnv2 fork bundles so its gate stops biting live; a full raw Paseo Asset Hub spec to unblock devnet.
