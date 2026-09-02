@@ -149,7 +149,7 @@ if (mode === 'binaries') {
   const net = manifest.network;
   console.log(`NETWORK=${net}`);
   console.log(`PPN_NETWORK=${net}`);
-  console.log(`FORK_DIR_NAME=fork-bundle${net === 'previewnet' ? '' : `-${net}`}`);
+  console.log(`FORK_DIR_NAME=fork-bundle-${net}`);
   console.log(`FRESH_BITE=${NETWORK_META[net]?.freshBite ? 1 : 0}`);
   console.log(`FORK_WAIT_SECONDS=${NETWORK_META[net]?.waitSeconds ?? 900}`);
   // Whether the fork RUNS an identity backend is engine wiring (SERVICES), not a
