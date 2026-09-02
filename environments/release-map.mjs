@@ -32,9 +32,8 @@ export const CHAINS = {
       // with fast epochs, and enacting a runtime whose BABE EpochDuration differs
       // wedges the chain on the spot — every block after the swap fails import with
       // "Expected epoch change to happen at ..." (caught live by the local gate run,
-      // 2026-08-14). preview-net-v1's own paseo_runtime.wasm was fast-built too.
+      // 2026-08-14).
       runtime: {
-        'paritytech/preview-net-v1': 'paseo_runtime.wasm',
         'paseo-network/runtimes': 'paseo_fast_runtime.compressed.wasm',
       },
     },
@@ -47,7 +46,6 @@ export const CHAINS = {
       node: 'polkadot-omni-node',
       ws: 'wss://previewnet.substrate.dev/asset-hub',
       runtime: {
-        'paritytech/preview-net-v1': 'next_asset_hub_paseo_runtime.wasm',
         'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
@@ -56,7 +54,6 @@ export const CHAINS = {
       node: 'polkadot-omni-node',
       ws: 'wss://previewnet.substrate.dev/people',
       runtime: {
-        'paritytech/preview-net-v1': 'next_people_paseo_runtime.wasm',
         'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
@@ -95,7 +92,6 @@ export const CHAINS = {
       node: 'polkadot-omni-node',
       ws: 'wss://paseo-asset-hub-next-rpc.polkadot.io',
       runtime: {
-        'paritytech/preview-net-v1': 'next_asset_hub_paseo_runtime.wasm',
         'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
@@ -104,7 +100,6 @@ export const CHAINS = {
       node: 'polkadot-omni-node',
       ws: 'wss://paseo-people-next-system-rpc.polkadot.io',
       runtime: {
-        'paritytech/preview-net-v1': 'next_people_paseo_runtime.wasm',
         'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
         'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
@@ -195,10 +190,10 @@ export const NETWORK_META = {
  */
 export const NODE_BINARIES = {
   polkadot: {
-    repos: ['paritytech/preview-net-v1', 'paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
   },
   'polkadot-omni-node': {
-    repos: ['paritytech/preview-net-v1', 'paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
   },
 };
 
@@ -212,13 +207,13 @@ export const SERVICES = {
   previewnet: {
     'eth-rpc': {
       override: 'eth-rpc',
-      repos: ['paritytech/preview-net-v1', 'paritytech/polkadot-sdk', 'paritytech/release-automation'],
+      repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
     // The identity service quadruple (identity-api, chain-writer, registration-queue,
     // username-indexer) ships on device-uniqueness-backend's own releases since its
     // v0.2.0; the engine fetches them and DUB_TAG pins the tag. The canonical manifest
     // deliberately does NOT pin this service: the engine's own default tag
-    // (config/versions.env in preview-net-v1) governs the baseline, so it can't go
+    // (config/versions.env in previewnet-engine) governs the baseline, so it can't go
     // stale here. A candidate override may still name it — that exports DUB_TAG for
     // gating a new dub release.
     'identity-backend': {
@@ -234,13 +229,13 @@ export const SERVICES = {
   'paseo-next-v2': {
     'eth-rpc': {
       override: 'eth-rpc',
-      repos: ['paritytech/preview-net-v1', 'paritytech/polkadot-sdk', 'paritytech/release-automation'],
+      repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
   },
   devnet: {
     'eth-rpc': {
       override: 'eth-rpc',
-      repos: ['paritytech/preview-net-v1', 'paritytech/polkadot-sdk', 'paritytech/release-automation'],
+      repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
   },
 };

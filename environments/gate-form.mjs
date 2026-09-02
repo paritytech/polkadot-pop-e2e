@@ -136,7 +136,7 @@ export function parseDispatchInputs(env) {
 
 /**
  * Split the engine ref out of an overlay. `ppn_ref` is not a manifest pin — it
- * selects which preview-net-v1 the gate runs — but it rides in the advanced JSON
+ * selects which previewnet-engine the gate runs — but it rides in the advanced JSON
  * because the dispatch form has no tenth slot left for it.
  */
 export function splitPpnRef(target) {

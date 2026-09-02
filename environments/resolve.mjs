@@ -35,8 +35,8 @@
 //     informational cross terms.
 //
 // "latest" tags resolve to the concrete tag so logs name what was actually gated.
-// GITHUB_TOKEN is required for private repos (preview-net-v1). Diagnostics go to
-// stderr; stdout is machine-readable only.
+// GITHUB_TOKEN is required for private repos (individuality, release-automation).
+// Diagnostics go to stderr; stdout is machine-readable only.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -129,7 +129,7 @@ if (mode === 'binaries') {
   // what a token must be able to read for THIS run. Emitted so the gate can
   // preflight exactly what it needs rather than a hardcoded list that drifts as
   // manifests move between private and public (…-community) sources.
-  const repos = new Set(['paritytech/preview-net-v1']);
+  const repos = new Set(['paritytech/previewnet-engine']);
   for (const pin of [
     ...Object.values(manifest.binaries ?? {}),
     ...Object.values(manifest.services ?? {}),

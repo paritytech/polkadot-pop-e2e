@@ -23,8 +23,8 @@ body:
         resolved per network automatically — you never name files.
 
         `@latest` is accepted everywhere and resolves through the repo's GitHub
-        "latest release" — safe on `preview-net-v1`, `polkadot-sdk`,
-        `release-automation`, `web3-storage` and `device-uniqueness-backend`, but a
+        "latest release" — safe on `polkadot-sdk`, `release-automation`,
+        `web3-storage` and `device-uniqueness-backend`, but a
         trap on three sources (verified 2026-08-25): `paseo-network/runtimes@latest`
         is **v2.4.3**, behind the deployed v2.4.4, so the gate rejects the
         downgrade; `individuality-community@latest` **404s** because its nightlies
@@ -43,10 +43,10 @@ body:
       description: >
         The relay-chain validator binary (+ its PVF workers, which travel with it).
         The fork SPAWNS on this binary, so it exercises "can this node version drive
-        the network's current state". From paritytech/preview-net-v1,
-        paritytech/polkadot-sdk or paritytech/release-automation (complete tags
-        only — some release-automation releases are partial re-publishes).
-        `@latest` is safe on all three.
+        the network's current state". From paritytech/polkadot-sdk or
+        paritytech/release-automation (complete tags only — some
+        release-automation releases are partial re-publishes).
+        `@latest` is safe on both.
       placeholder: paritytech/release-automation@polkadot-weekly2026w34-rc1
   - type: input
     id: binary-polkadot-omni-node
@@ -64,8 +64,8 @@ body:
         The fork's relay runtime is UPGRADED from whatever production runs (X) to
         this release (Y) via sudo authorize+apply — byte-identical pins become a
         no-op assertion, a pin OLDER than production fails the gate as stale. From
-        paseo-network/runtimes (previewnet also: paritytech/preview-net-v1). The
-        right build variant (previewnet = fast epochs) is chosen automatically.
+        paseo-network/runtimes. The right build variant (previewnet = fast
+        epochs) is chosen automatically.
         Do NOT use paseo-network/runtimes@latest — it resolves behind production.
       placeholder: paseo-network/runtimes@v2.4.5
   - type: input
@@ -74,8 +74,8 @@ body:
       label: "Runtime: asset-hub"
       description: >
         Same upgrade semantics as the relay. previewnet/paseo-next-v2: from
-        paritytech/individuality, paritytech/individuality-community
-        (public nightlies) or paritytech/preview-net-v1; devnet: from
+        paritytech/individuality or paritytech/individuality-community
+        (public nightlies); devnet: from
         paseo-network/runtimes. Name the tag rather than `@latest`: it is
         flavor-blind on individuality and 404s on individuality-community.
       placeholder: paritytech/individuality@v0.12.0
@@ -131,7 +131,7 @@ body:
       description: >
         Full control for asks the fields can't express — a different `tests` list,
         asset-hub pinned apart from people, or a `ppn_ref` naming the
-        preview-net-v1 branch to take the engine from. When filled, this REPLACES
+        previewnet-engine branch to take the engine from. When filled, this REPLACES
         the fields above. Shape: see environments/README.md.
       render: json
     validations:

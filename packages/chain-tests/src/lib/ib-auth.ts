@@ -45,7 +45,7 @@ export function ibAuthHeader(sub: string): Record<string, string> {
  * issues the JWT itself, bound to the person's own key, so no shared secret exists:
  * `POST /api/v1/auth/challenges` → sign `SHA256(challenge ‖ clientId ‖ SHA256(body))`
  * with the person's sr25519 key → `POST /api/v1/auth/token`. Mirrors
- * preview-net-v1's tests/scripts/test-identity-registration.ts, which mirrors the
+ * previewnet-engine's tests/scripts/test-identity-registration.ts, which mirrors the
  * host SDK.
  */
 export async function ibV2AuthHeader(

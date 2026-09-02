@@ -12,7 +12,7 @@ Doors 2 and 3 share one field list, [`gate-form.mjs`](./gate-form.mjs), which as
 { "chains": { "bulletin": { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" } } }
 ```
 
-Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `preview-net-v1`, `polkadot-sdk`, `release-automation`, `web3-storage` and `device-uniqueness-backend`, but a trap on three sources (verified 2026-08-25):
+Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage` and `device-uniqueness-backend`, but a trap on three sources (verified 2026-08-25):
 
 | Source | `@latest` resolves to | Why it bites |
 |---|---|---|
@@ -20,7 +20,7 @@ Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves thr
 | `paritytech/individuality-community` | `404` | Every release is a prerelease nightly, and `releases/latest` skips prereleases |
 | `polkadot-bulletin-chain`, `individuality` | whichever flavor sorts first | Flavor-blind — `individuality@latest` is the `-previewnet` build, wrong for paseo-next-v2; bulletin can land a westend build |
 
-Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the preview-net-v1 branch to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
+Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine branch to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
 
 Whichever door: the gate forks the live network, converges X → Y — swapping/upgrading **only what differs** (identical pins byte-compare and no-op), never downgrading — runs the chain-tests, and the run summary leads with the exact transitions tested (`bulletin: runtime …v0.0.22-paseo → …v0.0.23-paseo`).
 
@@ -46,18 +46,18 @@ Single-dimension targets collapse to just `target` (a binaries-only ask is then 
 
 Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `NETWORK=local-fork` — against its upgraded fork; that suite is the actual verdict on the environment.
 
-The engine's own pins are its business (per-network `networks/<name>.json` after preview-net-v1 #159; `config/versions.env` keeps only the shared toolchain); this directory answers "what is deployed as we know it" (canonical) and "what is being asked" (target).
+The engine's own pins are its business (per-network `networks/<name>.json`; `config/versions.env` keeps only the shared toolchain); this directory answers "what is deployed as we know it" (canonical) and "what is being asked" (target).
 
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to preview-net-v1 `main`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `main`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
   pnpm resolve:environment overrides environments/networks/previewnet.json  # engine env (PPN_BINARIES, NETWORK, ...)
   pnpm resolve:environment runtimes environments/networks/previewnet.json   # downloads, prints chain=path
-  # in a preview-net-v1 checkout: make start FORK=1 → make runtime-upgrade per line
+  # in a previewnet-engine checkout: make start FORK=1 → make runtime-upgrade per line
   NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
@@ -67,11 +67,11 @@ Binaries are pinned **once per engine binary slot**; runtimes **per chain**:
 
 ```json
 "binaries": {
-  "polkadot":           "paritytech/preview-net-v1@vX",
-  "polkadot-omni-node": "paritytech/preview-net-v1@vX"
+  "polkadot":           "paritytech/release-automation@vX",
+  "polkadot-omni-node": "paritytech/release-automation@vX"
 },
 "chains": {
-  "relay":     { "runtime": "paritytech/preview-net-v1@vX" },
+  "relay":     { "runtime": "paseo-network/runtimes@vX" },
   "asset-hub": { "runtime": "paritytech/individuality@vY" },
   "bulletin":  { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" }
 },
@@ -80,15 +80,15 @@ Binaries are pinned **once per engine binary slot**; runtimes **per chain**:
 
 **Which binary *file* a chain execs is engine wiring, not a manifest choice** — relay → `polkadot`, every previewnet parachain → `polkadot-omni-node`, mirrored as read-only fact in the map (`CHAINS.<network>.<chain>.node` in `release-map.mjs`). The engine keeps one file per slot, so the manifest pins the slot, not the chain: a split pin ("bulletin on X, people on Y") is inexpressible rather than merely rejected, and if the engine ever rewires a chain to a different binary, no manifest changes — only the map does. On kusama/polkadot, where parachains genuinely run different node binaries (`polkadot-parachain` vs omni-node), the slots differ per chain in the map and each slot gets its own pin.
 
-A slot may come from **any repo in its allow-list**: preview-net-v1, polkadot-sdk and release-automation publish `polkadot` (+ its ABI-coupled PVF workers, which always travel with it), `polkadot-omni-node` and `eth-rpc` under the same asset-name convention, so `"polkadot-omni-node": "paritytech/polkadot-sdk@polkadot-stable2606-1"` is a legal manifest change. Whether that source can actually *drive* the network (host functions, features) is what the gate run answers — that's the point. (release-automation caveat: some of its releases are partial re-publishes — pin a complete tag, never `latest`.)
+A slot may come from **any repo in its allow-list**: polkadot-sdk and release-automation both publish `polkadot` (+ its ABI-coupled PVF workers, which always travel with it), `polkadot-omni-node` and `eth-rpc` under the same asset-name convention, so `"polkadot-omni-node": "paritytech/polkadot-sdk@polkadot-stable2606-1"` is a legal manifest change. Whether that source can actually *drive* the network (host functions, features) is what the gate run answers — that's the point. (release-automation caveat: some of its releases are partial re-publishes — pin a complete tag, never `latest`.)
 
 **Delivery is declared, not smuggled**: slot and eth-rpc pins become `PPN_BINARIES` overrides (`resolve.mjs overrides`), applied inside the engine's loader so `fetch`, `start` and `ppn show --json` cannot disagree; the gate asserts the resolved `show --json` against the manifest (`assert-engine.mjs`) before spawning — every pin must come back marked `overridden`, and the chain→binary wiring we mirror in the map for ask-time validation is checked against the engine's own answer on every run.
 
-Runtimes are allow-listed the same way, with the asset name looked up **per repo** (naming conventions differ): previewnet's people and asset-hub runtimes may pin `paritytech/preview-net-v1` (PPN's re-publish, plain `.wasm`) or `paritytech/individuality` (the upstream source of the next-* runtimes, `.compact.compressed.wasm`) — so gating `paritytech/individuality@v0.11.2` before PPN ever re-publishes it is one manifest line. Bulletin and web3-storage already pin their upstream repos directly.
+Runtimes are allow-listed the same way, with the asset name looked up **per repo** (naming conventions differ): previewnet's people and asset-hub runtimes may pin `paritytech/individuality-community` (the public nightlies) or `paritytech/individuality` (the upstream source of the next-* runtimes, `.compact.compressed.wasm`). Every chain now pins the repo that builds its runtime.
 
-`identity-backend` names the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend`'s own releases since its v0.2.0. The canonical manifest deliberately does **not** pin it: the engine's own default tag (preview-net-v1 `config/versions.env`) governs the baseline, so this pin can never go stale here. A candidate override may still name it — then the resolver's `overrides` mode emits the engine's `DUB_TAG` env var alongside `PPN_BINARIES`, which is how a new dub release gets gated.
+`identity-backend` names the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend`'s own releases since its v0.2.0. The canonical manifest deliberately does **not** pin it: the engine's own default tag (previewnet-engine `config/versions.env`) governs the baseline, so this pin can never go stale here. A candidate override may still name it — then the resolver's `overrides` mode emits the engine's `DUB_TAG` env var alongside `PPN_BINARIES`, which is how a new dub release gets gated.
 
-Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, doppelganger (bite-time only), the portable Postgres the identity services use, `chain-spec-builder` (genesis mode only; a fork uses the bundle's specs). Those version the *engine*, not the environment under test, and stay pinned in preview-net-v1's `versions.env`.
+Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, doppelganger (bite-time only), the portable Postgres the identity services use, `chain-spec-builder` (genesis mode only; a fork uses the bundle's specs). Those version the *engine*, not the environment under test, and stay pinned in previewnet-engine's `versions.env`.
 
 ## Baseline scan — the record stays true without a human chasing production
 
@@ -102,14 +102,14 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 - Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
 - Non-chain components beyond the pinned services (dotli, the host apps) are not gateable yet; the map's shape is where they will go.
-- `secrets.GH_PAT` must be able to read preview-net-v1 (code and releases) — plus any other private repo the manifest pins releases from (e.g. `paritytech/individuality`, `paritytech/release-automation`).
+- `secrets.GH_PAT` must be able to read previewnet-engine (code and releases) — plus any other private repo the manifest pins releases from (e.g. `paritytech/individuality`, `paritytech/release-automation`).
 
-## preview-net-v1 #159 (multi-network workspace) — integrated
+## How the gate drives the engine
 
-The gate targets PPN's multi-network API: PPN stopped building anything itself — binaries come from `paritytech/release-automation` (weekly cuts from polkadot-sdk master), runtimes from their upstreams, the identity quadruple from `paritytech/device-uniqueness-backend` — and the engine is driven through the `ppn` CLI. What that means here:
+The engine builds nothing itself — binaries come from `paritytech/release-automation` (weekly cuts from polkadot-sdk master), runtimes from their upstreams, the identity quadruple from `paritytech/device-uniqueness-backend` — and the engine is driven through the `ppn` CLI. What that means here:
 
 - Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality`, bulletin/web3-storage from their repos; identity-backend rides the engine's default (`device-uniqueness-backend`, overridable per candidate).
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
-- `PPN_REF_DEFAULT` is `main` (#159 merged 2026-08-21; a dispatch can still pin `ppn_ref` via the advanced overlay).
+- `PPN_REF_DEFAULT` is `main`; a dispatch can pin `ppn_ref` via the advanced overlay to run against an engine branch.
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain exact runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).
-- Later: replace the map's mirrored wiring with `@parity/ppn-network-config` once it's on npm (until then the runtime drift assert keeps the mirror honest); publish pnv2 fork bundles so its gate stops biting live; a full raw Paseo Asset Hub spec to unblock devnet.
+- Later: `@parity/ppn-network-config` is on npm now, so the map's mirrored wiring can read from it instead of restating it (the runtime drift assert keeps the mirror honest until it does); publish pnv2 fork bundles so its gate stops biting live; a full raw Paseo Asset Hub spec to unblock devnet.

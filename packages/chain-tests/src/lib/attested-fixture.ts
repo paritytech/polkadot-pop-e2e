@@ -45,7 +45,7 @@ const ASSIGNED_POLL_INTERVAL_MS = 2_000;
 
 // IBv2 registration is asynchronous end to end (outbox → chain-writer → attest →
 // finalize → index) and on a freshly spawned fork the writer starts cold, so the
-// budget matches preview-net-v1's own registration e2e rather than IBv1's SLA probe.
+// budget matches the engine's own registration e2e rather than IBv1's SLA probe.
 const V2_INDEXED_TIMEOUT_MS = 240_000;
 const V2_POLL_INTERVAL_MS = 5_000;
 
