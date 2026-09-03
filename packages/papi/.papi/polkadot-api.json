@@ -23,38 +23,38 @@
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
-      "genesis": "0x627f54413120c81161261b2ca87f60f0020963107dc28367491e09ec2dd29659",
-      "codeHash": "0x1ab78678006052f5d8d5c2b5e058752cf2a600780025a6b6a3ae3678ade9e87c"
+      "genesis": "0xc27c8bf3f13f96dc2130cd2b0a3debe57618fd02521ecc1902bd7dd4ed83d2fe",
+      "codeHash": "0x9b7360a95d661d66458b13683bc6778d6cd0efd3ed780412eebcb7d9340e18b3"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
       "metadata": ".papi/metadata/previewBulletin.scale",
-      "genesis": "0x1144acd27f0e5b2c88da7dc12c111e396983dec036ccfb42da5bbb0dd7104e89",
-      "codeHash": "0x6b3a2edbb13251cc3f6291cb753a213970c6af5217bd91400aaccc65b4f95aff"
+      "genesis": "0xea9158d768971553e315b76323cbffda238b6b865f3d3d5e138350b12312173d",
+      "codeHash": "0x5f6f2d48325e874a80f178e2c78c654b7bb916e881aa2a4160ebd1c6b27eef6c"
     },
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
-      "genesis": "0x34999c298555e25bf17a7f3ea20efe7f6fdab1dfec7f808fbcfd36ca8aa5d220",
-      "codeHash": "0x6dbb302e73393b7ceb73700734edcbbdf25ea02947f78ba83f0d014a8e4d3adc"
+      "genesis": "0xf720c28fe3315e67fa799a616fc59abad47dd257b1a336af6538435844d35218",
+      "codeHash": "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextAssetHub.scale",
-      "genesis": "0x23e730eb1c6fecae09c917439a5038cb6122d0d48980e8b9bbf0ff56f94a2ca6",
-      "codeHash": "0xbe7baeef2ed57543b860933d78ee5a1dc3b46a74aa42250bd3f24bfdd1ce06b8"
+      "genesis": "0x4349b00e54897e21196fd331015fc5be0f14e118beb0375ed2bb1793737bb57a",
+      "codeHash": "0x9b7360a95d661d66458b13683bc6778d6cd0efd3ed780412eebcb7d9340e18b3"
     },
     "paseoNextBulletin": {
       "wsUrl": "wss://paseo-bulletin-next-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextBulletin.scale",
       "genesis": "0x8cfe6717dc4becfda2e13c488a1e2061ff2dfee96e7d031157f72d36716c0a22",
-      "codeHash": "0x6b3a2edbb13251cc3f6291cb753a213970c6af5217bd91400aaccc65b4f95aff"
+      "codeHash": "0x5f6f2d48325e874a80f178e2c78c654b7bb916e881aa2a4160ebd1c6b27eef6c"
     },
     "paseoNextPeople": {
       "wsUrl": "wss://paseo-people-next-system-rpc.polkadot.io",
       "metadata": ".papi/metadata/paseoNextPeople.scale",
-      "genesis": "0x89a63b11fef2c0273fc72c0d864da0793a665dade5db153e0cab995348c5440f",
-      "codeHash": "0x3973b0f94d593b0018753766422f4898987115b5261ba368ccda84619a8bf582"
+      "genesis": "0x4a2b5b737de1da59e209b0000a876ec2fa20035dc34fd292a848da32d255ad48",
+      "codeHash": "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696"
     }
   }
 }
