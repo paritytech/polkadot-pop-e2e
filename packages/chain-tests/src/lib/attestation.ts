@@ -234,7 +234,7 @@ export async function fetchUsernameStatus(
 /**
  * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection. A hit proves the
  * whole asynchronous registration pipeline: writer lease, attestation allowance,
- * signing, submission, finalization and indexing — the same signal preview-net-v1's
+ * signing, submission, finalization and indexing — the same signal the engine's
  * own registration e2e uses. IBv2 exposes no RESERVED/ASSIGNED status field, so this
  * replaces the status poll there.
  */

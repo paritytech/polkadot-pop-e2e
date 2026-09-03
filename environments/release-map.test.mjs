@@ -272,9 +272,9 @@ describe('guard rails', () => {
 
   it('renders the allow-lists for testers, straight from the enforced tables', () => {
     const text = allowedSources('previewnet');
-    assert.match(text, /binary polkadot \(runs relay\) from paritytech\/preview-net-v1 or paritytech\/polkadot-sdk/);
-    assert.match(text, /binary polkadot-omni-node \(runs asset-hub, people, bulletin, web3-storage\) from paritytech\/preview-net-v1 or paritytech\/polkadot-sdk/);
-    assert.match(text, /people: runtime from paritytech\/preview-net-v1 or paritytech\/individuality/);
+    assert.match(text, /binary polkadot \(runs relay\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
+    assert.match(text, /binary polkadot-omni-node \(runs asset-hub, people, bulletin, web3-storage\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
+    assert.match(text, /people: runtime from paritytech\/individuality-community or paritytech\/individuality/);
     assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend/);
     assert.match(text, /kubo: from ipfs\/kubo \(pin recorded, not yet swapped\)/);
     assert.throws(() => allowedSources('nonexistent'), /unknown network/);
@@ -346,7 +346,7 @@ describe('guard rails', () => {
             chains: { relay: { runtime: 'paritytech/individuality@v0.11.2' } },
           })
         ),
-      /relay runtime must come from paritytech\/preview-net-v1/
+      /relay runtime must come from paseo-network\/runtimes/
     );
   });
 

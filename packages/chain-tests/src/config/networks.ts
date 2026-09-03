@@ -117,7 +117,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
 
 /**
  * A locally spawned fork of a known network — `make start FORK=1` in the engine
- * (paritytech/preview-net-v1), as used by the release-gate workflow.
+ * (paritytech/previewnet-engine), as used by the release-gate workflow.
  *
  * Fork configs are DERIVED, not enumerated: a fork of X carries X's capability flags
  * and chain set (it is X's state), so everything is inherited from `NETWORKS[X]` and

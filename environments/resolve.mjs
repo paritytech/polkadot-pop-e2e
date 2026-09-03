@@ -35,8 +35,8 @@
 //     informational cross terms.
 //
 // "latest" tags resolve to the concrete tag so logs name what was actually gated.
-// GITHUB_TOKEN is required for private repos (preview-net-v1). Diagnostics go to
-// stderr; stdout is machine-readable only.
+// GITHUB_TOKEN is required for private repos (individuality, release-automation).
+// Diagnostics go to stderr; stdout is machine-readable only.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -129,7 +129,7 @@ if (mode === 'binaries') {
   // what a token must be able to read for THIS run. Emitted so the gate can
   // preflight exactly what it needs rather than a hardcoded list that drifts as
   // manifests move between private and public (…-community) sources.
-  const repos = new Set(['paritytech/preview-net-v1']);
+  const repos = new Set(['paritytech/previewnet-engine']);
   for (const pin of [
     ...Object.values(manifest.binaries ?? {}),
     ...Object.values(manifest.services ?? {}),
@@ -149,7 +149,7 @@ if (mode === 'binaries') {
   const net = manifest.network;
   console.log(`NETWORK=${net}`);
   console.log(`PPN_NETWORK=${net}`);
-  console.log(`FORK_DIR_NAME=fork-bundle${net === 'previewnet' ? '' : `-${net}`}`);
+  console.log(`FORK_DIR_NAME=fork-bundle-${net}`);
   console.log(`FRESH_BITE=${NETWORK_META[net]?.freshBite ? 1 : 0}`);
   console.log(`FORK_WAIT_SECONDS=${NETWORK_META[net]?.waitSeconds ?? 900}`);
   // Whether the fork RUNS an identity backend is engine wiring (SERVICES), not a
@@ -160,12 +160,16 @@ if (mode === 'binaries') {
   console.log(`PPN_BINARIES=${ppnOverrides(manifest)}`);
 } else if (mode === 'candidates') {
   if (basePath && targetPath) usage('--base and --target are alternative flows, pass one');
-  const base = basePath
-    ? validateManifest(JSON.parse(fs.readFileSync(basePath, 'utf8')))
-    : manifest;
+  // The base records what was deployed, so it is read, not ask-validated: a manifest
+  // written under a wider allow-list has to stay readable, or narrowing the list
+  // fails every open PR on its own base. What must be legal is each candidate the
+  // matrix will actually gate — the cross terms included, since they splice the
+  // base's pins into a manifest a runner then spawns.
+  const base = basePath ? JSON.parse(fs.readFileSync(basePath, 'utf8')) : manifest;
   const target = targetPath ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : null;
   const effective = target ? validateManifest(mergeTarget(manifest, target)) : manifest;
   const matrix = candidateMatrix(base, effective);
+  for (const c of matrix) validateManifest(c.manifest);
   for (const c of matrix) {
     console.error(`  ${c.id} (gating=${c.gating}): ${c.purpose}`);
     for (const t of c.transitions) console.error(`      ${t}`);

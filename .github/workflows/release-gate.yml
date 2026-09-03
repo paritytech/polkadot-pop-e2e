@@ -15,7 +15,7 @@ name: Release Gate
 # `pnpm --filter @pop-e2e/chain-tests <script>` (per the manifest's `tests:`)
 # against the upgraded fork via NETWORK=local-fork.
 #
-# The engine is paritytech/preview-net-v1 (`make start FORK=1`, `make runtime-upgrade`);
+# The engine is paritytech/previewnet-engine (`make start FORK=1`, `make runtime-upgrade`);
 # this workflow only composes it. See environments/README.md.
 
 on:
@@ -137,8 +137,8 @@ on:
   #
   # `@latest` is accepted everywhere and resolves through the repo's GitHub "latest
   # release", with the run log naming the concrete tag it landed on. It is only
-  # SAFE on repos whose latest release is the one you mean — preview-net-v1,
-  # polkadot-sdk, release-automation, web3-storage, device-uniqueness-backend.
+  # SAFE on repos whose latest release is the one you mean — polkadot-sdk,
+  # release-automation, web3-storage, device-uniqueness-backend.
   # Three sources where it misfires, verified 2026-08-25:
   #   - paseo-network/runtimes@latest → v2.4.3 while production runs v2.4.4 (GitHub
   #     ranks releases/latest by tag created_at, not publish date), so the gate
@@ -167,27 +167,25 @@ on:
       binary_polkadot:
         description: >
           Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it. From
-          paritytech/preview-net-v1, paritytech/polkadot-sdk or
-          paritytech/release-automation (complete tags only — some
-          release-automation releases are partial re-publishes). `@latest` is safe
-          on all three. e.g. paritytech/preview-net-v1@latest or
+          paritytech/polkadot-sdk or paritytech/release-automation (complete tags
+          only — some release-automation releases are partial re-publishes).
+          `@latest` is safe on both. e.g. paritytech/polkadot-sdk@latest or
           paritytech/release-automation@polkadot-weekly2026w34-rc1
         required: false
       binary_polkadot_omni_node:
         description: >
           Node binary polkadot-omni-node — one file every parachain execs, so this
           moves all of them together. Same sources as polkadot, `@latest` equally
-          safe. e.g. paritytech/preview-net-v1@latest or
-          paritytech/polkadot-sdk@polkadot-stable2606-1
+          safe. e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
         required: false
       runtime_relay:
         description: >
           Runtime relay — UPGRADED from whatever production runs to this release; a
           byte-identical pin is a no-op assertion, an older one fails as stale. From
-          paseo-network/runtimes (previewnet also: paritytech/preview-net-v1). Do
-          NOT use paseo-network/runtimes@latest — it resolves to v2.4.3, behind the
+          paseo-network/runtimes, and it must be the _fast build. Do NOT use
+          paseo-network/runtimes@latest — it resolves to v2.4.3, behind the
           deployed v2.4.4, and the gate rejects the downgrade.
-          e.g. paseo-network/runtimes@v2.4.5 or paritytech/preview-net-v1@latest
+          e.g. paseo-network/runtimes@v2.4.5
         required: false
       runtime_asset_hub:
         description: >
@@ -215,7 +213,7 @@ on:
       service_eth_rpc:
         description: >
           The eth-rpc sidecar the fork runs. Same sources as the node binaries,
-          `@latest` equally safe. e.g. paritytech/preview-net-v1@latest or
+          `@latest` equally safe. e.g. paritytech/polkadot-sdk@latest or
           paritytech/release-automation@polkadot-weekly2026w34-rc1
         required: false
       service_identity_backend:
@@ -229,8 +227,8 @@ on:
       advanced:
         description: >
           Raw target overlay (JSON) for asks the fields cannot express — REPLACES
-          them when set. Also the only route for `ppn_ref` (the preview-net-v1 ref
-          to take the engine from), e.g. {"ppn_ref":"mak/engine-branch"}. Shape:
+          them when set. Also the only route for `ppn_ref` (the previewnet-engine
+          ref to take the engine from), e.g. {"ppn_ref":"mak/engine-branch"}. Shape:
           environments/README.md.
         required: false
       runs_on:
@@ -246,11 +244,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Engine default; a `ppn_ref` key in the dispatch form's `advanced` overlay
-  # overrides it for ad-hoc runs against engine branches.
-  # The gate targets the multi-network-workspace API (ppn CLI, PPN_BINARIES
-  # overrides) — flip to `main` when preview-net-v1 #159 merges.
-  PPN_REF_DEFAULT: main # multi-network-workspace merged (preview-net-v1#159) and its branch is gone
+  # Which previewnet-engine release the gate composes — a tag, so an engine merge
+  # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
+  # `advanced` overlay overrides it for runs against a branch.
+  PPN_REF_DEFAULT: v0.5.0
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
@@ -450,9 +447,9 @@ jobs:
             echo "**Transitions under test:** ${{ join(matrix.candidate.transitions, ' · ') }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # GITHUB_TOKEN cannot read a sibling private repo; GH_PAT must be able
-      # to read paritytech/preview-net-v1 (code and releases). Guarded so a missing
-      # secret fails with instructions instead of an opaque "repository not found".
+      # GH_PAT must be able to read every private repo this manifest pulls releases
+      # from. Guarded so a missing grant fails with instructions instead of an opaque
+      # "repository not found".
       # Preflight the token against exactly the repos THIS manifest pulls from —
       # asked of the resolver, not hardcoded, so it follows pins as they move
       # between private and public (…-community) sources.
@@ -488,12 +485,11 @@ jobs:
       # The plan job folded these into the pins; this job needs the bytes. Same
       # relative path, so the `file:` pins in the candidate manifest resolve.
 
-      - name: Checkout the engine (preview-net-v1)
+      - name: Checkout the engine (previewnet-engine)
         uses: actions/checkout@v4
         with:
-          repository: paritytech/preview-net-v1
+          repository: paritytech/previewnet-engine
           ref: ${{ needs.plan.outputs.ppn_ref || env.PPN_REF_DEFAULT }}
-          token: ${{ secrets.GH_PAT }}
           path: ppn
 
       - uses: pnpm/action-setup@v4

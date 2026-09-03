@@ -7,7 +7,7 @@
   },
   "chains": {
     "relay": {
-      "runtime": "paritytech/preview-net-v1@v20260820.184459"
+      "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
       "runtime": "paritytech/individuality-community@v0.3.0"
