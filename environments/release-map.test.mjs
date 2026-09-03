@@ -274,7 +274,7 @@ describe('guard rails', () => {
     const text = allowedSources('previewnet');
     assert.match(text, /binary polkadot \(runs relay\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
     assert.match(text, /binary polkadot-omni-node \(runs asset-hub, people, bulletin, web3-storage\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
-    assert.match(text, /people: runtime from paritytech\/individuality-community or paritytech\/individuality/);
+    assert.match(text, /people: runtime from paritytech\/individuality-community/);
     assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend/);
     assert.match(text, /kubo: from ipfs\/kubo \(pin recorded, not yet swapped\)/);
     assert.throws(() => allowedSources('nonexistent'), /unknown network/);
@@ -303,15 +303,15 @@ describe('guard rails', () => {
     }
   });
 
-  it('resolves the per-repo asset name for runtimes with several allowed sources', () => {
+  it("resolves each chain's asset name from its own source table", () => {
     // Pin every probed chain explicitly: the canonical manifest's repo choices are
     // the baseline scan's to rewrite, and this test is about the MAP's per-repo
     // asset resolution, not about what production happens to run today.
     const m = withChain(
       withChain(
-        withChain(previewnet, 'people', { runtime: 'paritytech/individuality@v0.11.2' }),
+        withChain(previewnet, 'people', { runtime: 'paritytech/individuality-community@v0.11.2' }),
         'asset-hub',
-        { runtime: 'paritytech/individuality@v0.11.2' }
+        { runtime: 'paritytech/individuality-community@v0.11.2' }
       ),
       'relay',
       { runtime: 'paseo-network/runtimes@v2.4.4' }
@@ -334,7 +334,7 @@ describe('guard rails', () => {
       () =>
         validateManifest(
           mergeTarget(previewnet, {
-            binaries: { 'polkadot-omni-node': 'paritytech/individuality@v0.11.2' },
+            binaries: { 'polkadot-omni-node': 'paritytech/individuality-community@v0.11.2' },
           })
         ),
       /polkadot-omni-node may come from/
@@ -343,7 +343,7 @@ describe('guard rails', () => {
       () =>
         validateManifest(
           mergeTarget(previewnet, {
-            chains: { relay: { runtime: 'paritytech/individuality@v0.11.2' } },
+            chains: { relay: { runtime: 'paritytech/individuality-community@v0.11.2' } },
           })
         ),
       /relay runtime must come from paseo-network\/runtimes/

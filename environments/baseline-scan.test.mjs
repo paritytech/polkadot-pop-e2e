@@ -14,8 +14,8 @@ const previewnetManifest = () => ({
   },
   chains: {
     relay: { runtime: 'paseo-network/runtimes@v2.4.4' },
-    'asset-hub': { runtime: 'paritytech/individuality@v0.12.0-previewnet' },
-    people: { runtime: 'paritytech/individuality@v0.12.0-previewnet' },
+    'asset-hub': { runtime: 'paritytech/individuality-community@v0.12.0-previewnet' },
+    people: { runtime: 'paritytech/individuality-community@v0.12.0-previewnet' },
     bulletin: { runtime: 'paritytech/polkadot-bulletin-chain@v0.0.25-paseo' },
     'web3-storage': { runtime: 'paritytech/web3-storage@v0.4.1-paseo' },
   },
@@ -54,19 +54,19 @@ describe('attribute', () => {
     const io = fakeIo({
       liveCode: CODE_LIVE,
       releasesByRepo: {
-        'paritytech/individuality': [
+        'paritytech/individuality-community': [
           { tag: 'v0.13.0', assets: { 'next_people_paseo_runtime.compact.compressed.wasm': CODE_LIVE } },
           { tag: 'v0.12.0', assets: { 'next_people_paseo_runtime.compact.compressed.wasm': CODE_OLD } },
         ],
       },
     });
     const hit = await attribute(
-      { 'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm' },
+      { 'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm' },
       liveOf(CODE_LIVE),
       'bytes',
       io
     );
-    assert.deepEqual(hit, { repo: 'paritytech/individuality', tag: 'v0.13.0' });
+    assert.deepEqual(hit, { repo: 'paritytech/individuality-community', tag: 'v0.13.0' });
   });
 
   it('skips same-name assets whose size differs without downloading, and returns null on no match', async () => {
@@ -74,14 +74,14 @@ describe('attribute', () => {
     const io = fakeIo({
       liveCode: CODE_LIVE,
       releasesByRepo: {
-        'paritytech/individuality': [
+        'paritytech/individuality-community': [
           { tag: 'v9', assets: { 'a.wasm': Buffer.from('x') } }, // wrong size — must not download
         ],
       },
     });
     const inner = io.downloadAssetBytes;
     io.downloadAssetBytes = (a) => (downloads++, inner(a));
-    const hit = await attribute({ 'paritytech/individuality': 'a.wasm' }, liveOf(CODE_LIVE), 'bytes', io);
+    const hit = await attribute({ 'paritytech/individuality-community': 'a.wasm' }, liveOf(CODE_LIVE), 'bytes', io);
     assert.equal(hit, null);
     assert.equal(downloads, 0);
   });
@@ -94,7 +94,7 @@ describe('scanManifest', () => {
       { tag: 'v2.4.5', assets: { 'paseo_fast_runtime.compressed.wasm': CODE_LIVE } },
       { tag: 'v2.4.4', assets: { 'paseo_fast_runtime.compressed.wasm': CODE_OLD } },
     ],
-    'paritytech/individuality': [
+    'paritytech/individuality-community': [
       { tag: 'v0.12.1-previewnet', assets: {
         'next_asset_hub_paseo_runtime.compact.compressed.wasm': CODE_LIVE,
         'next_people_paseo_runtime.compact.compressed.wasm': CODE_LIVE,
@@ -120,7 +120,7 @@ describe('scanManifest', () => {
     assert.equal(byChain['web3-storage'].verdict, 'match');
     assert.equal(byChain.relay.verdict, 'drift');
     assert.equal(byChain.relay.attributed, 'paseo-network/runtimes@v2.4.5');
-    assert.equal(byChain['asset-hub'].attributed, 'paritytech/individuality@v0.12.1-previewnet');
+    assert.equal(byChain['asset-hub'].attributed, 'paritytech/individuality-community@v0.12.1-previewnet');
     assert.equal(byChain.people.observed.block, 42);
   });
 
@@ -203,7 +203,7 @@ describe('applyDrift', () => {
     ]);
     assert.deepEqual(changed, ['relay']);
     assert.equal(manifest.chains.relay.runtime, 'paseo-network/runtimes@v2.4.5');
-    assert.equal(manifest.chains.people.runtime, 'paritytech/individuality@v0.12.0-previewnet');
+    assert.equal(manifest.chains.people.runtime, 'paritytech/individuality-community@v0.12.0-previewnet');
   });
 });
 
@@ -213,7 +213,7 @@ describe('renderSummary', () => {
       {
         chain: 'people',
         verdict: 'unattributed',
-        pin: 'paritytech/individuality@v0.12.0-previewnet',
+        pin: 'paritytech/individuality-community@v0.12.0-previewnet',
         observed: { specName: 'next-people-paseo', specVersion: 1000037, block: 7 },
       },
     ]);

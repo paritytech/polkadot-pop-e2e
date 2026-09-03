@@ -96,13 +96,13 @@ describe('per-chain runtime fields', () => {
   it('pins asset-hub and people independently', () => {
     const { target } = parseDispatchInputs(
       dispatch({
-        runtime_asset_hub: 'paritytech/individuality@v0.12.0',
+        runtime_asset_hub: 'paritytech/individuality-community@v0.3.1',
         runtime_people: 'paritytech/individuality-community@nightly-2026-08-28',
       })
     );
     assert.deepEqual(target, {
       chains: {
-        'asset-hub': { runtime: 'paritytech/individuality@v0.12.0' },
+        'asset-hub': { runtime: 'paritytech/individuality-community@v0.3.1' },
         people: { runtime: 'paritytech/individuality-community@nightly-2026-08-28' },
       },
     });
@@ -127,10 +127,10 @@ describe('per-chain runtime fields', () => {
 
   it('stays splittable through the advanced overlay', () => {
     const { target } = parseDispatchInputs({
-      GATE_ADVANCED: '{"chains":{"people":{"runtime":"paritytech/individuality@v0.12.0"}}}',
+      GATE_ADVANCED: '{"chains":{"people":{"runtime":"paritytech/individuality-community@v0.3.1"}}}',
     });
     assert.deepEqual(target, {
-      chains: { people: { runtime: 'paritytech/individuality@v0.12.0' } },
+      chains: { people: { runtime: 'paritytech/individuality-community@v0.3.1' } },
     });
   });
 });
@@ -166,7 +166,7 @@ describe('assembled overlays validate against the canonical manifests', () => {
       dispatch({
         binary_polkadot: 'paritytech/polkadot-sdk@polkadot-stable2606-1',
         binary_polkadot_omni_node: 'paritytech/polkadot-sdk@polkadot-stable2606-1',
-        runtime_individuality: 'paritytech/individuality@v0.12.0-previewnet',
+        runtime_individuality: 'paritytech/individuality-community@v0.3.1',
         runtime_bulletin: 'paritytech/polkadot-bulletin-chain@v0.0.24-paseo',
       })
     );
