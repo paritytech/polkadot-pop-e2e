@@ -160,12 +160,16 @@ if (mode === 'binaries') {
   console.log(`PPN_BINARIES=${ppnOverrides(manifest)}`);
 } else if (mode === 'candidates') {
   if (basePath && targetPath) usage('--base and --target are alternative flows, pass one');
-  const base = basePath
-    ? validateManifest(JSON.parse(fs.readFileSync(basePath, 'utf8')))
-    : manifest;
+  // The base records what was deployed, so it is read, not ask-validated: a manifest
+  // written under a wider allow-list has to stay readable, or narrowing the list
+  // fails every open PR on its own base. What must be legal is each candidate the
+  // matrix will actually gate — the cross terms included, since they splice the
+  // base's pins into a manifest a runner then spawns.
+  const base = basePath ? JSON.parse(fs.readFileSync(basePath, 'utf8')) : manifest;
   const target = targetPath ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : null;
   const effective = target ? validateManifest(mergeTarget(manifest, target)) : manifest;
   const matrix = candidateMatrix(base, effective);
+  for (const c of matrix) validateManifest(c.manifest);
   for (const c of matrix) {
     console.error(`  ${c.id} (gating=${c.gating}): ${c.purpose}`);
     for (const t of c.transitions) console.error(`      ${t}`);
