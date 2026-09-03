@@ -77,10 +77,11 @@ jobs:
         if: steps.drift.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          # A PAT, not the default GITHUB_TOKEN: PRs opened with the default
-          # token trigger NO workflows, so refresh PRs would arrive with an
-          # empty checks section and merge unvalidated.
-          token: ${{ secrets.GH_PAT_REFRESH }}
+          # Prefer a PAT: PRs opened with the default token trigger NO workflows, so
+          # a refresh PR would arrive with an empty checks section. Falling back keeps
+          # the refresh working when it is unset instead of failing whenever it finds
+          # drift, which is the only time this step runs.
+          token: ${{ secrets.GH_PAT_REFRESH || github.token }}
           commit-message: "papi: refresh metadata for ${{ steps.drift.outputs.networks }}"
           branch: automated/papi-refresh
           delete-branch: true

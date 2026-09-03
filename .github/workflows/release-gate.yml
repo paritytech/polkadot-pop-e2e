@@ -125,8 +125,11 @@ on:
         default: parity-large
     secrets:
       GH_PAT:
-        description: Read access to the engine repo and the pinned release sources.
-        required: true
+        description: >
+          Read access to any private repo the manifest pins releases from. Every
+          source the canonical manifests name is public, so this is optional; pass
+          one to lift the unauthenticated API rate limit, or to gate a private pin.
+        required: false
 
   # One field per override, mirroring the "Release gate request" issue form — the
   # field list lives in environments/gate-form.mjs and both channels read it, so
@@ -143,11 +146,8 @@ on:
   #   - paseo-network/runtimes@latest → v2.4.3 while production runs v2.4.4 (GitHub
   #     ranks releases/latest by tag created_at, not publish date), so the gate
   #     rejects it as a downgrade.
-  #   - paritytech/individuality-community@latest → 404: every release there is a
-  #     prerelease nightly, and releases/latest skips prereleases.
-  #   - flavored repos (polkadot-bulletin-chain, individuality) resolve to whichever
-  #     flavor sorts first, not your network's — individuality@latest is the
-  #     -previewnet build, wrong for paseo-next-v2.
+  #   - polkadot-bulletin-chain resolves to whichever flavor sorts first, not your
+  #     network's, so it can land a westend build.
   # Pin an exact tag whenever you want the run to stay reproducible.
   #
   # workflow_dispatch caps at 10 inputs, which is what `advanced` is for: it holds
@@ -190,7 +190,7 @@ on:
       runtime_asset_hub:
         description: >
           Runtime asset-hub — a release, or `artifact:<name>` for a build uploaded
-          in the calling run. e.g. paritytech/individuality@v0.12.0-previewnet
+          in the calling run. e.g. paritytech/individuality-community@v0.3.1
         required: false
       runtime_people:
         description: >
@@ -459,7 +459,7 @@ jobs:
       # checkout with an unexplained 403 (observed 2026-08-27).
       - name: Check prerequisites
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           set -euo pipefail
           unreachable=""
@@ -543,7 +543,7 @@ jobs:
       # and what `show --json` reports cannot disagree.
       - name: Resolve the manifest
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           node environments/resolve.mjs overrides "$MANIFEST" | tee -a "$GITHUB_ENV"
           node environments/resolve.mjs runtimes "$MANIFEST" --dir "$GITHUB_WORKSPACE/fork-runtimes" > upgrade-plan.env
@@ -556,7 +556,7 @@ jobs:
       # each attempt is capped and retried from a clean slate.
       - name: Ensure engine dependencies and fetch the fork bundle
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           for attempt in 1 2 3; do
             if timeout 1800 make -C ppn ensure-deps FORK=1; then
@@ -576,7 +576,7 @@ jobs:
       # wiring and our map, or a pin the engine did not apply — before the spawn.
       - name: Assert the engine agrees with the manifest
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           network=$(node -p "require('./$MANIFEST').network")
           node ppn/bin/ppn.mjs show "$network" --json > engine-show.json
@@ -595,7 +595,7 @@ jobs:
       # FORK=1 restart wipes the data dir and re-restores the bundle, which clears it.
       - name: Start the fork on the manifest's binaries
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           for attempt in 1 2; do
             make -C ppn kill >/dev/null 2>&1 || true

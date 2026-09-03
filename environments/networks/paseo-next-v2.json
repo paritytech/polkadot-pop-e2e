@@ -10,10 +10,10 @@
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paritytech/individuality@v0.11.2"
+      "runtime": "paritytech/individuality-community@v0.3.0"
     },
     "people": {
-      "runtime": "paritytech/individuality@v0.11.2"
+      "runtime": "paritytech/individuality-community@v0.3.0"
     },
     "bulletin": {
       "runtime": "paritytech/polkadot-bulletin-chain@v0.0.26-paseo"

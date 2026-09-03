@@ -37,17 +37,15 @@ export const CHAINS = {
         'paseo-network/runtimes': 'paseo_fast_runtime.compressed.wasm',
       },
     },
-    // The next-* runtimes are developed in paritytech/individuality and published
-    // publicly on paritytech/individuality-community (nightly-YYYY-MM-DD tags, the
-    // repo individuality is migrating to) — pin either upstream, the community
-    // re-publish, or PPN's. Asset names are per-repo. The attribution walk prefers
-    // the community repo over the private one for identical bytes.
+    // The next-* runtimes are developed in paritytech/individuality and published on
+    // paritytech/individuality-community, which is the only source pinned here: the
+    // bytes are identical and the community repo is public, so a gate run needs no
+    // read access to anything private.
     'asset-hub': {
       node: 'polkadot-omni-node',
       ws: 'wss://previewnet.substrate.dev/asset-hub',
       runtime: {
         'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
-        'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
     },
     people: {
@@ -55,7 +53,6 @@ export const CHAINS = {
       ws: 'wss://previewnet.substrate.dev/people',
       runtime: {
         'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
-        'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
     },
     bulletin: {
@@ -93,7 +90,6 @@ export const CHAINS = {
       ws: 'wss://paseo-asset-hub-next-rpc.polkadot.io',
       runtime: {
         'paritytech/individuality-community': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
-        'paritytech/individuality': 'next_asset_hub_paseo_runtime.compact.compressed.wasm',
       },
     },
     people: {
@@ -101,7 +97,6 @@ export const CHAINS = {
       ws: 'wss://paseo-people-next-system-rpc.polkadot.io',
       runtime: {
         'paritytech/individuality-community': 'next_people_paseo_runtime.compact.compressed.wasm',
-        'paritytech/individuality': 'next_people_paseo_runtime.compact.compressed.wasm',
       },
     },
     bulletin: {

@@ -35,8 +35,8 @@
 //     informational cross terms.
 //
 // "latest" tags resolve to the concrete tag so logs name what was actually gated.
-// GITHUB_TOKEN is required for private repos (individuality, release-automation).
-// Diagnostics go to stderr; stdout is machine-readable only.
+// Every pinned source is public, so GITHUB_TOKEN is optional — set it to lift the
+// unauthenticated rate limit. Diagnostics go to stderr; stdout is machine-readable.
 
 import fs from 'node:fs';
 import path from 'node:path';
