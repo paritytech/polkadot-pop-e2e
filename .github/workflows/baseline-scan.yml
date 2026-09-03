@@ -28,11 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # A PAT (not the default GITHUB_TOKEN) so pushes to baseline/bump
-          # trigger the PR's own CI — default-token pushes run no workflows.
-          # GH_PAT_REFRESH needs Contents + Pull requests read/write on
-          # THIS repo only; the read-side GH_PAT stays read-only elsewhere.
-          token: ${{ secrets.GH_PAT_REFRESH }}
+          # Prefer a PAT: pushes made with the default token run no workflows, so
+          # the bump PR would open without the release-gate run that validates it.
+          # GH_PAT_REFRESH needs Contents + Pull requests read/write on THIS repo
+          # only. Falling back keeps the scan running when it is unset — checkout
+          # treats an empty token as a hard error, which left this red and silent
+          # for every run between 2026-08-26 and 2026-09-03.
+          token: ${{ secrets.GH_PAT_REFRESH || github.token }}
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -43,7 +45,7 @@ jobs:
 
       - name: Scan production and rewrite drifted pins
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           set -o pipefail
           pnpm scan:baseline --write 2>&1 | tee scan.out
@@ -53,7 +55,7 @@ jobs:
 
       - name: Open or update the pin-bump PR
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT_REFRESH }}
+          GH_TOKEN: ${{ secrets.GH_PAT_REFRESH || github.token }}
         run: |
           if git diff --quiet -- environments/networks; then
             echo "record matches production — nothing to bump"
