@@ -10,14 +10,16 @@
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paseo-network/runtimes@v2.4.4"
+      "runtime": "paseo-network/runtimes@v2.5.1"
     },
     "people": {
-      "runtime": "paseo-network/runtimes@v2.4.4"
+      "runtime": "paseo-network/runtimes@v2.5.1"
     }
   },
   "services": {
     "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
   },
-  "tests": ["test:network-health"]
+  "tests": [
+    "test:network-health"
+  ]
 }
