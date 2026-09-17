@@ -31,6 +31,11 @@ on:
   # e.g. moving asset-hub and people apart.
   workflow_call:
     inputs:
+      advisory:
+        description: Keep the caller's workflow passing when planning or chain tests fail. Failed jobs and artifacts remain available for reporting.
+        type: boolean
+        required: false
+        default: false
       environment:
         description: >
           Networks to gate, comma-separated — e.g. `previewnet,paseo-next-v2`.
@@ -263,6 +268,7 @@ jobs:
   # manifest before any beefy runner spins up.
   plan:
     runs-on: ubuntu-latest
+    continue-on-error: ${{ inputs.advisory == true }}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
@@ -391,7 +397,7 @@ jobs:
     # are fine — only untrusted forks are excluded. Belt and braces alongside the
     # repo's "require approval for outside collaborators" setting.
     if: >-
-      needs.plan.outputs.matrix != '[]'
+      needs.plan.outputs.matrix != '' && needs.plan.outputs.matrix != '[]'
       && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository)
     # Its own beefy runner per candidate: each fork binds the engine's fixed ports
@@ -410,9 +416,9 @@ jobs:
       matrix:
         candidate: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: gate (${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }})
-    # Cross terms are rollout-ordering findings, not defects of the target state —
-    # only the target gates the PR.
-    continue-on-error: ${{ !matrix.candidate.gating }}
+    # Advisory callers retain failed jobs and artifacts without failing the run.
+    # Cross terms remain informational for blocking callers too.
+    continue-on-error: ${{ inputs.advisory == true || !matrix.candidate.gating }}
     env:
       MANIFEST: candidate-manifest.json
     steps:

@@ -60,6 +60,14 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
   NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
+## Advisory workflow calls
+
+Callers of `release-gate.yml` can set `with.advisory: true` to keep their workflow passing when planning or a candidate job fails. The default is `false`, so existing callers and release gates retain their blocking behavior. A failed plan skips candidate jobs when no matrix was produced.
+
+Failed jobs still show their failures and upload the usual test results and fork logs. A caller that reports these failures must inspect the run's jobs or test artifacts, rather than rely on the overall workflow conclusion or `needs.<job>.result`. The failed job checks must not be required checks in branch protection.
+
+For PR-only advisory runs, pass `advisory: ${{ github.event_name == 'pull_request' }}`. The caller owns notifications and needs to grant write permissions only to its separate reporting workflow.
+
 ## Binary slots and chain pins
 
 Binaries are pinned **once per engine binary slot**; runtimes **per chain**:
