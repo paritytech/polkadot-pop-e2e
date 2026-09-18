@@ -23,19 +23,19 @@
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
-      "genesis": "0xc27c8bf3f13f96dc2130cd2b0a3debe57618fd02521ecc1902bd7dd4ed83d2fe",
+      "genesis": "0xbac97e23fc8f4bccae72a98f8aeb2bcab20bf755862304e4b46ad6473456e896",
       "codeHash": "0x8b7a385c789fa051fee48f72492f08b6f031cf67fa8ee996d599d3c6c981ea59"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
       "metadata": ".papi/metadata/previewBulletin.scale",
-      "genesis": "0xea9158d768971553e315b76323cbffda238b6b865f3d3d5e138350b12312173d",
+      "genesis": "0xa081192b90c1f6a3f8e9ce7b2a8246f41af805c66456c84e05fd97c2b3502425",
       "codeHash": "0x5f6f2d48325e874a80f178e2c78c654b7bb916e881aa2a4160ebd1c6b27eef6c"
     },
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
-      "genesis": "0xf720c28fe3315e67fa799a616fc59abad47dd257b1a336af6538435844d35218",
+      "genesis": "0x55e3e689ecfa9d2fffcf7d309b8011956671493982230bfd0420c683542249e9",
       "codeHash": "0x12c3c05947a1043efc4002dc82f25fed18cc0c78aff9b153db62b432a7602f1d"
     },
     "paseoNextAssetHub": {
