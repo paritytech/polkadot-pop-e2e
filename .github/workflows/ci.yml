@@ -1,16 +1,19 @@
 name: CI
 
-# Typecheck plus the unit tests for the release map, resolver and gate-form
-# parsing. Everything here is offline — no chain, no RPC, no secrets — so it runs
-# on any PR including one from a fork.
+# `check` is offline — no chain, no RPC, no secrets. `live` runs the suite
+# against previewnet, which also needs no secrets: that network's config signs
+# with `//Alice` via `testAccountUri`, and its IB uses challenge auth, so
+# `IB_JWT_SECRET` stays unset and no header is sent. Both therefore run on any
+# PR, fork included.
 #
-# The suite's own tests are NOT here: they need a live network or a fork, which a
-# hosted runner on an untrusted PR should not be given. The release gate runs
-# those.
+# Until now a change to `packages/chain-tests/**` was typechecked and nothing
+# more: the release gate only fires on `environments/**`, and the health cron in
+# triangle-e2e runs this suite from `main`, so a regression was only visible
+# after merge.
 #
-# This exists because the environments tests previously ran in no workflow at all,
-# which is how three of them sat red on main for two days after the baseline scan
-# bumped a manifest pin the fixtures depended on.
+# `check` exists because the environments tests previously ran in no workflow at
+# all, which is how three of them sat red on main for two days after the
+# baseline scan bumped a manifest pin the fixtures depended on.
 
 on:
   pull_request:
@@ -60,3 +63,46 @@ jobs:
             node environments/resolve.mjs tests "$m"
             echo "::endgroup::"
           done
+
+  live:
+    # The suite against a real chain, so a chain-tests change is exercised
+    # before merge rather than by the health cron afterwards. previewnet is
+    # the target because it needs no secrets and is Alice-funded.
+    #
+    # Gating, not advisory: previewnet health has been green on its own
+    # schedule, so a red here means this PR. If it turns out to red on
+    # previewnet outages instead, add retries before reaching for
+    # continue-on-error.
+    name: live suite (previewnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NETWORK: previewnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      # Idempotent: skips when the counters are already on chain.
+      - name: Deploy counter contract
+        run: pnpm --filter @pop-e2e/chain-tests deploy-counter
+
+      # Excludes ring-health.test.ts — those SLA verdicts belong to the
+      # dedicated ring-health probe, not to a PR gate.
+      - name: Network health suite
+        run: pnpm --filter @pop-e2e/chain-tests test:network-health
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-test-results
+          path: packages/chain-tests/test-results/
+          if-no-files-found: warn
