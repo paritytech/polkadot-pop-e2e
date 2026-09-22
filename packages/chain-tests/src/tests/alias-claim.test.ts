@@ -41,7 +41,6 @@ import {
   customAliasContext,
   setAliasAccount,
 } from "../lib/alias-claim.js";
-import { createTestAccount } from "../lib/signer.js";
 
 // Same as `PopCounter.CTX` in contracts/PopCounter.sol — registering
 // under this context here makes the attested account eligible to call
@@ -125,32 +124,12 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         const creds = await ensureAttested();
         console.log(`[alias-claim] Lite-person: ${creds.address} (${creds.username})`);
 
-        // Top up the attested account with a little native PAS so it
-        // can pay the outer tx fee. The dispatch-internal `AliasFee`
-        // is still paid from PGAS (minted by the prior allowances
-        // test). Revive's auto-PGAS routing doesn't apply to
-        // non-Revive calls — so AliasAccounts needs native.
-        // 100 PAS (10 decimals) covers many tx fees with margin.
-        const NATIVE_TOPUP = 100_000_000_000n;
-        const nativeBefore =
-          (await richAh.query.System.Account.getValue(creds.address)).data.free;
-        if (nativeBefore < NATIVE_TOPUP) {
-          console.log(
-            `[alias-claim] native balance ${nativeBefore} < ${NATIVE_TOPUP}, topping up from test account`,
-          );
-          const funder = await createTestAccount();
-          const topupTx = richAh.tx.Balances.transfer_keep_alive({
-            dest: { type: "Id" as const, value: creds.address },
-            value: NATIVE_TOPUP,
-          });
-          const topupResult = await topupTx.signAndSubmit(funder.signer);
-          if (!topupResult.ok) {
-            throw new Error(
-              `[alias-claim] funding transfer failed: ${JSON.stringify(topupResult.dispatchError)}`,
-            );
-          }
-          console.log(`[alias-claim] topped up: block=#${topupResult.block.number}`);
-        }
+        // No native top-up: the whole fee for this call is paid in PGAS via
+        // `PgasAllowance`, and the account stays alive on `sufficients` from
+        // its PGAS holding, so it signs fine at a zero native balance. A
+        // 10 PAS top-up used to run here on the belief that the outer tx fee
+        // needed native; it was never spent, and since the attested account
+        // is fresh every run that 10 PAS was stranded each time.
 
         // Fees come from the existing PGAS the allowances test minted.
         const PGAS_ASSET_ID = 2_000_000_000;
