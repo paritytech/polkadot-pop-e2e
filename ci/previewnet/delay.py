@@ -1,6 +1,7 @@
 """Apply Linux netem to this network's loopback TCP peer ports, not RPC ports."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -10,7 +11,10 @@ CHILD = '7a30:'
 
 
 def tc(*args, check=True):
-    return subprocess.run(['sudo', '-n', 'tc', *args], text=True, capture_output=True, check=check)
+    result = subprocess.run(['sudo', '-n', os.environ.get('TC', 'tc'), *args], text=True, capture_output=True)
+    if check and result.returncode:
+        raise RuntimeError(f'tc {args}: {result.stderr.strip()}')
+    return result
 
 
 def peer_ports(argv):

@@ -42,6 +42,15 @@ jobs:
           command -v tc || { sudo apt-get update && sudo apt-get install -y iproute2; }
           sudo -n modprobe sch_netem || true # Built-in kernels may have no module file; qdisc creation below is authoritative.
           sudo -n tc qdisc show dev lo
+          # Older iproute2 uses a 32-bit tick field and cannot express 1,000 seconds.
+          # Build a pinned tc with 64-bit latency support; keep the system tc intact.
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config bison flex libmnl-dev libelf-dev
+          curl --fail --location --retry 3 https://github.com/iproute2/iproute2/archive/refs/tags/v6.18.0.tar.gz -o "$RUNNER_TEMP/iproute2.tar.gz"
+          tar -xzf "$RUNNER_TEMP/iproute2.tar.gz" -C "$RUNNER_TEMP"
+          make -C "$RUNNER_TEMP/iproute2-6.18.0" -j2
+          echo "TC=$RUNNER_TEMP/iproute2-6.18.0/tc/tc" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/iproute2-6.18.0/tc/tc" -V
       - uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
