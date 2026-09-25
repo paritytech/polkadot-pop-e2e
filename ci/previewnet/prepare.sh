@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch once; both topologies consume exactly the same snapshot and binary bytes.
+# Fetch the snapshot and record the exact binary bytes used for this run.
 set -euo pipefail
 out=${1:?output directory}
 mkdir -p "$out/bin" "$out/bundle"

@@ -15,8 +15,7 @@ artifacts
 .ios-derived-data
 .brevity-identity.json
 
-# Distributed Previewnet CI state
-mesh-out/
+# Previewnet CI state
 network-out/
 network-inputs/
 ppn/
