@@ -1,0 +1,136 @@
+name: Previewnet readiness with network delay
+
+on:
+  workflow_dispatch:
+    inputs:
+      delay_ms:
+        description: Added one-way delay for peer traffic, in milliseconds (default 1000 = 1 second)
+        type: string
+        default: '1000'
+  push:
+    branches: [feat/th-previewnet-network-delay]
+    paths:
+      - .github/workflows/previewnet-readiness.yml
+      - ci/previewnet/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: previewnet-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    runs-on: parity-large
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DELAY_MS: ${{ inputs.delay_ms || '1000' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python config writer and run offline checks
+        run: |
+          pip install tomli-w==1.2.0
+          python3 -m unittest discover -s ci/previewnet -p 'test_*.py' -v
+          python3 -c 'import os; n=int(os.environ["DELAY_MS"]); assert 1 <= n <= 1000000'
+      - name: Check traffic-control support
+        run: |
+          command -v tc || { sudo apt-get update && sudo apt-get install -y iproute2; }
+          sudo -n modprobe sch_netem || true # Built-in kernels may have no module file; qdisc creation below is authoritative.
+          sudo -n tc qdisc show dev lo
+          # Older iproute2 uses a 32-bit tick field and cannot express 1,000 seconds.
+          # Build a pinned tc with 64-bit latency support; keep the system tc intact.
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config bison flex libmnl-dev libelf-dev
+          curl --fail --location --retry 3 https://github.com/iproute2/iproute2/archive/refs/tags/v6.18.0.tar.gz -o "$RUNNER_TEMP/iproute2.tar.gz"
+          tar -xzf "$RUNNER_TEMP/iproute2.tar.gz" -C "$RUNNER_TEMP"
+          make -C "$RUNNER_TEMP/iproute2-6.18.0" -j2
+          echo "TC=$RUNNER_TEMP/iproute2-6.18.0/tc/tc" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/iproute2-6.18.0/tc/tc" -V
+      - uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: 7907a3bfa7b2e47535a74b7920086a05ca94773a
+          path: ppn
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Fetch pinned binaries and Previewnet snapshot
+        run: |
+          bash ci/previewnet/prepare.sh network-inputs
+          sha256sum --check network-inputs/network-inputs.sha256
+          tar -xzf network-inputs/network-inputs.tar.gz -C ppn
+      - name: Prepare the engine network
+        run: |
+          pnpm --dir ppn install --frozen-lockfile
+          pnpm --dir ppn exec tsc -b
+          node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
+          python3 ci/previewnet/network.py prepare
+          cp ppn/provenance.json network-out/
+          cp ppn/bundle/manifest.json network-out/snapshot.json
+      - name: Start Zombienet and wait for all chains to finalise
+        run: |
+          python3 ci/previewnet/start.py start
+          node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+      - name: Enable both People collators in the local fork
+        run: node ci/previewnet/people-collators.mjs setup
+      - name: Baseline without synthetic delay
+        id: baseline
+        run: python3 ci/previewnet/network.py observe --phase baseline
+      - name: Add delay to peer traffic
+        run: python3 ci/previewnet/delay.py apply --delay-ms "$DELAY_MS"
+      - name: Check block production with delay
+        run: |
+          python3 ci/previewnet/network.py observe --phase delayed --seconds 120 --timeout 150
+          python3 ci/previewnet/delay.py capture --require-packets
+      - name: Remove delay and check recovery
+        if: always() && steps.baseline.outcome == 'success'
+        run: |
+          python3 ci/previewnet/delay.py remove
+          python3 ci/previewnet/network.py observe --phase recovery
+      - name: Verify both People collators authored finalised blocks
+        run: node ci/previewnet/people-collators.mjs verify
+      - name: Summarise the run
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## Previewnet on one runner\n\nSix relay validators and five collators, including two for People.\n\n')
+              out.write(f'Added delay: {os.environ["DELAY_MS"]} ms per direction on peer traffic.\n\n')
+              for phase in ('baseline', 'delayed', 'recovery'):
+                  path=Path(f'network-out/{phase}.json')
+                  if not path.exists():
+                      out.write(f'- {phase}: no result\n')
+                      continue
+                  report=json.loads(path.read_text())
+                  out.write(f'- {phase}: observed {report["elapsed_seconds"]:.1f}s; finalised block changes: {report["finality_delta"]}; last 60s: {report["tail_finality_delta"]}\n')
+          PYTHON
+      - name: Capture delay diagnostics on failure
+        if: failure()
+        run: python3 ci/previewnet/delay.py capture
+      - name: Remove this run's delay
+        if: always()
+        run: python3 ci/previewnet/delay.py remove
+      - name: Stop this run's network
+        if: always()
+        run: python3 ci/previewnet/start.py stop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: previewnet-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.txt
+            network-out/*.log
+            network-out/data/*/*.log
+            network-inputs/provenance.json
+          retention-days: 7
