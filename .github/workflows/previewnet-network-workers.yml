@@ -46,6 +46,15 @@ jobs:
           path: mesh-out/descriptor.json
           retention-days: 1
           if-no-files-found: error
+      - name: Record network diagnostics
+        run: |
+          {
+            ip -brief address
+            ip route
+            ss -ltnp
+            sudo -n iptables -S || true
+            sudo -n nft list ruleset || true
+          } > mesh-out/network-diagnostics.txt 2>&1
       - name: Check every private runner connection
         run: python3 ci/previewnet/mesh.py check --worker "$WORKER" --count "$COUNT"
       - uses: actions/upload-artifact@v4
@@ -55,6 +64,7 @@ jobs:
           path: mesh-out/
           retention-days: 7
       - name: Keep probes alive until every worker has checked connectivity
+        if: always()
         run: |
           python3 - <<'PYTHON'
           import os
