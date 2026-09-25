@@ -1,0 +1,358 @@
+name: Coinage top-up burst on PreviewNet
+
+on:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: Funded actors after the mandatory one-actor smoke test (1–10000)
+        type: string
+        default: '10000'
+  push:
+    branches: [feat/th-coinage-top-up-burst]
+    paths:
+      - .github/workflows/coinage-top-up-burst.yml
+      - packages/chain-tests/src/lib/coinage-client*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coinage-top-up-burst-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  burst:
+    runs-on: parity-large
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ACTOR_COUNT: ${{ inputs.users || '10000' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate requested load and client
+        run: |
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000'
+          pip install tomli-w==1.2.0
+          pnpm install --frozen-lockfile
+          pnpm --filter @pop-e2e/chain-tests test:coinage-client
+      - uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: 7907a3bfa7b2e47535a74b7920086a05ca94773a
+          path: ppn
+      - name: Prepare the PreviewNet engine network from PR 32
+        run: |
+          bash ci/previewnet/prepare.sh network-inputs
+          sha256sum --check network-inputs/network-inputs.sha256
+          tar -xzf network-inputs/network-inputs.tar.gz -C ppn
+          pnpm --dir ppn install --frozen-lockfile
+          pnpm --dir ppn exec tsc -b
+          node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
+          python3 ci/previewnet/network.py prepare --people-collators 2
+          # Make the RPC watch limit explicit; leave transaction-pool limits unchanged.
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib, tomli_w
+          path = Path('network-out/network.toml')
+          config = tomllib.loads(path.read_text())
+          people = next(p for p in config['parachains'] if p['id'] == 1502)
+          for node in people['collators']:
+              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+          path.write_text(tomli_w.dumps(config))
+          PY
+          cp ppn/provenance.json network-out/
+          cp ppn/bundle/manifest.json network-out/snapshot.json
+      - name: Start six relay validators and two People collators
+        run: |
+          python3 ci/previewnet/start.py start
+          node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+          node ci/previewnet/people-collators.mjs setup
+          python3 ci/previewnet/network.py observe --phase baseline
+      - name: Write the burst driver
+        run: |
+          cat > packages/chain-tests/scripts/.coinage-top-up-burst.ts <<'TYPESCRIPT'
+          import assert from 'node:assert/strict';
+          import { randomBytes } from 'node:crypto';
+          import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { setTimeout as delay, setImmediate as yieldLoop } from 'node:timers/promises';
+          import { Keyring } from '@polkadot/keyring';
+          import { blake2AsHex, cryptoWaitReady } from '@polkadot/util-crypto';
+          import { AccountId, Binary } from 'polkadot-api';
+          import { getPolkadotSigner } from 'polkadot-api/signer';
+          import {
+            coinValueToAssetAmount, createCoinageClient, topUpArguments, unpaidTopUpOptions,
+            watchTopUp, type SubmissionResult,
+          } from '../src/lib/coinage-client.js';
+
+          const out = resolve('../../network-out');
+          mkdirSync(out, { recursive: true });
+          const json = (x: unknown) => JSON.stringify(x, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+          const save = (name: string, data: unknown) => writeFileSync(`${out}/${name}.json`, json(data) + '\n');
+          const log = (name: string, data: unknown) => appendFileSync(`${out}/${name}.jsonl`, json(data) + '\n');
+          const users = Number(process.env.ACTOR_COUNT);
+          assert(Number.isInteger(users) && users >= 1 && users <= 10000);
+          const deadlineMs = 600_000;
+          const denomination = 1;
+          await cryptoWaitReady();
+          const coinage = createCoinageClient('ws://127.0.0.1:10010');
+          const { api, client } = coinage;
+          const keyring = new Keyring({ type: 'sr25519' });
+          const signerFor = (pair: ReturnType<typeof keyring.addFromUri>) =>
+            getPolkadotSigner(pair.publicKey, 'Sr25519', (bytes) => pair.sign(bytes));
+          const admin = keyring.addFromUri('//Alice');
+          const adminSigner = signerFor(admin);
+          const standardExtensions = { ...unpaidTopUpOptions(0).customSignedExtensions,
+            AsCoinage: { value: undefined } };
+          type Tx = ReturnType<typeof api.tx.Sudo.sudo>;
+
+          async function fixture(label: string, tx: Tx, sudo = false) {
+            const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
+            const result = await watchTopUp(client, { signed, txHash: blake2AsHex(signed) }, 180_000);
+            log('fixture', { label, ...result });
+            assert.equal(result.status, 'finalized', `Fixture failed: ${label}`);
+            if (sudo) {
+              const final = result.observations.find(x => x.event.type === 'finalized')!.event;
+              assert(final.type === 'finalized');
+              const sudid = final.events.find(e => e.type === 'Sudo' && e.value.type === 'Sudid');
+              assert(sudid && sudid.type === 'Sudo' && sudid.value.type === 'Sudid');
+              assert(sudid.value.value.sudo_result.success, `Inner sudo failed: ${label}`);
+            }
+            return result;
+          }
+
+          async function stage(count: number, name: string) {
+            const [min, max] = await Promise.all([
+              api.constants.Coinage.MinimumExponent(), api.constants.Coinage.MaximumExponent(),
+            ]);
+            const unit = 1n << BigInt(Math.max(0, -min));
+            const amount = coinValueToAssetAmount(denomination, unit, min, max);
+            const asset = { parents: 0, interior: { type: 'X1' as const,
+              value: { type: 'GeneralIndex' as const, value: BigInt('0x' + randomBytes(16).toString('hex')) } } };
+            assert.equal(await api.query.Assets.Asset.getValue(asset), undefined);
+            await fixture('create sufficient test asset', api.tx.Sudo.sudo({ call: api.tx.Assets.force_create({
+              id: asset, owner: { type: 'Id', value: admin.address }, is_sufficient: true, min_balance: 1n,
+            }).decodedCall }), true);
+            // PalletId("coinage ").into_account_truncating(): "modl" + 8-byte ID + zero padding.
+            const palletBytes = new Uint8Array(32);
+            palletBytes.set(new TextEncoder().encode('modlcoinage '));
+            const palletAccount = AccountId().dec(palletBytes);
+            await fixture('fund pallet minimum', api.tx.Assets.mint({
+              id: asset, beneficiary: { type: 'Id', value: palletAccount }, amount: 1n,
+            }));
+            const instanceId = await api.query.Coinage.NextInstanceId.getValue();
+            await fixture('create sufficient Coinage instance', api.tx.Sudo.sudo({
+              call: api.tx.Coinage.create_sufficient_instance({ asset_id: asset, asset_unit: unit }).decodedCall,
+            }), true);
+            const instance = await api.query.Coinage.Instances.getValue(instanceId);
+            assert.equal(instance?.mode.type, 'Sufficient');
+            assert.equal(instance.asset_unit, unit);
+            assert.deepEqual(instance.asset_id, asset);
+
+            const actors = Array.from({ length: count }, (_, id) => {
+              const pair = keyring.addFromSeed(randomBytes(32));
+              return { id, address: pair.address, signer: signerFor(pair),
+                args: topUpArguments(instanceId, denomination, pair.address, randomBytes(32)) };
+            });
+            for (let i = 0; i < actors.length; i += 100) {
+              await fixture(`fund actors ${i}..${Math.min(i + 100, count) - 1}`, api.tx.Utility.batch_all({
+                calls: actors.slice(i, i + 100).map(a => api.tx.Assets.mint({
+                  id: asset, beneficiary: { type: 'Id', value: a.address }, amount,
+                }).decodedCall),
+              }));
+            }
+            // Verify every fixture account before measuring. Bound RPC/signing concurrency.
+            const prepared: Array<{ signed: Uint8Array; txHash: string }> = new Array(count);
+            const prepStart = performance.now();
+            for (let i = 0; i < count; i += 16) {
+              await Promise.all(actors.slice(i, i + 16).map(async actor => {
+                const [balance, account] = await Promise.all([
+                  api.query.Assets.Account.getValue(asset, actor.address), api.query.System.Account.getValue(actor.address),
+                ]);
+                assert.equal(balance?.balance, amount);
+                assert.equal(account.nonce, 0);
+                // Immortal only on this disposable fork: preparation of 10k proofs must not
+                // consume the normal 64-block mortality window before the burst starts.
+                const signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(actor.args).sign(
+                  actor.signer, { ...unpaidTopUpOptions(0), mortality: { mortal: false } },
+                );
+                prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
+              }));
+            }
+            save(`${name}-fixture`, { count, instanceId, instance, amount, denomination,
+              preparationMs: performance.now() - prepStart, transactionMortality: 'immortal (disposable fork only)',
+              rpcSubscriptionsPerConnection: 20050, syntheticDelayMs: 0, sponsoredPot: 'not applicable',
+              actors: actors.map(({ id, address, args }) => ({ id, address, memberKey: args.member_key })) });
+
+            const collectionBytes = new Uint8Array(32);
+            collectionBytes.set(new TextEncoder().encode('coinage/recycler'));
+            new DataView(collectionBytes.buffer).setUint32(16, instanceId, true);
+            collectionBytes[20] = denomination;
+            const collection = Binary.toHex(collectionBytes);
+            const members = new Set(actors.map(a => a.args.member_key));
+            const ready = new Map<string, { elapsedMs: number; at: string; ring: number; revision: number }>();
+            const results: Array<SubmissionResult | undefined> = Array.from({ length: count }, () => undefined);
+            const sentAt: number[] = [];
+            let lastHash = (await client.getFinalizedBlock()).hash;
+            const started = performance.now();
+            const wallStart = new Date().toISOString();
+            let lastProgress = performance.now();
+            let stopped = false;
+            let guard: string | undefined;
+            let finalityProgress = 0;
+            // Observe all member pages once per sample, not once per actor.
+            const observer = (async () => {
+              while (!stopped) {
+                try {
+                  const { hash: at, number: finalized } = await client.getFinalizedBlock();
+                  if (at !== lastHash) { lastHash = at; lastProgress = performance.now(); finalityProgress++; }
+                  if (performance.now() - lastProgress > 60_000) guard = 'People finality stalled for 60 seconds';
+                  const signal = AbortSignal.timeout(15_000);
+                  const [pages, statuses, roots, queue] = await Promise.all([
+                    api.query.Members.RingKeys.getEntries(collection, { at, signal }),
+                    api.query.Members.RingKeysStatus.getEntries(collection, { at, signal }),
+                    api.query.Members.Root.getEntries(collection, { at, signal }),
+                    api.query.Members.QueuePageIndices.getValue(collection, { at, signal }),
+                  ]);
+                  const offsets = new Map<number, number>();
+                  pages.sort((a, b) => a.keyArgs[1] - b.keyArgs[1] || a.keyArgs[2] - b.keyArgs[2]);
+                  for (const page of pages) {
+                    const ring = page.keyArgs[1];
+                    const offset = offsets.get(ring) ?? 0;
+                    const status = statuses.find(s => s.keyArgs[1] === ring)?.value;
+                    const root = roots.find(r => r.keyArgs[1] === ring)?.value;
+                    page.value.forEach((member, index) => {
+                      if (root && status && offset + index < status.included && members.has(member) && !ready.has(member)) {
+                        ready.set(member, { elapsedMs: performance.now() - started, at, ring, revision: root.revision });
+                      }
+                    });
+                    offsets.set(ring, offset + page.value.length);
+                  }
+                  log(`${name}-samples`, { elapsedMs: performance.now() - started, at, finalized,
+                    ready: ready.size, queue, rings: statuses, cpu: process.cpuUsage(), memory: process.memoryUsage(), guard });
+                } catch (error) {
+                  log(`${name}-samples`, { error: String(error), elapsedMs: performance.now() - started });
+                  guard = 'Observer RPC or metadata failure';
+                }
+                if (!stopped) await delay(5000);
+              }
+            })();
+            const pending: Promise<void>[] = [];
+            for (let i = 0; i < count && !guard; i++) {
+              sentAt[i] = performance.now() - started;
+              pending.push(coinage.submitTopUp({ ...prepared[i], address: actors[i].address,
+                instanceId, denomination, memberKey: actors[i].args.member_key, amount, nonce: 0, at: lastHash },
+                Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
+                  results[i] = result;
+                  log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
+                }));
+              if (i % 100 === 99) await yieldLoop();
+            }
+            const sendWindowMs = performance.now() - started;
+            await Promise.all(pending);
+            while (!guard && ready.size < sentAt.length && performance.now() - started < deadlineMs) await delay(1000);
+            stopped = true;
+            await observer;
+            const finalizedCount = results.filter(r => r?.status === 'finalized').length;
+            const latencies = (values: number[]) => {
+              values.sort((a, b) => a - b);
+              const p = (percent: number) => values.length ? values[Math.max(0, Math.ceil(values.length * percent) - 1)] : null;
+              return { count: values.length, p50: p(0.5), p95: p(0.95), max: p(1) };
+            };
+            // Arrival timestamps above measure driver calls. Broadcast observations measure
+            // the PAPI/RPC path too, so a client backlog is not mistaken for chain capacity.
+            const broadcasts = results.flatMap((r, i) => {
+              const event = r?.observations.find(o => o.event.type === 'broadcasted');
+              return event ? [sentAt[i] + event.elapsedMs] : [];
+            });
+            const broadcastWindowMs = broadcasts.length ? Math.max(...broadcasts) : null;
+            const generatorLimited = sendWindowMs > 1000 || broadcastWindowMs === null || broadcastWindowMs > 1000;
+            const passed = !guard && sentAt.length === count && finalizedCount === count && ready.size === count;
+            const summary = { name, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
+              ready: ready.size, sendWindowMs, broadcastWindowMs, generatorLimited, guard, finalityProgress,
+              elapsedMs: performance.now() - started, passed,
+              outcomes: results.reduce<Record<string, number>>((counts, r) => {
+                const key = r?.status ?? 'not-sent'; counts[key] = (counts[key] ?? 0) + 1; return counts;
+              }, {}),
+              finalityMs: latencies(results.flatMap(r => r?.status === 'finalized' ? [r.elapsedMs] : [])),
+              readinessMs: latencies(actors.flatMap((a, i) => ready.has(a.args.member_key) ? [ready.get(a.args.member_key)!.elapsedMs - sentAt[i]] : [])),
+              readinessAfterFinalityObservationMs: latencies(actors.flatMap((a, i) => {
+                const ring = ready.get(a.args.member_key);
+                const result = results[i];
+                return ring && result?.status === 'finalized'
+                  ? [Math.max(0, ring.elapsedMs - sentAt[i] - result.elapsedMs)] : [];
+              })),
+              unavailableMetrics: ['pool ready/future counts', 'block weight/proof-size use', 'PVF execution time'],
+            };
+            save(`${name}-readiness`, [...ready].map(([member, observation]) => ({ member, ...observation })));
+            save(`${name}-summary`, summary);
+            console.log(json(summary));
+            assert(passed, `${name}: incomplete load finality or ring readiness; inspect artifacts`);
+            return summary;
+          }
+
+          try {
+            save('burst-runtime', { version: await api.constants.System.Version(),
+              genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users });
+            await stage(1, 'smoke');
+            const result = await stage(users, 'burst');
+            if (result.generatorLimited) throw new Error('Transactions settled, but the one-second burst target was missed; generator-limited run');
+          } catch (error) {
+            save('burst-error', { error: String(error) });
+            console.error(error);
+            process.exitCode = 1;
+          } finally { coinage.close(); }
+          TYPESCRIPT
+      - name: Check burst driver types
+        working-directory: packages/chain-tests
+        run: >-
+          pnpm exec tsc --noEmit --target es2022 --module esnext
+          --moduleResolution bundler --strict --skipLibCheck scripts/.coinage-top-up-burst.ts
+      - name: Run smoke test and requested burst without added delay
+        working-directory: packages/chain-tests
+        run: |
+          # Keep node/process samples even if the driver exits before writing a summary.
+          (while true; do date -u; ps -eo pid,ppid,pcpu,rss,comm; sleep 10; done) > ../../network-out/process-samples.txt &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          timeout --signal=TERM --kill-after=30s 90m pnpm exec tsx scripts/.coinage-top-up-burst.ts
+      - name: Check network recovery and both People authors
+        if: always()
+        run: |
+          python3 ci/previewnet/network.py observe --phase recovery
+          node ci/previewnet/people-collators.mjs verify
+      - name: Summarise available results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## Coinage top-up burst\n\n0 ms added delay; sufficient instances; one unpaid load per actor.\n\n')
+              for name in ('smoke-summary', 'burst-summary', 'burst-error'):
+                  path = Path(f'network-out/{name}.json')
+                  out.write(f'### {name}\n\n')
+                  out.write('```json\n' + json.dumps(json.loads(path.read_text()), indent=2) + '\n```\n\n' if path.exists() else 'No result produced.\n\n')
+          PY
+      - name: Stop this run's network
+        if: always()
+        run: python3 ci/previewnet/start.py stop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coinage-top-up-burst-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.txt
+            network-out/*.log
+            network-out/data/*/*.log
+          retention-days: 7
