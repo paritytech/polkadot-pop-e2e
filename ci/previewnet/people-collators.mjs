@@ -5,9 +5,9 @@ import { resolve } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 const require = createRequire(resolve('ppn/packages/cli/package.json'));
-const { ApiPromise, WsProvider } = require('@polkadot/api');
-const { Keyring } = require('@polkadot/keyring');
-const { cryptoWaitReady } = require('@polkadot/util-crypto');
+const { ApiPromise, WsProvider } = await import(pathToFileURL(require.resolve('@polkadot/api').replace('/cjs/', '/')));
+const { Keyring } = await import(pathToFileURL(require.resolve('@polkadot/keyring').replace('/cjs/', '/')));
+const { cryptoWaitReady } = await import(pathToFileURL(require.resolve('@polkadot/util-crypto').replace('/cjs/', '/')));
 const { keyOf } = await import(pathToFileURL(resolve('ppn/packages/cli/dist/fork/codec.js')));
 const { paraInjects } = await import(pathToFileURL(resolve('ppn/packages/cli/dist/fork/validators.js')));
 const timer = setTimeout(() => { console.error('People collator setup/verification timed out'); process.exit(1); }, 180_000);
@@ -43,7 +43,7 @@ try {
     let blockHash;
     try {
       const dynamic = client.getUnsafeApi();
-      const call = dynamic.tx.System.set_storage({ items: entries.map(pair => pair.map(Binary.fromHex)) });
+      const call = dynamic.tx.System.set_storage({ items: entries.map(pair => pair.map(hex => Binary.fromHex(hex))) });
       const tx = dynamic.tx.Sudo.sudo({ call: call.decodedCall });
       blockHash = await new Promise((ok, fail) => {
         const sub = tx.signSubmitAndWatch(signerFromUri('//Alice').signer, TX_OPTIONS).subscribe({
