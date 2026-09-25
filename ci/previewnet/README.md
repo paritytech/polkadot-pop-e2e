@@ -31,8 +31,7 @@ upgrade or Coinage fixture setup here. Node binaries follow `environments/networ
 
 Workers must be separate machines with routable private IPv4 addresses. They need concurrent
 runner capacity: two jobs, then three. Private TCP **30334–30339** carries validator traffic.
-The connectivity probe uses 30334 and stops before Zombienet starts. Collators advertise their
-engine P2P ports, **30333, 30335–30337**. Permit those between these test runners too.
+The connectivity probe uses 30334 and stops before Zombienet starts. Collators use the separate P2P range **30400–30403**. Permit those between these test runners too.
 RPC and metrics are queried locally; no public ingress or VPN credentials are required.
 
 The workflow does not change firewall rules. A failed probe prevents node startup.

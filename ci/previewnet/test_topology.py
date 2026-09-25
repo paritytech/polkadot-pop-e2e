@@ -42,6 +42,8 @@ class TopologyTests(unittest.TestCase):
             for config, topology in parts:
                 self.assertEqual(len(config['relaychain']['nodes']), 6 // count)
                 self.assertEqual(topology['spec_hashes'], parts[0][1]['spec_hashes'])
+                ports = [n['p2p_port'] for n in topology['nodes']]
+                self.assertEqual(len(ports), len(set(ports)), 'P2P listeners must not collide')
                 self.assertNotIn('custom_processes', config)
                 self.assertEqual(tomllib.loads(tomli_w.dumps(config)), config)
             people = [t['worker'] for _, t in parts if any(n['chain'] == '1502' for n in t['nodes'])]
