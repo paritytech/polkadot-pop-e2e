@@ -56,7 +56,7 @@ jobs:
           pnpm --dir ppn exec tsc -b
           node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
           python3 ci/previewnet/network.py prepare --people-collators 2
-          # Make the RPC watch limit explicit; leave transaction-pool limits unchanged.
+          # Make RPC limits explicit; leave transaction-pool limits unchanged.
           python3 - <<'PY'
           from pathlib import Path
           import tomllib, tomli_w
@@ -64,6 +64,8 @@ jobs:
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
+              node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
+              node['args'] += ['--rpc-max-connections=1024']
               node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
           path.write_text(tomli_w.dumps(config))
           PY
@@ -117,6 +119,7 @@ jobs:
             const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
             const result = await watchTopUp(client, { signed, txHash: blake2AsHex(signed) }, 180_000);
             log('fixture', { label, ...result });
+            console.log(json({ phase: 'fixture', label, status: result.status, elapsedMs: result.elapsedMs }));
             assert.equal(result.status, 'finalized', `Fixture failed: ${label}`);
             if (sudo) {
               const final = result.observations.find(x => x.event.type === 'finalized')!.event;
@@ -186,10 +189,20 @@ jobs:
                 prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
               }));
             }
+            // SDK service/builder.rs in polkadot-weekly2026w33-rc2 limits
+            // transaction_v1_broadcast to 16 active operations per connection.
+            // Keep 15 on each connection and warm all clients before timing.
+            const senders = Array.from({ length: Math.ceil(count / 15) }, () =>
+              createCoinageClient('ws://127.0.0.1:10010'));
+            try {
+              await Promise.all(senders.map(sender => sender.client.getFinalizedBlock()));
+            } catch (error) { senders.forEach(sender => sender.close()); throw error; }
             save(`${name}-fixture`, { count, instanceId, instance, amount, denomination,
               preparationMs: performance.now() - prepStart, transactionMortality: 'immortal (disposable fork only)',
-              rpcSubscriptionsPerConnection: 20050, syntheticDelayMs: 0, sponsoredPot: 'not applicable',
+              rpcSubscriptionsPerConnection: 20050, senderConnections: senders.length,
+              maximumBroadcastsPerConnection: 15, syntheticDelayMs: 0, sponsoredPot: 'not applicable',
               actors: actors.map(({ id, address, args }) => ({ id, address, memberKey: args.member_key })) });
+            console.log(json({ phase: 'prepared', name, count, senderConnections: senders.length }));
 
             const collectionBytes = new Uint8Array(32);
             collectionBytes.set(new TextEncoder().encode('coinage/recycler'));
@@ -247,7 +260,7 @@ jobs:
             const pending: Promise<void>[] = [];
             for (let i = 0; i < count && !guard; i++) {
               sentAt[i] = performance.now() - started;
-              pending.push(coinage.submitTopUp({ ...prepared[i], address: actors[i].address,
+              pending.push(senders[Math.floor(i / 15)].submitTopUp({ ...prepared[i], address: actors[i].address,
                 instanceId, denomination, memberKey: actors[i].args.member_key, amount, nonce: 0, at: lastHash },
                 Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
                   results[i] = result;
@@ -257,6 +270,7 @@ jobs:
             }
             const sendWindowMs = performance.now() - started;
             await Promise.all(pending);
+            senders.forEach(sender => sender.close());
             while (!guard && ready.size < sentAt.length && performance.now() - started < deadlineMs) await delay(1000);
             stopped = true;
             await observer;
@@ -266,17 +280,17 @@ jobs:
               const p = (percent: number) => values.length ? values[Math.max(0, Math.ceil(values.length * percent) - 1)] : null;
               return { count: values.length, p50: p(0.5), p95: p(0.95), max: p(1) };
             };
-            // Arrival timestamps above measure driver calls. Broadcast observations measure
-            // the PAPI/RPC path too, so a client backlog is not mistaken for chain capacity.
+            // PAPI emits "broadcasted" before the RPC operation returns. This is a
+            // client-side signal, not an acknowledgement that the node accepted the tx.
             const broadcasts = results.flatMap((r, i) => {
               const event = r?.observations.find(o => o.event.type === 'broadcasted');
               return event ? [sentAt[i] + event.elapsedMs] : [];
             });
-            const broadcastWindowMs = broadcasts.length ? Math.max(...broadcasts) : null;
-            const generatorLimited = sendWindowMs > 1000 || broadcastWindowMs === null || broadcastWindowMs > 1000;
+            const papiBroadcastSignalWindowMs = broadcasts.length ? Math.max(...broadcasts) : null;
+            const generatorLimited = sendWindowMs > 1000;
             const passed = !guard && sentAt.length === count && finalizedCount === count && ready.size === count;
             const summary = { name, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
-              ready: ready.size, sendWindowMs, broadcastWindowMs, generatorLimited, guard, finalityProgress,
+              ready: ready.size, sendWindowMs, papiBroadcastSignalWindowMs, generatorLimited, guard, finalityProgress,
               elapsedMs: performance.now() - started, passed,
               outcomes: results.reduce<Record<string, number>>((counts, r) => {
                 const key = r?.status ?? 'not-sent'; counts[key] = (counts[key] ?? 0) + 1; return counts;
