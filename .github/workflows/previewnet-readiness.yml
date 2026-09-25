@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       delay_ms:
-        description: Added one-way delay for peer traffic, in milliseconds (1–1000000; 1000000 = 1000 seconds)
+        description: Added one-way delay for peer traffic, in milliseconds (default 1000 = 1 second)
         type: string
-        default: '1000000'
+        default: '1000'
   push:
     branches: [feat/th-previewnet-network-delay]
     paths:
@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
-      DELAY_MS: ${{ inputs.delay_ms || '1000000' }}
+      DELAY_MS: ${{ inputs.delay_ms || '1000' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,6 +77,8 @@ jobs:
         run: |
           python3 ci/previewnet/start.py start
           node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+      - name: Enable both People collators in the local fork
+        run: node ci/previewnet/people-collators.mjs setup
       - name: Baseline without synthetic delay
         id: baseline
         run: python3 ci/previewnet/network.py observe --phase baseline
@@ -91,6 +93,8 @@ jobs:
         run: |
           python3 ci/previewnet/delay.py remove
           python3 ci/previewnet/network.py observe --phase recovery
+      - name: Verify both People collators authored finalised blocks
+        run: node ci/previewnet/people-collators.mjs verify
       - name: Summarise the run
         if: always()
         run: |
@@ -98,7 +102,7 @@ jobs:
           import json, os
           from pathlib import Path
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-              out.write('## Previewnet on one runner\n\nSix relay validators and four collators.\n\n')
+              out.write('## Previewnet on one runner\n\nSix relay validators and five collators, including two for People.\n\n')
               out.write(f'Added delay: {os.environ["DELAY_MS"]} ms per direction on peer traffic.\n\n')
               for phase in ('baseline', 'delayed', 'recovery'):
                   path=Path(f'network-out/{phase}.json')
@@ -127,6 +131,6 @@ jobs:
             network-out/*.toml
             network-out/*.txt
             network-out/*.log
-            network-out/data/**/*.log
+            network-out/data/*/*.log
             network-inputs/provenance.json
           retention-days: 7

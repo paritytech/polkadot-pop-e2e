@@ -120,7 +120,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['apply', 'capture', 'remove'])
     parser.add_argument('--directory', type=Path, default=Path('network-out'))
-    parser.add_argument('--delay-ms', type=int, default=50)
+    parser.add_argument('--delay-ms', type=int, default=1000)
     parser.add_argument('--require-packets', action='store_true')
     args = parser.parse_args()
     directory = args.directory.resolve()

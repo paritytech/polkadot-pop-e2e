@@ -18,7 +18,7 @@ class NetworkTests(unittest.TestCase):
         self.assertTrue(network.advanced(before, after))
 
     def test_prepare_preserves_authorities_and_parachains(self):
-        config = {'relaychain': {'nodes': [{'name': n, 'rpc_port': 10000+i} for i, n in enumerate(['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'])]}, 'parachains': [{'id': 1004, 'collators': [{'name': 'people', 'rpc_port': 10004}]}], 'custom_processes': [{'name': 'product'}]}
+        config = {'relaychain': {'nodes': [{'name': n, 'rpc_port': 10000+i} for i, n in enumerate(['alice', 'bob', 'charlie', 'dave', 'eve', 'ferdie'])]}, 'parachains': [{'id': 1502, 'collators': [{'name': 'Collator-1502', 'rpc_port': 10010, 'p2p_port': 30336}]}], 'custom_processes': [{'name': 'product'}]}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root/'source.toml'
@@ -26,7 +26,11 @@ class NetworkTests(unittest.TestCase):
             network.prepare(source, root/'out')
             result = tomllib.loads((root/'out/network.toml').read_text())
             self.assertEqual(result['relaychain'], config['relaychain'])
-            self.assertEqual(result['parachains'], config['parachains'])
+            self.assertEqual(result['parachains'][0]['collators'][0], config['parachains'][0]['collators'][0])
+            second = result['parachains'][0]['collators'][1]
+            self.assertEqual(second['name'], 'Collator-1502-2')
+            self.assertEqual(second['rpc_port'], 10011)
+            self.assertNotEqual(second['p2p_port'], result['parachains'][0]['collators'][0]['p2p_port'])
             self.assertNotIn('custom_processes', result)
             config['relaychain']['nodes'] = config['relaychain']['nodes'][:2]
             source.write_text(tomli_w.dumps(config))
