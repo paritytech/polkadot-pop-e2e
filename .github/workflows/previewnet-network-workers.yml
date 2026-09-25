@@ -1,0 +1,73 @@
+name: Previewnet network workers
+
+on:
+  workflow_call:
+    inputs:
+      workers:
+        type: string
+        required: true
+      count:
+        type: number
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  worker:
+    runs-on: parity-large
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJSON(inputs.workers) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WORKER: ${{ matrix.worker }}
+      COUNT: ${{ inputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Advertise private runner endpoint
+        run: |
+          set -euo pipefail
+          mkdir -p mesh-out
+          python3 ci/previewnet/mesh.py serve --worker "$WORKER" --count "$COUNT" > mesh-out/server.log 2>&1 &
+          echo "$!" > mesh-out/server.pid
+          for attempt in $(seq 1 30); do
+            test ! -f mesh-out/descriptor.json || exit 0
+            sleep 1
+          done
+          cat mesh-out/server.log
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mesh-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: mesh-out/descriptor.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Check every private runner connection
+        run: python3 ci/previewnet/mesh.py check --worker "$WORKER" --count "$COUNT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mesh-result-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: mesh-out/
+          retention-days: 7
+      - name: Keep probes alive until every worker has checked connectivity
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import sys
+          sys.path.insert(0, 'ci/previewnet')
+          from mesh import namespace, wait_artifacts
+          count = int(os.environ['COUNT'])
+          prefix = namespace(count).replace('mesh-', 'mesh-result-', 1)
+          wait_artifacts(prefix, count, 'mesh-out/completed')
+          PYTHON
+      - name: Stop probe
+        if: always()
+        run: |
+          if test -f mesh-out/server.pid; then
+            kill "$(cat mesh-out/server.pid)" 2>/dev/null || true
+          fi
