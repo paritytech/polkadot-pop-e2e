@@ -1,0 +1,31 @@
+name: Previewnet multi-runner readiness
+
+on:
+  workflow_dispatch:
+  # Bootstrap this workflow before it is available from main's dispatch menu.
+  push:
+    branches: [feat/th-multi-runner-previewnet]
+    paths:
+      - .github/workflows/previewnet-*.yml
+      - ci/previewnet/**
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: previewnet-multi-runner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  two-runners:
+    uses: ./.github/workflows/previewnet-network-workers.yml
+    with:
+      workers: '[0,1]'
+      count: 2
+  three-runners:
+    needs: two-runners
+    uses: ./.github/workflows/previewnet-network-workers.yml
+    with:
+      workers: '[0,1,2]'
+      count: 3
