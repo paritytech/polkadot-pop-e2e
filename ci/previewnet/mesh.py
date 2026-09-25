@@ -97,13 +97,20 @@ def check(worker, count, directory):
     # This checks kernel/VM separation, not the underlying hypervisor placement.
     if len({p['boot_id'] for p in peers}) != count:
         raise RuntimeError('Runner jobs share a kernel; use separate runner machines')
+    failures = []
     for peer in peers:
-        observed = fetch(f"http://{peer['address']}:{peer['port']}/health")
-        if observed != peer:
-            raise RuntimeError(f"Wrong runner reached: {peer['worker']}")
+        print(f"Probing worker {peer['worker']} at {peer['address']}:{peer['port']}", flush=True)
+        try:
+            observed = fetch(f"http://{peer['address']}:{peer['port']}/health")
+            if observed != peer:
+                raise RuntimeError(f"Wrong runner reached: {peer['worker']}")
+        except OSError as error:
+            failures.append({'worker': peer['worker'], 'address': peer['address'], 'error': str(error)})
     write_json(Path(directory) / 'mesh-result.json', {
-        'worker': worker, 'result': 'connected', 'peers': peers,
+        'worker': worker, 'result': 'failed' if failures else 'connected', 'peers': peers, 'failures': failures,
     })
+    if failures:
+        raise RuntimeError(f'Private connectivity failed: {failures}')
     print(f'Worker {worker}: all {count} distinct runners are reachable', flush=True)
 
 
