@@ -27,7 +27,7 @@ def fetch(url):
 
 
 def namespace(count):
-    return f"mesh-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-{count}"
+    return f"mesh-{os.environ.get('MESH_PHASE', 'probe')}-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-{count}"
 
 
 def wait_artifacts(prefix, count, dest, timeout=600):
@@ -68,7 +68,7 @@ def serve(worker, count, directory):
         address = route.getsockname()[0]
     descriptor = {
         "worker": worker, "count": count, "namespace": namespace(count),
-        "address": address, "port": 42420,
+        "address": address, "port": 30334,
         "runner": os.environ.get("RUNNER_NAME"), "hostname": socket.gethostname(),
         "boot_id": Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
     }
