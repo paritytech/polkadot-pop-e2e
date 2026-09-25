@@ -17,6 +17,10 @@ const names = ['Collator-1502', 'Collator-1502-2'];
 const keys = names.map(n => Buffer.from(keyring.addFromUri(`//${n}`).publicKey).toString('hex'));
 const api = await ApiPromise.create({ provider: new WsProvider('ws://127.0.0.1:10010'), noInitWarn: true });
 const reportPath = 'network-out/people-collators.json';
+const { Binary, createClient } = await import(pathToFileURL(require.resolve('polkadot-api')));
+const { getWsProvider } = await import(pathToFileURL(require.resolve('polkadot-api/ws-provider/node')));
+const { signerFromUri } = await import(pathToFileURL(resolve('ppn/packages/cli/dist/upgrade/signer.js')));
+const { TX_OPTIONS, sudidError } = await import(pathToFileURL(resolve('ppn/packages/cli/dist/upgrade/upgrade.js')));
 try {
   if (process.argv[2] === 'setup') {
     const authorities = await api.query.aura.authorities();
@@ -33,21 +37,28 @@ try {
       ...paraInjects(keys[0]), ...paraInjects(keys[1]),
     };
     const entries = Object.entries(values).map(([k, v]) => ['0x' + k, '0x' + v]);
-    let unsubscribe;
+    // PJS's generic signing omits People-specific extension payloads. Reuse the
+    // engine's metadata-driven signer and passthrough extension options instead.
+    const client = createClient(getWsProvider('ws://127.0.0.1:10010'));
     let blockHash;
     try {
+      const dynamic = client.getUnsafeApi();
+      const call = dynamic.tx.System.set_storage({ items: entries.map(pair => pair.map(Binary.fromHex)) });
+      const tx = dynamic.tx.Sudo.sudo({ call: call.decodedCall });
       blockHash = await new Promise((ok, fail) => {
-        api.tx.sudo.sudo(api.tx.system.setStorage(entries)).signAndSend(keyring.addFromUri('//Alice'), ({ status, events, dispatchError }) => {
-          if (dispatchError) return fail(new Error(dispatchError.toString()));
-          const sudid = events.find(({ event }) => api.events.sudo.Sudid.is(event));
-          if (sudid?.event.data[0].isErr) return fail(new Error(sudid.event.data[0].asErr.toString()));
-          if (status.isFinalized) {
-            if (!sudid) return fail(new Error('Missing sudo dispatch result'));
-            ok(status.asFinalized.toHex());
-          }
-        }).then(u => { unsubscribe = u; }, fail);
+        const sub = tx.signSubmitAndWatch(signerFromUri('//Alice').signer, TX_OPTIONS).subscribe({
+          next(event) {
+            if (event.type !== 'finalized') return;
+            const inner = sudidError(event.events ?? []);
+            if (!event.ok || inner) fail(new Error(inner ?? JSON.stringify(event.dispatchError)));
+            else if (!(event.events ?? []).some(e => e.type === 'Sudo' && e.value.type === 'Sudid')) fail(new Error('Missing sudo dispatch result'));
+            else ok(event.block.hash);
+            sub.unsubscribe();
+          },
+          error: fail,
+        });
       });
-    } finally { unsubscribe?.(); }
+    } finally { client.destroy(); }
     const header = await api.rpc.chain.getHeader(blockHash);
     const at = await api.at(blockHash);
     const actual = (await at.query.aura.authorities()).map(k => k.toHex());
