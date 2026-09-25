@@ -69,6 +69,8 @@ def partition(config, bundle, worker, count, address):
         if assigned != worker:
             continue
         for collator in para['collators']:
+            # Keep collator listeners disjoint from the six fixed relay ports.
+            collator['p2p_port'] = 30400 + i
             args = [a for a in collator['args'] if not a.startswith('--relay-chain-rpc-urls')]
             collator['args'] = args_for(args, collator['p2p_port']) + [
                 f'--relay-chain-rpc-urls=ws://127.0.0.1:{local_relay_rpc}',
