@@ -1,5 +1,6 @@
 """Prepare one engine network and record block progress from local RPCs."""
 import argparse
+import copy
 import json
 from pathlib import Path
 import time
@@ -13,9 +14,16 @@ def write(path, data):
     Path(path).write_text(json.dumps(data, indent=2) + '\n')
 
 
-def prepare(config_path, directory):
+def prepare(config_path, directory, people_collators=2):
     config = tomllib.loads(Path(config_path).read_text())
     config.pop('custom_processes', None)  # Node readiness only; no product services.
+    people = next(p for p in config['parachains'] if p['id'] == 1502)
+    if people_collators == 2:
+        if len(people['collators']) != 1:
+            raise ValueError('Expected one People collator in the engine snapshot config')
+        second = copy.deepcopy(people['collators'][0])
+        second.update(name='Collator-1502-2', rpc_port=10011, p2p_port=30338)
+        people['collators'].append(second)
     nodes = []
     groups = [('relay', config['relaychain']['nodes'])] + [
         (str(p['id']), p['collators']) for p in config['parachains']]
@@ -88,10 +96,11 @@ if __name__ == '__main__':
     parser.add_argument('--config', default='ppn/full-fork.toml')
     parser.add_argument('--directory', type=Path, default=Path('network-out'))
     parser.add_argument('--phase', choices=['baseline', 'delayed', 'recovery'], default='baseline')
+    parser.add_argument('--people-collators', type=int, choices=[1, 2], default=2)
     parser.add_argument('--seconds', type=int, default=60)
     parser.add_argument('--timeout', type=int, default=300)
     args = parser.parse_args()
     if args.command == 'prepare':
-        prepare(args.config, args.directory)
+        prepare(args.config, args.directory, args.people_collators)
     else:
         observe(args.directory, args.phase, args.seconds, args.timeout)
