@@ -2,7 +2,13 @@ name: Previewnet multi-runner readiness
 
 on:
   workflow_dispatch:
-  # Bootstrap this workflow before it is available from main's dispatch menu.
+    inputs:
+      run_nodes:
+        description: Start distributed Previewnet after private connectivity passes
+        type: boolean
+        default: true
+  # Bootstrap before this workflow is available on main's dispatch menu.
+  # Branch pushes only run the cheap connectivity gate.
   push:
     branches: [feat/th-multi-runner-previewnet]
     paths:
@@ -18,14 +24,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install tomli-w==1.2.0
+      - run: python -m unittest discover -s ci/previewnet -p 'test_*.py' -v
+
   two-runners:
+    needs: check
     uses: ./.github/workflows/previewnet-network-workers.yml
     with:
       workers: '[0,1]'
       count: 2
-  three-runners:
+      run_nodes: false
+
+  prepare:
     needs: two-runners
+    if: inputs.run_nodes == true
+    runs-on: parity-large
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch shared fork and pinned binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ci/previewnet/prepare.sh network-inputs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previewnet-inputs-${{ github.run_attempt }}
+          path: |
+            network-inputs/network-inputs.tar.gz
+            network-inputs/network-inputs.sha256
+            network-inputs/provenance.json
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  two-node-runners:
+    needs: prepare
+    uses: ./.github/workflows/previewnet-network-workers.yml
+    with:
+      workers: '[0,1]'
+      count: 2
+      run_nodes: true
+
+  three-runners:
+    needs: [two-runners, two-node-runners]
+    if: >-
+      always() && needs.two-runners.result == 'success' &&
+      (needs.two-node-runners.result == 'success' ||
+       (needs.two-node-runners.result == 'skipped' && inputs.run_nodes != true))
     uses: ./.github/workflows/previewnet-network-workers.yml
     with:
       workers: '[0,1,2]'
       count: 3
+      run_nodes: ${{ inputs.run_nodes == true }}

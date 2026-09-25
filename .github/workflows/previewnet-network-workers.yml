@@ -10,6 +10,10 @@ on:
         type: number
         required: true
 
+      run_nodes:
+        type: boolean
+        default: false
+
 permissions:
   contents: read
   actions: read
@@ -17,7 +21,7 @@ permissions:
 jobs:
   worker:
     runs-on: parity-large
-    timeout-minutes: 15
+    timeout-minutes: 65
     strategy:
       fail-fast: false
       matrix:
@@ -26,8 +30,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       WORKER: ${{ matrix.worker }}
       COUNT: ${{ inputs.count }}
+      MESH_PHASE: ${{ inputs.run_nodes && 'nodes' || 'probe' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Advertise private runner endpoint
         run: |
           set -euo pipefail
@@ -42,7 +50,7 @@ jobs:
           exit 1
       - uses: actions/upload-artifact@v4
         with:
-          name: mesh-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          name: mesh-${{ env.MESH_PHASE }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
           path: mesh-out/descriptor.json
           retention-days: 1
           if-no-files-found: error
@@ -60,9 +68,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: mesh-result-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
-          path: mesh-out/
-          retention-days: 7
+          name: mesh-result-${{ env.MESH_PHASE }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: mesh-out/descriptor.json
+          retention-days: 1
       - name: Keep probes alive until every worker has checked connectivity
         if: always()
         run: |
@@ -80,4 +88,77 @@ jobs:
         run: |
           if test -f mesh-out/server.pid; then
             kill "$(cat mesh-out/server.pid)" 2>/dev/null || true
+            rm mesh-out/server.pid
           fi
+      - name: Checkout pinned engine
+        if: inputs.run_nodes
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: 7907a3bfa7b2e47535a74b7920086a05ca94773a
+          path: ppn
+      - uses: pnpm/action-setup@v4
+        if: inputs.run_nodes
+      - uses: actions/setup-node@v4
+        if: inputs.run_nodes
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        if: inputs.run_nodes
+        with:
+          name: previewnet-inputs-${{ github.run_attempt }}
+          path: network-inputs
+      - name: Build engine and partition the shared fork
+        if: inputs.run_nodes
+        run: |
+          set -euo pipefail
+          sha256sum --check network-inputs/network-inputs.sha256
+          tar -xzf network-inputs/network-inputs.tar.gz -C ppn
+          pnpm --dir ppn install --frozen-lockfile
+          pnpm --dir ppn exec tsc -b
+          pip install tomli-w==1.2.0
+          node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
+          python3 ci/previewnet/topology.py --config ppn/full-fork.toml --bundle ppn/bundle \
+            --worker "$WORKER" --count "$COUNT" --descriptor mesh-out/descriptor.json --out network-out
+          cp ppn/provenance.json network-out/
+          python3 ci/previewnet/start.py start
+          python3 ci/previewnet/observe.py announce
+      - uses: actions/upload-artifact@v4
+        if: inputs.run_nodes
+        with:
+          name: nodes-mesh-${{ env.MESH_PHASE }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: network-out/ready/descriptor.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Connect validators and require finality progress
+        if: inputs.run_nodes
+        run: python3 ci/previewnet/observe.py watch --seconds 900
+      - uses: actions/upload-artifact@v4
+        if: inputs.run_nodes
+        with:
+          name: chain-result-mesh-${{ env.MESH_PHASE }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: network-out/result/descriptor.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Compare finalised checkpoints across runners
+        if: inputs.run_nodes
+        run: python3 ci/previewnet/observe.py agree
+      - name: Stop this job's network
+        if: always() && inputs.run_nodes
+        run: python3 ci/previewnet/start.py stop
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: previewnet-diagnostics-${{ env.MESH_PHASE }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.count }}-${{ matrix.worker }}
+          path: |
+            mesh-out/*.json
+            mesh-out/*.log
+            mesh-out/*.txt
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.log
+            network-out/*.prom
+            network-out/data/**/*.log
+          retention-days: 7

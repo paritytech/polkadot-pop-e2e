@@ -14,3 +14,10 @@ artifacts
 .playwright-mcp
 .ios-derived-data
 .brevity-identity.json
+
+# Distributed Previewnet CI state
+mesh-out/
+network-out/
+network-inputs/
+ppn/
+ci/previewnet/__pycache__/
