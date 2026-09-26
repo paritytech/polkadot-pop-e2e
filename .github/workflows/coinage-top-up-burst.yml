@@ -337,11 +337,16 @@ jobs:
           monitor_pid=$!
           trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
           timeout --signal=TERM --kill-after=30s 90m pnpm exec tsx scripts/.coinage-top-up-burst.ts
-      - name: Check network recovery and both People authors
+      - name: Save burst results before recovery checks
         if: always()
-        run: |
-          python3 ci/previewnet/network.py observe --phase recovery
-          node ci/previewnet/people-collators.mjs verify
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinage-burst-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/process-samples.txt
+          retention-days: 7
       - name: Summarise available results
         if: always()
         run: |
@@ -355,6 +360,12 @@ jobs:
                   out.write(f'### {name}\n\n')
                   out.write('```json\n' + json.dumps(json.loads(path.read_text()), indent=2) + '\n```\n\n' if path.exists() else 'No result produced.\n\n')
           PY
+      - name: Check network recovery and both People authors
+        if: always()
+        timeout-minutes: 9
+        run: |
+          python3 ci/previewnet/network.py observe --phase recovery
+          node ci/previewnet/people-collators.mjs verify
       - name: Stop this run's network
         if: always()
         run: python3 ci/previewnet/start.py stop
