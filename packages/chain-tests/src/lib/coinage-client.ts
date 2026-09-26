@@ -55,6 +55,18 @@ export function unpaidTopUpOptions(nonce: number): LoadOptions {
   };
 }
 
+/** Coin ownership authorizes the claim; it does not spend an account nonce. */
+export function coinClaimOptions(): LoadOptions {
+  const options = unpaidTopUpOptions(0);
+  return {
+    ...options,
+    customSignedExtensions: {
+      ...options.customSignedExtensions,
+      AsCoinage: { value: { type: "AsCoin", value: undefined } },
+    },
+  };
+}
+
 /** The voucher secret is independent of the account signing the load. */
 export function topUpArguments(
   instanceId: number, value: number, address: string, voucherEntropy: Uint8Array,
@@ -133,6 +145,9 @@ export function watchTopUp(
     }
   });
 }
+
+// The same tracker applies to any prepared Coinage transaction.
+export const watchCoinageTransaction = watchTopUp;
 
 /** Chain client only. The caller owns funding, voucher secrets and the workload. */
 export function createCoinageClient(endpoint: string) {

@@ -1,0 +1,137 @@
+name: Coinage claim burst on PreviewNet
+
+on:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: Claims after the mandatory one-claim smoke test (1–1000)
+        type: string
+        default: '100'
+  push:
+    branches: [feat/th-coinage-top-up-burst]
+    paths:
+      - .github/workflows/coinage-claim-burst.yml
+      - packages/chain-tests/src/lib/coinage-client*
+      - packages/chain-tests/scripts/coinage-claim-burst.ts
+      - ci/previewnet/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coinage-claim-burst-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  burst:
+    runs-on: parity-large
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ACTOR_COUNT: ${{ inputs.users || '100' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate requested load and client
+        run: |
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 1000'
+          pip install tomli-w==1.2.0
+          pnpm install --frozen-lockfile
+          pnpm --filter @pop-e2e/chain-tests test:coinage-client
+      - uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: 7907a3bfa7b2e47535a74b7920086a05ca94773a
+          path: ppn
+      - name: Prepare the PreviewNet engine network from PR 32
+        run: |
+          bash ci/previewnet/prepare.sh network-inputs
+          sha256sum --check network-inputs/network-inputs.sha256
+          tar -xzf network-inputs/network-inputs.tar.gz -C ppn
+          pnpm --dir ppn install --frozen-lockfile
+          pnpm --dir ppn exec tsc -b
+          node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
+          python3 ci/previewnet/network.py prepare --people-collators 2
+          # Make RPC limits explicit; leave transaction-pool limits unchanged.
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib, tomli_w
+          path = Path('network-out/network.toml')
+          config = tomllib.loads(path.read_text())
+          people = next(p for p in config['parachains'] if p['id'] == 1502)
+          for node in people['collators']:
+              node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
+              node['args'] += ['--rpc-max-connections=1024']
+              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+          path.write_text(tomli_w.dumps(config))
+          PY
+          cp ppn/provenance.json network-out/
+          cp ppn/bundle/manifest.json network-out/snapshot.json
+      - name: Start six relay validators and two People collators
+        run: |
+          python3 ci/previewnet/start.py start
+          node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+          node ci/previewnet/people-collators.mjs setup
+          python3 ci/previewnet/network.py observe --phase baseline
+      - name: Check claim driver types
+        working-directory: packages/chain-tests
+        run: >-
+          pnpm exec tsc --noEmit --target es2022 --module esnext
+          --moduleResolution bundler --strict --skipLibCheck scripts/coinage-claim-burst.ts
+      - name: Run smoke claim and requested burst
+        working-directory: packages/chain-tests
+        run: |
+          (while true; do date -u; ps -eo pid,ppid,pcpu,rss,comm; sleep 10; done) > ../../network-out/process-samples.txt &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          timeout --signal=TERM --kill-after=30s 35m pnpm exec tsx scripts/coinage-claim-burst.ts
+      - name: Save claim results before recovery checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinage-claim-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/process-samples.txt
+          retention-days: 7
+      - name: Summarise available results
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## Coinage claim burst\n\n0 ms added delay; root-seeded, asset-backed coins; one signed transfer per coin. Issuance and wallet behavior are outside this pilot.\n\n')
+              for name in ('claim-smoke-summary', 'claim-burst-summary', 'claim-error'):
+                  path = Path(f'network-out/{name}.json')
+                  out.write(f'### {name}\n\n')
+                  out.write('```json\n' + json.dumps(json.loads(path.read_text()), indent=2) + '\n```\n\n' if path.exists() else 'No result produced.\n\n')
+          PYTHON
+      - name: Check network recovery and both People authors
+        if: always()
+        timeout-minutes: 9
+        run: |
+          python3 ci/previewnet/network.py observe --phase recovery
+          node ci/previewnet/people-collators.mjs verify
+      - name: Stop this run's network
+        if: always()
+        run: python3 ci/previewnet/start.py stop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coinage-claim-burst-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.txt
+            network-out/*.log
+            network-out/data/*/*.log
+          retention-days: 7

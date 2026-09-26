@@ -49,4 +49,28 @@ pnpm test:coinage-client
 Offline tests verify real ownership proofs, encoding and signing against the
 checked-in PreviewNet metadata, and outcome tracking across reorgs and timeouts.
 They do not demonstrate runtime acceptance or capacity. The next workflow must
-first prove one funded load succeeds on the fork before attempting 10,000 users.
+first prove one funded load succeeds on the fork before increasing the actor count.
+
+## Claim-burst pilot
+
+The claim workflow reuses the PreviewNet setup and submission tracker on the
+PR #34 branch. It runs a one-claim smoke gate followed by `users` concurrent
+claims (default 100, maximum 1,000), with no added network delay.
+
+The disposable-network fixture uses root storage writes to create source coins
+and mints matching asset backing into the pallet account. This bypasses issuance;
+it does not test onboarding, voucher unloading or wallet policies. Each measured
+claim is a real `Coinage.transfer`, signed by its source key with `AsCoin`.
+The driver checks finalized success, source consumption, recipient value and age,
+and unchanged backing. It records errors and timeouts without retrying.
+
+Run against the prepared local network from the workspace root:
+
+```sh
+ACTOR_COUNT=100 pnpm --filter @pop-e2e/chain-tests exec tsx scripts/coinage-claim-burst.ts
+```
+
+Results go to `network-out/claim-*.json` and `claim-*.jsonl`. The workflow uploads
+these before recovery checks. Driver launch time and PAPI's broadcast signal are
+not node-acceptance timestamps. Pool counts, block resource use and PVF timings
+remain uninstrumented.
