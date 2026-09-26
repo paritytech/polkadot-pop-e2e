@@ -77,8 +77,11 @@ try {
       const digest = header.digest.logs.find(d => d.isPreRuntime && d.asPreRuntime[0].toHex() === '0x61757261');
       if (!digest) throw new Error(`No Aura slot in block ${n}`);
       const slot = Buffer.from(digest.asPreRuntime[1].toU8a(true)).readBigUInt64LE();
-      const at = await api.at(header.parentHash);
-      const authorities = await at.query.aura.authorities();
+      // Read only the historical authority set; api.at decorates a full API for
+      // every block and retains unnecessary metadata during long stress runs.
+      const encoded = await api.rpc.state.getStorage(api.query.aura.authorities.key(), header.parentHash);
+      if (encoded.isNone) throw new Error(`Missing Aura authorities before block ${n}`);
+      const authorities = api.createType('Vec<AccountId32>', encoded.unwrap());
       const author = authorities[Number(slot % BigInt(authorities.length))].toHex();
       const index = report.keys.indexOf(author);
       if (index < 0) throw new Error(`Unexpected author ${author}`);

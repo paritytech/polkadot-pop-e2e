@@ -103,3 +103,29 @@ test("RPC/pool errors and timeouts are distinct; both release the subscription",
   assert.equal((await watchTopUp(stalled.client, prepared, 10)).status, "unresolved");
   assert.ok(stalled.unsubscribed());
 });
+
+test("claims sign as the source coin, preserve the destination and encode seeded coins", async () => {
+  const { coinClaimOptions } = await import("./coinage-client.js");
+  await cryptoWaitReady();
+  const pair = new Keyring({ type: "sr25519" }).addFromUri("//claim-source");
+  const destination = new Keyring({ type: "sr25519" }).addFromUri("//claim-recipient").address;
+  const base = getPolkadotSigner(pair.publicKey, "Sr25519", data => pair.sign(data));
+  let checked = false;
+  const signer = { ...base, async signTx(...args: Parameters<typeof base.signTx>) {
+    // Option::Some, AsCoin (variant 0): no unpaid account nonce payload.
+    assert.deepEqual(Array.from(args[1].AsCoinage.value), [1, 0]);
+    checked = true;
+    return base.signTx(...args);
+  } };
+  const offline = await getOfflineApi(previewPeople);
+  const codecs = await getTypedCodecs(previewPeople);
+  const args = { to: destination };
+  assert.deepEqual(codecs.tx.Coinage.transfer.dec(codecs.tx.Coinage.transfer.enc(args)), args);
+  const coin = { instance_id: 17, value: 1, age: 0 };
+  assert.deepEqual(codecs.query.Coinage.CoinsByOwner.value.dec(
+    codecs.query.Coinage.CoinsByOwner.value.enc(coin)), coin);
+  const signed = await offline.tx.Coinage.transfer(args).sign(signer,
+    { ...coinClaimOptions(), nonce: 0, mortality: { mortal: false } });
+  assert(checked);
+  assert(signed.length > 64);
+});
