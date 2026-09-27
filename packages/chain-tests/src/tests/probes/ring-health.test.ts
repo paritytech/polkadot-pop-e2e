@@ -233,6 +233,19 @@ async function ahCatchupLag(
   return { peopleRev, ahMaxRev, deltaRev };
 }
 
+// A failed connect rejects with a WebSocket ErrorEvent, not an Error, so
+// String(err) is "[object ErrorEvent]". Keep its message and name the endpoint.
+async function connect(url: string): Promise<ApiPromise> {
+  const provider = new WsProvider(url);
+  try {
+    return await ApiPromise.create({ provider, noInitWarn: true, throwOnConnect: true });
+  } catch (err) {
+    await provider.disconnect().catch(() => {});
+    const reason = (err as { message?: string })?.message || String(err);
+    throw new Error(`cannot connect to ${url}: ${reason}`);
+  }
+}
+
 describe("LitePeople ring health", () => {
   let network: NetworkConfig;
   let peopleApi: ApiPromise;
@@ -259,16 +272,8 @@ describe("LitePeople ring health", () => {
         `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey}): ${ahCatchupBudgetRevs} revision(s)`,
       );
 
-      peopleApi = await ApiPromise.create({
-        provider: new WsProvider(network.people.ws),
-        noInitWarn: true,
-        throwOnConnect: true,
-      });
-      ahApi = await ApiPromise.create({
-        provider: new WsProvider(network.assetHub.ws),
-        noInitWarn: true,
-        throwOnConnect: true,
-      });
+      peopleApi = await connect(network.people.ws);
+      ahApi = await connect(network.assetHub.ws);
 
       // AH ships MembersSubscriber on paseo-next-v2 + previewnet only.
       // Detect by metadata presence so the AH-catchup test gracefully no-ops
