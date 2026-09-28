@@ -1,0 +1,195 @@
+name: Stress · flood
+
+# Starts a fork of previewnet (live state: chunks, rings, the Asset Hub
+# subscription and a coinage instance are all there; a genesis network has
+# none of them), and runs one flood: a baseline, a ramp until the chain fails,
+# recovery and a loss check.
+#
+# The fork is always bitten fresh: People's cores and collators are state inside
+# the bundle (`ppn bite --cores/--collators`, previewnet-engine#39), and the
+# published bundle only has the defaults (1 core, 1 collator). The flood is the Rust tool in stress/ (the
+# `stress` binary); the TS tool in packages/stress-tests is not used here.
+#
+# It is a measurement, not a gate: in stress mode the job fails only when the
+# network, the setup or our own tools fail; the outcome checks only report.
+# Smoke mode fails on any gap (a failed scrape, a check without a result).
+# The result is in the job summary and the uploaded artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        # Only the floods the Rust tool runs for real; coin-flood and renewal-hour are stubs.
+        description: "Which flood"
+        type: choice
+        options: [stmt-flood]
+        default: stmt-flood
+      mode:
+        description: "smoke: short and strict, any gap fails the job; stress: the full measurement"
+        type: choice
+        options: [stress, smoke]
+        default: stress
+      people_cores:
+        # The relay gets a validator per core, max 10; Asset Hub takes 3 and the
+        # other two parachains 1 each, so People can have at most 5.
+        description: "People cores (the relay grows to one validator per core)"
+        type: choice
+        options: ["1", "2", "3", "4", "5"]
+        default: "3"
+      people_collators:
+        description: "People collators"
+        default: "5"
+      args:
+        description: "Extra flood arguments, e.g. --members 1000 --step 6 --steps 12 --recovery 1200"
+        default: ""
+      ppn_ref:
+        # Needs previewnet-engine#39 (bite-time cores and collators); no tag has it yet.
+        description: "previewnet-engine ref"
+        default: "main"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  flood:
+    # A five-chain network plus the load generator; same runner as the release gate.
+    runs-on: parity-large
+    # A fresh bite takes about 15 minutes; a hung one is retried twice, 30 minutes each.
+    timeout-minutes: 180
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
+      RESULTS_DIR: ${{ github.workspace }}/stress-results
+      SCENARIO: ${{ inputs.scenario }}
+      FLOOD_ARGS: ${{ inputs.args }}
+      MODE: ${{ inputs.mode }}
+      # The same layout goes to the bite and to the start: `ppn start` refuses a
+      # bundle whose recorded layout differs from the one it is asked for.
+      CORES: people=${{ inputs.people_cores }}
+      COLLATORS: people=${{ inputs.people_collators }}
+      ZOMBIE_JSON: ${{ github.workspace }}/ppn/data-fork/zombie.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout the engine (previewnet-engine)
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: ${{ inputs.ppn_ref }}
+          path: ppn
+
+      # Node and pnpm are for the engine only: it builds itself and runs `ppn fork wait`.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install make, jq and a C compiler
+        run: |
+          which make || (apt-get update && apt-get install -y make)
+          which jq || (apt-get update && apt-get install -y jq)
+          # `ring` (TLS for the WebSocket clients) builds C code.
+          which cc || (apt-get update && apt-get install -y build-essential)
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: stress
+
+      # Before the network starts, so the fork does not sit idle while this compiles.
+      - name: Build the stress tool
+        working-directory: stress
+        run: cargo build --release --locked --bin stress
+
+      # Same retry loop as the release gate: the bite can hang.
+      - name: Ensure engine dependencies and bite the fork
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 1800 make -C ppn ensure-deps FORK=1 FRESH_BITE=1 CORES="$CORES" COLLATORS="$COLLATORS"; then
+              jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion), topology \(.topology // "defaults")"' "$FORK_DIR/manifest.json"
+              exit 0
+            fi
+            echo "::warning::bite attempt $attempt failed or hung; retrying"
+            make -C ppn kill || true
+            pkill -f doppelganger || true
+            rm -rf "$FORK_DIR"
+          done
+          echo "::error::no fork bundle after 3 attempts"; exit 1
+
+      - name: Reap anything left behind on the runner
+        run: make -C ppn kill || true
+
+      # No FRESH_BITE here: that would bite a second time and replace the bundle above.
+      - name: Start the fork
+        run: |
+          nohup make -C ppn start FORK=1 CORES="$CORES" COLLATORS="$COLLATORS" > /tmp/ppn-spawn.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::the network exited during startup"; tail -40 /tmp/ppn-spawn.log; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              echo "relay is up after $((i * 10)) s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::the relay did not come up in 10 minutes"; tail -40 /tmp/ppn-spawn.log; exit 1
+
+      - name: Wait for every chain to produce and finalize
+        run: node ppn/bin/ppn.mjs fork wait "$FORK_DIR" 900
+
+      - name: Find the People node process
+        run: |
+          # The flood samples this process's CPU and memory with ps; the scraper reads every
+          # node's metrics URL from ZOMBIE_JSON.
+          pid=$(ss -Hltnp 'sport = :10010' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+          [ -n "$pid" ] && echo "PEOPLE_PID=$pid" >> "$GITHUB_ENV"
+          echo "People node PID: ${pid:-not found}"
+
+      - name: Flood
+        run: |
+          # FLOOD_ARGS is split into words on purpose.
+          # shellcheck disable=SC2086
+          stress/target/release/stress "$SCENARIO" --mode "$MODE" $FLOOD_ARGS --out "$RESULTS_DIR"
+
+      - name: Write the job summary
+        if: always()
+        run: |
+          echo "Scenario: $SCENARIO · cores $CORES, collators $COLLATORS · mode: $MODE · args: ${FLOOD_ARGS:-(defaults)}" >> "$GITHUB_STEP_SUMMARY"
+          if ls "$RESULTS_DIR"/*/summary.md >/dev/null 2>&1; then
+            cat "$RESULTS_DIR"/*/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Flood: no result (setup or run failed; see the logs)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flood-results
+          path: ${{ env.RESULTS_DIR }}
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop the network
+        if: always()
+        run: make -C ppn kill || true
+
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flood-node-logs
+          path: |
+            /tmp/ppn-spawn.log
+            ppn/data-fork/*/*.log
+          retention-days: 14
+          if-no-files-found: ignore
