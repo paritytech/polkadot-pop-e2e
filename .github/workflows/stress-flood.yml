@@ -16,6 +16,13 @@ name: Stress · flood
 # The result is in the job summary and the uploaded artifacts
 
 on:
+  # TEMP: a push to the PR branch runs a smoke flood, because workflow_dispatch only works once
+  # this file is on main. Remove this trigger and the `|| ...` push fallbacks below before merging.
+  push:
+    branches: [stress-tests-mvp]
+    paths:
+      - .github/workflows/stress-flood.yml
+      - stress/**
   workflow_dispatch:
     inputs:
       scenario:
@@ -64,13 +71,14 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
       FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
       RESULTS_DIR: ${{ github.workspace }}/stress-results
-      SCENARIO: ${{ inputs.scenario }}
-      FLOOD_ARGS: ${{ inputs.args }}
-      MODE: ${{ inputs.mode }}
+      SCENARIO: ${{ inputs.scenario || 'stmt-flood' }}
+      # The push fallback is the short smoke run from stress/README.md.
+      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 40 --slots 12 --start 2 --step 2 --interval 30 --steps 3 --recovery 120 --probes 3' || inputs.args }}
+      MODE: ${{ inputs.mode || 'smoke' }}
       # The same layout goes to the bite and to the start: `ppn start` refuses a
       # bundle whose recorded layout differs from the one it is asked for.
-      CORES: people=${{ inputs.people_cores }}
-      COLLATORS: people=${{ inputs.people_collators }}
+      CORES: people=${{ inputs.people_cores || '3' }}
+      COLLATORS: people=${{ inputs.people_collators || '5' }}
       ZOMBIE_JSON: ${{ github.workspace }}/ppn/data-fork/zombie.json
     steps:
       - uses: actions/checkout@v4
@@ -79,7 +87,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          ref: ${{ inputs.ppn_ref }}
+          ref: ${{ inputs.ppn_ref || 'main' }}
           path: ppn
 
       # Node and pnpm are for the engine only: it builds itself and runs `ppn fork wait`.
