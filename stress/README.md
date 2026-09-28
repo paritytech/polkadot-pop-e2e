@@ -13,7 +13,7 @@ cargo build --release      # about 1 min clean; the binary is target/release/str
 ## Run
 
 Needs a local previewnet fork from `previewnet-engine` (People on 3 cores:
-`make start FORK=1 CORES="people=3" COLLATORS="people=5" DATA_DIR=.../data-fork-topology`).
+`make start FORK=1 FRESH_BITE=1 CORES="people=3" COLLATORS="people=5"`).
 
 | Variable | Default | What |
 | --- | --- | --- |
@@ -25,11 +25,11 @@ Needs a local previewnet fork from `previewnet-engine` (People on 3 cores:
 
 ```sh
 # A short run that must pass: any monitor problem or a check without a result fails it.
-ZOMBIE_JSON=.../zombie.json ./target/release/stress stmt-flood --mode smoke \
+./target/release/stress stmt-flood --mode smoke \
   --members 40 --slots 12 --start 2 --step 2 --interval 30 --steps 3 --recovery 120 --probes 3
 
 # The stress run: 750 people x 20 slots, from 6 tx/s up by 4 per step, 10 steps of 60 s.
-ZOMBIE_JSON=.../zombie.json ./target/release/stress stmt-flood
+./target/release/stress stmt-flood
 
 # run.om and the checks again, from a run's files (a TS run too).
 ./target/release/stress check results/<run>
