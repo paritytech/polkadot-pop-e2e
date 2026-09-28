@@ -45,6 +45,7 @@ _ERROR_CATEGORIES: list[tuple[str, re.Pattern[str]]] = [
     ("slow-rebuilds", re.compile(r"worst submit.*rebuild latency was", re.I)),
     ("ah-lag", re.compile(r"AssetHub is \d+ revision\(s\) behind", re.I)),
     ("ah-no-root", re.compile(r"AH RingRoots window is empty|never propagated to AssetHub", re.I)),
+    ("rpc-unreachable", re.compile(r"cannot connect to wss?://", re.I)),
 ]
 
 
@@ -120,7 +121,10 @@ def build_message(
     if prev_verdict is None:
         header = f"📊 Ring health on `{network}`: **{verdict.upper()}** (first observation)"
     elif verdict == "fail" and prev_verdict == "pass":
-        header = f"❌ Ring health on `{network}`: **{verdict.upper()}** (was PASS)"
+        # Fails are debounced, so the run before this one usually failed too.
+        fails = state.get("consecutive_fails")
+        streak = f"failed {fails} runs in a row, " if fails else ""
+        header = f"❌ Ring health on `{network}`: **{verdict.upper()}** ({streak}last reported PASS)"
     elif verdict == "pass" and prev_verdict == "fail":
         header = f"✅ Ring health on `{network}`: **{verdict.upper()}** (recovered from FAIL)"
     elif verdict == "fail" and prev_verdict == "fail" and prev_cats != curr_cats:
