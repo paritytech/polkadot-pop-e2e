@@ -42,6 +42,35 @@ uploads logs, configuration, observations and traffic-control counters even on f
 The former multi-runner jobs have been removed: private connections between the
 runners timed out. This workflow needs no connections between CI runners.
 
+## Monitoring
+
+`metrics.py sample` runs in the background for the whole job. Every five seconds it saves each
+node's Prometheus metrics to `node-metrics.jsonl`, tagged with the current phase. It also reads
+every finalised People block (`--chain 1502`) and saves its extrinsic count, extrinsic bytes and
+consumed weight (`System::BlockWeight`, per dispatch class) to `blocks.jsonl`.
+
+`metrics.py summarise` writes `metrics-summary.json` and `metrics-summary.md`, and the workflow adds
+the Markdown to the job summary. Per phase and node it reports:
+
+| Question | Signals |
+| -------- | ------- |
+| Does the transaction pool keep up? | Ready-pool peak and time to drain; dropped, invalid, usurped and finality-timeout events; validation backlog; submission-to-ready, in-block and finalised times measured by the node |
+| Is block production the limit? | Why each block proposal ended (for example `hit_block_weight_limit`); transactions per block; proposal time; per-block extrinsics, bytes, normal-class ref time and proof size |
+| Do finality and the relay keep up? | PVF execution and queue time; approval and dispute finality lag; unapproved candidates |
+| Are the nodes healthy? | Resident memory; block import time; metric fetch errors |
+
+Metrics that no node exposes are listed as missing rather than omitted. The node's
+`rpc_transaction_*` histograms only count the `transactionWatch` RPC, so drivers using
+`author_submitAndWatchExtrinsic` must read the `substrate_sub_txpool_timing_event_*` histograms
+instead. Consumed weight is the declared weight of dispatched calls, not measured execution time.
+
+The summary also reads saved artifacts. For a Coinage burst artifact, window it to each stage from
+its `<stage>-summary.json`:
+
+```sh
+python3 ci/previewnet/metrics.py summarise --directory path/to/artifact --stage smoke --stage burst
+```
+
 Offline checks (Python 3.11+):
 
 ```sh
