@@ -71,7 +71,10 @@ try {
     const lastHash = await api.rpc.chain.getFinalizedHead();
     const last = (await api.rpc.chain.getHeader(lastHash)).number.toNumber();
     const counts = Object.fromEntries(names.map(n => [n, 0]));
-    for (let n = report.setup_block + 1; n <= last; n++) {
+    // Snapshot databases use constrained pruning. Recovery checks recent authors,
+    // not every block since fixture setup (which can take more than an hour).
+    const first = Math.max(report.setup_block + 1, last - 63);
+    for (let n = first; n <= last; n++) {
       const hash = await api.rpc.chain.getBlockHash(n);
       const header = await api.rpc.chain.getHeader(hash);
       const digest = header.digest.logs.find(d => d.isPreRuntime && d.asPreRuntime[0].toHex() === '0x61757261');
@@ -89,7 +92,9 @@ try {
     }
     if (Object.values(counts).some(n => n === 0)) throw new Error(`Not both collators authored finalised blocks: ${JSON.stringify(counts)}`);
     report.authored_finalized_blocks = counts;
+    report.first_verified_block = first;
     report.last_verified_block = last;
+    report.verification_scope = 'up to 64 recent finalized blocks after setup';
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
     console.log(JSON.stringify(report));
   } else { throw new Error('Expected setup or verify'); }

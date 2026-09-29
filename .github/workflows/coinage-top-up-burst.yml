@@ -67,9 +67,9 @@ jobs:
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
-              node['args'] = [a for a in node['args'] if not a.startswith(('--rpc-max-connections=', '--state-pruning='))]
+              node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
               node['args'] += ['--rpc-max-connections=1024']
-              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always', '--state-pruning=archive']
+              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
           path.write_text(tomli_w.dumps(config))
           PY
           cp ppn/provenance.json network-out/
@@ -210,7 +210,7 @@ jobs:
             save(`${name}-fixture`, { count, instanceId, instance, amount, denomination,
               preparationMs: performance.now() - prepStart, transactionMortality: 'immortal (disposable fork only)',
               rpcSubscriptionsPerConnection: 20050, senderConnections: 1,
-              submissionRpc: 'author_submitAndWatchExtrinsic', statePruning: 'archive', syntheticDelayMs: 0, sponsoredPot: 'not applicable',
+              submissionRpc: 'author_submitAndWatchExtrinsic', statePruning: 256, syntheticDelayMs: 0, sponsoredPot: 'not applicable',
               actors: actors.map(({ id, address, args }) => ({ id, address, memberKey: args.member_key })) });
             console.log(json({ phase: 'prepared', name, count, senderConnections: 1 }));
 
