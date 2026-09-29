@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { blake2AsHex } from '@polkadot/util-crypto';
-import { burstSubmitter } from './coinage-burst-submit.js';
+import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { WsProvider } from '@polkadot/api';
+import { burstSubmitter, connectBurstProvider } from './coinage-burst-submit.js';
 
 function fixture() {
   const callbacks: Array<(error: Error | null, status: unknown) => void> = [];
@@ -63,4 +66,42 @@ test('records a synchronous provider failure instead of rejecting the burst', as
   const result = await submit({ hex: '0x12', txHash: 'hash' }, 1000);
   assert.equal(result.status, 'submission-error');
   assert.match(String(result.error), /disconnected/);
+});
+
+test('waits for an actual WebSocket handshake before allowing submissions', async () => {
+  const server = createServer();
+  const sockets = new Set<import('node:stream').Duplex>();
+  let upgraded = false;
+  server.on('upgrade', (request, socket) => {
+    sockets.add(socket);
+    socket.on('error', () => {});
+    setTimeout(() => {
+      const accept = createHash('sha1').update(request.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+      upgraded = true;
+    }, 30);
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as import('node:net').AddressInfo;
+  const provider = new WsProvider(`ws://127.0.0.1:${address.port}`, false);
+  try {
+    const connecting = connectBurstProvider(provider, 1000);
+    assert.equal(provider.isConnected, false);
+    await connecting;
+    assert.equal(upgraded, true);
+    assert.equal(provider.isConnected, true);
+  } finally {
+    await provider.disconnect();
+    sockets.forEach(socket => socket.destroy());
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test('cleans up when connection readiness times out', async () => {
+  let disconnected = false;
+  await assert.rejects(connectBurstProvider({
+    connect: async () => {}, isReady: new Promise<WsProvider>(() => {}),
+    disconnect: async () => { disconnected = true; },
+  }, 5), /readiness timed out/);
+  assert.equal(disconnected, true);
 });

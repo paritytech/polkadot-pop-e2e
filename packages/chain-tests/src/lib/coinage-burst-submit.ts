@@ -10,6 +10,23 @@ export type BurstResult = SubmissionResult & {
   rpcObservations: Array<{ elapsedMs: number; status: unknown }>;
 };
 
+/** connect() only starts the handshake; wait for readiness before measuring a burst. */
+export async function connectBurstProvider(
+  provider: Pick<WsProvider, 'connect' | 'isReady' | 'disconnect'>, timeoutMs = 15_000,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await provider.connect();
+    await Promise.race([
+      provider.isReady,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Burst RPC connection readiness timed out')), timeoutMs);
+      }),
+    ]);
+  } catch (error) { await provider.disconnect(); throw error; }
+  finally { clearTimeout(timer); }
+}
+
 /** One RPC connection and one block read per finalized block, not a full client per transaction group. */
 export function burstSubmitter(
   provider: Pick<WsProvider, 'subscribe' | 'unsubscribe'>,
