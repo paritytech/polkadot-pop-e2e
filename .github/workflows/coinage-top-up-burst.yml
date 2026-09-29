@@ -8,10 +8,14 @@ on:
         type: string
         default: '10000'
       mode:
-        description: Single burst or two waves (7000 then 3000; requires 10000 actors)
+        description: Single burst or two waves (paced requires 10000 actors)
         type: choice
         options: [burst, paced]
         default: paced
+      first_wave:
+        description: Actors in the first paced wave (1–9999); remainder follows verified finalization
+        type: string
+        default: '7000'
       pool:
         description: Node pool capacity (keep default for the paced experiment)
         type: choice
@@ -40,6 +44,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
       LOAD_MODE: ${{ inputs.mode || 'burst' }}
+      FIRST_WAVE: ${{ inputs.first_wave || '7000' }}
       POOL_PROFILE: ${{ inputs.pool || 'default' }}
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +57,7 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000; assert os.environ["LOAD_MODE"] != "paced" or n == 10000'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
@@ -123,7 +128,9 @@ jobs:
           assert(Number.isInteger(users) && users >= 1 && users <= 10000);
           const mode = process.env.LOAD_MODE ?? 'burst';
           assert(mode === 'burst' || mode === 'paced');
-          assert(mode !== 'paced' || users === 10000, 'Paced mode requires 10000 actors (7000 + 3000)');
+          const firstWave = Number(process.env.FIRST_WAVE ?? '7000');
+          assert(mode !== 'paced' || (users === 10000 && Number.isInteger(firstWave) && firstWave >= 1 && firstWave < users),
+            'Paced mode requires 10000 actors and a first wave between 1 and 9999');
           const deadlineMs = 600_000;
           const denomination = 1;
           await cryptoWaitReady();
@@ -284,7 +291,7 @@ jobs:
                 if (!stopped) await delay(5000);
               }
             })();
-            const waveSizes = name === 'burst' && mode === 'paced' ? [7000, 3000] : [count];
+            const waveSizes = name === 'burst' && mode === 'paced' ? [firstWave, count - firstWave] : [count];
             const waves: Array<{ count: number; startActor: number; startedMs: number; sendWindowMs: number; finalized: number; verified: boolean }> = [];
             let observationDeadline = deadlineMs;
             try {
@@ -400,7 +407,7 @@ jobs:
 
           try {
             save('burst-runtime', { version: await api.constants.System.Version(),
-              genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, mode, poolProfile: process.env.POOL_PROFILE });
+              genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile: process.env.POOL_PROFILE });
             await stage(1, 'smoke');
             const result = await stage(users, 'burst');
             if (result.generatorLimited) throw new Error('Transactions settled, but the one-second burst target was missed; generator-limited run');
