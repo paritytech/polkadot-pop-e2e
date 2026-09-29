@@ -112,8 +112,10 @@ async function stage(count: number, name: string) {
   await inGroups(actors, async actor => {
     assert.deepEqual(await api.query.Coinage.CoinsByOwner.getValue(actor.source, { at }), originalCoin);
     assert.equal(await api.query.Coinage.CoinsByOwner.getValue(actor.recipient, { at }), undefined);
+    // Signing a large batch can outlive PAPI's pinned block window. Keep state checks at
+    // the fixture snapshot, but sign against the client's current runtime context.
     const signed = await api.tx.Coinage.transfer({ to: actor.recipient }).sign(actor.signer,
-      { ...coinClaimOptions(), mortality: { mortal: false }, at });
+      { ...coinClaimOptions(), mortality: { mortal: false } });
     prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
   });
   // The pinned SDK permits 16 active transaction_v1_broadcast operations per connection.
