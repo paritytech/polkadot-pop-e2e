@@ -77,21 +77,31 @@ jobs:
         run: |
           python3 ci/previewnet/start.py start
           node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+      - name: Start sampling node metrics and People block fullness
+        run: |
+          echo setup > network-out/phase.txt
+          setsid nohup python3 ci/previewnet/metrics.py sample --directory network-out \
+            > network-out/metrics-sampler.log 2>&1 < /dev/null &
+          echo $! > network-out/metrics-sampler.pid
       - name: Enable both People collators in the local fork
         run: node ci/previewnet/people-collators.mjs setup
       - name: Baseline without synthetic delay
         id: baseline
-        run: python3 ci/previewnet/network.py observe --phase baseline
+        run: |
+          echo baseline > network-out/phase.txt
+          python3 ci/previewnet/network.py observe --phase baseline
       - name: Add delay to peer traffic
         run: python3 ci/previewnet/delay.py apply --delay-ms "$DELAY_MS"
       - name: Check block production with delay
         run: |
+          echo delayed > network-out/phase.txt
           python3 ci/previewnet/network.py observe --phase delayed --seconds 120 --timeout 150
           python3 ci/previewnet/delay.py capture --require-packets
       - name: Remove delay and check recovery
         if: always() && steps.baseline.outcome == 'success'
         run: |
           python3 ci/previewnet/delay.py remove
+          echo recovery > network-out/phase.txt
           python3 ci/previewnet/network.py observe --phase recovery
       - name: Verify both People collators authored finalised blocks
         run: node ci/previewnet/people-collators.mjs verify
@@ -112,6 +122,16 @@ jobs:
                   report=json.loads(path.read_text())
                   out.write(f'- {phase}: observed {report["elapsed_seconds"]:.1f}s; finalised block changes: {report["finality_delta"]}; last 60s: {report["tail_finality_delta"]}\n')
           PYTHON
+      - name: Summarise node metrics
+        if: always()
+        run: |
+          [ -f network-out/metrics-sampler.pid ] && kill "$(cat network-out/metrics-sampler.pid)" 2>/dev/null || true
+          if [ -f network-out/node-metrics.jsonl ]; then
+            python3 ci/previewnet/metrics.py summarise --directory network-out
+            cat network-out/metrics-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No node metrics were sampled.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Capture delay diagnostics on failure
         if: failure()
         run: python3 ci/previewnet/delay.py capture
@@ -130,6 +150,7 @@ jobs:
             network-out/*.jsonl
             network-out/*.toml
             network-out/*.txt
+            network-out/*.md
             network-out/*.log
             network-out/data/*/*.log
             network-inputs/provenance.json
