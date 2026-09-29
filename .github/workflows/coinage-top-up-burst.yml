@@ -44,7 +44,7 @@ jobs:
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
-          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts
+          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts src/lib/coinage-burst-submit.test.ts
       - uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
@@ -67,9 +67,9 @@ jobs:
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
-              node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
+              node['args'] = [a for a in node['args'] if not a.startswith(('--rpc-max-connections=', '--state-pruning='))]
               node['args'] += ['--rpc-max-connections=1024']
-              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always', '--state-pruning=archive']
           path.write_text(tomli_w.dumps(config))
           PY
           cp ppn/provenance.json network-out/
@@ -83,6 +83,8 @@ jobs:
       - name: Write the burst driver
         run: |
           cat > packages/chain-tests/scripts/.coinage-top-up-burst.ts <<'TYPESCRIPT'
+          import { WsProvider } from '@polkadot/api';
+          import { burstSubmitter, type BurstResult } from '../src/lib/coinage-burst-submit.js';
           import { auditBurst } from '../src/lib/coinage-burst-audit.js';
           import assert from 'node:assert/strict';
           import { randomBytes } from 'node:crypto';
@@ -95,7 +97,7 @@ jobs:
           import { getPolkadotSigner } from 'polkadot-api/signer';
           import {
             coinValueToAssetAmount, createCoinageClient, topUpArguments, unpaidTopUpOptions,
-            watchTopUp, type SubmissionResult,
+            watchTopUp,
           } from '../src/lib/coinage-client.js';
 
           const out = resolve('../../network-out');
@@ -193,20 +195,24 @@ jobs:
                 prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
               }));
             }
-            // SDK service/builder.rs in polkadot-weekly2026w33-rc2 limits
-            // transaction_v1_broadcast to 16 active operations per connection.
-            // Keep 15 on each connection and warm all clients before timing.
-            const senders = Array.from({ length: Math.ceil(count / 15) }, () =>
-              createCoinageClient('ws://127.0.0.1:10010'));
-            try {
-              await Promise.all(senders.map(sender => sender.client.getFinalizedBlock()));
-            } catch (error) { senders.forEach(sender => sender.close()); throw error; }
+            // Legacy author watches share one socket; no full PAPI client per 15 transactions.
+            // Disable reconnects: a measured attempt must never be silently resubmitted.
+            const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
+            try { await sender.connect(); } catch (error) { await sender.disconnect(); throw error; }
+            const wire = prepared.map(p => ({ txHash: p.txHash, hex: Binary.toHex(p.signed) }));
+            const submit = burstSubmitter(sender, async hash => {
+              const [block, events] = await Promise.all([
+                client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
+                api.query.System.Events.getValue({ at: hash, signal: AbortSignal.timeout(15_000) }),
+              ]);
+              return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
+            });
             save(`${name}-fixture`, { count, instanceId, instance, amount, denomination,
               preparationMs: performance.now() - prepStart, transactionMortality: 'immortal (disposable fork only)',
-              rpcSubscriptionsPerConnection: 20050, senderConnections: senders.length,
-              maximumBroadcastsPerConnection: 15, syntheticDelayMs: 0, sponsoredPot: 'not applicable',
+              rpcSubscriptionsPerConnection: 20050, senderConnections: 1,
+              submissionRpc: 'author_submitAndWatchExtrinsic', statePruning: 'archive', syntheticDelayMs: 0, sponsoredPot: 'not applicable',
               actors: actors.map(({ id, address, args }) => ({ id, address, memberKey: args.member_key })) });
-            console.log(json({ phase: 'prepared', name, count, senderConnections: senders.length }));
+            console.log(json({ phase: 'prepared', name, count, senderConnections: 1 }));
 
             const collectionBytes = new Uint8Array(32);
             collectionBytes.set(new TextEncoder().encode('coinage/recycler'));
@@ -215,7 +221,7 @@ jobs:
             const collection = Binary.toHex(collectionBytes);
             const members = new Set(actors.map(a => a.args.member_key));
             const ready = new Map<string, { elapsedMs: number; at: string; ring: number; revision: number }>();
-            const results: Array<SubmissionResult | undefined> = Array.from({ length: count }, () => undefined);
+            const results: Array<BurstResult | undefined> = Array.from({ length: count }, () => undefined);
             const sentAt: number[] = [];
             let lastHash = (await client.getFinalizedBlock()).hash;
             const started = performance.now();
@@ -264,8 +270,7 @@ jobs:
             const pending: Promise<void>[] = [];
             for (let i = 0; i < count && !guard; i++) {
               sentAt[i] = performance.now() - started;
-              pending.push(senders[Math.floor(i / 15)].submitTopUp({ ...prepared[i], address: actors[i].address,
-                instanceId, denomination, memberKey: actors[i].args.member_key, amount, nonce: 0, at: lastHash },
+              pending.push(submit(wire[i],
                 Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
                   results[i] = result;
                   log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
@@ -273,8 +278,7 @@ jobs:
               if (i % 100 === 99) await yieldLoop();
             }
             const sendWindowMs = performance.now() - started;
-            await Promise.all(pending);
-            senders.forEach(sender => sender.close());
+            try { await Promise.all(pending); } finally { await sender.disconnect(); }
             while (!guard && ready.size < sentAt.length && performance.now() - started < deadlineMs) await delay(1000);
             stopped = true;
             await observer;
@@ -284,13 +288,12 @@ jobs:
               const p = (percent: number) => values.length ? values[Math.max(0, Math.ceil(values.length * percent) - 1)] : null;
               return { count: values.length, p50: p(0.5), p95: p(0.95), max: p(1) };
             };
-            // PAPI emits "broadcasted" before the RPC operation returns. This is a
-            // client-side signal, not an acknowledgement that the node accepted the tx.
-            const broadcasts = results.flatMap((r, i) => {
-              const event = r?.observations.find(o => o.event.type === 'broadcasted');
+            // "ready" is the node's pool-ready notification, not merely a local send signal.
+            const poolReady = results.flatMap((r, i) => {
+              const event = r?.rpcObservations.find(o => o.status === 'ready');
               return event ? [sentAt[i] + event.elapsedMs] : [];
             });
-            const papiBroadcastSignalWindowMs = broadcasts.length ? Math.max(...broadcasts) : null;
+            const poolReadyWindowMs = poolReady.length ? Math.max(...poolReady) : null;
             const stateBlock = await client.getFinalizedBlock();
             const stateReads: unknown[] = [];
             let debited = 0;
@@ -325,7 +328,7 @@ jobs:
               && debited === count && backing?.balance === 1n && heldBacking === expectedBacking
               && wrappedBacking === expectedBacking && !generatorLimited;
             const summary = { name, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
-              ready: ready.size, debited, expectedBacking, heldBacking, wrappedBacking, freeBalance: backing?.balance, sendWindowMs, papiBroadcastSignalWindowMs, generatorLimited, guard, finalityProgress,
+              ready: ready.size, debited, expectedBacking, heldBacking, wrappedBacking, freeBalance: backing?.balance, sendWindowMs, poolReadyCount: poolReady.length, poolReadyWindowMs, generatorLimited, guard, finalityProgress,
               elapsedMs: performance.now() - started, passed,
               outcomes: results.reduce<Record<string, number>>((counts, r) => {
                 const key = r?.status ?? 'not-sent'; counts[key] = (counts[key] ?? 0) + 1; return counts;
@@ -338,7 +341,7 @@ jobs:
                 return ring && result?.status === 'finalized'
                   ? [Math.max(0, ring.elapsedMs - sentAt[i] - result.elapsedMs)] : [];
               })),
-              unavailableMetrics: ['node acceptance timestamps', 'measured execution cost versus declared weight', 'PVF deadline compliance'],
+              unavailableMetrics: ['node-internal acceptance timestamps (pool-ready notifications are observed by the client)', 'measured execution cost versus declared weight', 'PVF deadline compliance'],
               sampledMetrics: 'See node-metrics.jsonl for available node metric names, samples and errors; event dispatch weights are saved in block evidence.',
             };
             save(`${name}-readiness`, [...ready].map(([member, observation]) => ({ member, ...observation })));
