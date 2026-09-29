@@ -1,5 +1,6 @@
 /** Claim-only pilot on a disposable local PreviewNet. Root-seeded fixture, real signed claims. */
 import assert from 'node:assert/strict';
+import { auditBurst } from '../src/lib/coinage-burst-audit.js';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -167,6 +168,7 @@ async function stage(count: number, name: string) {
     const verificationBlock = await client.getFinalizedBlock();
     let verified = 0;
     const mismatches: unknown[] = [];
+    const stateReads: unknown[] = [];
     await inGroups(actors, async actor => {
       try {
         const options = { at: verificationBlock.hash, signal: AbortSignal.timeout(15_000) };
@@ -174,6 +176,8 @@ async function stage(count: number, name: string) {
           api.query.Coinage.CoinsByOwner.getValue(actor.source, options),
           api.query.Coinage.CoinsByOwner.getValue(actor.recipient, options),
         ]);
+        stateReads.push({ actor: actor.id, sourceAddress: actor.source, recipientAddress: actor.recipient,
+          source: source ?? null, recipient: recipient ?? null });
         assert.equal(source, undefined);
         assert.deepEqual(recipient, recipientCoin);
         verified++;
@@ -181,6 +185,8 @@ async function stage(count: number, name: string) {
     });
     const finalBacking = (await api.query.Assets.Account.getValue(asset, palletAccount,
       { at: verificationBlock.hash, signal: AbortSignal.timeout(15_000) }))?.balance;
+    save(`${name}-state`, { at: verificationBlock, instanceId, originalCoin, recipientCoin,
+      asset, palletAccount, backing, finalBacking, actors: stateReads, mismatches });
     const generatorLimited = sendWindowMs > 1000;
     const passed = !guard && !generatorLimited && sentAt.length === count && finalized === count
       && verified === count && finalBacking === backing;
@@ -197,11 +203,12 @@ async function stage(count: number, name: string) {
         counts[r.status] = (counts[r.status] ?? 0) + 1; return counts;
       }, {}),
       verificationBlock, mismatches, backing, finalBacking,
-      unavailableMetrics: ['node RPC acceptance times', 'pool ready/future counts', 'block weight/proof-size use',
-        'block authoring time', 'PVF execution time'],
+      unavailableMetrics: ['node acceptance timestamps', 'measured execution cost versus declared weight', 'PVF deadline compliance'],
+      sampledMetrics: 'See node-metrics.jsonl for available node metric names, samples and errors; event dispatch weights are saved in block evidence.',
     };
     save(`${name}-summary`, summary);
     console.log(json(summary));
+    await auditBurst({ name, expected: count, results, operation: 'CoinTransferred', out, api, summary });
     assert(passed, `${name}: claim outcome, final state or launch-window check failed`);
   } finally {
     stopped = true;

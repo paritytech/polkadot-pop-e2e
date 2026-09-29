@@ -6,12 +6,13 @@ on:
       users:
         description: Claims after the mandatory one-claim smoke test (1–1000)
         type: string
-        default: '100'
+        default: '1000'
   push:
     branches: [feat/th-coinage-claim-burst]
     paths:
       - .github/workflows/coinage-claim-burst.yml
       - packages/chain-tests/src/lib/coinage-client*
+      - packages/chain-tests/src/lib/coinage-burst-audit*
       - packages/chain-tests/scripts/coinage-claim-burst.ts
       - ci/previewnet/**
 
@@ -28,7 +29,7 @@ jobs:
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
-      ACTOR_COUNT: ${{ inputs.users || '100' }}
+      ACTOR_COUNT: ${{ inputs.users || '1000' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,6 +45,7 @@ jobs:
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
+          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts
       - uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
@@ -89,8 +91,13 @@ jobs:
         run: |
           (while true; do date -u; ps -eo pid,ppid,pcpu,rss,comm; sleep 10; done) > ../../network-out/process-samples.txt &
           monitor_pid=$!
-          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          python3 ../../ci/previewnet/monitor.py --directory ../../network-out &
+          metrics_pid=$!
+          trap 'kill "$monitor_pid" "$metrics_pid" 2>/dev/null || true' EXIT
           timeout --signal=TERM --kill-after=30s 35m pnpm exec tsx scripts/coinage-claim-burst.ts
+      - name: Verify saved claim evidence
+        if: always()
+        run: python3 ci/previewnet/verify-burst-artifact.py network-out --stage claim-burst --expected "$ACTOR_COUNT"
       - name: Save claim results before recovery checks
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,7 +107,10 @@ jobs:
             network-out/*.json
             network-out/*.jsonl
             network-out/process-samples.txt
-          retention-days: 7
+            network-out/*.md
+            network-out/*.csv
+            network-out/evidence/**
+          retention-days: 30
       - name: Summarise available results
         if: always()
         run: |
@@ -109,7 +119,10 @@ jobs:
           from pathlib import Path
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
               out.write('## Coinage claim burst\n\n0 ms added delay; root-seeded, asset-backed coins; one signed transfer per coin. Issuance and wallet behavior are outside this pilot.\n\n')
-              for name in ('claim-smoke-summary', 'claim-burst-summary', 'claim-error'):
+              report = Path('network-out/claim-burst-report.md')
+              if report.exists():
+                  out.write(report.read_text() + '\n\n')
+              for name in ('claim-smoke-summary', 'claim-burst-summary', 'claim-burst-audit', 'claim-error'):
                   path = Path(f'network-out/{name}.json')
                   out.write(f'### {name}\n\n')
                   out.write('```json\n' + json.dumps(json.loads(path.read_text()), indent=2) + '\n```\n\n' if path.exists() else 'No result produced.\n\n')
@@ -134,4 +147,7 @@ jobs:
             network-out/*.txt
             network-out/*.log
             network-out/data/*/*.log
-          retention-days: 7
+            network-out/*.md
+            network-out/*.csv
+            network-out/evidence/**
+          retention-days: 30
