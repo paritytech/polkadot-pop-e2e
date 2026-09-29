@@ -39,3 +39,11 @@ The top-up driver uses one `author_submitAndWatchExtrinsic` connection and reads
 The first audited 10,000 attempt ([run 36517423226](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36517423226)) failed in the generator: 7,500 submitted over 263 seconds, 7,494 verified finalized receipts, and 2,500 not submitted after an observer timeout. State showed 7,500 debits and ready vouchers. Its 667 full clients reached about 4.7 GiB RSS. This is a failed generator result, not a measured chain capacity limit. Keep that artifact separate from reruns using the shared connection.
 
 [Run 36528039751](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36528039751) failed before the smoke test because switching the snapshot database to archive mode is incompatible with its stored pruning mode. No burst ran.
+
+## Two-wave and larger-pool experiments
+
+Dispatch `mode=paced`, `users=10000`, `pool=default` first. All actors are funded and signed before measurement, on one instance. Submit 7,000, verify their finalized successful receipts against both People nodes, then submit the remaining 3,000. A failed first-wave audit stops the second wave. There are no retries. Each wave has a ten-minute observation budget and a one-second launch target. Ring readiness and backing checks cover all 10,000 after the waves; ring readiness does not gate the second wave.
+
+`burst-waves.json` records each wave's start, launch duration and finalized count. `burst-wave-1-audit.json` verifies the first 7,000; `burst-wave-2-audit.json` verifies the cumulative 10,000. These gates check receipts only. The final `burst-audit.json` also requires the full state and readiness checks. `sendWindowMs` is the longest individual wave launch, while `elapsedMs` includes the wait and audit between waves. This is not a simultaneous 10,000-operation burst.
+
+After the paced experiment, dispatch `mode=burst`, `users=10000`, `pool=enlarged` for a separate comparison. Both People collators get `--pool-limit=11000 --pool-kbytes=40960` (40 MiB of transaction bytes). Verify the effective settings in their startup logs. Extra queue capacity does not increase block execution capacity. Push-triggered checks remain 1,000 actors in one burst with the default pool.

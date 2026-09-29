@@ -6,7 +6,17 @@ on:
       users:
         description: Funded actors after the mandatory one-actor smoke test (1–10000)
         type: string
-        default: '1000'
+        default: '10000'
+      mode:
+        description: Single burst or two waves (7000 then 3000; requires 10000 actors)
+        type: choice
+        options: [burst, paced]
+        default: paced
+      pool:
+        description: Node pool capacity (keep default for the paced experiment)
+        type: choice
+        options: [default, enlarged]
+        default: default
   push:
     branches: [feat/th-coinage-top-up-burst]
     paths:
@@ -29,6 +39,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
+      LOAD_MODE: ${{ inputs.mode || 'burst' }}
+      POOL_PROFILE: ${{ inputs.pool || 'default' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,7 +52,7 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000; assert os.environ["LOAD_MODE"] != "paced" or n == 10000'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
@@ -59,15 +71,17 @@ jobs:
           pnpm --dir ppn exec tsc -b
           node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
           python3 ci/previewnet/network.py prepare --people-collators 2
-          # Make RPC limits explicit; leave transaction-pool limits unchanged.
+          # Pool enlargement is a separate, explicitly selected experiment.
           python3 - <<'PY'
           from pathlib import Path
-          import tomllib, tomli_w
+          import os, tomllib, tomli_w
           path = Path('network-out/network.toml')
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
               node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
+              if os.environ['POOL_PROFILE'] == 'enlarged':
+                  node['args'] += ['--pool-limit=11000', '--pool-kbytes=40960']
               node['args'] += ['--rpc-max-connections=1024']
               node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
           path.write_text(tomli_w.dumps(config))
@@ -107,6 +121,9 @@ jobs:
           const log = (name: string, data: unknown) => appendFileSync(`${out}/${name}.jsonl`, json(data) + '\n');
           const users = Number(process.env.ACTOR_COUNT);
           assert(Number.isInteger(users) && users >= 1 && users <= 10000);
+          const mode = process.env.LOAD_MODE ?? 'burst';
+          assert(mode === 'burst' || mode === 'paced');
+          assert(mode !== 'paced' || users === 10000, 'Paced mode requires 10000 actors (7000 + 3000)');
           const deadlineMs = 600_000;
           const denomination = 1;
           await cryptoWaitReady();
@@ -267,19 +284,48 @@ jobs:
                 if (!stopped) await delay(5000);
               }
             })();
-            const pending: Promise<void>[] = [];
-            for (let i = 0; i < count && !guard; i++) {
-              sentAt[i] = performance.now() - started;
-              pending.push(submit(wire[i],
-                Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
-                  results[i] = result;
-                  log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
-                }));
-              if (i % 100 === 99) await yieldLoop();
-            }
-            const sendWindowMs = performance.now() - started;
-            try { await Promise.all(pending); } finally { await sender.disconnect(); }
-            while (!guard && ready.size < sentAt.length && performance.now() - started < deadlineMs) await delay(1000);
+            const waveSizes = name === 'burst' && mode === 'paced' ? [7000, 3000] : [count];
+            const waves: Array<{ count: number; startActor: number; startedMs: number; sendWindowMs: number; finalized: number; verified: boolean }> = [];
+            let observationDeadline = deadlineMs;
+            try {
+              let offset = 0;
+              for (const size of waveSizes) {
+                const waveStarted = performance.now();
+                observationDeadline = waveStarted - started + deadlineMs;
+                const pending: Promise<void>[] = [];
+                for (let i = offset; i < offset + size && !guard; i++) {
+                  sentAt[i] = performance.now() - started;
+                  pending.push(submit(wire[i],
+                    Math.max(1, Math.floor(observationDeadline - sentAt[i]))).then(result => {
+                      results[i] = result;
+                      log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
+                    }));
+                  if (i % 100 === 99) await yieldLoop();
+                }
+                const wave = { count: size, startActor: offset, startedMs: waveStarted - started,
+                  sendWindowMs: performance.now() - waveStarted, finalized: 0, verified: false };
+                waves.push(wave);
+                await Promise.all(pending);
+                wave.finalized = results.slice(offset, offset + size).filter(r => r?.status === 'finalized').length;
+                if (waveSizes.length > 1) {
+                  // Audit the cumulative prefix, preserving global actor IDs. Gate wave two
+                  // on exact receipts from both nodes, not pool acceptance or a fixed sleep.
+                  await auditBurst({ name: `${name}-wave-${waves.length}`, expected: offset + size,
+                    results: results.slice(0, offset + size), operation: 'RecyclerLoadedWithExternalAsset', out, api,
+                    summary: { passed: !guard && wave.finalized === size, generatorLimited: wave.sendWindowMs > 1000,
+                      scope: 'Finalized receipts only; balances and ring readiness are checked after both waves', wave } });
+                  wave.verified = true;
+                }
+                save(`${name}-waves`, waves);
+                if (guard) break;
+                offset += size;
+              }
+            } catch (error) {
+              guard = `Wave submission or receipt gate failed: ${String(error)}`;
+              save(`${name}-waves`, waves);
+            } finally { await sender.disconnect(); }
+            const sendWindowMs = Math.max(0, ...waves.map(w => w.sendWindowMs));
+            while (!guard && ready.size < sentAt.length && performance.now() - started < observationDeadline) await delay(1000);
             stopped = true;
             await observer;
             const finalizedCount = results.filter(r => r?.status === 'finalized').length;
@@ -327,7 +373,7 @@ jobs:
             const passed = !guard && sentAt.length === count && finalizedCount === count && ready.size === count
               && debited === count && backing?.balance === 1n && heldBacking === expectedBacking
               && wrappedBacking === expectedBacking && !generatorLimited;
-            const summary = { name, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
+            const summary = { name, mode: waveSizes.length > 1 ? 'paced' : 'burst', poolProfile: process.env.POOL_PROFILE, waves, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
               ready: ready.size, debited, expectedBacking, heldBacking, wrappedBacking, freeBalance: backing?.balance, sendWindowMs, poolReadyCount: poolReady.length, poolReadyWindowMs, generatorLimited, guard, finalityProgress,
               elapsedMs: performance.now() - started, passed,
               outcomes: results.reduce<Record<string, number>>((counts, r) => {
@@ -354,7 +400,7 @@ jobs:
 
           try {
             save('burst-runtime', { version: await api.constants.System.Version(),
-              genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users });
+              genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, mode, poolProfile: process.env.POOL_PROFILE });
             await stage(1, 'smoke');
             const result = await stage(users, 'burst');
             if (result.generatorLimited) throw new Error('Transactions settled, but the one-second burst target was missed; generator-limited run');
