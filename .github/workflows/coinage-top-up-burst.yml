@@ -304,20 +304,28 @@ jobs:
             }
             const backing = await api.query.Assets.Account.getValue(asset, palletAccount,
               { at: stateBlock.hash, signal: AbortSignal.timeout(15_000) });
-            const expectedBacking = BigInt(count) * amount + 1n;
+            const [heldBacking, holds] = await Promise.all([
+              api.query.AssetsHolder.BalancesOnHold.getValue(asset, palletAccount,
+                { at: stateBlock.hash, signal: AbortSignal.timeout(15_000) }),
+              api.query.AssetsHolder.Holds.getValue(asset, palletAccount,
+                { at: stateBlock.hash, signal: AbortSignal.timeout(15_000) }),
+            ]);
+            const expectedBacking = BigInt(count) * amount;
+            const wrappedBacking = holds.find(h => h.id.type === 'Coinage' && h.id.value.type === 'Wrapped')?.amount ?? 0n;
             const stateOptions = { at: stateBlock.hash, signal: AbortSignal.timeout(15_000) };
             const [ringKeys, ringStatuses, ringRoots] = await Promise.all([
               api.query.Members.RingKeys.getEntries(collection, stateOptions),
               api.query.Members.RingKeysStatus.getEntries(collection, stateOptions),
               api.query.Members.Root.getEntries(collection, stateOptions),
             ]);
-            save(`${name}-state`, { at: stateBlock, asset, palletAccount, backing, expectedBacking,
+            save(`${name}-state`, { at: stateBlock, asset, palletAccount, backing, heldBacking, holds, expectedBacking,
               actors: stateReads, ringKeys, ringStatuses, ringRoots });
             const generatorLimited = sendWindowMs > 1000;
             const passed = !guard && sentAt.length === count && finalizedCount === count && ready.size === count
-              && debited === count && backing?.balance === expectedBacking && !generatorLimited;
+              && debited === count && backing?.balance === 1n && heldBacking === expectedBacking
+              && wrappedBacking === expectedBacking && !generatorLimited;
             const summary = { name, users: count, wallStart, sent: sentAt.length, finalized: finalizedCount,
-              ready: ready.size, debited, expectedBacking, actualBacking: backing?.balance, sendWindowMs, papiBroadcastSignalWindowMs, generatorLimited, guard, finalityProgress,
+              ready: ready.size, debited, expectedBacking, heldBacking, wrappedBacking, freeBalance: backing?.balance, sendWindowMs, papiBroadcastSignalWindowMs, generatorLimited, guard, finalityProgress,
               elapsedMs: performance.now() - started, passed,
               outcomes: results.reduce<Record<string, number>>((counts, r) => {
                 const key = r?.status ?? 'not-sent'; counts[key] = (counts[key] ?? 0) + 1; return counts;
