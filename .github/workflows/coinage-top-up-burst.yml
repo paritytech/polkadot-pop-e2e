@@ -84,7 +84,7 @@ jobs:
         run: |
           cat > packages/chain-tests/scripts/.coinage-top-up-burst.ts <<'TYPESCRIPT'
           import { WsProvider } from '@polkadot/api';
-          import { burstSubmitter, type BurstResult } from '../src/lib/coinage-burst-submit.js';
+          import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
           import { auditBurst } from '../src/lib/coinage-burst-audit.js';
           import assert from 'node:assert/strict';
           import { randomBytes } from 'node:crypto';
@@ -198,7 +198,7 @@ jobs:
             // Legacy author watches share one socket; no full PAPI client per 15 transactions.
             // Disable reconnects: a measured attempt must never be silently resubmitted.
             const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
-            try { await sender.connect(); } catch (error) { await sender.disconnect(); throw error; }
+            await connectBurstProvider(sender);
             const wire = prepared.map(p => ({ txHash: p.txHash, hex: Binary.toHex(p.signed) }));
             const submit = burstSubmitter(sender, async hash => {
               const [block, events] = await Promise.all([
