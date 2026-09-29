@@ -24,7 +24,7 @@ This independently re-reads the saved block bodies instead of trusting the trans
 
 ## What the runs establish
 
-- Top-up: one real unpaid load per actor, successful finality, zero remaining actor asset balance, matching pallet backing, and voucher membership in a built root. Ring readiness is separate from transaction finality and does not include a mobile wallet's privacy delay.
+- Top-up: one real unpaid load per actor, successful finality, zero remaining actor asset balance, matching Coinage.Wrapped held backing (separate from the pallet’s minimum free balance), and voucher membership in a built root. Ring readiness is separate from transaction finality and does not include a mobile wallet's privacy delay.
 - Claim: one real signed transfer per seeded source coin. Every source disappears, each recipient gets the expected coin at age + 1, and backing stays unchanged. Root seeding bypasses issuance and does not prove the full wallet flow.
 - “Users” is the driver input name. It means distinct actor keys with one operation each; it does not measure real users or an app population model.
 - Driver launch time and PAPI's broadcast signal are not RPC acceptance or network arrival times. A 1,000-operation run is not evidence of 1,000 accepted transactions per second.
