@@ -33,3 +33,9 @@ This independently re-reads the saved block bodies instead of trusting the trans
 ## Moving to 10,000 top-ups
 
 Validate both scenarios at 1,000 first. Then run only the top-up workflow with `users=10000`, using the same smoke gate, audit and ten-minute post-release observation deadline. Fixture creation is outside that deadline and can take about an hour because funding batches finalize sequentially. Preserve failed runs, including generator-limited results; do not weaken pass criteria to obtain a green job.
+
+## 10,000 simultaneous claims
+
+The claim workflow accepts up to 10,000 actors. It uses the same single-connection `author_submitAndWatchExtrinsic` transport as the top-up experiment, with no automatic retries and unchanged pool limits. The one-second launch target and ten-minute observation deadline still apply. Fixture setup is outside that window; the job allows 120 minutes and the driver 90 minutes for preparation plus measurement. Snapshot pruning stays at 256 blocks; recovery checks up to 64 recent finalized blocks.
+
+Each actor has one root-seeded source coin and submits one real signed `transfer`. Every successful run must have all requested successful finalized receipts, no source coins remaining, correct recipient coins and unchanged fixture asset balance. Root seeding bypasses issuance and normal held-backing setup; this does not test the full payment lifecycle. Client-observed pool-ready timestamps are distinct from successful finality. A dropped watch still fails the receipt requirement unless separately reconciled; balances alone are not receipts.

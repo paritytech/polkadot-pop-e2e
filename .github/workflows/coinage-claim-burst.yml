@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       users:
-        description: Claims after the mandatory one-claim smoke test (1–1000)
+        description: Claims after the mandatory one-claim smoke test (1–10000)
         type: string
         default: '1000'
   push:
@@ -13,6 +13,7 @@ on:
       - .github/workflows/coinage-claim-burst.yml
       - packages/chain-tests/src/lib/coinage-client*
       - packages/chain-tests/src/lib/coinage-burst-audit*
+      - packages/chain-tests/src/lib/coinage-burst-submit*
       - packages/chain-tests/scripts/coinage-claim-burst.ts
       - ci/previewnet/**
 
@@ -26,7 +27,7 @@ concurrency:
 jobs:
   burst:
     runs-on: parity-large
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
@@ -41,11 +42,11 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 1000'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
-          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts
+          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts src/lib/coinage-burst-submit.test.ts
       - uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
@@ -94,7 +95,7 @@ jobs:
           python3 ../../ci/previewnet/monitor.py --directory ../../network-out &
           metrics_pid=$!
           trap 'kill "$monitor_pid" "$metrics_pid" 2>/dev/null || true' EXIT
-          timeout --signal=TERM --kill-after=30s 35m pnpm exec tsx scripts/coinage-claim-burst.ts
+          timeout --signal=TERM --kill-after=30s 90m pnpm exec tsx scripts/coinage-claim-burst.ts
       - name: Verify saved claim evidence
         if: always()
         run: python3 ci/previewnet/verify-burst-artifact.py network-out --stage claim-burst --expected "$ACTOR_COUNT"

@@ -1,5 +1,7 @@
 /** Claim-only pilot on a disposable local PreviewNet. Root-seeded fixture, real signed claims. */
 import assert from 'node:assert/strict';
+import { WsProvider } from '@polkadot/api';
+import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
 import { auditBurst } from '../src/lib/coinage-burst-audit.js';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -12,11 +14,11 @@ import { getPolkadotSigner } from 'polkadot-api/signer';
 import { previewPeople } from '@pop-e2e/papi';
 import {
   coinClaimOptions, coinValueToAssetAmount, createCoinageClient,
-  unpaidTopUpOptions, watchCoinageTransaction, type SubmissionResult,
+  unpaidTopUpOptions, watchCoinageTransaction,
 } from '../src/lib/coinage-client.js';
 
 const users = Number(process.env.ACTOR_COUNT ?? '100');
-assert(Number.isInteger(users) && users >= 1 && users <= 1000);
+assert(Number.isInteger(users) && users >= 1 && users <= 10000);
 const out = resolve('../../network-out');
 mkdirSync(out, { recursive: true });
 const json = (data: unknown) => JSON.stringify(data, (_, value) => typeof value === 'bigint' ? value.toString() : value);
@@ -118,15 +120,24 @@ async function stage(count: number, name: string) {
       { ...coinClaimOptions(), mortality: { mortal: false } });
     prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
   });
-  // The pinned SDK permits 16 active transaction_v1_broadcast operations per connection.
-  const senders = Array.from({ length: Math.ceil(count / 15) }, () => createCoinageClient('ws://127.0.0.1:10010'));
+  // Reuse the top-up transport: one socket, no reconnect or automatic resubmission.
+  const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
+  const wire = prepared.map(p => ({ txHash: p.txHash, hex: Binary.toHex(p.signed) }));
+  const submit = burstSubmitter(sender, async hash => {
+    const [block, events] = await Promise.all([
+      client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
+      api.query.System.Events.getValue({ at: hash, signal: AbortSignal.timeout(15_000) }),
+    ]);
+    return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
+  });
   let stopped = false;
   let observer: Promise<void> | undefined;
   try {
-    await Promise.all(senders.map(sender => sender.client.getFinalizedBlock()));
+    await connectBurstProvider(sender);
     save(`${name}-fixture`, { count, instanceId, instance, backing, palletAccount, originalCoin,
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
-      startingBlock, at, senderConnections: senders.length, maximumBroadcastsPerConnection: 15,
+      startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
+      rpcSubscriptionsPerConnection: 20050, statePruning: 256, poolProfile: 'default',
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });
     console.log(json({ phase: 'prepared', name, count }));
@@ -149,10 +160,10 @@ async function stage(count: number, name: string) {
       }
     })();
     const sentAt: number[] = [];
-    const pending: Promise<SubmissionResult>[] = [];
+    const pending: Promise<BurstResult>[] = [];
     for (let i = 0; i < count && !guard; i++) {
       sentAt[i] = performance.now() - started;
-      pending.push(watchCoinageTransaction(senders[Math.floor(i / 15)].client, prepared[i],
+      pending.push(submit(wire[i],
         Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
         log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
         return result;
@@ -164,7 +175,7 @@ async function stage(count: number, name: string) {
     const settledAt = performance.now() - started;
     stopped = true;
     await observer;
-    senders.forEach(sender => sender.close());
+    await sender.disconnect();
     const finalized = results.filter(r => r.status === 'finalized').length;
     // Reconcile every submitted claim at one finalized state, including unresolved outcomes.
     const verificationBlock = await client.getFinalizedBlock();
@@ -193,19 +204,19 @@ async function stage(count: number, name: string) {
     const passed = !guard && !generatorLimited && sentAt.length === count && finalized === count
       && verified === count && finalBacking === backing;
     const signals = results.flatMap((r, i) => {
-      const event = r.observations.find(o => o.event.type === 'broadcasted');
+      const event = r.rpcObservations.find(o => o.status === 'ready');
       return event ? [sentAt[i] + event.elapsedMs] : [];
     });
     const summary = { name, users: count, wallStart, sent: sentAt.length, finalized, verified,
       passed, guard, generatorLimited, sendWindowMs,
-      papiBroadcastSignalWindowMs: signals.length ? Math.max(...signals) : null,
+      poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? Math.max(...signals) : null,
       finalityProgress, settledAtMs: settledAt, drainAfterLastSendMs: settledAt - (sentAt.at(-1) ?? 0),
       finalityMs: latencies(results.filter(r => r.status === 'finalized').map(r => r.elapsedMs)),
       outcomes: results.reduce<Record<string, number>>((counts, r) => {
         counts[r.status] = (counts[r.status] ?? 0) + 1; return counts;
       }, {}),
       verificationBlock, mismatches, backing, finalBacking,
-      unavailableMetrics: ['node acceptance timestamps', 'measured execution cost versus declared weight', 'PVF deadline compliance'],
+      unavailableMetrics: ['node-internal acceptance timestamps (pool-ready notifications are observed by the client)', 'measured execution cost versus declared weight', 'PVF deadline compliance'],
       sampledMetrics: 'See node-metrics.jsonl for available node metric names, samples and errors; event dispatch weights are saved in block evidence.',
     };
     save(`${name}-summary`, summary);
@@ -214,7 +225,7 @@ async function stage(count: number, name: string) {
     assert(passed, `${name}: claim outcome, final state or launch-window check failed`);
   } finally {
     stopped = true;
-    senders.forEach(sender => sender.close());
+    await sender.disconnect();
     await observer;
   }
 }
