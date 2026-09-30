@@ -32,11 +32,7 @@ fn run_seed() -> [u8; 32] {
 
 /// Runs scenario `S`; the process exit code (1 when smoke mode found gaps).
 pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::Result<i32> {
-    let mode = match common.mode.as_str() {
-        "smoke" => Mode::Smoke,
-        "stress" => Mode::Stress,
-        other => bail!("--mode must be smoke or stress, not {other}"),
-    };
+    let mode = common.mode;
     let ramp = common.ramp(S::RAMP);
     let plan = S::plan(&opts, &ramp);
     plan.check(None).map_err(|e| anyhow::anyhow!("the plan: {e}"))?;
@@ -115,7 +111,7 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
         schema_version: Some(SCHEMA_VERSION),
         scenario: S::TITLE.into(),
         run_id: dir.run_id.clone(),
-        mode: common.mode.clone(),
+        mode: mode.to_string(),
         params: serde_json::json!({ "ramp": ramp, "connections": common.connections, "scenario": opts }),
         budget: prepared.budget,
         setup_seconds,

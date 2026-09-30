@@ -4,8 +4,6 @@
 //! Errors here are the chain's, not ours: the caller decides whether one stops a setup or is a
 //! result of the run.
 
-use std::time::Duration;
-
 use subxt::dynamic::{self, Value};
 use subxt::{OnlineClient, PolkadotConfig};
 use subxt_rpcs::{RpcClient, rpc_params};
@@ -255,21 +253,6 @@ impl Client {
     pub async fn pending(&self) -> Result<Vec<[u8; 32]>, ChainError> {
         let list: Vec<String> = self.request("author_pendingExtrinsics", rpc_params![]).await?;
         list.iter().map(|x| hex::decode(x.trim_start_matches("0x")).map(|b| tx_hash(&b)).map_err(read_any("pending hex"))).collect()
-    }
-
-    /// Waits until a best block holds `hash`; returns that block.
-    pub async fn wait_in_best(&self, hash: [u8; 32], timeout: Duration) -> Result<[u8; 32], ChainError> {
-        let mut blocks = self.api.stream_best_blocks().await.map_err(read_any("best blocks"))?;
-        let work = async {
-            while let Some(block) = blocks.next().await {
-                let h = block.map_err(read_any("best block"))?.hash().0;
-                if self.body(h).await?.iter().any(|x| tx_hash(x) == hash) {
-                    return Ok(h);
-                }
-            }
-            Err(ChainError::Read { what: "best blocks", detail: "stream ended".into() })
-        };
-        tokio::time::timeout(timeout, work).await.map_err(|_| ChainError::Timeout(format!("tx not in a best block after {timeout:?}")))?
     }
 }
 

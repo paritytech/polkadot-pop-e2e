@@ -19,9 +19,10 @@ fn main() {
 
     let t = Instant::now();
     let entropies: Vec<_> = (0..members).map(entropy).collect();
-    let opened = pool.open_all(&prover, &entropies).unwrap();
+    // One after another, as the flood opens them.
+    let opened: Vec<_> = entropies.iter().map(|e| prover.open(*e).unwrap()).collect();
     let open_s = t.elapsed().as_secs_f64();
-    println!("open {members} members: {open_s:.1} s ({:.0} ms each on one thread)", open_s * 1000.0 * pool.threads() as f64 / members as f64);
+    println!("open {members} members: {open_s:.1} s ({:.0} ms each)", open_s * 1000.0 / members as f64);
 
     let jobs: Vec<Job> = (0..slots).flat_map(|seq| (0..members).map(move |m| Job { member: m, context: vec![seq as u8; 32], message: [m as u8; 32] })).collect();
     let t = Instant::now();

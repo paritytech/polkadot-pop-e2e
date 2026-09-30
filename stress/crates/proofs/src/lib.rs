@@ -130,11 +130,6 @@ impl ProverPool {
         self.pool.current_num_threads()
     }
 
-    /// Opens the ring for every entropy, in order.
-    pub fn open_all(&self, prover: &Prover, entropies: &[[u8; 32]]) -> Result<Vec<Opened>, ProofError> {
-        self.pool.install(|| entropies.par_iter().map(|e| prover.open(*e)).collect())
-    }
-
     /// Makes every proof, in job order.
     pub fn prove_all(&self, opened: &[Opened], jobs: &[Job]) -> Result<Vec<RingProof>, ProofError> {
         self.pool.install(|| jobs.par_iter().map(|j| opened[j.member].prove(&j.context, &j.message)).collect())

@@ -69,11 +69,6 @@ impl Plan {
         let steps = (0..steps).map(|k| StepPlan { seconds: interval_s, rates: vec![start + f64::from(k) * step] }).collect();
         Self { steps, until: Until::FirstFailure }
     }
-
-    /// Per step, the rates of every lane, each step `interval_s` long; runs to the end.
-    pub fn curve(rates: Vec<Vec<f64>>, interval_s: u32) -> Self {
-        Self { steps: rates.into_iter().map(|rates| StepPlan { seconds: interval_s, rates }).collect(), until: Until::End }
-    }
 }
 
 impl Plan {
@@ -102,7 +97,8 @@ mod tests {
     fn a_plan_is_checked_against_its_lanes() {
         assert!(Plan::ramp(6.0, 4.0, 60, 10).check(Some(1)).is_ok());
         assert!(Plan::ramp(6.0, 4.0, 60, 10).check(Some(2)).unwrap_err().contains("1 rates for 2 lanes"));
-        assert!(Plan::curve(vec![vec![1.0, 5.0], vec![2.0]], 60).check(None).is_err());
+        let uneven = Plan { steps: vec![StepPlan { seconds: 60, rates: vec![1.0, 5.0] }, StepPlan { seconds: 60, rates: vec![2.0] }], until: Until::End };
+        assert!(uneven.check(None).is_err());
         assert!(Plan::ramp(6.0, 4.0, 60, 0).check(None).is_err());
     }
 }

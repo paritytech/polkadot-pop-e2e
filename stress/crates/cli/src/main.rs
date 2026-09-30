@@ -1,5 +1,9 @@
-//! `stress`: runs one scenario end to end (preflight, setup, load, recovery, loss check,
-//! summary), or rebuilds `run.om` and the checks of a finished run.
+//! The `stress` binary. Two kinds of command:
+//!
+//! - `stress <scenario>`: runs one flood test against the network, from start to finish.
+//!   See `run::scenario` for the stages.
+//! - `stress check <dir>`: re-analyses a finished run from its saved files, without the
+//!   network. It rebuilds `run.om` (all metrics merged) and runs the checks again.
 //!
 //! Adding a scenario is one variant here and a module in `stress-scenarios`.
 
@@ -11,9 +15,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use stress_scenarios::stmt::flood::StmtFlood;
+use stress_load::runner::Mode;
 
-/// Options every scenario has. The ramp flags change the scenario's own defaults
-/// (`Scenario::RAMP`); left out, the defaults hold.
+/// Options for every scenario. Left empty uses defaults
 #[derive(Debug, Clone, clap::Args, serde::Serialize)]
 pub struct Common {
     /// First step's rate, tx/s.
@@ -39,7 +43,7 @@ pub struct Common {
     pub connections: usize,
     /// smoke: any problem fails the run; stress: only tool errors do.
     #[arg(long, default_value = "stress")]
-    pub mode: String,
+    pub mode: Mode,
     /// Results root.
     #[arg(long, default_value = "results")]
     pub out: PathBuf,

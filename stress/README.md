@@ -57,6 +57,7 @@ monitor problem or when a required outcome check has no result.
 ./target/release/stress stmt-flood
 ```
 
+!TODO: we want to porbably just point to the defaults inside the `some-path:XYZ` file
 The defaults prepare 750 people × 20 slots (15,000 claims), then run ten 60-second steps
 from 6 tx/s to 42 tx/s in increments of 4 tx/s. Recovery is observed for up to 900 seconds.
 Proof generation and waiting for rings happen before the ramp and can take several minutes.

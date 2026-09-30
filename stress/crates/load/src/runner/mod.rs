@@ -41,6 +41,34 @@ pub enum Mode {
     Stress,
 }
 
+impl Mode {
+    /// The name on the command line and in the summary.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Smoke => "smoke",
+            Self::Stress => "stress",
+        }
+    }
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for Mode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "smoke" => Ok(Self::Smoke),
+            "stress" => Ok(Self::Stress),
+            other => Err(format!("must be smoke or stress, not {other}")),
+        }
+    }
+}
+
 /// What the monitors hear from the runner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunEvent {
