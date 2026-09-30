@@ -125,9 +125,6 @@ Rebuild `run.om` and rerun all checks without a network:
 ./target/release/stress check results/<run-directory>
 ```
 
-The file schema is compatible with `packages/stress-tests`: the Rust evaluator can recheck a
-TypeScript run, and the TypeScript `recheck` command can evaluate a Rust run.
-
 ## Development
 
 Run the same checks as CI:
@@ -139,13 +136,6 @@ Run the same checks as CI:
 This runs Clippy with warnings denied, the release-mode test suite, and a feature guard that
 prevents `ark-vrf/parallel` from being enabled. The guard matters because nested Rayon pools
 can exhaust threads during long proof-generation runs.
-
-To compare the Rust evaluator with saved TypeScript results:
-
-```sh
-cargo run --release -p stress-checks --example compare_ts_run -- \
-  ../packages/stress-tests/results
-```
 
 The GitHub Actions entry point for an end-to-end run is
 [`.github/workflows/stress-flood.yml`](../.github/workflows/stress-flood.yml).

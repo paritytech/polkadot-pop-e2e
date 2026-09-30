@@ -1,6 +1,5 @@
-//! How fast to send, step by step and lane by lane. A ramp is one plan; a burst, or a curve with
-//! several lanes, are others. Each step is one window for the stop
-//! rules and the checks.
+//! How fast to send, step by step and lane by lane. Each step is one window for the stop rules
+//! and the checks; the first failure ends the load.
 
 use crate::source::LoadSource;
 
@@ -27,15 +26,6 @@ pub struct StepPlan {
     pub rates: Vec<f64>,
 }
 
-/// When the load ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Until {
-    /// At the first failure: a stress test looks for the breaking point.
-    FirstFailure,
-    /// After the last step, failures or not: a scenario that measures a fixed period.
-    End,
-}
-
 /// A scenario's ramp defaults; every field can be changed from the command line.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,15 +49,13 @@ pub struct Ramp {
 pub struct Plan {
     /// The steps.
     pub steps: Vec<StepPlan>,
-    /// When the load ends.
-    pub until: Until,
 }
 
 impl Plan {
     /// One lane: `start` tx/s, plus `step` every `interval_s`, for `steps` steps.
     pub fn ramp(start: f64, step: f64, interval_s: u32, steps: u32) -> Self {
         let steps = (0..steps).map(|k| StepPlan { seconds: interval_s, rates: vec![start + f64::from(k) * step] }).collect();
-        Self { steps, until: Until::FirstFailure }
+        Self { steps }
     }
 }
 
@@ -97,7 +85,7 @@ mod tests {
     fn a_plan_is_checked_against_its_lanes() {
         assert!(Plan::ramp(6.0, 4.0, 60, 10).check(Some(1)).is_ok());
         assert!(Plan::ramp(6.0, 4.0, 60, 10).check(Some(2)).unwrap_err().contains("1 rates for 2 lanes"));
-        let uneven = Plan { steps: vec![StepPlan { seconds: 60, rates: vec![1.0, 5.0] }, StepPlan { seconds: 60, rates: vec![2.0] }], until: Until::End };
+        let uneven = Plan { steps: vec![StepPlan { seconds: 60, rates: vec![1.0, 5.0] }, StepPlan { seconds: 60, rates: vec![2.0] }] };
         assert!(uneven.check(None).is_err());
         assert!(Plan::ramp(6.0, 4.0, 60, 0).check(None).is_err());
     }

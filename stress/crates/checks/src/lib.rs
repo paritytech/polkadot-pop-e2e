@@ -1,6 +1,5 @@
 //! The evaluator: reads `run.om` and `summary.json`, runs every check, and returns one verdict
-//! per check. It depends on the file formats only, so it runs on any finished run, from this
-//! tool or the TS one.
+//! per check. It depends on the file formats only, so it runs on any finished run.
 //!
 //! A new requirement is a new entry in one of the outcome lists: add its metric to the registry,
 //! record it in a monitor if none has it yet, and write the check.

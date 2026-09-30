@@ -23,7 +23,7 @@ use crate::plan::Plan;
 
 mod load;
 
-pub use load::{ends_load, load};
+pub use load::load;
 use crate::recovery::recovered_at;
 use crate::rules::{RULES, secs};
 use crate::sender::Reply;

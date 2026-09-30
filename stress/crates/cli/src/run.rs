@@ -66,7 +66,7 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
     let phases = async {
         let base = baseline(&mut tracker, &mut io, &run_opts).await?;
         let threshold_ms = (2 * base.max_ms).max((2000.0 * block_interval_s) as u64);
-        let (stop, failures) = load(&mut tracker, &mut io, &run_opts).await?;
+        let stop = load(&mut tracker, &mut io, &run_opts).await?;
         println!("stop: {}: {}", stop.rule.name(), stop.detail);
         let recovery_from = now_ms();
         let recovery = recover(&mut tracker, &mut io, &run_opts, threshold_ms).await?;
@@ -75,9 +75,9 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
         if !drain(&mut tracker, &mut io, 30_000).await? {
             println!("drain: block {} not read after 30 s (last read {})", tracker.last_head.1, tracker.last_fetched);
         }
-        Ok::<_, stress_load::runner::RunError>((base, stop, failures, recovery, (recovery_from, recovery_to)))
+        Ok::<_, stress_load::runner::RunError>((base, stop, recovery, (recovery_from, recovery_to)))
     };
-    let (base, stop, failures, mut recovery, recovery_window) = match phases.await {
+    let (base, stop, mut recovery, recovery_window) = match phases.await {
         Ok(r) => r,
         Err(e) => {
             follow.cancel();
@@ -108,7 +108,7 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
     let bp = rules::breaking_point(&finals);
     let sustained = match &bp { None => finals.last(), Some(b) => finals.iter().find(|f| f.step + 1 == b.step) };
     let summary = Summary {
-        schema_version: Some(SCHEMA_VERSION),
+        schema_version: SCHEMA_VERSION,
         scenario: S::TITLE.into(),
         run_id: dir.run_id.clone(),
         mode: mode.to_string(),
@@ -117,8 +117,7 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
         setup_seconds,
         extra: prepared.extra,
         rules: serde_json::to_value(rules::RULES)?,
-        failure_modes: rules::failure_modes(&stop, &failures, &loss, &finals),
-        failures,
+        failure_modes: rules::failure_modes(&stop, &loss, &finals),
         stop,
         breaking_point: bp,
         max_sustained: sustained.map(|f| MaxSustained { step: f.step, target_rate: f.target_rate, included_per_s: f.included_per_s }),

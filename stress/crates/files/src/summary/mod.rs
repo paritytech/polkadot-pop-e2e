@@ -1,5 +1,5 @@
-//! `summary.json`: one typed schema, written by the report and read by the evaluator (and by
-//! TS `recheck`). `schemaVersion` 1 is this layout; files without it are from the TS tool.
+//! `summary.json`: one typed schema, written by the report and read by the evaluator.
+//! `schemaVersion` 1 is this layout.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,9 +47,6 @@ pub enum Rule {
     GeneratorLimit,
     #[serde(rename = "smoke error")]
     SmokeError,
-    /// A rule of an early TS run ("ramp end", "chain limit"); never written.
-    #[serde(other)]
-    Legacy,
 }
 
 impl Class {
@@ -77,7 +74,6 @@ impl Rule {
             Rule::BudgetUsedUp => "budget used up",
             Rule::GeneratorLimit => "generator limit",
             Rule::SmokeError => "smoke error",
-            Rule::Legacy => "legacy",
         }
     }
 
@@ -86,7 +82,7 @@ impl Rule {
         match self {
             Rule::PoolRefuses | Rule::PoolIntake => Some(Class::Graceful),
             Rule::SlowBlocks | Rule::Stall | Rule::FinalityStall | Rule::NodeDown => Some(Class::Hard),
-            Rule::RateCap | Rule::BudgetUsedUp | Rule::GeneratorLimit | Rule::SmokeError | Rule::Legacy => None,
+            Rule::RateCap | Rule::BudgetUsedUp | Rule::GeneratorLimit | Rule::SmokeError => None,
         }
     }
 }
@@ -171,13 +167,12 @@ pub struct Runner {
     pub mem_gi_b: u64,
 }
 
-/// `summary.json`. Fields the TS tool added over time default, so its older runs read too.
+/// `summary.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
-    /// [`SCHEMA_VERSION`]; absent in TS files.
-    #[serde(default)]
-    pub schema_version: Option<u32>,
+    /// [`SCHEMA_VERSION`].
+    pub schema_version: u32,
     /// Scenario title.
     pub scenario: String,
     /// Run id.
@@ -211,9 +206,6 @@ pub struct Summary {
     /// The failures.
     #[serde(default)]
     pub failure_modes: Vec<FailureMode>,
-    /// Every failure a plan that runs to the end kept (the first one is `stop`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub failures: Vec<Stop>,
     /// After the load.
     #[serde(default)]
     pub recovery: Recovery,

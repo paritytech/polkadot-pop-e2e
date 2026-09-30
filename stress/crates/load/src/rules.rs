@@ -182,14 +182,12 @@ pub fn breaking_point(finals: &[FinalStep]) -> Option<BreakingPoint> {
     })
 }
 
-/// The failure classes of a run: the load's stop and the failures a plan kept, plus what the
-/// loss check found.
-pub fn failure_modes(stop: &Stop, failures: &[Stop], loss: &Loss, finals: &[FinalStep]) -> Vec<FailureMode> {
+/// The failure classes of a run: the load's stop, plus what the loss check found.
+pub fn failure_modes(stop: &Stop, loss: &Loss, finals: &[FinalStep]) -> Vec<FailureMode> {
     let mut modes = Vec::new();
-    for s in std::iter::once(stop).chain(failures.iter().filter(|f| *f != stop)) {
-        let Some(class) = s.class else { continue };
-        let rate = finals.iter().find(|f| Some(f.step) == s.step).map_or(String::from("?"), |f| f.target_rate.to_string());
-        modes.push(FailureMode { class, what: format!("{} at {rate} tx/s", serde_json::to_value(s.rule).expect("rule").as_str().unwrap_or("?")) });
+    if let Some(class) = stop.class {
+        let rate = finals.iter().find(|f| Some(f.step) == stop.step).map_or(String::from("?"), |f| f.target_rate.to_string());
+        modes.push(FailureMode { class, what: format!("{} at {rate} tx/s", serde_json::to_value(stop.rule).expect("rule").as_str().unwrap_or("?")) });
     }
     if loss.failed_in_block > 0 {
         modes.push(FailureMode { class: Class::Hard, what: format!("{} txs failed after inclusion", loss.failed_in_block) });

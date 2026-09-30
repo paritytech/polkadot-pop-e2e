@@ -1,7 +1,7 @@
 //! The on-disk contract of a stress run. Every part of a run (load tool, chain recorder,
 //! scraper) writes its own raw file in `results/<run id>/`; the build step merges them into
 //! `run.om`, and the evaluator reads only that. This crate is the one place that knows the
-//! formats, so each part can be its own process, and a run written by the TS tool reads the same.
+//! formats, so each part can be its own process.
 //!
 //! | file            | written by        | record              |
 //! | --------------- | ----------------- | ------------------- |

@@ -18,7 +18,7 @@ pub mod steps;
 pub mod submit;
 pub mod tracker;
 
-pub use plan::{Lane, Plan, Ramp, StepPlan, Until};
+pub use plan::{Lane, Plan, Ramp, StepPlan};
 pub use scenario::{Prepared, Scenario, Setup, SetupError, StateCheck};
 pub use source::{Block, LoadSource, QueueSource, Settled, Tx, TxHash, probe_count};
 pub use stress_files::{Millis, now_ms};
