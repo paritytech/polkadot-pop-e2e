@@ -36,6 +36,14 @@ Validate both scenarios at 1,000 first. Then run only the top-up workflow with `
 
 ## 10,000 simultaneous claims
 
-The claim workflow accepts up to 10,000 actors. It uses the same single-connection `author_submitAndWatchExtrinsic` transport as the top-up experiment, with no automatic retries and unchanged pool limits. The one-second launch target and ten-minute observation deadline still apply. Fixture setup is outside that window; the job allows 120 minutes and the driver 90 minutes for preparation plus measurement. Snapshot pruning stays at 256 blocks; recovery checks up to 64 recent finalized blocks.
+The claim workflow accepts up to 10,000 actors. It uses the same single-connection `author_submitAndWatchExtrinsic` transport as the top-up experiment, with no automatic retries and default pool limits unless explicitly changed. The one-second launch target and ten-minute observation deadline apply to each wave. Fixture setup is outside that window; the job allows 120 minutes and the driver 90 minutes for preparation plus measurement. Snapshot pruning stays at 256 blocks; recovery checks up to 64 recent finalized blocks.
 
 Each actor has one root-seeded source coin and submits one real signed `transfer`. Every successful run must have all requested successful finalized receipts, no source coins remaining, correct recipient coins and unchanged fixture asset balance. Root seeding bypasses issuance and normal held-backing setup; this does not test the full payment lifecycle. Client-observed pool-ready timestamps are distinct from successful finality. A dropped watch still fails the receipt requirement unless separately reconciled; balances alone are not receipts.
+
+## Paced claims and larger-pool comparison
+
+First dispatch `users=10000`, `mode=paced`, `first_wave=8000`, `pool=default`. All coins are seeded and all claims signed before measurement. Wave two submits the remaining 2,000 only after wave one's successful finalized receipts are verified against both People nodes. A failed receipt gate stops the next wave; there are no retries. Final state checks still cover all 10,000 requested actors.
+
+`claim-burst-waves.json` records each wave's start, launch window and settlement time. The wave audit files check cumulative receipts (8,000, then 10,000). `sendWindowMs` is the largest individual launch window. `settledAtMs` runs from the first wave's start to the last watch result, including the first receipt gate. `elapsedMs` also includes the last wave audit, observer shutdown and final state queries; it excludes fixture preparation, the final aggregate receipt audit and recovery. Finality percentiles measure each successful claim from its own submission through finalized notification and receipt lookup, not from the first wave's start.
+
+Then dispatch `users=10000`, `mode=burst`, `pool=enlarged`. Both People collators receive `--pool-limit=11000 --pool-kbytes=40960` (40 MiB of transaction bytes). Check the effective limits in the saved startup logs. This separate experiment changes buffering, not block execution capacity. Push-triggered checks remain 1,000 claims in one burst with the default pool.

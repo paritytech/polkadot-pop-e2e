@@ -7,6 +7,20 @@ on:
         description: Claims after the mandatory one-claim smoke test (1–10000)
         type: string
         default: '1000'
+      mode:
+        description: Single burst or two waves (paced requires 10000 claims)
+        type: choice
+        options: [burst, paced]
+        default: burst
+      first_wave:
+        description: First paced wave (1–9999); remainder follows verified finalization
+        type: string
+        default: '8000'
+      pool:
+        description: People-node pool capacity (keep default for the paced experiment)
+        type: choice
+        options: [default, enlarged]
+        default: default
   push:
     branches: [feat/th-coinage-claim-burst]
     paths:
@@ -31,6 +45,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
+      LOAD_MODE: ${{ inputs.mode || 'burst' }}
+      FIRST_WAVE: ${{ inputs.first_wave || '8000' }}
+      POOL_PROFILE: ${{ inputs.pool || 'default' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,7 +59,7 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
@@ -61,10 +78,10 @@ jobs:
           pnpm --dir ppn exec tsc -b
           node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
           python3 ci/previewnet/network.py prepare --people-collators 2
-          # Make RPC limits explicit; leave transaction-pool limits unchanged.
+          # Make RPC limits explicit; change pool limits only for the separate experiment.
           python3 - <<'PY'
           from pathlib import Path
-          import tomllib, tomli_w
+          import os, tomllib, tomli_w
           path = Path('network-out/network.toml')
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
@@ -72,6 +89,8 @@ jobs:
               node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
               node['args'] += ['--rpc-max-connections=1024']
               node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+              if os.environ['POOL_PROFILE'] == 'enlarged':
+                  node['args'] += ['--pool-limit=11000', '--pool-kbytes=40960']
           path.write_text(tomli_w.dumps(config))
           PY
           cp ppn/provenance.json network-out/

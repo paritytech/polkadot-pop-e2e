@@ -19,6 +19,13 @@ import {
 
 const users = Number(process.env.ACTOR_COUNT ?? '100');
 assert(Number.isInteger(users) && users >= 1 && users <= 10000);
+const mode = process.env.LOAD_MODE ?? 'burst';
+const firstWave = Number(process.env.FIRST_WAVE ?? '8000');
+const poolProfile = process.env.POOL_PROFILE ?? 'default';
+assert(mode === 'burst' || mode === 'paced');
+assert(poolProfile === 'default' || poolProfile === 'enlarged');
+assert(mode !== 'paced' || (users === 10000 && Number.isInteger(firstWave) && firstWave >= 1 && firstWave < users),
+  'Paced mode requires 10000 actors and a first wave between 1 and 9999');
 const out = resolve('../../network-out');
 mkdirSync(out, { recursive: true });
 const json = (data: unknown) => JSON.stringify(data, (_, value) => typeof value === 'bigint' ? value.toString() : value);
@@ -137,7 +144,7 @@ async function stage(count: number, name: string) {
     save(`${name}-fixture`, { count, instanceId, instance, backing, palletAccount, originalCoin,
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
       startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
-      rpcSubscriptionsPerConnection: 20050, statePruning: 256, poolProfile: 'default',
+      rpcSubscriptionsPerConnection: 20050, statePruning: 256, poolProfile,
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });
     console.log(json({ phase: 'prepared', name, count }));
@@ -160,19 +167,50 @@ async function stage(count: number, name: string) {
       }
     })();
     const sentAt: number[] = [];
-    const pending: Promise<BurstResult>[] = [];
-    for (let i = 0; i < count && !guard; i++) {
-      sentAt[i] = performance.now() - started;
-      pending.push(submit(wire[i],
-        Math.max(1, Math.floor(deadlineMs - sentAt[i]))).then(result => {
-        log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
-        return result;
-      }));
-      if (i % 100 === 99) await yieldLoop();
+    const results: BurstResult[] = [];
+    const waveSizes = name === 'claim-burst' && mode === 'paced' ? [firstWave, count - firstWave] : [count];
+    const waves: Array<{ count: number; startActor: number; startedMs: number; sendWindowMs: number;
+      settledMs: number; finalized: number; verified: boolean }> = [];
+    let settledAt = 0;
+    try {
+      let offset = 0;
+      for (const size of waveSizes) {
+        const waveStarted = performance.now();
+        const deadline = waveStarted + deadlineMs;
+        const pending: Promise<void>[] = [];
+        for (let i = offset; i < offset + size && !guard; i++) {
+          sentAt[i] = performance.now() - started;
+          pending.push(submit(wire[i], Math.max(1, Math.floor(deadline - performance.now()))).then(result => {
+            results[i] = result;
+            log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
+          }));
+          if (i % 100 === 99) await yieldLoop();
+        }
+        const wave = { count: size, startActor: offset, startedMs: waveStarted - started,
+          sendWindowMs: performance.now() - waveStarted, settledMs: 0, finalized: 0, verified: false };
+        waves.push(wave);
+        await Promise.all(pending);
+        settledAt = performance.now() - started;
+        wave.settledMs = settledAt;
+        wave.finalized = results.slice(offset, offset + size).filter(r => r?.status === 'finalized').length;
+        if (waveSizes.length > 1) {
+          // Preserve global actor IDs. Release wave two only after the cumulative
+          // successful receipts have been checked against both People nodes.
+          await auditBurst({ name: `${name}-wave-${waves.length}`, expected: offset + size,
+            results: results.slice(0, offset + size), operation: 'CoinTransferred', out, api,
+            summary: { passed: !guard && wave.finalized === size, generatorLimited: wave.sendWindowMs > 1000,
+              scope: 'Finalized receipts only; coin state and fixture balance are checked after both waves', wave } });
+          wave.verified = true;
+        }
+        save(`${name}-waves`, waves);
+        if (guard) break;
+        offset += size;
+      }
+    } catch (error) {
+      guard = `Wave submission or receipt gate failed: ${String(error)}`;
+      save(`${name}-waves`, waves);
     }
-    const sendWindowMs = performance.now() - started;
-    const results = await Promise.all(pending);
-    const settledAt = performance.now() - started;
+    const sendWindowMs = Math.max(0, ...waves.map(w => w.sendWindowMs));
     stopped = true;
     await observer;
     await sender.disconnect();
@@ -207,8 +245,10 @@ async function stage(count: number, name: string) {
       const event = r.rpcObservations.find(o => o.status === 'ready');
       return event ? [sentAt[i] + event.elapsedMs] : [];
     });
-    const summary = { name, users: count, wallStart, sent: sentAt.length, finalized, verified,
+    const summary = { name, mode: waveSizes.length > 1 ? 'paced' : 'burst', poolProfile, waves,
+      users: count, wallStart, sent: sentAt.length, finalized, verified,
       passed, guard, generatorLimited, sendWindowMs,
+      elapsedMs: performance.now() - started,
       poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? Math.max(...signals) : null,
       finalityProgress, settledAtMs: settledAt, drainAfterLastSendMs: settledAt - (sentAt.at(-1) ?? 0),
       finalityMs: latencies(results.filter(r => r.status === 'finalized').map(r => r.elapsedMs)),
@@ -232,7 +272,8 @@ async function stage(count: number, name: string) {
 
 try {
   save('claim-runtime', { version: await api.constants.System.Version(),
-    genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, syntheticDelayMs: 0 });
+    genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, syntheticDelayMs: 0,
+    mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile });
   await stage(1, 'claim-smoke');
   await stage(users, 'claim-burst');
 } catch (error) {
