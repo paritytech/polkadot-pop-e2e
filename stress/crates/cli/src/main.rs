@@ -75,10 +75,6 @@ enum Command {
         #[command(flatten)]
         opts: stress_scenarios::stmt::flood::Options,
     },
-    /// Coin transfer flood.
-    CoinFlood { #[command(flatten)] common: Common, #[command(flatten)] opts: stress_scenarios::coin::Options },
-    /// Android renewal hour: claims on a curve next to steady payments.
-    RenewalHour { #[command(flatten)] common: Common, #[command(flatten)] opts: stress_scenarios::renewal::Options },
     /// Builds run.om from a run's raw files and runs the checks again.
     Check {
         /// The run directory.
@@ -90,8 +86,6 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::StmtFlood { common, opts } => std::process::exit(run::scenario::<StmtFlood>(common, opts).await?),
-        Command::CoinFlood { common, opts } => std::process::exit(run::scenario::<stress_scenarios::coin::CoinFlood>(common, opts).await?),
-        Command::RenewalHour { common, opts } => std::process::exit(run::scenario::<stress_scenarios::renewal::RenewalHour>(common, opts).await?),
         Command::Check { dir } => run::check(&dir),
     }
 }

@@ -1,5 +1,5 @@
-//! How fast to send, step by step and lane by lane. A ramp is one plan; a burst, or a curve over
-//! the renewal hour next to steady payments, are others. Each step is one window for the stop
+//! How fast to send, step by step and lane by lane. A ramp is one plan; a burst, or a curve with
+//! several lanes, are others. Each step is one window for the stop
 //! rules and the checks.
 
 use crate::source::LoadSource;

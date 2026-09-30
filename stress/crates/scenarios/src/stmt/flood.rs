@@ -85,7 +85,7 @@ pub struct Claims {
 }
 
 /// Recognizes `members` new people, waits for their rings and proves `members × slots` claims:
-/// the claim lane of the claim flood and of the renewal hour.
+/// the claim lane of the claim flood.
 pub async fn claims(setup: &Setup, members: u32, slots: u32, threads: Option<usize>) -> Result<Claims, SetupError> {
     let client = &setup.client;
     let total = (members * slots) as usize;

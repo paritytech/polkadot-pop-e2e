@@ -26,7 +26,6 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        # Only the floods the Rust tool runs for real; coin-flood and renewal-hour are stubs.
         description: "Which flood"
         type: choice
         options: [stmt-flood]
