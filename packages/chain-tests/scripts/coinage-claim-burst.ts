@@ -149,13 +149,18 @@ async function stage(count: number, name: string) {
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
   const wire = prepared.map(p => ({ txHash: p.txHash, hex: Binary.toHex(p.signed) }));
   save(`${name}-signed`, wire.map((tx, actor) => ({ actor, ...tx })));
+  prepared.length = 0; // Signed bytes are persisted; only the wire encoding is needed now.
   const submit = burstSubmitter(sender, async hash => {
     const [block, events] = await Promise.all([
       client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
       api.query.System.Events.getValue({ at: hash, signal: AbortSignal.timeout(15_000) }),
     ]);
+    // Save raw evidence during the run, before the independent two-node audit.
+    // These files alone do not establish canonical finality.
+    mkdirSync(`${out}/${name}-observed-blocks`, { recursive: true });
+    writeCapacityJson(`${out}/${name}-observed-blocks/${hash}.json`, { hash, block, events });
     return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
-  });
+  }, (txHash, observation) => log(`${name}-watch-transitions`, { txHash, ...observation }));
   let stopped = false;
   let observer: Promise<void> | undefined;
   try {
@@ -201,8 +206,11 @@ async function stage(count: number, name: string) {
         for (let i = offset; i < offset + size && !guard; i++) {
           sentAt[i] = performance.now() - started;
           pending.push(submit(wire[i], Math.max(1, Math.floor(deadline - performance.now()))).then(result => {
-            results[i] = result;
             log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
+            // Detailed transitions are on disk. Retain only receipt and summary data for the audit.
+            result.rpcObservations = [];
+            results[i] = result;
+            wire[i] = undefined!;
           }));
           if (i % 100 === 99) await yieldLoop();
         }
@@ -262,8 +270,8 @@ async function stage(count: number, name: string) {
     const passed = !guard && !generatorLimited && sentAt.length === count && finalized === count
       && verified === count && finalBacking === backing;
     const signals = results.flatMap((r, i) => {
-      const event = r.rpcObservations.find(o => o.status === 'ready');
-      return event ? [sentAt[i] + event.elapsedMs] : [];
+      const readyMs = r.watchSummary.readyMs;
+      return readyMs === undefined ? [] : [sentAt[i] + readyMs];
     });
     const summary = { name, mode: waveSizes.length > 1 ? 'paced' : 'burst', poolProfile, waves,
       users: count, wallStart, sent: sentAt.length, finalized, verified,

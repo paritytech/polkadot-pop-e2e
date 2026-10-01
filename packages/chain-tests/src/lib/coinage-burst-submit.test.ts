@@ -105,3 +105,61 @@ test('cleans up when connection readiness times out', async () => {
   }, 5), /readiness timed out/);
   assert.equal(disconnected, true);
 });
+
+test('aggregates a million broadcasts and streams transitions without retaining an unbounded trace', async () => {
+  const f = fixture();
+  let streamed = 0;
+  const submit = burstSubmitter(f.provider, async () => {
+    throw new Error('must not read');
+  }, (_hash, observation) => {
+    assert(!('broadcast' in Object(observation.status)));
+    streamed++;
+  });
+  const result = submit({ hex: '0x12', txHash: 'hash' }, 10000);
+  for (let i = 0; i < 1_000_000; i++) f.callbacks[0](null, { broadcast: [`peer-${i}`] });
+  for (let i = 0; i < 100; i++) {
+    f.callbacks[0](null, { inBlock: `block-${i}` });
+    f.callbacks[0](null, { retracted: `block-${i}` });
+  }
+  // Ready must survive even when the bounded sample is already full.
+  f.callbacks[0](null, 'ready');
+  f.callbacks[0](null, 'dropped');
+  const r = await result;
+  assert.equal(r.status, 'submission-error');
+  assert.equal(r.watchSummary.broadcasts, 1_000_000);
+  assert.equal(r.watchSummary.notifications, 1_000_202);
+  assert.equal(r.watchSummary.omittedObservations, 186);
+  assert.equal(r.rpcObservations.length, 16);
+  assert.equal(streamed, 202);
+  assert.equal(typeof r.watchSummary.readyMs, 'number');
+  assert(r.watchSummary.lastBroadcastMs! >= r.watchSummary.firstBroadcastMs!);
+});
+
+test('evicts old blocks but re-verifies a late watch instead of losing its receipt', async () => {
+  const f = fixture();
+  const reads: string[] = [];
+  const submit = burstSubmitter(f.provider, async hash => {
+    reads.push(hash);
+    return { number: 1, extrinsics: ['0x12'], events: [success(0)] };
+  });
+  for (let i = 0; i < 18; i++) {
+    const result = submit({ hex: '0x12', txHash: blake2AsHex('0x12') }, 1000);
+    f.callbacks.at(-1)!(null, { finalized: `block-${i}` });
+    assert.equal((await result).status, 'finalized');
+  }
+  const late = submit({ hex: '0x12', txHash: blake2AsHex('0x12') }, 1000);
+  f.callbacks.at(-1)!(null, { finalized: 'block-0' });
+  assert.equal((await late).status, 'finalized');
+  assert.equal(reads.filter(hash => hash === 'block-0').length, 2);
+});
+
+test('does not report success when streaming evidence fails', async () => {
+  const f = fixture();
+  const submit = burstSubmitter(f.provider, async () => {
+    throw new Error('must not read');
+  }, () => { throw new Error('disk full'); });
+  const result = submit({ hex: '0x12', txHash: 'hash' }, 1000);
+  f.callbacks[0](null, 'ready');
+  assert.equal((await result).status, 'unresolved');
+  assert.match(String((await result).error), /disk full/);
+});

@@ -164,3 +164,26 @@ from constrained pruning (256 states) to archive mode. Increasing constrained
 retention to 10,000 is supported; it retains new test history without pretending
 to restore already-pruned snapshot history. This is a setup correction, not a
 failed capacity point. Node logs were preserved locally with SHA-256 checksums.
+
+## Bounded claim watch evidence
+
+The million-claim attempt [36859278723](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36859278723)
+exhausted the TypeScript driver's 24 GiB heap. It did not produce a final receipt
+or state audit, so it does not establish a million-claim chain capacity limit.
+Repeated broadcast notifications and an unbounded decoded-block cache were
+retained by the driver. There was no heap profile to attribute every allocation.
+
+The submitter now aggregates broadcast notifications into a count and first/last
+client timestamps; peer lists are not retained. It retains at most 16 other
+observations per transaction and caches at most 16 blocks. Late watches can
+re-read evicted blocks. The claim driver writes every non-broadcast transition
+to `*-watch-transitions.jsonl`, keeps the first ready timestamp separately,
+and releases completed watch traces and signed wire data from memory.
+`watchSummary.omittedObservations` counts transitions omitted from the in-memory
+sample, not from the transition file. Broadcast counts are separate.
+
+`*-observed-blocks/<hash>.json` saves raw blocks and events during submission.
+These are crash-recovery evidence, not the independent two-node finality audit.
+Successful receipts still require the existing audit and final state checks.
+Evidence-write errors fail the affected watch; they do not become successes.
+This change introduces no pacing, retry, pool increase or relaxed pass criteria.

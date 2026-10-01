@@ -7,7 +7,11 @@ type Event = { phase: { type: string; value?: unknown }; event: {
 } };
 type Block = { number: number; extrinsics: string[]; events: Event[] };
 export type BurstResult = SubmissionResult & {
+  /** Bounded sample; full non-broadcast transitions can be streamed by the caller. */
   rpcObservations: Array<{ elapsedMs: number; status: unknown }>;
+  watchSummary: { notifications: number; broadcasts: number; omittedObservations: number;
+    firstBroadcastMs?: number; lastBroadcastMs?: number; readyMs?: number };
+
 };
 
 /** connect() only starts the handshake; wait for readiness before measuring a burst. */
@@ -27,10 +31,11 @@ export async function connectBurstProvider(
   finally { clearTimeout(timer); }
 }
 
-/** One RPC connection and one block read per finalized block, not a full client per transaction group. */
+/** Shared RPC connection with a bounded finalized-block cache. Evicted blocks can be read again. */
 export function burstSubmitter(
   provider: Pick<WsProvider, 'subscribe' | 'unsubscribe'>,
   readBlock: (hash: string) => Promise<Block>,
+  recordObservation?: (txHash: string, observation: { elapsedMs: number; status: unknown }) => void,
 ) {
   const blocks = new Map<string, Promise<Map<string, { index: number; number: number; events: Event[] }>>>();
   const blockReceipts = (hash: string) => {
@@ -49,12 +54,17 @@ export function burstSubmitter(
         }]));
       });
       blocks.set(hash, pending);
+      // Cache recent blocks only, including in-flight reads. Late watches re-read an evicted block.
+      if (blocks.size > 16) blocks.delete(blocks.keys().next().value!);
+      void pending.catch(() => { if (blocks.get(hash) === pending) blocks.delete(hash); });
     }
     return pending;
   };
   return (prepared: { hex: string; txHash: string }, timeoutMs: number): Promise<BurstResult> => new Promise(resolve => {
     const started = performance.now();
     const rpcObservations: BurstResult['rpcObservations'] = [];
+    const watchSummary: BurstResult['watchSummary'] = { notifications: 0, broadcasts: 0, omittedObservations: 0 };
+    let finalizing = false;
     let id: number | string | undefined;
     let settled = false;
     const unsubscribe = () => {
@@ -66,17 +76,34 @@ export function burstSubmitter(
       clearTimeout(timer);
       unsubscribe();
       resolve({ txHash: prepared.txHash, elapsedMs: performance.now() - started,
-        observations: [], rpcObservations, ...result });
+        observations: [], rpcObservations, watchSummary, ...result });
     };
     const timer = setTimeout(() => finish({ status: 'unresolved' }), timeoutMs);
     // No automatic retry. A dropped/unresolved watch does not prove the transaction never landed.
     try { void provider.subscribe('author_extrinsicUpdate', 'author_submitAndWatchExtrinsic', [prepared.hex], (error, status: unknown) => {
       if (settled) return;
       if (error) { finish({ status: 'submission-error', error: String(error) }); return; }
-      rpcObservations.push({ elapsedMs: performance.now() - started, status });
+      const elapsedMs = performance.now() - started;
+      watchSummary.notifications++;
+      if (typeof status === 'object' && status && 'broadcast' in status) {
+        // Peer lists repeated for every pending transaction dominated the million-claim heap.
+        watchSummary.broadcasts++;
+        watchSummary.firstBroadcastMs ??= elapsedMs;
+        watchSummary.lastBroadcastMs = elapsedMs;
+        return;
+      }
+      if (status === 'ready') watchSummary.readyMs ??= elapsedMs;
+      const observation = { elapsedMs, status };
+      try { recordObservation?.(prepared.txHash, observation); }
+      catch (error) { finish({ status: 'unresolved', error: `Watch evidence write failed: ${String(error)}` }); return; }
+      if (rpcObservations.length < 16) rpcObservations.push(observation);
+      else watchSummary.omittedObservations++;
+
       if (status === 'invalid' || status === 'dropped' || (typeof status === 'object' && status && 'usurped' in status)) {
         finish({ status: 'submission-error', error: status });
       } else if (typeof status === 'object' && status && 'finalized' in status && typeof status.finalized === 'string') {
+        if (finalizing) return;
+        finalizing = true;
         const hash = status.finalized;
         void blockReceipts(hash).then(receipts => {
           const receipt = receipts.get(prepared.txHash);
