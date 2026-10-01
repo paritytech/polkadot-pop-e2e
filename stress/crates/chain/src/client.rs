@@ -181,24 +181,35 @@ impl Client {
         u32::from_str_radix(best["number"].as_str().unwrap_or("0x0").trim_start_matches("0x"), 16).map_err(decode_err("header number"))
     }
 
-    /// People's block interval: the `Timestamp.Now` span of the last 60 blocks over their
-    /// count. Not a median or trimmed mean of gaps: on a fork the timestamps come in bunches
-    /// (0 s / 12 s pairs on 1 core, 12 s then five 0 s on 3 cores), and only the span is right.
-    /// A node with fewer blocks (a fork just started) gives a shorter span, down to 5 blocks.
+    /// People's block interval: the `Timestamp.Now` span of the last 60 blocks since the fork
+    /// started, over their count. Not a median or trimmed mean of gaps: on a fork the timestamps
+    /// come in bunches (0 s / 12 s pairs on 1 core, 12 s then five 0 s on 3 cores), and only the
+    /// span is right. A fork just started has fewer blocks: this waits for 20 of them.
     pub async fn block_interval_s(&self) -> Result<f64, ChainError> {
-        let number = self.best_number().await?;
-        let timestamp = |n: u32| async move {
-            let Some(hash) = self.try_block_hash(n).await? else { return Ok(None) };
-            Ok::<_, ChainError>(Some(fetch::<(), u64>(&self.at(hash).await?, "Timestamp", "Now", ()).await?.unwrap_or(0)))
-        };
-        let last = timestamp(number).await?.ok_or_else(|| ChainError::Read { what: "best block", detail: format!("the node has no block {number}") })?;
-        for blocks in [60, 20, 5] {
-            let first = number.saturating_sub(blocks);
-            if let Some(t) = timestamp(first).await? {
-                return Ok(last.saturating_sub(t) as f64 / f64::from((number - first).max(1)) / 1000.0);
+        let deadline = tokio::time::Instant::now() + INTERVAL_WAIT;
+        loop {
+            let number = self.best_number().await?;
+            let all = self.timestamps(number).await?;
+            let stamps = since_restart(&all);
+            if let Some(s) = interval_s(stamps) {
+                return Ok(s);
             }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ChainError::Timeout(format!("block interval: {} blocks since the fork started at block {number}, {MIN_INTERVALS} needed, after {INTERVAL_WAIT:?}", stamps.len().saturating_sub(1))));
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(6)).await;
         }
-        Err(ChainError::Read { what: "block interval", detail: format!("the node has none of the 5 blocks before {number}") })
+    }
+
+    /// `Timestamp.Now` of block `number` and up to 60 before it, newest first; the walk stops
+    /// at a block the node doesn't have (a fork keeps none from before its bite).
+    async fn timestamps(&self, number: u32) -> Result<Vec<u64>, ChainError> {
+        let mut stamps = Vec::new();
+        for n in (number.saturating_sub(60)..=number).rev() {
+            let Some(hash) = self.try_block_hash(n).await? else { break };
+            stamps.push(fetch::<(), u64>(&self.at(hash).await?, "Timestamp", "Now", ()).await?.unwrap_or(0));
+        }
+        Ok(stamps)
     }
 
     /// Encodes a call by pallet and call name, with metadata.
@@ -258,4 +269,63 @@ impl Client {
 
 fn hex32(s: &str) -> Result<[u8; 32], ChainError> {
     hex::decode(s.trim_start_matches("0x")).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| ChainError::Read { what: "hash", detail: s.to_owned() })
+}
+
+/// A gap between two blocks longer than any slot: the bite to the fork's first block (or a
+/// stall). On a fork the longest normal gap is 12 s.
+const RESTART_GAP_MS: u64 = 60_000;
+/// Blocks the interval spans at least: enough whole timestamp bunches (six blocks on 3 cores)
+/// for the span to be right.
+const MIN_INTERVALS: usize = 20;
+/// How long to wait for `MIN_INTERVALS` blocks after a fork started.
+const INTERVAL_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The newest blocks of `stamps` (newest first, ms) up to the first gap over `RESTART_GAP_MS`:
+/// the blocks since the fork started.
+fn since_restart(stamps: &[u64]) -> &[u64] {
+    let first_gap = stamps.windows(2).position(|w| w[0].saturating_sub(w[1]) > RESTART_GAP_MS);
+    &stamps[..first_gap.map_or(stamps.len(), |i| i + 1)]
+}
+
+/// The block interval, s, over `stamps` (newest first, ms); `None` with fewer than
+/// `MIN_INTERVALS` blocks or a zero span.
+fn interval_s(stamps: &[u64]) -> Option<f64> {
+    let (newest, oldest) = (stamps.first()?, stamps.last()?);
+    let intervals = stamps.len() - 1;
+    let span = newest.saturating_sub(*oldest);
+    (intervals >= MIN_INTERVALS && span > 0).then(|| span as f64 / intervals as f64 / 1000.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Newest first: `n` blocks of 3-core bunches (12 s, then five at 0 s) ending at `end` ms.
+    fn bunched(end: u64, n: u64) -> Vec<u64> {
+        (0..n).map(|k| end - k.div_ceil(6) * 12_000).collect()
+    }
+
+    #[test]
+    fn the_interval_is_the_span_over_whole_bunches() {
+        assert_eq!(interval_s(&bunched(1_000_000, 61)), Some(2.0));
+    }
+
+    #[test]
+    fn blocks_from_before_the_fork_are_left_out() {
+        // 31 fork blocks at 2 s, then the bite's gap of 5 minutes, then live blocks at 12 s.
+        let mut stamps = bunched(1_000_000, 31);
+        let bite = stamps[30] - 300_000;
+        stamps.extend((0..30).map(|k| bite - k * 12_000));
+        assert_eq!(since_restart(&stamps).len(), 31);
+        assert_eq!(interval_s(since_restart(&stamps)), Some(2.0));
+        // Before the fix: the span over all 61 blocks.
+        assert!(interval_s(&stamps).unwrap() > 9.0);
+    }
+
+    #[test]
+    fn too_few_blocks_since_the_fork_give_no_interval() {
+        assert_eq!(interval_s(&bunched(1_000_000, 20)), None);
+        assert_eq!(interval_s(&[5_000; 30]), None);
+        assert_eq!(interval_s(&[]), None);
+    }
 }

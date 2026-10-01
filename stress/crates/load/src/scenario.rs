@@ -88,7 +88,10 @@ pub trait Scenario {
     const RAMP: Ramp;
     /// The steps, from the options and the ramp; pure, so it is checked before any setup.
     fn plan(_opts: &Self::Options, r: &Ramp) -> Plan {
-        Plan::ramp(r.start, r.step, r.interval_s, r.steps)
+        match r.growth {
+            Some(growth) => Plan::geometric(r.start, growth, r.interval_s, r.steps),
+            None => Plan::ramp(r.start, r.step, r.interval_s, r.steps),
+        }
     }
     /// Sets the chain up and builds the lanes.
     fn prepare(opts: &Self::Options, setup: &Setup) -> impl Future<Output = Result<Prepared, SetupError>> + Send;

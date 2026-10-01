@@ -60,7 +60,7 @@ impl Scenario for StmtFlood {
     type Options = Options;
     /// 6 claims/s fills about 64% of a 6 s People block (1 core); blocks are full at about 8/s,
     /// so most of the ramp is past that point: it looks for what fails once the pool backs up.
-    const RAMP: Ramp = Ramp { start: 6.0, step: 4.0, interval_s: 60, steps: 10, recovery_s: 900, probes: 5 };
+    const RAMP: Ramp = Ramp { start: 6.0, step: 4.0, growth: None, interval_s: 60, steps: 10, recovery_s: 900, probes: 5 };
 
     async fn prepare(opts: &Options, setup: &Setup) -> Result<Prepared, SetupError> {
         let claims = claims(setup, opts.members, opts.slots, opts.threads).await?;

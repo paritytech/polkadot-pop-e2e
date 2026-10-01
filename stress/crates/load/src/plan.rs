@@ -34,6 +34,8 @@ pub struct Ramp {
     pub start: f64,
     /// Rate added per step.
     pub step: f64,
+    /// Rate multiplier per step; replaces `step` when set.
+    pub growth: Option<f64>,
     /// Step length, s.
     pub interval_s: u32,
     /// Steps.
@@ -55,6 +57,12 @@ impl Plan {
     /// One lane: `start` tx/s, plus `step` every `interval_s`, for `steps` steps.
     pub fn ramp(start: f64, step: f64, interval_s: u32, steps: u32) -> Self {
         let steps = (0..steps).map(|k| StepPlan { seconds: interval_s, rates: vec![start + f64::from(k) * step] }).collect();
+        Self { steps }
+    }
+
+    /// One lane: `start` tx/s, times `growth` every `interval_s`, for `steps` steps.
+    pub fn geometric(start: f64, growth: f64, interval_s: u32, steps: u32) -> Self {
+        let steps = (0..steps).map(|k| StepPlan { seconds: interval_s, rates: vec![start * growth.powf(f64::from(k))] }).collect();
         Self { steps }
     }
 }
@@ -88,5 +96,11 @@ mod tests {
         let uneven = Plan { steps: vec![StepPlan { seconds: 60, rates: vec![1.0, 5.0] }, StepPlan { seconds: 60, rates: vec![2.0] }] };
         assert!(uneven.check(None).is_err());
         assert!(Plan::ramp(6.0, 4.0, 60, 0).check(None).is_err());
+    }
+
+    #[test]
+    fn a_geometric_plan_multiplies_the_rate() {
+        let rates: Vec<f64> = Plan::geometric(10.0, 2.0, 60, 5).steps.iter().map(|s| s.rates[0]).collect();
+        assert_eq!(rates, [10.0, 20.0, 40.0, 80.0, 160.0]);
     }
 }

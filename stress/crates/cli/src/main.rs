@@ -26,6 +26,9 @@ pub struct Common {
     /// Rate added per step.
     #[arg(long)]
     pub step: Option<f64>,
+    /// Rate multiplier per step, e.g. 2 doubles it; replaces `--step`.
+    #[arg(long, conflicts_with = "step", value_parser = growth)]
+    pub growth: Option<f64>,
     /// Step length, s.
     #[arg(long)]
     pub interval: Option<u32>,
@@ -55,11 +58,19 @@ impl Common {
         stress_load::Ramp {
             start: self.start.unwrap_or(d.start),
             step: self.step.unwrap_or(d.step),
+            growth: self.growth.or(d.growth),
             interval_s: self.interval.unwrap_or(d.interval_s),
             steps: self.steps.unwrap_or(d.steps),
             recovery_s: self.recovery.unwrap_or(d.recovery_s),
             probes: self.probes.unwrap_or(d.probes),
         }
+    }
+}
+
+fn growth(s: &str) -> Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(g) if g.is_finite() && g > 1.0 => Ok(g),
+        _ => Err(format!("{s}: a growth must be a number above 1")),
     }
 }
 

@@ -84,8 +84,11 @@ pub fn zombie_json_path() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("ZOMBIE_JSON") {
         return Some(p.into());
     }
-    let ppn = std::env::var("PPN_DIR").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("projects/previewnet-engine"));
-    ["data-fork/zombie.json", "data/zombie.json"].iter().map(|p| ppn.join(p)).find(|p| p.exists())
+    let ppn = std::env::var("PPN_DIR").map(PathBuf::from).ok()?;
+    ["data-fork/zombie.json", "data/zombie.json"]
+        .iter()
+        .map(|p| ppn.join(p))
+        .find(|p| p.exists())
 }
 
 /// Every node to scrape.
