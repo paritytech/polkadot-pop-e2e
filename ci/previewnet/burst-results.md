@@ -71,3 +71,10 @@ I/O and cgroup counters every five seconds. Missing counters remain explicit.
 Report burst admission, successful finalized receipts, finality latency and
 recovery separately. All local network processes share this runner, so the result
 is a limit of this test deployment, not a production-wide Coinage capacity claim.
+
+The capacity series pins the September 29 snapshot artifact and its SHA-256 in
+the workflow, matching the successful September 30 claim experiments. The
+`bites` release replaces its bundle nightly. An expired or changed pinned
+artifact must fail setup, rather than silently change the experiment. Keep a
+local copy of the bundle before its artifact retention expires. Runtime block
+limits and signed claim bytes are saved alongside subsequent capacity results.

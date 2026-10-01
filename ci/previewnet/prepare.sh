@@ -6,6 +6,7 @@ mkdir -p "$out/bin" "$out/bundle"
 python3 - "$out" <<'PY'
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -24,6 +25,9 @@ def download(repo, tag, names):
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if asset.get('digest') and asset['digest'] != 'sha256:' + digest:
             raise RuntimeError(f'Release digest mismatch: {name}')
+        if name == 'fork-bundle-previewnet.tar.gz' and os.environ.get('PREVIEWNET_BUNDLE_SHA256'):
+            if digest != os.environ['PREVIEWNET_BUNDLE_SHA256']:
+                raise RuntimeError('PreviewNet snapshot changed; review the new snapshot before comparing capacity runs')
         provenance['assets'].append({'repo': repo, 'tag': tag, 'asset_id': asset['id'],
                                      'name': name, 'sha256': digest})
 for binary, names in [('polkadot', ['polkadot', 'polkadot-execute-worker', 'polkadot-prepare-worker']),
@@ -33,7 +37,20 @@ for binary, names in [('polkadot', ['polkadot', 'polkadot-execute-worker', 'polk
         raise RuntimeError('Node binaries must use a fixed release tag')
     download(repo, tag, names)
 download('paritytech/zombienet-sdk', 'v0.4.15', ['zombie-cli-x86_64-unknown-linux-gnu'])
-download('paritytech/previewnet-engine', 'bites', ['fork-bundle-previewnet.tar.gz'])
+if os.environ.get('PREVIEWNET_BUNDLE_RUN_ID'):
+    run_id = os.environ['PREVIEWNET_BUNDLE_RUN_ID']
+    repo = 'paritytech/previewnet-engine'
+    artifacts = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/actions/runs/{run_id}/artifacts']))
+    artifact = next(a for a in artifacts['artifacts'] if a['name'] == 'fork-bundle-previewnet' and not a['expired'])
+    subprocess.run(['gh', 'run', 'download', run_id, '--repo', repo, '--name', 'fork-bundle-previewnet',
+                    '--dir', str(out)], check=True, timeout=600)
+    digest = hashlib.sha256((out / 'fork-bundle-previewnet.tar.gz').read_bytes()).hexdigest()
+    if digest != os.environ['PREVIEWNET_BUNDLE_SHA256']:
+        raise RuntimeError('Pinned PreviewNet artifact digest mismatch')
+    provenance['assets'].append({'repo': repo, 'run_id': run_id, 'artifact_id': artifact['id'],
+                                'name': 'fork-bundle-previewnet.tar.gz', 'sha256': digest})
+else:
+    download('paritytech/previewnet-engine', 'bites', ['fork-bundle-previewnet.tar.gz'])
 (out / 'bin/zombie-cli-x86_64-unknown-linux-gnu').rename(out / 'bin/zombie-cli')
 (out / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
 PY

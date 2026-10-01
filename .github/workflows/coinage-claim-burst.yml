@@ -41,6 +41,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: coinage-claim-burst-${{ github.ref }}
@@ -52,6 +53,9 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
+      # Keep the capacity series on the same snapshot even if the bites release changes.
+      PREVIEWNET_BUNDLE_RUN_ID: '36614342201'
+      PREVIEWNET_BUNDLE_SHA256: edab76b213657e499ae9fcb95673a2bf4ca717b78b00caf3d7783fc18b562b4f
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
       LOAD_MODE: ${{ inputs.mode || 'burst' }}
       FIRST_WAVE: ${{ inputs.first_wave || '8000' }}

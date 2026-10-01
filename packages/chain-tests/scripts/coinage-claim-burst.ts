@@ -134,6 +134,7 @@ async function stage(count: number, name: string) {
   // Reuse the top-up transport: one socket, no reconnect or automatic resubmission.
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
   const wire = prepared.map(p => ({ txHash: p.txHash, hex: Binary.toHex(p.signed) }));
+  save(`${name}-signed`, wire.map((tx, actor) => ({ actor, ...tx })));
   const submit = burstSubmitter(sender, async hash => {
     const [block, events] = await Promise.all([
       client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
@@ -277,6 +278,7 @@ async function stage(count: number, name: string) {
 
 try {
   save('claim-runtime', { version: await api.constants.System.Version(),
+    blockWeights: await api.constants.System.BlockWeights(), blockLength: await api.constants.System.BlockLength(),
     genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, syntheticDelayMs: 0,
     mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile });
   await stage(1, 'claim-smoke');
