@@ -163,7 +163,7 @@ async function stage(count: number, name: string) {
     save(`${name}-fixture`, { count, instanceId, instance, backing, palletAccount, originalCoin,
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
       startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
-      rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 'archive', poolProfile, poolKbytes, deadlineMs,
+      rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 10000, poolProfile, poolKbytes, deadlineMs,
       poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined, fixtureBatch, stateQueryConcurrency,
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });

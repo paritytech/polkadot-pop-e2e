@@ -118,7 +118,7 @@ jobs:
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
               node['args'] = [a for a in node['args'] if not a.startswith(('--rpc-max-connections=', '--state-pruning='))]
-              node['args'] += ['--rpc-max-connections=1024', '--state-pruning=archive']
+              node['args'] += ['--rpc-max-connections=1024', '--state-pruning=10000']
               subscriptions = max(20050, 2 * int(os.environ['ACTOR_COUNT']) + 50)
               node['args'] += [f'--rpc-max-subscriptions-per-connection={subscriptions}', '--offchain-worker=always']
               if os.environ['POOL_PROFILE'] == 'enlarged':

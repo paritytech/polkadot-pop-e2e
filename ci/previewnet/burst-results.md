@@ -147,7 +147,7 @@ chain capacity failure. If a watch is dropped, reconcile it before calling that
 claim unsuccessful. Repeat observations near the boundary before reporting it.
 If one million passes, it establishes a lower bound; it does not locate a ceiling.
 
-At this scale, both People nodes retain archive state for later receipt and state
+At this scale, both People nodes retain the latest 10,000 states for later receipt and state
 queries. The driver has a 24 GiB V8 heap budget and an eleven-hour outer timeout;
 the job reserves twelve hours for preparation, evidence and recovery. Preparation
 still seeds batches of at most 5,000 coins, outside burst timing. Cached runtime
@@ -157,3 +157,10 @@ call and extensions. Secret keys are released after signing. JSON evidence is
 written in chunks and receipt events are indexed per block before verification.
 These generator and retention changes must be noted when comparing with the
 previous 100,000-claim run. No million-claim result has been established yet.
+
+The [first million-claim attempt](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36856669186)
+failed before submitting claims. The People node refused to change the snapshot
+from constrained pruning (256 states) to archive mode. Increasing constrained
+retention to 10,000 is supported; it retains new test history without pretending
+to restore already-pruned snapshot history. This is a setup correction, not a
+failed capacity point. Node logs were preserved locally with SHA-256 checksums.
