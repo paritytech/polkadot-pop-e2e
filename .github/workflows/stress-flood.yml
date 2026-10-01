@@ -18,6 +18,8 @@ name: Stress · flood
 on:
   # TEMP: a push to the PR branch runs a smoke flood, because workflow_dispatch only works once
   # this file is on main. Remove this trigger and the `|| ...` push fallbacks below before merging.
+  # TEMP: the engine ref defaults to previewnet-engine#40 (`andrzej-fork-hrmp-fix`); revert to
+  # 'main' once #40 is merged.
   push:
     branches: [stress-tests-mvp]
     paths:
@@ -50,8 +52,10 @@ on:
         default: ""
       ppn_ref:
         # Needs previewnet-engine#39 (bite-time cores and collators); no tag has it yet.
+        # TEMP: the default is previewnet-engine#40 (HRMP/DMP reset on every bite; without it
+        # Asset Hub stalls on "HRMP head mismatch"). Back to "main" once #40 is merged.
         description: "previewnet-engine ref"
-        default: "main"
+        default: "andrzej-fork-hrmp-fix"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -86,7 +90,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          ref: ${{ inputs.ppn_ref || 'main' }}
+          # TEMP: previewnet-engine#40 until it is merged; then back to 'main' (here and in `ppn_ref`).
+          ref: ${{ inputs.ppn_ref || 'andrzej-fork-hrmp-fix' }}
           path: ppn
 
       # Node and pnpm are for the engine only: it builds itself and runs `ppn fork wait`.
