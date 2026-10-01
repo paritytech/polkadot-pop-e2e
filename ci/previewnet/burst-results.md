@@ -36,7 +36,7 @@ Validate both scenarios at 1,000 first. Then run only the top-up workflow with `
 
 ## 10,000 simultaneous claims
 
-The claim workflow accepts up to 10,000 actors. It uses the same single-connection `author_submitAndWatchExtrinsic` transport as the top-up experiment, with no automatic retries and default pool limits unless explicitly changed. The one-second launch target and ten-minute observation deadline apply to each wave. Fixture setup is outside that window; the job allows 120 minutes and the driver 90 minutes for preparation plus measurement. Snapshot pruning stays at 256 blocks; recovery checks up to 64 recent finalized blocks.
+For the 10,000-claim comparison, the workflow uses the same single-connection `author_submitAndWatchExtrinsic` transport as the top-up experiment, with no automatic retries and default pool limits unless explicitly changed. The one-second launch target and ten-minute observation deadline apply to each wave. Fixture setup is outside that window; the job allows 120 minutes and the driver 90 minutes for preparation plus measurement. Snapshot pruning stays at 256 blocks; recovery checks up to 64 recent finalized blocks.
 
 Each actor has one root-seeded source coin and submits one real signed `transfer`. Every successful run must have all requested successful finalized receipts, no source coins remaining, correct recipient coins and unchanged fixture asset balance. Root seeding bypasses issuance and normal held-backing setup; this does not test the full payment lifecycle. Client-observed pool-ready timestamps are distinct from successful finality. A dropped watch still fails the receipt requirement unless separately reconciled; balances alone are not receipts.
 
@@ -84,3 +84,50 @@ the workflow, matching the successful September 30 claim experiments. The
 artifact must fail setup, rather than silently change the experiment. Keep a
 local copy of the bundle before its artifact retention expires. Runtime block
 limits and signed claim bytes are saved alongside subsequent capacity results.
+
+### Verified claim capacity results — 1 October 2026
+
+All three runs below have the requested number of unique successful finalized
+receipts, correct source/recipient coin states, unchanged fixture backing, and
+passing recovery checks. Saved raw blocks and indexed events were checked again
+locally. There were no retries, failed dispatch receipts, or unresolved receipts.
+
+| Claims / run | Pool entries | Actual client launch | Last watch receipt from burst start | Per-claim finality p50 / p95 / max |
+| --- | ---: | ---: | ---: | ---: |
+| [20,000](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36832069153) | 22,000 | 0.802 s | 94.263 s | 65.711 / 93.806 / 93.914 s |
+| [40,000](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36836204912) | 44,000 | 1.582 s | 140.925 s | 92.300 / 139.394 / 139.566 s |
+| [100,000](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36840043405) | 110,000 | 3.930 s | 312.867 s | 178.521 / 297.346 / 310.339 s |
+
+Each percentile uses all successful claims in that row. The launch targets were
+one, five and ten seconds respectively; the larger runs are not one-second
+bursts. Every pool retained the same 40 MiB byte budget. Runtime, binaries and
+snapshot bytes were pinned, with zero added network delay. Preparation batches
+and query concurrency changed as described above and are recorded in each fixture.
+
+The 100,000-claim run used commit `b7451cd`, prepared its fixtures and signatures
+in 2,440.797 seconds, and took 410.385 seconds for the measured stage including
+final state reads. That stage excludes preparation, the final receipt audit and
+recovery. Its receipts fill 43 blocks: 42 with 2,363 claims and one with 754.
+
+That runner reported AMD EPYC 7B13, 16 cores / 32 logical CPUs and about 62.8 GiB
+RAM. Samples taken every five seconds around the burst reached 21.3% host-wide
+CPU busy and a minimum of 43.0 GiB available RAM, with no service-cgroup OOM
+events. One logical CPU reached 98%; the host average does not rule out serial
+execution limits. The submission node's sampled ready queue peaked at 88,185,
+while watched transactions peaked at 100,000. Those are distinct measurements.
+All 100,000 client-observed ready notifications arrived within 20.371 seconds.
+
+Canonical authoring logs show `HitBlockWeightLimit` for all 42 full blocks and
+`NoMoreTransactions` for the last. Maximum canonical proposal time was 2,970 ms;
+this includes authoring work and is not a PVF execution-time measurement.
+Increasing the pool let more claims wait without increasing claims per full block.
+
+These are verified burst sizes, not a measured physical maximum or sustained TPS.
+Use the full `coinage-claim-burst-<run>-1` artifacts for hardware records, node
+logs, resource samples and raw receipts. The shared runner hosts the driver and
+the entire local network; these results do not establish production capacity or
+PVF deadline compliance.
+
+The earlier [20,000 attempt](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36830248627)
+never reached the claim driver: a changed nightly snapshot failed startup with
+an Asset Hub HRMP-head mismatch. It is a setup failure, not a failed capacity step.
