@@ -25,6 +25,8 @@
     "@noble/hashes": "^2.0.1",
     "@novasamatech/sdk-statement": "^0.6.0",
     "@novasamatech/statement-store": "^0.7.7",
+    "@polkadot-api/signers-common": "0.2.3",
+    "@polkadot-api/substrate-bindings": "0.20.3",
     "@polkadot-api/utils": "^0.4.0",
     "@polkadot-labs/hdkd": "^0.0.27",
     "@polkadot-labs/hdkd-helpers": "^0.0.30",

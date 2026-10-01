@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { WsProvider } from '@polkadot/api';
 import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
 import { auditBurst } from '../src/lib/coinage-burst-audit.js';
+import { capacitySigner, writeCapacityJson } from '../src/lib/coinage-capacity.js';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as delay, setImmediate as yieldLoop } from 'node:timers/promises';
 import { Keyring } from '@polkadot/keyring';
-import { blake2AsHex, cryptoWaitReady } from '@polkadot/util-crypto';
+import { blake2AsHex, cryptoWaitReady, encodeAddress } from '@polkadot/util-crypto';
 import { AccountId, Binary, getTypedCodecs } from 'polkadot-api';
 import { getPolkadotSigner } from 'polkadot-api/signer';
 import { previewPeople } from '@pop-e2e/papi';
@@ -18,15 +19,15 @@ import {
 } from '../src/lib/coinage-client.js';
 
 const users = Number(process.env.ACTOR_COUNT ?? '100');
-assert(Number.isInteger(users) && users >= 1 && users <= 100000);
+assert(Number.isInteger(users) && users >= 1 && users <= 1000000);
 const mode = process.env.LOAD_MODE ?? 'burst';
 const firstWave = Number(process.env.FIRST_WAVE ?? '8000');
 const fixtureBatch = Number(process.env.FIXTURE_BATCH ?? '1000');
 assert(Number.isInteger(fixtureBatch) && fixtureBatch >= 100 && fixtureBatch <= 5000);
 const launchTargetMs = Number(process.env.LAUNCH_TARGET_MS ?? '1000');
-assert(Number.isInteger(launchTargetMs) && launchTargetMs >= 1000 && launchTargetMs <= 10000);
+assert(Number.isInteger(launchTargetMs) && launchTargetMs >= 1000 && launchTargetMs <= 60000);
 const poolTransactions = Number(process.env.POOL_TRANSACTIONS ?? '11000');
-assert(Number.isInteger(poolTransactions) && poolTransactions >= 11000 && poolTransactions <= 110000);
+assert(Number.isInteger(poolTransactions) && poolTransactions >= 11000 && poolTransactions <= 1100000);
 const poolProfile = process.env.POOL_PROFILE ?? 'default';
 assert(mode === 'burst' || mode === 'paced');
 assert(poolProfile === 'default' || poolProfile === 'enlarged');
@@ -35,9 +36,12 @@ assert(mode !== 'paced' || (users === 10000 && Number.isInteger(firstWave) && fi
 const out = resolve('../../network-out');
 mkdirSync(out, { recursive: true });
 const json = (data: unknown) => JSON.stringify(data, (_, value) => typeof value === 'bigint' ? value.toString() : value);
-const save = (name: string, data: unknown) => writeFileSync(`${out}/${name}.json`, json(data) + '\n');
+const save = (name: string, data: unknown) => writeCapacityJson(`${out}/${name}.json`, data);
 const log = (name: string, data: unknown) => appendFileSync(`${out}/${name}.jsonl`, json(data) + '\n');
-const deadlineMs = 600_000;
+const deadlineMs = Number(process.env.DRAIN_TIMEOUT_MS ?? '600000');
+assert(Number.isInteger(deadlineMs) && deadlineMs >= 600000 && deadlineMs <= 3600000);
+const poolKbytes = Number(process.env.POOL_KBYTES ?? '40960');
+assert(Number.isInteger(poolKbytes) && poolKbytes >= 40960 && poolKbytes <= 262144);
 const stateQueryConcurrency = 64; // Setup and post-burst verification only.
 await cryptoWaitReady();
 const coinage = createCoinageClient('ws://127.0.0.1:10010');
@@ -104,8 +108,10 @@ async function stage(count: number, name: string) {
   }), true);
   const actors = Array.from({ length: count }, (_, id) => {
     const source = keyring.addFromSeed(randomBytes(32));
-    const recipient = keyring.addFromSeed(randomBytes(32));
-    return { id, source: source.address, recipient: recipient.address, signer: signerFor(source) };
+    keyring.removePair(source.address);
+    const recipient = encodeAddress(randomBytes(32));
+    return { id, source: source.address, recipient,
+      signer: capacitySigner(source.publicKey, data => source.sign(data)) as ReturnType<typeof capacitySigner> | undefined };
   });
   assert.equal(new Set(actors.flatMap(a => [a.source, a.recipient])).size, count * 2);
   const originalCoin = { instance_id: instanceId, value: denomination, age: 0 };
@@ -133,9 +139,11 @@ async function stage(count: number, name: string) {
   // outlive the node's history window at larger loads. Signing uses current runtime
   // context and immortal mortality only on this disposable fork.
   await inGroups(actors, async actor => {
-    const signed = await api.tx.Coinage.transfer({ to: actor.recipient }).sign(actor.signer,
+    const signed = await api.tx.Coinage.transfer({ to: actor.recipient }).sign(actor.signer!,
       { ...coinClaimOptions(), mortality: { mortal: false } });
     prepared[actor.id] = { signed, txHash: blake2AsHex(signed) };
+    actor.signer = undefined; // Release fixture secret keys before the measured burst.
+    if (actor.id % 10000 === 9999) console.log(json({ phase: 'signing', name, completed: actor.id + 1, count }));
   });
   // Reuse the top-up transport: one socket, no reconnect or automatic resubmission.
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
@@ -155,7 +163,7 @@ async function stage(count: number, name: string) {
     save(`${name}-fixture`, { count, instanceId, instance, backing, palletAccount, originalCoin,
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
       startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
-      rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 256, poolProfile,
+      rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 'archive', poolProfile, poolKbytes, deadlineMs,
       poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined, fixtureBatch, stateQueryConcurrency,
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });
@@ -259,7 +267,7 @@ async function stage(count: number, name: string) {
     });
     const summary = { name, mode: waveSizes.length > 1 ? 'paced' : 'burst', poolProfile, waves,
       users: count, wallStart, sent: sentAt.length, finalized, verified,
-      passed, guard, generatorLimited, sendWindowMs, launchTargetMs,
+      passed, guard, generatorLimited, sendWindowMs, launchTargetMs, deadlineMs, poolKbytes,
       elapsedMs: performance.now() - started,
       poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? signals.reduce((max, value) => Math.max(max, value), 0) : null,
       finalityProgress, settledAtMs: settledAt, drainAfterLastSendMs: settledAt - (sentAt.at(-1) ?? 0),
@@ -287,7 +295,7 @@ try {
     blockWeights: await api.constants.System.BlockWeights(), blockLength: await api.constants.System.BlockLength(),
     genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, syntheticDelayMs: 0,
     mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile,
-    launchTargetMs, fixtureBatch, poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined });
+    launchTargetMs, deadlineMs, poolKbytes, fixtureBatch, poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined });
   await stage(1, 'claim-smoke');
   await stage(users, 'claim-burst');
 } catch (error) {

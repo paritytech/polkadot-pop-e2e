@@ -26,6 +26,12 @@ importers:
       '@novasamatech/statement-store':
         specifier: ^0.7.7
         version: 0.7.7(esbuild@0.27.4)(rxjs@7.8.2)
+      '@polkadot-api/signers-common':
+        specifier: 0.2.3
+        version: 0.2.3
+      '@polkadot-api/substrate-bindings':
+        specifier: 0.20.3
+        version: 0.20.3
       '@polkadot-api/utils':
         specifier: ^0.4.0
         version: 0.4.0

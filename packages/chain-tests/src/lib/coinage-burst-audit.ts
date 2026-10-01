@@ -1,5 +1,6 @@
 /** Evidence from fresh block/state reads, independent of submitAndWatch's outcome callbacks. */
 import assert from 'node:assert/strict';
+import { writeCapacityJson } from './coinage-capacity.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { blake2AsHex } from '@polkadot/util-crypto';
@@ -78,10 +79,18 @@ export async function auditBurst(input: {
       }
       const events = await api.query.System.Events.getValue({ at: hash, signal: AbortSignal.timeout(15_000) });
       writeFileSync(`${directory}/block-${number}.json`, json({ hash, block, events, finalityViews }) + '\n');
+      const indexedEvents = new Map<number, Event[]>();
+      for (const event of events) {
+        if (event.phase.type !== 'ApplyExtrinsic') continue;
+        const index = event.phase.value;
+        const own = indexedEvents.get(index) ?? [];
+        own.push(event);
+        indexedEvents.set(index, own);
+      }
       for (const { actor, result } of group) {
         try {
           assert.equal(result.block!.number, number, 'Reported block number differs');
-          const own = verifyReceipt(result.txHash, result.block!.index, block.block.extrinsics, events, operation);
+          const own = verifyReceipt(result.txHash, result.block!.index, block.block.extrinsics, indexedEvents.get(result.block!.index) ?? [], operation);
           receipts.push({ actor, txHash: result.txHash, block: result.block, events: own });
           csv.push([actor, result.txHash, number, hash, result.block!.index, result.elapsedMs, true].join(','));
         } catch (error) { errors.push(`Actor ${actor}: ${String(error)}`); }
@@ -94,7 +103,7 @@ export async function auditBurst(input: {
     commit: process.env.GITHUB_SHA, summary,
     trustBoundary: 'Two local RPC views plus raw block bodies and decoded events; not an independent consensus or storage-proof verification.' };
   writeFileSync(`${out}/${name}-audit.json`, json(audit) + '\n');
-  writeFileSync(`${out}/${name}-receipts.json`, json(receipts) + '\n');
+  writeCapacityJson(`${out}/${name}-receipts.json`, receipts);
   writeFileSync(`${out}/${name}-transactions.csv`, csv.join('\n') + '\n');
   writeFileSync(`${out}/${name}-report.md`, `# ${name}: ${passed ? 'PASS' : 'FAIL'}\n\n`
     + `Requested: **${expected}**. Independently re-read block receipts: **${receipts.length}**.\n\n`

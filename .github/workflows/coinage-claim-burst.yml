@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       users:
-        description: Claims after the mandatory one-claim smoke test (1–100000)
+        description: Claims after the mandatory one-claim smoke test (1–1000000)
         type: string
         default: '1000'
       mode:
@@ -22,7 +22,7 @@ on:
         options: [default, enlarged]
         default: default
       pool_transactions:
-        description: Ready-pool entry limit when enlarged (11000–110000); byte limit stays 40 MiB
+        description: Ready-pool entry limit when enlarged (11000–1100000); byte budget configured separately
         type: string
         default: '11000'
       fixture_batch:
@@ -30,13 +30,22 @@ on:
         type: string
         default: '1000'
       launch_target_ms:
-        description: Maximum client launch window (1000–10000 ms); recorded separately from finality
+        description: Maximum client launch window (1000–60000 ms); recorded separately from finality
         type: string
         default: '1000'
+      pool_kbytes:
+        description: Ready-pool byte budget in KiB when enlarged (40960–262144)
+        type: string
+        default: '40960'
+      drain_timeout_ms:
+        description: Per-wave watch deadline (600000–3600000 ms)
+        type: string
+        default: '600000'
   push:
     branches: [feat/th-coinage-claim-burst]
     paths:
       - .github/workflows/coinage-claim-burst.yml
+      - packages/chain-tests/src/lib/coinage-capacity*
       - packages/chain-tests/src/lib/coinage-client*
       - packages/chain-tests/src/lib/coinage-burst-audit*
       - packages/chain-tests/src/lib/coinage-burst-submit*
@@ -54,12 +63,15 @@ concurrency:
 jobs:
   burst:
     runs-on: parity-large
-    timeout-minutes: 120
+    timeout-minutes: 720
     env:
       GH_TOKEN: ${{ github.token }}
       # Keep the capacity series on the same snapshot even if the bites release changes.
       PREVIEWNET_BUNDLE_RUN_ID: '36614342201'
       PREVIEWNET_BUNDLE_SHA256: edab76b213657e499ae9fcb95673a2bf4ca717b78b00caf3d7783fc18b562b4f
+      NODE_OPTIONS: --max-old-space-size=24576
+      POOL_KBYTES: ${{ inputs.pool_kbytes || '40960' }}
+      DRAIN_TIMEOUT_MS: ${{ inputs.drain_timeout_ms || '600000' }}
       ACTOR_COUNT: ${{ inputs.users || '1000' }}
       LOAD_MODE: ${{ inputs.mode || 'burst' }}
       FIRST_WAVE: ${{ inputs.first_wave || '8000' }}
@@ -78,11 +90,11 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000; assert 11000 <= int(os.environ["POOL_TRANSACTIONS"]) <= 110000; assert 100 <= int(os.environ["FIXTURE_BATCH"]) <= 5000; assert 1000 <= int(os.environ["LAUNCH_TARGET_MS"]) <= 10000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 1000000; assert 11000 <= int(os.environ["POOL_TRANSACTIONS"]) <= 1100000; assert 100 <= int(os.environ["FIXTURE_BATCH"]) <= 5000; assert 1000 <= int(os.environ["LAUNCH_TARGET_MS"]) <= 60000; assert 40960 <= int(os.environ["POOL_KBYTES"]) <= 262144; assert 600000 <= int(os.environ["DRAIN_TIMEOUT_MS"]) <= 3600000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
-          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts src/lib/coinage-burst-submit.test.ts
+          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts src/lib/coinage-burst-submit.test.ts src/lib/coinage-capacity.test.ts
       - uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
@@ -105,12 +117,12 @@ jobs:
           config = tomllib.loads(path.read_text())
           people = next(p for p in config['parachains'] if p['id'] == 1502)
           for node in people['collators']:
-              node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
-              node['args'] += ['--rpc-max-connections=1024']
+              node['args'] = [a for a in node['args'] if not a.startswith(('--rpc-max-connections=', '--state-pruning='))]
+              node['args'] += ['--rpc-max-connections=1024', '--state-pruning=archive']
               subscriptions = max(20050, 2 * int(os.environ['ACTOR_COUNT']) + 50)
               node['args'] += [f'--rpc-max-subscriptions-per-connection={subscriptions}', '--offchain-worker=always']
               if os.environ['POOL_PROFILE'] == 'enlarged':
-                  node['args'] += [f"--pool-limit={os.environ['POOL_TRANSACTIONS']}", '--pool-kbytes=40960']
+                  node['args'] += [f"--pool-limit={os.environ['POOL_TRANSACTIONS']}", f"--pool-kbytes={os.environ['POOL_KBYTES']}"]
           path.write_text(tomli_w.dumps(config))
           PY
           cp ppn/provenance.json network-out/
@@ -134,7 +146,7 @@ jobs:
           python3 ../../ci/previewnet/monitor.py --directory ../../network-out &
           metrics_pid=$!
           trap 'kill "$monitor_pid" "$metrics_pid" 2>/dev/null || true' EXIT
-          timeout --signal=TERM --kill-after=30s 90m pnpm exec tsx scripts/coinage-claim-burst.ts
+          timeout --signal=TERM --kill-after=30s 660m pnpm exec tsx scripts/coinage-claim-burst.ts
       - name: Verify saved claim evidence
         if: always()
         run: python3 ci/previewnet/verify-burst-artifact.py network-out --stage claim-burst --expected "$ACTOR_COUNT"

@@ -131,3 +131,29 @@ PVF deadline compliance.
 The earlier [20,000 attempt](https://github.com/paritytech/polkadot-pop-e2e/actions/runs/36830248627)
 never reached the claim driver: a changed nightly snapshot failed startup with
 an Asset Hub HRMP-head mismatch. It is a setup failure, not a failed capacity step.
+
+### Million-claim boundary experiment
+
+Start at 1,000,000 claims. If this fails after valid preparation, test 500,000
+and then bisect the passing/failing interval. Keep the same snapshot, binaries,
+runner class, two People collators, zero added delay, 1,100,000 ready-pool entries,
+262,144 KiB transaction-byte budget, 60-second client launch target and
+3,600,000 ms watch deadline for the series. Report actual hardware for each run.
+The subscription allowance remains `max(20050, 2 * actors + 50)` and is recorded.
+
+This finds a repeatable burst boundary under these conditions, not a physical
+maximum or sustainable TPS. A setup/signing/audit failure is not evidence of a
+chain capacity failure. If a watch is dropped, reconcile it before calling that
+claim unsuccessful. Repeat observations near the boundary before reporting it.
+If one million passes, it establishes a lower bound; it does not locate a ceiling.
+
+At this scale, both People nodes retain archive state for later receipt and state
+queries. The driver has a 24 GiB V8 heap budget and an eleven-hour outer timeout;
+the job reserves twelve hours for preparation, evidence and recovery. Preparation
+still seeds batches of at most 5,000 coins, outside burst timing. Cached runtime
+metadata avoids repeated decoding during signing; stock-signer equivalence is
+checked in tests. Every claim still has its own source signature, PAPI-generated
+call and extensions. Secret keys are released after signing. JSON evidence is
+written in chunks and receipt events are indexed per block before verification.
+These generator and retention changes must be noted when comparing with the
+previous 100,000-claim run. No million-claim result has been established yet.
