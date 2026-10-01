@@ -5,7 +5,6 @@
 use stress_files::summary::{ProbePhase, Rule, Summary};
 use stress_files::{BlockStats, FileError, FinalStep, RunDir, build_run_om, num, parse_run_om, to_fixed};
 
-use crate::block_production::end_reasons;
 use crate::{CheckResult, RunData, Window, all, run};
 
 /// Builds run.om, runs every check, writes summary.json (with the checks) and summary.md.
@@ -71,7 +70,7 @@ fn collator_step(d: &RunData, w: Option<&Window>) -> Option<CollatorStep> {
         validations: d.diff("substrate_sub_txpool_validations_finished", &[COLLATOR], w).ok()?,
         waiting: scheduled.zip(finished).map(|(s, f)| s - f),
         ready: at("substrate_ready_transactions_number"),
-        end_reasons: end_reasons(d, w).ok()?,
+        end_reasons: d.end_reasons(w).ok()?,
     })
 }
 

@@ -3,39 +3,12 @@
 use serde::Serialize;
 use stress_files::registry::Outcome;
 
-use crate::data::{CounterReset, RunData, Window, count_above, quantile};
+use crate::data::{CounterReset, RunData, count_above, quantile};
 use crate::{Check, LIMITS, Status, Verdict};
 
 const COLLATOR: (&str, &str) = ("job", "people-collator");
 const END_REASON: &str = "substrate_proposer_end_proposal_reason";
 const BUILD_TIME: &str = "substrate_proposer_block_constructed";
-
-fn short(reason: &str) -> &str {
-    match reason {
-        "hit_block_weight_limit" => "weight",
-        "hit_block_size_limit" => "size",
-        "hit_deadline" => "deadline",
-        "no_more_transactions" => "empty",
-        "transactions_forbidden" => "forbidden",
-        other => other,
-    }
-}
-
-/// Blocks per end reason (short names) in a window.
-pub fn end_reasons(d: &RunData, w: &Window) -> Result<Vec<(String, f64)>, CounterReset> {
-    let mut out: Vec<(String, f64)> = Vec::new();
-    for s in d.series(END_REASON, &[COLLATOR]) {
-        let reason = s.labels.get("reason").map_or("?", String::as_str);
-        let n = d.diff(END_REASON, &[COLLATOR, ("reason", reason)], w)?.unwrap_or(0.0);
-        if n > 0.0 {
-            match out.iter_mut().find(|(k, _)| k == short(reason)) {
-                Some((_, sum)) => *sum += n,
-                None => out.push((short(reason).to_owned(), n)),
-            }
-        }
-    }
-    Ok(out)
-}
 
 fn text(r: &[(String, f64)]) -> String {
     if r.is_empty() {
@@ -59,7 +32,7 @@ fn why_blocks_end(d: &RunData) -> Result<Verdict, CounterReset> {
     if !d.has(END_REASON, &[]) {
         return Ok(Verdict::new(Status::NoResult, "no collator metrics"));
     }
-    let windows = d.load_windows().into_iter().map(|w| Ok(Reasons { reasons: end_reasons(d, &w)?, window: w.label })).collect::<Result<Vec<_>, _>>()?;
+    let windows = d.load_windows().into_iter().map(|w| Ok(Reasons { reasons: d.end_reasons(&w)?, window: w.label })).collect::<Result<Vec<_>, _>>()?;
     let full: Vec<_> = windows.iter().filter(|s| ["weight", "size", "deadline"].iter().any(|k| s.reasons.iter().any(|(r, _)| r == k))).collect();
     let detail = if full.is_empty() {
         "no block ended full".to_owned()

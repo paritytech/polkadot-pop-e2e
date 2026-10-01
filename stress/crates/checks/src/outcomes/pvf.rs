@@ -33,7 +33,7 @@ pub struct Slots {
 }
 
 /// People's slots in `w`.
-pub fn slots(d: &RunData, w: &Window) -> Result<Slots, CounterReset> {
+fn slots(d: &RunData, w: &Window) -> Result<Slots, CounterReset> {
     let diff = |name: &str, filter: &[(&str, &str)]| d.diff(name, filter, w).map(|v| v.unwrap_or(0.0));
     let offered = diff("stress_para_slots_total", &[PEOPLE])?;
     let included = diff("stress_para_included_total", &[PEOPLE])?;

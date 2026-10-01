@@ -1,16 +1,12 @@
 //! The evaluator: reads `run.om` and `summary.json`, runs every check, and returns one verdict
 //! per check. It depends on the file formats only, so it runs on any finished run.
 //!
-//! A new requirement is a new entry in one of the outcome lists: add its metric to the registry,
-//! record it in a monitor if none has it yet, and write the check.
+//! A new requirement is a new entry in one of the outcome lists under `outcomes/`: add its metric
+//! to the registry, record it in a monitor if none has it yet, and write the check.
 
-mod block_production;
 mod data;
 mod limits;
-mod pool;
-mod pvf;
-mod recorded;
-mod recycler;
+mod outcomes;
 pub mod report;
 
 use serde::Serialize;
@@ -18,7 +14,7 @@ use stress_files::registry::Outcome;
 
 pub use data::{CounterReset, RunData, Window, count_above, quantile};
 pub use limits::LIMITS;
-pub use pvf::slots;
+pub use outcomes::all;
 
 /// A check's status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -99,11 +95,6 @@ pub struct CheckResult {
     /// What it found.
     #[serde(flatten)]
     pub verdict: Verdict,
-}
-
-/// Every check, one list per outcome, in the order of the summary.
-pub fn all() -> Vec<Check> {
-    [block_production::CHECKS, pvf::CHECKS, pool::CHECKS, recycler::CHECKS, recorded::CHECKS].concat()
 }
 
 /// Checks without a result that a smoke run must still produce.

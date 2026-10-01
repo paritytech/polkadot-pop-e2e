@@ -168,6 +168,35 @@ impl RunData {
     pub fn times(&self, name: &str) -> Vec<f64> {
         self.series(name, &[]).into_iter().flat_map(|s| s.points.iter().map(|p| p.t)).collect()
     }
+
+    /// The collator's blocks per end reason (short names) in `w`.
+    pub fn end_reasons(&self, w: &Window) -> Result<Vec<(String, f64)>, CounterReset> {
+        const END_REASON: &str = "substrate_proposer_end_proposal_reason";
+        const COLLATOR: (&str, &str) = ("job", "people-collator");
+        let mut out: Vec<(String, f64)> = Vec::new();
+        for s in self.series(END_REASON, &[COLLATOR]) {
+            let reason = s.labels.get("reason").map_or("?", String::as_str);
+            let n = self.diff(END_REASON, &[COLLATOR, ("reason", reason)], w)?.unwrap_or(0.0);
+            if n > 0.0 {
+                match out.iter_mut().find(|(k, _)| k == short_reason(reason)) {
+                    Some((_, sum)) => *sum += n,
+                    None => out.push((short_reason(reason).to_owned(), n)),
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn short_reason(reason: &str) -> &str {
+    match reason {
+        "hit_block_weight_limit" => "weight",
+        "hit_block_size_limit" => "size",
+        "hit_deadline" => "deadline",
+        "no_more_transactions" => "empty",
+        "transactions_forbidden" => "forbidden",
+        other => other,
+    }
 }
 
 /// The bucket bound below which a share `q` of the counts fall; `None` with no counts.
