@@ -64,7 +64,9 @@ that many claims. Never label a multi-second burst as a one-second result.
 100), with an explicit option up to 5,000 for larger experiments. Setup is excluded from burst timing and every seeded source coin is checked
 before signing. This improves preparation time without changing the claim calls.
 Setup and post-burst state reads use groups of 64 (formerly 16); every actor
-is still checked. This concurrency is recorded in the fixture artifact.
+is still checked. Finish all fixture snapshot reads before signing, so large
+loads cannot age that snapshot out while later actors still need to read it.
+This concurrency is recorded in the fixture artifact.
 RPC subscription capacity scales with the requested actor count and is recorded
 in the fixture artifact. Compare actual pool startup arguments and hardware
 between runs; the runner label alone does not identify the machine's capacity.
