@@ -45,7 +45,7 @@ pub struct Probe {
 
 /// Probes before the load.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct Baseline {
     /// Probes.
     pub probes: usize,
@@ -57,7 +57,7 @@ pub struct Baseline {
 
 /// After the load stopped: back in time, and the backlog drained.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct Recovery {
     /// False when the node closed the RPC connection.
     pub measured: bool,
@@ -117,9 +117,47 @@ pub struct StateSample {
     pub detail: String,
 }
 
+/// Our flood txs counted again on the finalized chain, block by block. The tracker reads best
+/// blocks, so a reorg can hide an inclusion from it (the block that replaced the one it read) or
+/// keep one the chain dropped (a block on the abandoned fork).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnChain {
+    /// The finalized blocks walked, first and last.
+    pub blocks: (u32, u32),
+    /// Flood txs in them.
+    pub included: u64,
+    /// Of those, never seen by the tracker: in a block that replaced one it read.
+    pub missed: u64,
+    /// Counted by the tracker in a block the finalized chain doesn't have, and in no finalized block.
+    pub only_on_fork: u64,
+    /// Counted by the tracker in one block, finalized in another.
+    pub moved: u64,
+}
+
+/// One flood tx the loss check found nowhere: a line of lost.jsonl.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LostTx {
+    /// Its hash.
+    pub hash: String,
+    /// The step that sent it.
+    pub step: usize,
+    /// When it was sent.
+    pub sent_at: Millis,
+    /// The tracker counted it in this block, which the finalized chain doesn't have.
+    pub on_fork_block: Option<u32>,
+    /// The scenario's view of it, e.g. the member and slot of a claim.
+    pub scenario: serde_json::Value,
+    /// It left the state it should have at the finalized block; `None` when not checked.
+    pub state_landed: Option<bool>,
+    /// `validate_transaction` at the best block after the run: "valid", or why not.
+    pub validate: String,
+}
+
 /// Every flood tx is included, refused, expired or ready in the pool; anything else is lost.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct Loss {
     /// Sent.
     pub sent: u64,
@@ -133,19 +171,18 @@ pub struct Loss {
     pub dropped: u64,
     /// Still ready in the node's pool; `None` when it could not be listed.
     pub in_pool: Option<u64>,
-    /// Accepted, in no block, refused by nobody, not ready in the pool.
+    /// Accepted, in no finalized block, refused by nobody, not ready in the pool; `None` when the
+    /// pool could not be listed or the finalized chain not walked.
     pub lost: Option<u64>,
+    /// The count on the finalized chain; zeros when it could not be walked (see `note`).
+    pub on_chain: OnChain,
     /// The node's own counts.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_pool: Option<NodePool>,
     /// Why something is missing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     /// The finality wait.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finalized: Option<Finality>,
     /// The state check.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<StateSample>,
 }
 

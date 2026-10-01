@@ -33,6 +33,7 @@ impl<S: Submit> Tracker<S> {
     }
 
     fn on_fetched(&mut self, mut record: BlockRecord, hash: [u8; 32], txs: &[(TxHash, bool)], now: Millis) -> Result<(), FileError> {
+        self.first_fetched.get_or_insert(record.number);
         let mut per_lane = vec![0u32; self.lanes.len()];
         for (tx, failed) in txs {
             if let Some(lane) = self.on_tx(tx, record.number, record.seen_at, *failed) {
@@ -74,6 +75,7 @@ impl<S: Submit> Tracker<S> {
             return Some(tx.lane);
         }
         let call = self.lanes[tx.lane].call;
+        self.included_in.insert(*hash, block);
         let st = &mut self.steps[tx.lane][tx.step.expect("flood tx")];
         st.included += 1;
         st.latencies_ms.push(latency);

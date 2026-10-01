@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use stress_chain::Client;
-use stress_files::summary::{Loss, MaxSustained, Network, NodePool, SCHEMA_VERSION, Summary};
+use stress_files::summary::{Loss, LostTx, MaxSustained, Network, NodePool, SCHEMA_VERSION, Summary};
 use stress_files::{FinalStep, NodeMax, NodeSample, RunDir};
 use stress_load::runner::{Io, Mode, RunOptions, baseline, drain, load, recover};
 use stress_load::sender::Sender;
@@ -95,7 +95,12 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
     let samples: Vec<NodeSample> = dir.read_jsonl("node.jsonl")?;
     recovery.node = NodeMax::over(&samples, recovery_window.0, recovery_window.1);
     let finals = write_steps(&dir, &tracker, &calls, &samples)?;
-    let loss = loss_check(&client, &monitors, &tracker, &finals, prepared.state_check.as_deref()).await;
+    let (loss, lost) = loss_check(&client, &monitors, &tracker, &finals, prepared.state_check.as_deref()).await;
+    let mut lost_out = dir.jsonl("lost.jsonl")?;
+    for l in &lost {
+        lost_out.write(l)?;
+    }
+    lost_out.flush()?;
     let unreadable = tracker.unreadable.clone();
     tracker.finish()?.close();
     // Let the Recycler build roots for the last loads' vouchers, then stop the chain recorders.
@@ -162,7 +167,7 @@ async fn preflight_and_connect() -> anyhow::Result<Preflight> {
 
 /// The loss check, with the node's pool counts read from the collator we submit to after the
 /// finality wait (the loss check awaits the read then).
-async fn loss_check<S: stress_load::submit::Submit>(client: &Client, monitors: &Monitors, tracker: &Tracker<S>, finals: &[FinalStep], state: Option<&dyn stress_load::StateCheck>) -> Loss {
+async fn loss_check<S: stress_load::submit::Submit>(client: &Client, monitors: &Monitors, tracker: &Tracker<S>, finals: &[FinalStep], state: Option<&dyn stress_load::StateCheck>) -> (Loss, Vec<LostTx>) {
     let outstanding = tracker.outstanding();
     let included_ok: Vec<_> = tracker.included_ok.concat();
     let scraper = monitors.scraper.clone();
@@ -171,10 +176,20 @@ async fn loss_check<S: stress_load::submit::Submit>(client: &Client, monitors: &
         let s = scraper.collator.borrow().clone()?;
         Some(NodePool { mempool: s.sum("substrate_sub_txpool_unwatched_txs")? as u64, ready: s.sum("substrate_ready_transactions_number")? as u64 })
     };
-    let settled = stress_load::loss::Settled { finals, outstanding: &outstanding, included_ok: &included_ok, last_ours_block: tracker.last_ours_block };
-    let loss = stress_load::loss::loss_check(client, settled, node_pool, state).await;
+    let settled = stress_load::loss::Settled {
+        finals,
+        outstanding: &outstanding,
+        included_ok: &included_ok,
+        last_ours_block: tracker.last_ours_block,
+        flood: &tracker.flood,
+        included_in: &tracker.included_in,
+        first_fetched: tracker.first_fetched,
+    };
+    let (loss, lost) = stress_load::loss::loss_check(client, settled, node_pool, state).await;
     println!("loss check: {} sent, {} included, {} refused, {:?} in the pool, {:?} lost", loss.sent, loss.included, loss.refused, loss.in_pool, loss.lost);
-    loss
+    let c = &loss.on_chain;
+    println!("loss check on the finalized chain (blocks {}-{}): {} included, {} the tracker missed, {} only on a fork, {} moved", c.blocks.0, c.blocks.1, c.included, c.missed, c.only_on_fork, c.moved);
+    (loss, lost)
 }
 
 /// steps.jsonl: one record per step and lane (no lane name in a single-lane run, as TS), with

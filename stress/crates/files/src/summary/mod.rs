@@ -6,7 +6,7 @@ use serde_json::Value;
 
 mod after;
 
-pub use after::{Baseline, Finality, Loss, NodePool, Outcome, Probe, ProbePhase, Recovery, StateSample};
+pub use after::{Baseline, Finality, Loss, LostTx, NodePool, OnChain, Outcome, Probe, ProbePhase, Recovery, StateSample};
 
 /// The layout written here.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -156,12 +156,11 @@ pub struct Network {
 
 /// The machine the load tool ran on.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase")]
 pub struct Runner {
     /// CPUs.
     pub cpus: usize,
     /// CPU model.
-    #[serde(default)]
     pub cpu_model: Option<String>,
     /// Memory.
     pub mem_gi_b: u64,
@@ -178,52 +177,38 @@ pub struct Summary {
     /// Run id.
     pub run_id: String,
     /// smoke or stress.
-    #[serde(default)]
     pub mode: String,
     /// Options as given.
-    #[serde(default)]
     pub params: Value,
     /// What the run could spend.
-    #[serde(default)]
     pub budget: String,
     /// Setup time.
-    #[serde(default)]
     pub setup_seconds: u64,
     /// Scenario numbers.
-    #[serde(default)]
     pub extra: Value,
     /// The thresholds.
-    #[serde(default)]
     pub rules: Value,
     /// Why the load ended.
     pub stop: Stop,
     /// The first violated measure.
-    #[serde(default)]
     pub breaking_point: Option<BreakingPoint>,
     /// The step before it.
-    #[serde(default)]
     pub max_sustained: Option<MaxSustained>,
     /// The failures.
-    #[serde(default)]
     pub failure_modes: Vec<FailureMode>,
     /// After the load.
-    #[serde(default)]
     pub recovery: Recovery,
     /// The loss check.
     pub loss: Loss,
     /// Before the load.
-    #[serde(default)]
     pub baseline: Baseline,
     /// What the monitors could not record.
-    #[serde(default)]
     pub problems: Vec<String>,
     /// People.
     pub network: Network,
     /// The load tool's machine.
-    #[serde(default)]
     pub runner: Runner,
     /// Steps run.
-    #[serde(default)]
     pub steps: usize,
     /// Check results (the report adds them).
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -117,7 +117,7 @@ pub async fn claims(setup: &Setup, members: u32, slots: u32, threads: Option<usi
             let u = Unproved::new(&setup.chain, period, seq, &target);
             jobs.push(Job { member: m, context: claim::context(&suffix, period, seq).to_vec(), message: u.message() });
             unproved.push((u, *ring));
-            targets.push(target);
+            targets.push((target, m, seq));
         }
     }
     let provers: HashMap<u32, Prover> = rings.iter().map(|(i, r)| Ok((*i, Prover::new(PEOPLE_EXPONENT, r.keys.clone())?))).collect::<Result<_, stress_proofs::ProofError>>().map_err(|e| scenario("prover", e))?;
@@ -126,7 +126,7 @@ pub async fn claims(setup: &Setup, members: u32, slots: u32, threads: Option<usi
     let prove_s = t1.elapsed().as_secs_f64();
     println!("proved {total} claims in {prove_s:.0} s ({:.1}/s) on {} threads", total as f64 / prove_s, pool.threads());
     let txs: Vec<Tx> = unproved.into_iter().zip(&proofs).map(|((u, ring), p)| Tx::new(u.with_proof(&p.proof, ring, rings[&ring].revision))).collect();
-    let by_hash: HashMap<TxHash, [u8; 32]> = txs.iter().map(|t| t.hash).zip(targets).collect();
+    let by_hash: HashMap<TxHash, Claim> = txs.iter().map(|t| t.hash).zip(targets).map(|(h, (target, member, slot))| (h, Claim { target, member, slot })).collect();
 
     // 3. The first and the last claim (highest slot) must be valid.
     for t in [&txs[0], &txs[total - 1]] {
@@ -152,9 +152,16 @@ async fn recognize_calls(client: &Client, keys: &[[u8; 32]]) -> Result<Vec<Vec<u
     Ok(calls)
 }
 
+/// One claim: the account it gives an allowance to, and who claims which slot.
+struct Claim {
+    target: [u8; 32],
+    member: usize,
+    slot: u32,
+}
+
 /// Each included claim must have given its target an allowance (`StmtStoreAllowanceByAccount`).
 pub struct ClaimsLanded {
-    by_hash: HashMap<TxHash, [u8; 32]>,
+    by_hash: HashMap<TxHash, Claim>,
 }
 
 impl StateCheck for ClaimsLanded {
@@ -163,12 +170,16 @@ impl StateCheck for ClaimsLanded {
             let block = client.at(at).await?;
             let mut missing = 0;
             for hash in included {
-                let Some(target) = self.by_hash.get(hash) else { continue };
-                if !has_prefix::<([u8; 32], Value), _>(&block, "Resources", "StmtStoreAllowanceByAccount", (*target,)).await? {
+                let Some(claim) = self.by_hash.get(hash) else { continue };
+                if !has_prefix::<([u8; 32], Value), _>(&block, "Resources", "StmtStoreAllowanceByAccount", (claim.target,)).await? {
                     missing += 1;
                 }
             }
             Ok(StateSample { checked: included.len() as u64, missing, detail: "sampled claims have their StmtStoreAllowanceByAccount entry".into() })
         })
+    }
+
+    fn describe(&self, tx: &TxHash) -> serde_json::Value {
+        self.by_hash.get(tx).map_or(serde_json::Value::Null, |c| serde_json::json!({ "member": c.member, "slot": c.slot, "target": format!("0x{}", hex::encode(c.target)) }))
     }
 }

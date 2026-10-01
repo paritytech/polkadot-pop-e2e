@@ -50,6 +50,17 @@ struct Sent {
     sent_at: Millis,
 }
 
+/// A flood tx as sent, kept to the end for the loss check.
+#[derive(Debug, Clone)]
+pub struct FloodTx {
+    /// The step that sent it.
+    pub step: usize,
+    /// When.
+    pub sent_at: Millis,
+    /// Its bytes, to validate it again.
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug)]
 struct Request {
     hash: TxHash,
@@ -74,6 +85,12 @@ pub struct Tracker<S> {
     pub probes: Vec<Probe>,
     /// Included flood txs that did not fail, per lane, for the state check.
     pub included_ok: Vec<Vec<TxHash>>,
+    /// Every flood tx sent.
+    pub flood: HashMap<TxHash, FloodTx>,
+    /// The block each included flood tx was seen in.
+    pub included_in: HashMap<TxHash, u32>,
+    /// The first block read.
+    pub first_fetched: Option<u32>,
     /// Blocks seen while recovering.
     pub recovery_blocks: Vec<BlockRecord>,
     /// Flood txs included while recovering.
@@ -106,7 +123,7 @@ impl<S: Submit> Tracker<S> {
         let n = lanes.len();
         Self {
             lanes, sender, load: SeriesWriter::new(load), blocks_out, sent: HashMap::new(), requests: HashMap::new(), next_id: 1,
-            steps: vec![Vec::new(); n], probes: Vec::new(), included_ok: vec![Vec::new(); n], recovery_blocks: Vec::new(),
+            steps: vec![Vec::new(); n], probes: Vec::new(), included_ok: vec![Vec::new(); n], flood: HashMap::new(), included_in: HashMap::new(), first_fetched: None, recovery_blocks: Vec::new(),
             drained: 0, last_ours_block: 0, closed_by_node: 0, last_head: (now, 0), last_fetched: 0, last_finalized: (now, 0), unreadable: Vec::new(),
             phases: vec![(now, Phase::Baseline)], baseline_probes,
         }
@@ -185,6 +202,9 @@ impl<S: Submit> Tracker<S> {
         self.next_id += 1;
         let Some(connection) = self.sender.submit(id, bytes) else { return false };
         self.requests.insert(id, Request { hash, lane, step, sent_at: now, connection });
+        if let Some(step) = step {
+            self.flood.insert(hash, FloodTx { step, sent_at: now, bytes: bytes.to_vec() });
+        }
         self.sent.insert(hash, Sent { lane, step, probe, sent_at: now });
         true
     }

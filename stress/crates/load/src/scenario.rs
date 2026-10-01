@@ -53,6 +53,10 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub trait StateCheck: Send + Sync {
     /// Reads state for `included` at `at`.
     fn check<'a>(&'a self, client: &'a Client, included: &'a [TxHash], at: [u8; 32]) -> BoxFuture<'a, Result<StateSample, ChainError>>;
+    /// What the scenario knows of a tx, for lost.jsonl (e.g. the member and slot of a claim).
+    fn describe(&self, _tx: &TxHash) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 /// What `prepare` returns.

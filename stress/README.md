@@ -144,6 +144,7 @@ Each run creates `results/<scenario>-<unix-seconds>/` (override the root with `-
 | `blocks.jsonl` | Blocks observed by the load tracker |
 | `node.jsonl` | People process CPU and memory samples |
 | `steps.jsonl` | Final measurements for each load step |
+| `lost.jsonl` | Each lost flood tx: step, scenario details, its state on the finalized chain, and a fresh validation |
 
 Rebuild `run.om` and rerun all checks without a network:
 

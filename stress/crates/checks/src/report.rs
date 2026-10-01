@@ -148,6 +148,11 @@ fn loss_line(s: &Summary) -> String {
     if let Some(n) = &l.note {
         out += &format!(" ({n})");
     }
+    let c = &l.on_chain;
+    out += &format!(
+        ". On the finalized chain (blocks {}-{}): {} included; {} the tracker missed (in a block that replaced one it read), {} only on a fork block, {} moved to another block",
+        c.blocks.0, c.blocks.1, c.included, c.missed, c.only_on_fork, c.moved
+    );
     if let Some(st) = &l.state {
         out += &format!(". State check: {} of {} {}", st.checked.saturating_sub(st.missing), st.checked, st.detail);
     }

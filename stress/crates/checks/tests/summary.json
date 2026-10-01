@@ -123,6 +123,13 @@
     "dropped": 0,
     "inPool": 0,
     "lost": 0,
+    "onChain": {
+      "blocks": [125270, 125292],
+      "included": 144,
+      "missed": 0,
+      "onlyOnFork": 0,
+      "moved": 0
+    },
     "nodePool": {
       "mempool": 88,
       "ready": 1
