@@ -75,14 +75,14 @@ jobs:
       FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
       RESULTS_DIR: ${{ github.workspace }}/stress-results
       SCENARIO: ${{ inputs.scenario || 'stmt-flood' }}
-      # TMP: stress run only. The push fallback is a production-grade stress flood, so the PR
-      # branch can push the network until it drops transactions as it did locally. The rate grows
-      # ×1.5 per 60 s step: 6, 9, 13.5, 20, 30, 46, 68, 103, 154, 231 tx/s, so it runs until the
-      # chain fails. 1500 people × 20 slots = 30,000 claims cover the first nine steps (~27,000
-      # txs); a chain still healthy at 154 tx/s runs out of claims in the tenth ("budget used up").
+      # TMP: stress run only. The push fallback re-runs the breaking point of run 36881380136
+      # (12 tx/s held, 18 tx/s lost 109 claims during reorgs; stress/FINDINGS.md, finding 1): two
+      # 60 s steps at 12 and 18 tx/s, so the loss check can tell lost claims from claims the
+      # tracker missed in a reorg. 200 people × 20 slots = 4000 claims cover the 1800 txs and the
+      # 465 probes kept for a 900 s recovery at 2 s blocks.
       # Revert to the smoke run from stress/README.md ('--members 40 --slots 12 --start 2 --step 2
       # --interval 30 --steps 3 --recovery 120 --probes 3' and 'smoke') once the stress run is done.
-      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 1500 --slots 20 --start 6 --growth 1.5 --interval 60 --steps 10 --recovery 900 --probes 5' || inputs.args }}
+      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 200 --slots 20 --start 12 --step 6 --interval 60 --steps 2 --recovery 900 --probes 5' || inputs.args }}
       MODE: ${{ inputs.mode || 'stress' }}
       # The same layout goes to the bite and to the start: `ppn start` refuses a
       # bundle whose recorded layout differs from the one it is asked for.
