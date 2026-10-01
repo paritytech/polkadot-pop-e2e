@@ -22,7 +22,9 @@ assert(Number.isInteger(users) && users >= 1 && users <= 100000);
 const mode = process.env.LOAD_MODE ?? 'burst';
 const firstWave = Number(process.env.FIRST_WAVE ?? '8000');
 const fixtureBatch = Number(process.env.FIXTURE_BATCH ?? '1000');
-assert(Number.isInteger(fixtureBatch) && fixtureBatch >= 100 && fixtureBatch <= 1000);
+assert(Number.isInteger(fixtureBatch) && fixtureBatch >= 100 && fixtureBatch <= 5000);
+const launchTargetMs = Number(process.env.LAUNCH_TARGET_MS ?? '1000');
+assert(Number.isInteger(launchTargetMs) && launchTargetMs >= 1000 && launchTargetMs <= 10000);
 const poolTransactions = Number(process.env.POOL_TRANSACTIONS ?? '11000');
 assert(Number.isInteger(poolTransactions) && poolTransactions >= 11000 && poolTransactions <= 110000);
 const poolProfile = process.env.POOL_PROFILE ?? 'default';
@@ -36,6 +38,7 @@ const json = (data: unknown) => JSON.stringify(data, (_, value) => typeof value 
 const save = (name: string, data: unknown) => writeFileSync(`${out}/${name}.json`, json(data) + '\n');
 const log = (name: string, data: unknown) => appendFileSync(`${out}/${name}.jsonl`, json(data) + '\n');
 const deadlineMs = 600_000;
+const stateQueryConcurrency = 64; // Setup and post-burst verification only.
 await cryptoWaitReady();
 const coinage = createCoinageClient('ws://127.0.0.1:10010');
 const { api, client } = coinage;
@@ -63,8 +66,8 @@ async function fixture(label: string, tx: ReturnType<typeof api.tx.Sudo.sudo>, s
 }
 
 async function inGroups<T>(values: T[], work: (value: T, index: number) => Promise<void>) {
-  for (let offset = 0; offset < values.length; offset += 16) {
-    await Promise.all(values.slice(offset, offset + 16).map((value, index) => work(value, offset + index)));
+  for (let offset = 0; offset < values.length; offset += stateQueryConcurrency) {
+    await Promise.all(values.slice(offset, offset + stateQueryConcurrency).map((value, index) => work(value, offset + index)));
   }
 }
 
@@ -150,7 +153,7 @@ async function stage(count: number, name: string) {
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
       startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
       rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 256, poolProfile,
-      poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined, fixtureBatch,
+      poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined, fixtureBatch, stateQueryConcurrency,
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });
     console.log(json({ phase: 'prepared', name, count }));
@@ -204,8 +207,8 @@ async function stage(count: number, name: string) {
           // successful receipts have been checked against both People nodes.
           await auditBurst({ name: `${name}-wave-${waves.length}`, expected: offset + size,
             results: results.slice(0, offset + size), operation: 'CoinTransferred', out, api,
-            summary: { passed: !guard && wave.finalized === size, generatorLimited: wave.sendWindowMs > 1000,
-              scope: 'Finalized receipts only; coin state and fixture balance are checked after both waves', wave } });
+            summary: { passed: !guard && wave.finalized === size, generatorLimited: wave.sendWindowMs > launchTargetMs,
+              launchTargetMs, scope: 'Finalized receipts only; coin state and fixture balance are checked after both waves', wave } });
           wave.verified = true;
         }
         save(`${name}-waves`, waves);
@@ -244,7 +247,7 @@ async function stage(count: number, name: string) {
       { at: verificationBlock.hash, signal: AbortSignal.timeout(15_000) }))?.balance;
     save(`${name}-state`, { at: verificationBlock, instanceId, originalCoin, recipientCoin,
       asset, palletAccount, backing, finalBacking, actors: stateReads, mismatches });
-    const generatorLimited = sendWindowMs > 1000;
+    const generatorLimited = sendWindowMs > launchTargetMs;
     const passed = !guard && !generatorLimited && sentAt.length === count && finalized === count
       && verified === count && finalBacking === backing;
     const signals = results.flatMap((r, i) => {
@@ -253,7 +256,7 @@ async function stage(count: number, name: string) {
     });
     const summary = { name, mode: waveSizes.length > 1 ? 'paced' : 'burst', poolProfile, waves,
       users: count, wallStart, sent: sentAt.length, finalized, verified,
-      passed, guard, generatorLimited, sendWindowMs,
+      passed, guard, generatorLimited, sendWindowMs, launchTargetMs,
       elapsedMs: performance.now() - started,
       poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? signals.reduce((max, value) => Math.max(max, value), 0) : null,
       finalityProgress, settledAtMs: settledAt, drainAfterLastSendMs: settledAt - (sentAt.at(-1) ?? 0),
@@ -280,7 +283,8 @@ try {
   save('claim-runtime', { version: await api.constants.System.Version(),
     blockWeights: await api.constants.System.BlockWeights(), blockLength: await api.constants.System.BlockLength(),
     genesis: await client._request('chain_getBlockHash', [0]), requestedActors: users, syntheticDelayMs: 0,
-    mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile });
+    mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile,
+    launchTargetMs, fixtureBatch, poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined });
   await stage(1, 'claim-smoke');
   await stage(users, 'claim-burst');
 } catch (error) {

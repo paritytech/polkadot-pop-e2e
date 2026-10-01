@@ -26,7 +26,11 @@ on:
         type: string
         default: '11000'
       fixture_batch:
-        description: Root-seeded coins per setup transaction (100–1000); outside measured burst
+        description: Root-seeded coins per setup transaction (100–5000); outside measured burst
+        type: string
+        default: '1000'
+      launch_target_ms:
+        description: Maximum client launch window (1000–10000 ms); recorded separately from finality
         type: string
         default: '1000'
   push:
@@ -62,6 +66,7 @@ jobs:
       POOL_PROFILE: ${{ inputs.pool || 'default' }}
       POOL_TRANSACTIONS: ${{ inputs.pool_transactions || '11000' }}
       FIXTURE_BATCH: ${{ inputs.fixture_batch || '1000' }}
+      LAUNCH_TARGET_MS: ${{ inputs.launch_target_ms || '1000' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,7 +78,7 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000; assert 11000 <= int(os.environ["POOL_TRANSACTIONS"]) <= 110000; assert 100 <= int(os.environ["FIXTURE_BATCH"]) <= 1000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000; assert 11000 <= int(os.environ["POOL_TRANSACTIONS"]) <= 110000; assert 100 <= int(os.environ["FIXTURE_BATCH"]) <= 5000; assert 1000 <= int(os.environ["LAUNCH_TARGET_MS"]) <= 10000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client

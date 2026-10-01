@@ -37,12 +37,26 @@ def read_file(path):
         return {'unavailable': str(error)}
 
 
+def cgroup_directories():
+    root = Path('/sys/fs/cgroup')
+    membership = read_file('/proc/self/cgroup')
+    if not isinstance(membership, str):
+        return [root]
+    unified = next((line.split(':', 2)[2] for line in membership.splitlines()
+                    if line.startswith('0::')), '/')
+    current = root / unified.lstrip('/')
+    # Limits can be imposed by the service or any ancestor, not just the mount root.
+    return [current, *[parent for parent in current.parents if parent == root or root in parent.parents]]
+
+
 def host_sample():
     # Raw cumulative counters allow CPU, throttling, OOM and I/O deltas to be checked later.
     paths = ['/proc/stat', '/proc/meminfo', '/proc/loadavg', '/proc/diskstats',
              '/proc/pressure/cpu', '/proc/pressure/memory', '/proc/pressure/io',
              '/sys/fs/cgroup/cpu.stat', '/sys/fs/cgroup/memory.current',
              '/sys/fs/cgroup/memory.events', '/sys/fs/cgroup/io.stat']
+    paths += [str(group / name) for group in cgroup_directories() for name in
+              ('cpu.stat', 'memory.current', 'memory.peak', 'memory.events', 'io.stat')]
     return {path: read_file(path) for path in paths}
 
 
@@ -53,6 +67,8 @@ def main():
     limits = ['/proc/self/cgroup', '/proc/self/mountinfo', '/sys/fs/cgroup/cpu.max',
               '/sys/fs/cgroup/cpuset.cpus.effective', '/sys/fs/cgroup/memory.max',
               '/sys/fs/cgroup/memory.swap.max']
+    limits += [str(group / name) for group in cgroup_directories() for name in
+               ('cpu.max', 'cpuset.cpus.effective', 'memory.max', 'memory.swap.max')]
     hardware = {'platform': platform.platform(), 'cpuCount': os.cpu_count(),
                 'affinity': sorted(os.sched_getaffinity(0)),
                 'limits': {path: read_file(path) for path in limits}, 'initial': host_sample()}

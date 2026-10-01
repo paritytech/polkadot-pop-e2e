@@ -55,12 +55,16 @@ experiment, not a measured capacity. Start at 20,000 with `pool=enlarged` and
 `pool_transactions=22000`; increase only after inspecting receipts, state,
 recovery and resource samples. The enlarged pool keeps its 40 MiB byte budget.
 Each run still launches one signed transfer per source coin, with no retries.
-The one-second launch target remains unchanged: a missed target is a generator
-limit, not proof that the chain cannot execute that many claims.
+The launch target defaults to one second. Larger experiments can request up to
+ten seconds with `launch_target_ms`; record both the target and measured window.
+A missed target is a generator limit, not proof that the chain cannot execute
+that many claims. Never label a multi-second burst as a one-second result.
 
 `fixture_batch` defaults to 1,000 root-seeded coins per setup transaction (formerly
-100). Setup is excluded from burst timing and every seeded source coin is checked
+100), with an explicit option up to 5,000 for larger experiments. Setup is excluded from burst timing and every seeded source coin is checked
 before signing. This improves preparation time without changing the claim calls.
+Setup and post-burst state reads use groups of 64 (formerly 16); every actor
+is still checked. This concurrency is recorded in the fixture artifact.
 RPC subscription capacity scales with the requested actor count and is recorded
 in the fixture artifact. Compare actual pool startup arguments and hardware
 between runs; the runner label alone does not identify the machine's capacity.
