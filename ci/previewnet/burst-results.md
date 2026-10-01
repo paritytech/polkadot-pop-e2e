@@ -47,3 +47,27 @@ First dispatch `users=10000`, `mode=paced`, `first_wave=8000`, `pool=default`. A
 `claim-burst-waves.json` records each wave's start, launch window and settlement time. The wave audit files check cumulative receipts (8,000, then 10,000). `sendWindowMs` is the largest individual launch window. `settledAtMs` runs from the first wave's start to the last watch result, including the first receipt gate. `elapsedMs` also includes the last wave audit, observer shutdown and final state queries; it excludes fixture preparation, the final aggregate receipt audit and recovery. Finality percentiles measure each successful claim from its own submission through finalized notification and receipt lookup, not from the first wave's start.
 
 Then dispatch `users=10000`, `mode=burst`, `pool=enlarged`. Both People collators receive `--pool-limit=11000 --pool-kbytes=40960` (40 MiB of transaction bytes). Check the effective limits in the saved startup logs. This separate experiment changes buffering, not block execution capacity. Push-triggered checks remain 1,000 claims in one burst with the default pool.
+
+### Claim capacity exploration
+
+The claim workflow accepts up to 100,000 actors. This is a safety ceiling for the
+experiment, not a measured capacity. Start at 20,000 with `pool=enlarged` and
+`pool_transactions=22000`; increase only after inspecting receipts, state,
+recovery and resource samples. The enlarged pool keeps its 40 MiB byte budget.
+Each run still launches one signed transfer per source coin, with no retries.
+The one-second launch target remains unchanged: a missed target is a generator
+limit, not proof that the chain cannot execute that many claims.
+
+`fixture_batch` defaults to 1,000 root-seeded coins per setup transaction (formerly
+100). Setup is excluded from burst timing and every seeded source coin is checked
+before signing. This improves preparation time without changing the claim calls.
+RPC subscription capacity scales with the requested actor count and is recorded
+in the fixture artifact. Compare actual pool startup arguments and hardware
+between runs; the runner label alone does not identify the machine's capacity.
+
+`runner-hardware.json` records CPU details, affinity, memory and cgroup limits,
+and disk capacity. `node-metrics.jsonl` also records host CPU, memory pressure,
+I/O and cgroup counters every five seconds. Missing counters remain explicit.
+Report burst admission, successful finalized receipts, finality latency and
+recovery separately. All local network processes share this runner, so the result
+is a limit of this test deployment, not a production-wide Coinage capacity claim.

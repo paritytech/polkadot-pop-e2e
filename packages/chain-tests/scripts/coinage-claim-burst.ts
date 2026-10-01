@@ -18,9 +18,13 @@ import {
 } from '../src/lib/coinage-client.js';
 
 const users = Number(process.env.ACTOR_COUNT ?? '100');
-assert(Number.isInteger(users) && users >= 1 && users <= 10000);
+assert(Number.isInteger(users) && users >= 1 && users <= 100000);
 const mode = process.env.LOAD_MODE ?? 'burst';
 const firstWave = Number(process.env.FIRST_WAVE ?? '8000');
+const fixtureBatch = Number(process.env.FIXTURE_BATCH ?? '1000');
+assert(Number.isInteger(fixtureBatch) && fixtureBatch >= 100 && fixtureBatch <= 1000);
+const poolTransactions = Number(process.env.POOL_TRANSACTIONS ?? '11000');
+assert(Number.isInteger(poolTransactions) && poolTransactions >= 11000 && poolTransactions <= 110000);
 const poolProfile = process.env.POOL_PROFILE ?? 'default';
 assert(mode === 'burst' || mode === 'paced');
 assert(poolProfile === 'default' || poolProfile === 'enlarged');
@@ -103,12 +107,12 @@ async function stage(count: number, name: string) {
   assert.equal(new Set(actors.flatMap(a => [a.source, a.recipient])).size, count * 2);
   const originalCoin = { instance_id: instanceId, value: denomination, age: 0 };
   const recipientCoin = { ...originalCoin, age: 1 };
-  for (let offset = 0; offset < count; offset += 100) {
-    const items: [Uint8Array, Uint8Array][] = await Promise.all(actors.slice(offset, offset + 100).map(async actor => [
+  for (let offset = 0; offset < count; offset += fixtureBatch) {
+    const items: [Uint8Array, Uint8Array][] = await Promise.all(actors.slice(offset, offset + fixtureBatch).map(async actor => [
       Binary.fromHex(await api.query.Coinage.CoinsByOwner.getKey(actor.source)),
       codecs.query.Coinage.CoinsByOwner.value.enc(originalCoin),
     ] as [Uint8Array, Uint8Array]));
-    await fixture(`seed source coins ${offset}..${Math.min(offset + 100, count) - 1}`,
+    await fixture(`seed source coins ${offset}..${Math.min(offset + fixtureBatch, count) - 1}`,
       api.tx.Sudo.sudo({ call: api.tx.System.set_storage({ items }).decodedCall }), true);
   }
   const { hash: at, number: startingBlock } = await client.getFinalizedBlock();
@@ -144,7 +148,8 @@ async function stage(count: number, name: string) {
     save(`${name}-fixture`, { count, instanceId, instance, backing, palletAccount, originalCoin,
       fixtureMethod: 'root storage seeding; issuance bypassed; external backing minted',
       startingBlock, at, senderConnections: 1, submissionRpc: 'author_submitAndWatchExtrinsic',
-      rpcSubscriptionsPerConnection: 20050, statePruning: 256, poolProfile,
+      rpcSubscriptionsPerConnection: Math.max(20050, 2 * users + 50), statePruning: 256, poolProfile,
+      poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined, fixtureBatch,
       mortality: 'immortal (disposable fork only)', preparationMs: performance.now() - prepStart,
       actors: actors.map(({ id, source, recipient }) => ({ id, source, recipient })) });
     console.log(json({ phase: 'prepared', name, count }));
@@ -249,7 +254,7 @@ async function stage(count: number, name: string) {
       users: count, wallStart, sent: sentAt.length, finalized, verified,
       passed, guard, generatorLimited, sendWindowMs,
       elapsedMs: performance.now() - started,
-      poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? Math.max(...signals) : null,
+      poolReadyCount: signals.length, poolReadyWindowMs: signals.length ? signals.reduce((max, value) => Math.max(max, value), 0) : null,
       finalityProgress, settledAtMs: settledAt, drainAfterLastSendMs: settledAt - (sentAt.at(-1) ?? 0),
       finalityMs: latencies(results.filter(r => r.status === 'finalized').map(r => r.elapsedMs)),
       outcomes: results.reduce<Record<string, number>>((counts, r) => {

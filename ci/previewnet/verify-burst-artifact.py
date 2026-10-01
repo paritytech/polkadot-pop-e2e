@@ -2,7 +2,18 @@
 import argparse
 import hashlib
 import json
+from functools import lru_cache
 from pathlib import Path
+
+
+@lru_cache(maxsize=2)
+def read_evidence(path):
+    evidence = json.loads(path.read_text())
+    by_index = {}
+    for item in evidence['events']:
+        if item['phase']['type'] == 'ApplyExtrinsic':
+            by_index.setdefault(item['phase']['value'], []).append(item['event'])
+    return evidence, by_index
 
 
 def verify(root, audit_path):
@@ -16,7 +27,7 @@ def verify(root, audit_path):
     actors = set()
     for receipt in receipts:
         block_info = receipt['block']
-        evidence = json.loads((root / 'evidence' / name / f"block-{block_info['number']}.json").read_text())
+        evidence, by_index = read_evidence(root / 'evidence' / name / f"block-{block_info['number']}.json")
         assert evidence['hash'] == block_info['hash']
         assert int(evidence['block']['block']['header']['number'], 16) == block_info['number']
         assert {view['port'] for view in evidence['finalityViews']} == {10010, 10011}
@@ -31,8 +42,7 @@ def verify(root, audit_path):
         assert digest not in hashes and receipt['actor'] not in actors, f'{name}: duplicate receipt'
         hashes.add(digest)
         actors.add(receipt['actor'])
-        events = [item['event'] for item in evidence['events']
-                  if item['phase']['type'] == 'ApplyExtrinsic' and item['phase']['value'] == block_info['index']]
+        events = by_index.get(block_info['index'], [])
         kinds = {(item['type'], item['value']['type']) for item in events}
         assert ('System', 'ExtrinsicSuccess') in kinds
         assert ('System', 'ExtrinsicFailed') not in kinds

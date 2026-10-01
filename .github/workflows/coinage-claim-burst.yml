@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       users:
-        description: Claims after the mandatory one-claim smoke test (1–10000)
+        description: Claims after the mandatory one-claim smoke test (1–100000)
         type: string
         default: '1000'
       mode:
@@ -21,6 +21,14 @@ on:
         type: choice
         options: [default, enlarged]
         default: default
+      pool_transactions:
+        description: Ready-pool entry limit when enlarged (11000–110000); byte limit stays 40 MiB
+        type: string
+        default: '11000'
+      fixture_batch:
+        description: Root-seeded coins per setup transaction (100–1000); outside measured burst
+        type: string
+        default: '1000'
   push:
     branches: [feat/th-coinage-claim-burst]
     paths:
@@ -48,6 +56,8 @@ jobs:
       LOAD_MODE: ${{ inputs.mode || 'burst' }}
       FIRST_WAVE: ${{ inputs.first_wave || '8000' }}
       POOL_PROFILE: ${{ inputs.pool || 'default' }}
+      POOL_TRANSACTIONS: ${{ inputs.pool_transactions || '11000' }}
+      FIXTURE_BATCH: ${{ inputs.fixture_batch || '1000' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,7 +69,7 @@ jobs:
           node-version: '24'
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 10000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000; assert 11000 <= int(os.environ["POOL_TRANSACTIONS"]) <= 110000; assert 100 <= int(os.environ["FIXTURE_BATCH"]) <= 1000; assert os.environ["LOAD_MODE"] != "paced" or (n == 10000 and 1 <= int(os.environ["FIRST_WAVE"]) < n)'
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
@@ -88,9 +98,10 @@ jobs:
           for node in people['collators']:
               node['args'] = [a for a in node['args'] if not a.startswith('--rpc-max-connections=')]
               node['args'] += ['--rpc-max-connections=1024']
-              node['args'] += ['--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+              subscriptions = max(20050, 2 * int(os.environ['ACTOR_COUNT']) + 50)
+              node['args'] += [f'--rpc-max-subscriptions-per-connection={subscriptions}', '--offchain-worker=always']
               if os.environ['POOL_PROFILE'] == 'enlarged':
-                  node['args'] += ['--pool-limit=11000', '--pool-kbytes=40960']
+                  node['args'] += [f"--pool-limit={os.environ['POOL_TRANSACTIONS']}", '--pool-kbytes=40960']
           path.write_text(tomli_w.dumps(config))
           PY
           cp ppn/provenance.json network-out/
