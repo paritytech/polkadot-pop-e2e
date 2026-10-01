@@ -57,7 +57,7 @@ pub enum Sample {
     },
 }
 
-/// One best block of People (`blocks.jsonl`).
+/// One block of People (`blocks.jsonl`): a best block, or one a best block builds on.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockRecord {
@@ -65,9 +65,13 @@ pub struct BlockRecord {
     pub number: u32,
     /// Block hash, hex.
     pub hash: String,
-    /// Wall clock when it arrived as a new best block.
+    /// Wall clock when it arrived as a new best block (a filled-in block: when the best block
+    /// on it arrived).
     pub seen_at: Millis,
-    /// Wall-clock gap to the block recorded before it.
+    /// Never a best block itself: read because a later best block builds on it (after a reorg,
+    /// the node announces only the new tip). No gap or interval.
+    pub filled_in: bool,
+    /// Wall-clock gap to the best block recorded before it.
     pub gap_ms: Option<u64>,
     /// `Timestamp.Now` of the block.
     pub timestamp: Millis,

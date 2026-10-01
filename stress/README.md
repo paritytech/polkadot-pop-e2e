@@ -141,7 +141,7 @@ Each run creates `results/<scenario>-<unix-seconds>/` (override the root with `-
 | `scrapes.jsonl` | Raw node metric scrapes |
 | `chain.jsonl` | Relay and Recycler recorder series |
 | `load.jsonl` | Sender and transaction tracker series |
-| `blocks.jsonl` | Blocks observed by the load tracker |
+| `blocks.jsonl` | Blocks read by the load tracker: every best block, and the ones filled in below one after a reorg (`filledIn`) |
 | `node.jsonl` | People process CPU and memory samples |
 | `steps.jsonl` | Final measurements for each load step |
 | `lost.jsonl` | Each lost flood tx: step, scenario details, its state on the finalized chain, and a fresh validation |

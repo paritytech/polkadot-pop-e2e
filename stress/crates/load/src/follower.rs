@@ -1,13 +1,16 @@
 //! Follows People's best and finalized blocks. Two tasks:
 //! - heads: sends [`BlockEvent::Head`] the moment a new best block arrives (the stall rule reads
-//!   it), and queues the block for the fetcher;
+//!   it), and queues the block for the fetcher, after the blocks it builds on that were never
+//!   read: after a reorg the node announces only the new tip, so the branch below it is
+//!   filled in;
 //! - fetcher: reads each queued block (body, weight, timestamp, events) strictly in arrival
 //!   order and sends [`BlockEvent::Fetched`]. In order, so a source never sees a later block
 //!   (and expires txs) before the inclusions of an earlier one.
 
 use std::collections::HashSet;
+use std::future::Future;
 
-use stress_chain::{Client, DecodeAsType, events, fetch, tx_hash};
+use stress_chain::{ChainError, Client, DecodeAsType, events, fetch, tx_hash};
 use stress_files::{BlockRecord, Millis};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -27,7 +30,7 @@ pub enum BlockEvent {
         /// When it arrived.
         seen_at: Millis,
     },
-    /// A best block, read. `record.ours` is for the tracker to fill in.
+    /// A best block or a filled-in one, read. `record.ours` is for the tracker to fill in.
     Fetched {
         /// The block.
         record: BlockRecord,
@@ -67,6 +70,12 @@ struct PerClass {
 /// The running runtime's normal class limit (ref time, proof size), from `System.BlockWeights`.
 pub type Limit = (u64, u64);
 
+/// A block for the fetcher: hash, number, when it arrived, filled in.
+type Queued = ([u8; 32], u32, Millis, bool);
+
+/// Blocks filled in below one best block at most; a longer walk is an unreadable stretch.
+const MAX_FILL: usize = 64;
+
 /// Starts both tasks; they end at `stop`.
 pub fn start(client: Client, limit: Limit, out: mpsc::UnboundedSender<BlockEvent>, stop: CancellationToken) {
     let (queue_tx, queue) = mpsc::unbounded_channel();
@@ -74,7 +83,7 @@ pub fn start(client: Client, limit: Limit, out: mpsc::UnboundedSender<BlockEvent
     tokio::spawn(fetcher(client, limit, out, queue, stop));
 }
 
-async fn heads(client: Client, out: mpsc::UnboundedSender<BlockEvent>, queue: mpsc::UnboundedSender<([u8; 32], u32, Millis)>, stop: CancellationToken) {
+async fn heads(client: Client, out: mpsc::UnboundedSender<BlockEvent>, queue: mpsc::UnboundedSender<Queued>, stop: CancellationToken) {
     let (Ok(mut best), Ok(mut finalized)) = (client.api().stream_best_blocks().await, client.api().stream_blocks().await) else {
         let _ = out.send(BlockEvent::Unreadable("cannot subscribe to blocks".into()));
         return;
@@ -100,10 +109,18 @@ async fn heads(client: Client, out: mpsc::UnboundedSender<BlockEvent>, queue: mp
             block = best.next() => match block {
                 None => { let _ = out.send(BlockEvent::Unreadable("the best block stream ended".into())); return }
                 Some(block) => match block {
-                Ok(b) if b.number() as u32 >= first && seen.insert(b.hash()) => {
-                    let (number, seen_at) = (b.number() as u32, now_ms());
-                    let _ = out.send(BlockEvent::Head { number, hash: b.hash().0, seen_at });
-                    let _ = queue.send((b.hash().0, number, seen_at));
+                Ok(b) if b.number() as u32 >= first && !seen.contains(&b.hash().0) => {
+                    let (number, hash, seen_at) = (b.number() as u32, b.hash().0, now_ms());
+                    let _ = out.send(BlockEvent::Head { number, hash, seen_at });
+                    match fill_in(b.header().parent_hash.0, number, first, &seen, |h| client.parent(h)).await {
+                        Ok(missing) => for (h, n) in missing {
+                            seen.insert(h);
+                            let _ = queue.send((h, n, seen_at, true));
+                        },
+                        Err(e) => { let _ = out.send(BlockEvent::Unreadable(format!("blocks below {number}: {e}"))); }
+                    }
+                    seen.insert(hash);
+                    let _ = queue.send((hash, number, seen_at, false));
                 }
                 Ok(_) => {}
                 Err(e) => { let _ = out.send(BlockEvent::Unreadable(format!("best: {e}"))); }
@@ -112,28 +129,53 @@ async fn heads(client: Client, out: mpsc::UnboundedSender<BlockEvent>, queue: mp
     }
 }
 
+/// The blocks a new best block (`number`, on `parent`) builds on that are not in `seen`,
+/// oldest first. The walk stops at a block in `seen` or at `first`, the first block followed.
+async fn fill_in<F, Fut>(mut parent: [u8; 32], mut number: u32, first: u32, seen: &HashSet<[u8; 32]>, mut parent_of: F) -> Result<Vec<([u8; 32], u32)>, ChainError>
+where
+    F: FnMut([u8; 32]) -> Fut,
+    Fut: Future<Output = Result<[u8; 32], ChainError>>,
+{
+    let mut missing = Vec::new();
+    while number > first && !seen.contains(&parent) {
+        if missing.len() == MAX_FILL {
+            return Err(ChainError::Read { what: "filled-in blocks", detail: format!("no block read in the {MAX_FILL} below") });
+        }
+        number -= 1;
+        missing.push((parent, number));
+        if number > first {
+            parent = parent_of(parent).await?;
+        }
+    }
+    missing.reverse();
+    Ok(missing)
+}
+
 /// Reads up to 4 blocks at a time; results still come out in arrival order.
 const FETCH_AHEAD: usize = 4;
 
-async fn fetcher(client: Client, limit: Limit, out: mpsc::UnboundedSender<BlockEvent>, mut queue: mpsc::UnboundedReceiver<([u8; 32], u32, Millis)>, stop: CancellationToken) {
+async fn fetcher(client: Client, limit: Limit, out: mpsc::UnboundedSender<BlockEvent>, mut queue: mpsc::UnboundedReceiver<Queued>, stop: CancellationToken) {
     use futures_util::StreamExt;
     let blocks = futures_util::stream::poll_fn(move |cx| queue.poll_recv(cx));
-    let mut reads = blocks.map(|(hash, number, seen_at)| {
+    let mut reads = blocks.map(|(hash, number, seen_at, filled_in)| {
         let client = client.clone();
-        async move { (hash, number, seen_at, read(&client, hash, number, seen_at, limit).await) }
+        async move { (hash, number, seen_at, filled_in, read(&client, hash, number, seen_at, limit).await) }
     }).buffered(FETCH_AHEAD);
-    let mut last: Option<(u64, Millis)> = None; // (timestamp, seen_at)
+    let mut last: Option<(u64, Millis)> = None; // (timestamp, seen_at) of the last best block
     loop {
-        let (hash, number, seen_at, result) = tokio::select! {
+        let (hash, number, seen_at, filled_in, result) = tokio::select! {
             () = stop.cancelled() => return,
             Some(r) = reads.next() => r,
         };
         match result {
             Ok((mut record, txs)) => {
-                record.gap_ms = last.map(|(_, s)| seen_at.saturating_sub(s));
-                record.interval_ms = last.map(|(t, _)| record.timestamp as i64 - t as i64);
                 record.fetch_lag_ms = Some(now_ms().saturating_sub(seen_at));
-                last = Some((record.timestamp, seen_at));
+                record.filled_in = filled_in;
+                if !filled_in {
+                    record.gap_ms = last.map(|(_, s)| seen_at.saturating_sub(s));
+                    record.interval_ms = last.map(|(t, _)| record.timestamp as i64 - t as i64);
+                    last = Some((record.timestamp, seen_at));
+                }
                 let _ = out.send(BlockEvent::Fetched { record, hash, txs });
             }
             Err(e) if e.fault() == stress_chain::Fault::Tool => {
@@ -175,4 +217,53 @@ async fn read(client: &Client, hash: [u8; 32], number: u32, seen_at: Millis, lim
     };
     let txs = body.iter().enumerate().map(|(i, x)| (tx_hash(x), failed.contains(&(i as u32)))).collect();
     Ok((record, txs))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn h(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
+    /// Runs `fill_in` over a chain given as child -> parent, counting the parent reads.
+    fn fill(chain: &HashMap<[u8; 32], [u8; 32]>, parent: [u8; 32], number: u32, first: u32, seen: &[[u8; 32]]) -> (Vec<([u8; 32], u32)>, usize) {
+        let seen: HashSet<[u8; 32]> = seen.iter().copied().collect();
+        let mut reads = 0;
+        let out = futures_util::FutureExt::now_or_never(fill_in(parent, number, first, &seen, |x| {
+            reads += 1;
+            std::future::ready(chain.get(&x).copied().ok_or(ChainError::Read { what: "test", detail: "no parent".into() }))
+        })).expect("ready").expect("walks");
+        (out, reads)
+    }
+
+    #[test]
+    fn a_reorg_fills_in_the_new_branch() {
+        // Read: 10 -> 11 -> 12. The node switches to 13' on 12' on 11' on 10, and announces 13'.
+        let chain = HashMap::from([(h(111), h(10)), (h(112), h(111))]);
+        let (out, reads) = fill(&chain, h(112), 13, 5, &[h(10), h(11), h(12)]);
+        assert_eq!(out, [(h(111), 11), (h(112), 12)]);
+        assert_eq!(reads, 2);
+    }
+
+    #[test]
+    fn a_best_block_on_the_last_one_fills_in_nothing() {
+        let (out, reads) = fill(&HashMap::new(), h(12), 13, 5, &[h(12)]);
+        assert!(out.is_empty());
+        assert_eq!(reads, 0);
+    }
+
+    #[test]
+    fn the_walk_stops_at_the_first_block_followed() {
+        // The first best block followed is 5: nothing below it is read, its parent included.
+        let (out, _) = fill(&HashMap::new(), h(4), 5, 5, &[]);
+        assert!(out.is_empty());
+        let chain = HashMap::from([(h(6), h(5))]);
+        let (out, reads) = fill(&chain, h(6), 7, 5, &[]);
+        assert_eq!(out, [(h(5), 5), (h(6), 6)]);
+        assert_eq!(reads, 1);
+    }
 }

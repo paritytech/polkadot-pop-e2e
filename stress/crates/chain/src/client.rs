@@ -175,6 +175,12 @@ impl Client {
         self.try_block_hash(number).await?.ok_or_else(|| ChainError::Read { what: "block hash", detail: format!("the node has no block {number}") })
     }
 
+    /// The parent hash of block `hash`.
+    pub async fn parent(&self, hash: [u8; 32]) -> Result<[u8; 32], ChainError> {
+        let header: serde_json::Value = self.request("chain_getHeader", rpc_params![format!("0x{}", hex::encode(hash))]).await?;
+        hex32(header["parentHash"].as_str().ok_or_else(|| ChainError::Read { what: "header", detail: format!("no parent hash for 0x{}", hex::encode(hash)) })?)
+    }
+
     /// The best block number now.
     pub async fn best_number(&self) -> Result<u32, ChainError> {
         let best: serde_json::Value = self.request("chain_getHeader", rpc_params![]).await?;

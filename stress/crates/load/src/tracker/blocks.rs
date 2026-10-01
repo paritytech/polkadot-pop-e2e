@@ -1,4 +1,7 @@
-//! Block events: our txs in each best block, expiry, and one probe per block.
+//! Block events: our txs in each block read (best blocks and the ones filled in below them),
+//! expiry, and one probe per best block. A tx counts as included the first time it is in a
+//! block read, also when a reorg later replaces that block (it is then usually included again);
+//! the loss check counts once more on the finalized chain.
 
 use stress_files::registry::{TX_EXPIRED, TX_FAILED, TX_INCLUDED, TX_INCLUSION};
 use stress_files::summary::{Outcome, Probe, ProbePhase};
@@ -11,7 +14,7 @@ use crate::submit::Submit;
 
 impl<S: Submit> Tracker<S> {
     /// A block event. A new head moves the sources' birth block and sends one probe (baseline
-    /// and recovery); a fetched block settles our txs in it.
+    /// and recovery); a fetched block (best or filled in) settles our txs in it.
     pub fn on_block(&mut self, event: BlockEvent, now: Millis) -> Result<(), FileError> {
         match event {
             BlockEvent::Head { number, hash, seen_at } => {
