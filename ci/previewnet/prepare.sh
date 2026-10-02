@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 out = Path(sys.argv[1])
 manifest = json.loads(Path('environments/networks/previewnet.json').read_text())
 provenance = {'engine_commit': '7907a3bfa7b2e47535a74b7920086a05ca94773a', 'assets': []}
@@ -19,9 +20,19 @@ def download(repo, tag, names):
     for name in names:
         asset = assets[name]
         target = out / ('fork-bundle-previewnet.tar.gz' if name.startswith('fork-bundle') else f'bin/{name}')
-        with target.open('wb') as dest:
-            subprocess.run(['gh', 'api', '-H', 'Accept: application/octet-stream',
-                            f"repos/{repo}/releases/assets/{asset['id']}"], stdout=dest, check=True, timeout=600)
+        for attempt in range(3):
+            try:
+                # Truncate partial bytes before retrying the same pinned asset.
+                with target.open('wb') as dest:
+                    subprocess.run(['gh', 'api', '-H', 'Accept: application/octet-stream',
+                                    f"repos/{repo}/releases/assets/{asset['id']}"], stdout=dest, check=True, timeout=600)
+                break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                target.unlink(missing_ok=True)
+                if attempt == 2:
+                    raise
+                print(f'Retrying release download {name} ({attempt + 2}/3)', file=sys.stderr, flush=True)
+                time.sleep(10 * (attempt + 1))
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if asset.get('digest') and asset['digest'] != 'sha256:' + digest:
             raise RuntimeError(f'Release digest mismatch: {name}')
