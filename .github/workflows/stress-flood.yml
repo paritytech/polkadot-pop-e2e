@@ -16,10 +16,8 @@ name: Stress · flood
 # The result is in the job summary and the uploaded artifacts
 
 on:
-  # TEMP: a push to the PR branch runs a smoke flood, because workflow_dispatch only works once
-  # this file is on main. Remove this trigger and the `|| ...` push fallbacks below before merging.
-  # TEMP: the engine ref defaults to previewnet-engine#40 (`andrzej-fork-hrmp-fix`); revert to
-  # 'main' once #40 is merged.
+  # TEMP: a push to the PR branch runs a focused stress flood, because workflow_dispatch only
+  # works once this file is on main. Remove this trigger and the `|| ...` push fallbacks before merging.
   push:
     branches: [stress-tests-mvp]
     paths:
@@ -51,11 +49,8 @@ on:
         description: "Extra flood arguments, e.g. --members 1000 --step 6 --steps 12 --recovery 1200"
         default: ""
       ppn_ref:
-        # Needs previewnet-engine#39 (bite-time cores and collators); no tag has it yet.
-        # TEMP: the default is previewnet-engine#40 (HRMP/DMP reset on every bite; without it
-        # Asset Hub stalls on "HRMP head mismatch"). Back to "main" once #40 is merged.
         description: "previewnet-engine ref"
-        default: "andrzej-fork-hrmp-fix"
+        default: "main"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -75,14 +70,9 @@ jobs:
       FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
       RESULTS_DIR: ${{ github.workspace }}/stress-results
       SCENARIO: ${{ inputs.scenario || 'stmt-flood' }}
-      # TMP: stress run only. The push fallback re-runs the breaking point of run 36881380136
-      # (12 tx/s held, 18 tx/s lost 109 claims during reorgs; stress/FINDINGS.md, finding 1): two
-      # 60 s steps at 12 and 18 tx/s, so the loss check can tell lost claims from claims the
-      # tracker missed in a reorg. 200 people × 20 slots = 4000 claims cover the 1800 txs and the
-      # 465 probes kept for a 900 s recovery at 2 s blocks.
-      # Revert to the smoke run from stress/README.md ('--members 40 --slots 12 --start 2 --step 2
-      # --interval 30 --steps 3 --recovery 120 --probes 3' and 'smoke') once the stress run is done.
-      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 200 --slots 20 --start 12 --step 6 --interval 60 --steps 2 --recovery 900 --probes 5' || inputs.args }}
+      # Focus on the current capacity boundary: 12, 15, 18 and 21 tx/s. The 5000 claims cover
+      # 3960 load txs plus the baseline and up to about 465 recovery probes at 2 s blocks.
+      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 250 --slots 20 --start 12 --step 3 --interval 60 --steps 4 --recovery 900 --probes 5' || inputs.args }}
       MODE: ${{ inputs.mode || 'stress' }}
       # The same layout goes to the bite and to the start: `ppn start` refuses a
       # bundle whose recorded layout differs from the one it is asked for.
@@ -96,8 +86,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          # TEMP: previewnet-engine#40 until it is merged; then back to 'main' (here and in `ppn_ref`).
-          ref: ${{ inputs.ppn_ref || 'andrzej-fork-hrmp-fix' }}
+          ref: ${{ inputs.ppn_ref || 'main' }}
           path: ppn
 
       # Node and pnpm are for the engine only: it builds itself and runs `ppn fork wait`.
