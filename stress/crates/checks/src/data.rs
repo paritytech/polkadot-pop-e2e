@@ -2,7 +2,11 @@
 //!
 //! Values at a time: node series are scraped, so a step edge takes the first scrape at or after
 //! the edge (the edge scrape lands a few ms after it). Our own series only change on events, so
-//! they take the last value at or before the time, or 0.
+//! they take the last value at or before the time, or 0. A labelled counter shows up on its
+//! first increment, so a node series that first appears after the node's first scrape is 0
+//! before that.
+
+use std::collections::HashMap;
 
 use stress_files::summary::Summary;
 use stress_files::{Series, Store};
@@ -33,8 +37,20 @@ impl std::fmt::Display for CounterReset {
     }
 }
 
-fn value_at(s: &Series, t: f64) -> f64 {
+/// How late after an edge its scrape may land, in ms (scrapes are 5 s apart).
+const EDGE_SCRAPE_MS: f64 = 1000.0;
+
+fn node(s: &Series) -> (String, String) {
+    let get = |k: &str| s.labels.get(k).cloned().unwrap_or_default();
+    (get("job"), get("instance"))
+}
+
+fn value_at(s: &Series, t: f64, node_first: Option<f64>) -> f64 {
     let scraped = s.labels.get("job").is_none_or(|j| j != "stress");
+    let born = s.points.first().map_or(f64::INFINITY, |p| p.t);
+    if scraped && born > t + EDGE_SCRAPE_MS && node_first.is_some_and(|n| born > n + EDGE_SCRAPE_MS) {
+        return 0.0;
+    }
     let p = if scraped {
         s.points.iter().find(|p| p.t >= t).or(s.points.last())
     } else {
@@ -54,13 +70,26 @@ pub struct RunData {
     pub summary: Summary,
     /// People's block interval before the run.
     pub block_interval_s: f64,
+    /// Each node's first scrape, by (job, instance).
+    node_first: HashMap<(String, String), f64>,
 }
 
 impl RunData {
     /// From a parsed `run.om` and summary.
     pub fn new(store: Store, summary: Summary) -> Self {
         let block_interval_s = summary.network.block_interval_s;
-        Self { store, summary, block_interval_s }
+        let mut node_first: HashMap<(String, String), f64> = HashMap::new();
+        for s in store.values().flatten() {
+            if let Some(p) = s.points.first() {
+                let t = node_first.entry(node(s)).or_insert(p.t);
+                *t = t.min(p.t);
+            }
+        }
+        Self { store, summary, block_interval_s, node_first }
+    }
+
+    fn value_at(&self, s: &Series, t: f64) -> f64 {
+        value_at(s, t, self.node_first.get(&node(s)).copied())
     }
 
     /// Series of `name` whose labels match.
@@ -77,14 +106,14 @@ impl RunData {
     /// The value at `t`, summed over matching series; `None` when none matches.
     pub fn at(&self, name: &str, filter: Filter<'_>, t: f64) -> Option<f64> {
         let list = self.series(name, filter);
-        (!list.is_empty()).then(|| list.iter().map(|s| value_at(s, t)).sum())
+        (!list.is_empty()).then(|| list.iter().map(|s| self.value_at(s, t)).sum())
     }
 
     /// A counter's increase over `w`, summed over matching series.
     pub fn diff(&self, name: &str, filter: Filter<'_>, w: &Window) -> Result<Option<f64>, CounterReset> {
         let mut sum = None;
         for s in self.series(name, filter) {
-            let (a, b) = (value_at(s, w.start), value_at(s, w.end));
+            let (a, b) = (self.value_at(s, w.start), self.value_at(s, w.end));
             if b < a {
                 return Err(CounterReset(format!("{name} went down from {a} to {b}")));
             }
@@ -102,7 +131,7 @@ impl RunData {
                 Some(le) => le.parse().unwrap_or(f64::NAN),
                 None => continue,
             };
-            let (a, b) = (value_at(s, w.start), value_at(s, w.end));
+            let (a, b) = (self.value_at(s, w.start), self.value_at(s, w.end));
             if b < a {
                 return Err(CounterReset(format!("{name} went down from {a} to {b}")));
             }
@@ -157,7 +186,7 @@ impl RunData {
         let (mut min, mut max) = (0.0, 0.0);
         for s in list {
             let inside: Vec<f64> = s.points.iter().filter(|p| p.t >= w.start && p.t <= w.end).map(|p| p.value).collect();
-            let values = if inside.is_empty() { vec![value_at(s, w.start)] } else { inside };
+            let values = if inside.is_empty() { vec![self.value_at(s, w.start)] } else { inside };
             min += values.iter().copied().fold(f64::INFINITY, f64::min);
             max += values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         }
@@ -173,9 +202,12 @@ impl RunData {
     pub fn end_reasons(&self, w: &Window) -> Result<Vec<(String, f64)>, CounterReset> {
         const END_REASON: &str = "substrate_proposer_end_proposal_reason";
         const COLLATOR: (&str, &str) = ("job", "people-collator");
+        // One series per collator and reason; `diff` already sums the collators, so once per reason.
+        let mut reasons: Vec<&str> = self.series(END_REASON, &[COLLATOR]).iter().filter_map(|s| s.labels.get("reason").map(String::as_str)).collect();
+        reasons.sort_unstable();
+        reasons.dedup();
         let mut out: Vec<(String, f64)> = Vec::new();
-        for s in self.series(END_REASON, &[COLLATOR]) {
-            let reason = s.labels.get("reason").map_or("?", String::as_str);
+        for reason in reasons {
             let n = self.diff(END_REASON, &[COLLATOR, ("reason", reason)], w)?.unwrap_or(0.0);
             if n > 0.0 {
                 match out.iter_mut().find(|(k, _)| k == short_reason(reason)) {

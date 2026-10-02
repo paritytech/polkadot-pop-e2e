@@ -38,6 +38,28 @@ fn steps_and_buckets() {
 }
 
 #[test]
+fn end_reasons_count_each_block_once_over_collators() {
+    let run_om = r#"# TYPE stress_step gauge
+stress_step{instance="load-tool",job="stress"} 0 100.000
+stress_step{instance="load-tool",job="stress"} -1 110.000
+# TYPE substrate_proposer_end_proposal_reason counter
+substrate_proposer_end_proposal_reason{instance="a",job="people-collator",reason="no_more_transactions"} 1 100.001
+substrate_proposer_end_proposal_reason{instance="b",job="people-collator",reason="no_more_transactions"} 2 100.001
+substrate_proposer_end_proposal_reason{instance="b",job="people-collator",reason="hit_deadline"} 0 100.001
+substrate_proposer_end_proposal_reason{instance="a",job="people-collator",reason="no_more_transactions"} 4 110.001
+substrate_proposer_end_proposal_reason{instance="b",job="people-collator",reason="no_more_transactions"} 4 110.001
+substrate_proposer_end_proposal_reason{instance="b",job="people-collator",reason="hit_deadline"} 1 110.001
+substrate_proposer_end_proposal_reason{instance="a",job="people-collator",reason="hit_block_weight_limit"} 2 110.001
+# EOF
+"#;
+    let d = RunData::new(parse_run_om(run_om), summary());
+    let mut reasons = d.end_reasons(&d.steps()[0]).unwrap();
+    reasons.sort_by(|a, b| a.0.cmp(&b.0));
+    // weight: a's series first appears at the end scrape, after a was scraped without it: 0 -> 2.
+    assert_eq!(reasons, vec![("deadline".to_owned(), 1.0), ("empty".to_owned(), 5.0), ("weight".to_owned(), 2.0)]);
+}
+
+#[test]
 fn build_time_fails_when_most_blocks_take_over_2_5_s() {
     let d = RunData::new(parse_run_om(RUN_OM), summary());
     let results = stress_checks::run(&stress_checks::all(), &d);
