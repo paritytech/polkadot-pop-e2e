@@ -86,6 +86,12 @@ pub trait Scenario {
     const ID: &'static str;
     /// Title in the summary.
     const TITLE: &'static str;
+    /// Runtime call or other isolated component under stress.
+    const ARTIFACT: &'static str;
+    /// What one submitted operation does.
+    const ARTIFACT_DESCRIPTION: &'static str;
+    /// Why the operation matters to the product flow.
+    const ARTIFACT_CONTEXT: &'static str;
     /// The scenario's own options (clap `Args` in the binary).
     type Options: serde::Serialize + Send + Sync;
     /// Ramp defaults; the command line can change each one.

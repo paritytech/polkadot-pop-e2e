@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use stress_chain::Client;
-use stress_files::summary::{Loss, LostTx, MaxSustained, Network, NodePool, SCHEMA_VERSION, Summary};
+use stress_files::summary::{Artifact, Loss, LostTx, MaxSustained, Network, NodePool, SCHEMA_VERSION, Summary};
 use stress_files::{FinalStep, NodeMax, NodeSample, RunDir};
 use stress_load::runner::{Io, Mode, RunOptions, baseline, drain, load, recover};
 use stress_load::sender::Sender;
@@ -115,6 +115,11 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
     let summary = Summary {
         schema_version: SCHEMA_VERSION,
         scenario: S::TITLE.into(),
+        artifact: Some(Artifact {
+            name: S::ARTIFACT.into(),
+            description: S::ARTIFACT_DESCRIPTION.into(),
+            context: S::ARTIFACT_CONTEXT.into(),
+        }),
         run_id: dir.run_id.clone(),
         mode: mode.to_string(),
         params: serde_json::json!({ "ramp": ramp, "connections": common.connections, "scenario": opts }),

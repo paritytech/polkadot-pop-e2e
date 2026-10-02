@@ -56,7 +56,10 @@ fn scenario(what: &'static str, detail: impl std::fmt::Display) -> SetupError {
 
 impl Scenario for StmtFlood {
     const ID: &'static str = "stmt-flood";
-    const TITLE: &'static str = "Statement-store claim flood";
+    const TITLE: &'static str = "Statement-store allowance stress test";
+    const ARTIFACT: &'static str = "Resources.set_statement_store_account(period, slot, target)";
+    const ARTIFACT_DESCRIPTION: &'static str = "The Artifact registers a Statement Store allowance for a target account. Each submitted transaction represents one unique person/slot claim and contains the ring-VRF proof required by the `AsResources` transaction extension.";
+    const ARTIFACT_CONTEXT: &'static str = "In the context of coinage, the Statement Store allowance is required to exchange information such as encrypted private keys through the Statement Store in order to perform transfers.";
     type Options = Options;
     /// 6 claims/s fills about 64% of a 6 s People block (1 core); blocks are full at about 8/s,
     /// so most of the ramp is past that point: it looks for what fails once the pool backs up.

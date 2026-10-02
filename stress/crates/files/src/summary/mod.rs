@@ -166,6 +166,18 @@ pub struct Runner {
     pub mem_gi_b: u64,
 }
 
+/// The isolated component exercised by a stress-test scenario.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Artifact {
+    /// Runtime call or other component name.
+    pub name: String,
+    /// What one submitted operation does.
+    pub description: String,
+    /// Why the operation matters to the product flow.
+    pub context: String,
+}
+
 /// `summary.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +186,9 @@ pub struct Summary {
     pub schema_version: u32,
     /// Scenario title.
     pub scenario: String,
+    /// The isolated component under stress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<Artifact>,
     /// Run id.
     pub run_id: String,
     /// smoke or stress.

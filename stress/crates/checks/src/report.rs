@@ -184,6 +184,8 @@ fn step_row(f: &FinalStep) -> String {
     let mut cells = vec![
         f.step.to_string(),
         num(f.target_rate),
+        to_fixed(f.seconds, 1),
+        f.sent.to_string(),
         to_fixed(f.sent_per_s, 0),
         to_fixed(f.included_per_s, 0),
         to_fixed(100.0 * f.included_ratio, 1),
@@ -215,28 +217,53 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
     let r = &s.recovery;
     let bp = s.breaking_point.as_ref().map_or("no measure violated".into(), |b| format!("step {} ({} tx/s): {}, {}", b.step, num(b.target_rate), b.measure, b.detail));
     let best = s.max_sustained.as_ref().map_or("none".into(), |m| format!("{} tx/s target (step {}), {} tx/s included", num(m.target_rate), m.step, to_fixed(m.included_per_s, 0)));
+    let min_included_pct = s.rules.get("minIncludedRatio").and_then(serde_json::Value::as_f64).map(|v| 100.0 * v).unwrap_or(90.0);
+    let max_latency_s = s.rules.get("maxP95LatencyMs").and_then(serde_json::Value::as_f64).map(|v| v / 1000.0).unwrap_or(10.0);
+    let max_refused_pct = s.rules.get("maxRefusedRatio").and_then(serde_json::Value::as_f64).map(|v| 100.0 * v).unwrap_or(1.0);
     let windows = d.steps();
     let step_window = |k: u32| windows.iter().find(|w| w.label == format!("step {k}"));
-    let mut lines: Vec<String> = vec![
-        format!("### {}", s.scenario),
+    let mut lines: Vec<String> = vec![format!("### {}", s.scenario), String::new()];
+    if let Some(artifact) = &s.artifact {
+        lines.extend([
+            "#### Artifact under test".into(),
+            String::new(),
+            format!("`{}`", artifact.name),
+            String::new(),
+            artifact.description.clone(),
+            String::new(),
+            artifact.context.clone(),
+            String::new(),
+        ]);
+    }
+    lines.extend([
+        "#### Stress method".into(),
+        String::new(),
+        "The stress test offers unique, prepared Artifact transactions at increasing rates in consecutive fixed-duration steps. The first step that violates a stress criterion is the failure onset.".into(),
+        String::new(),
+        format!("A step fails the response criteria when fewer than {}% of its transactions are included, p95 send-to-inclusion latency exceeds {} s, or more than {}% of submissions are refused.", to_fixed(min_included_pct, 0), to_fixed(max_latency_s, 1), to_fixed(max_refused_pct, 0)),
+        String::new(),
+        format!("Scenario setup prepared {}. Setup took {} s and is excluded from the measured load. The baseline then sent {} probes, one per block.", s.budget, s.setup_seconds, s.baseline.probes),
+        String::new(),
+        "#### Result".into(),
         String::new(),
         format!("- **Verdict:** {}", overall_status(s, checks).name()),
-        format!("- **Breaking point** (first violated measure): {bp}"),
+        format!("- **Failure onset** (first failed load step): {bp}"),
         format!("- **Max sustained:** {best}"),
         format!("- **Load stop:** {}: {}", s.stop.rule.name(), s.stop.detail),
         format!("- **Recovery:** {}", recovery_line(s)),
         format!("- **Loss check:** {}", loss_line(s)),
         format!("- **Baseline:** {} probes before the load, p50 {} s, max {} s", s.baseline.probes, to_fixed(s.baseline.p50_ms as f64 / 1000.0, 1), to_fixed(s.baseline.max_ms as f64 / 1000.0, 1)),
         format!("- **Network:** People spec {}, {} s blocks at start", s.network.spec_version, num(s.network.block_interval_s)),
-        format!("- **Budget:** {}, set up in {} s", s.budget, s.setup_seconds),
         format!("- **Runner:** {} CPUs ({})", s.runner.cpus, s.runner.cpu_model.as_deref().unwrap_or("?")),
         String::new(),
-        "| step | target tx/s | sent/s | included/s | included % | p50 s | p95 s | reply p95 s | refused | expired | failed | blocks | block gap s (mean / max) | max ours/block | max ref time % | max proof % |".into(),
-        format!("|{}", " ---: |".repeat(16)),
-    ];
+        "#### Load steps".into(),
+        String::new(),
+        format!("| step | target tx/s | duration s | transactions sent | sent/s | included/s | included % | p50 s | p95 s (limit {}) | reply p95 s | refused | expired | failed | blocks | block gap s (mean / max) | max ours/block | max ref time % | max proof % |", to_fixed(max_latency_s, 1)),
+        format!("|{}", " ---: |".repeat(18)),
+    ]);
     lines.extend(steps.iter().map(step_row));
     let mut cells = vec!["recovery".to_owned()];
-    cells.extend(std::iter::repeat_n("-".to_owned(), 10));
+    cells.extend(std::iter::repeat_n("-".to_owned(), 12));
     cells.extend(block_cells(&r.blocks));
     lines.push(row(&cells));
     lines.extend([
@@ -277,7 +304,7 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
 #[cfg(test)]
 mod tests {
     use stress_files::registry::Outcome;
-    use stress_files::summary::BreakingPoint;
+    use stress_files::summary::{Artifact, BreakingPoint};
 
     use super::*;
     use crate::Verdict;
@@ -323,6 +350,26 @@ mod tests {
         assert!(md.contains("- **Load stop:** rate cap"));
         assert!(!md.contains("- **Failure:**"));
         assert!(md.contains("pool validations (all)"));
+    }
+
+    #[test]
+    fn the_summary_explains_the_artifact_load_and_exact_threshold() {
+        let mut s = summary();
+        s.artifact = Some(Artifact {
+            name: "Resources.set_statement_store_account(period, slot, target)".into(),
+            description: "One unique person/slot claim with a ring-VRF proof.".into(),
+            context: "Coinage exchanges encrypted private keys through the Statement Store to perform transfers.".into(),
+        });
+        let step = FinalStep { step: 0, target_rate: 15.0, seconds: 60.0, sent: 900, p95_latency_ms: 8_400, ..FinalStep::default() };
+        let data = RunData::new(parse_run_om("# EOF\n"), s.clone());
+        let md = markdown(&s, &[step], &data, &[]);
+        assert!(md.contains("#### Artifact under test"));
+        assert!(md.contains("`Resources.set_statement_store_account(period, slot, target)`"));
+        assert!(md.contains("Coinage exchanges encrypted private keys"));
+        assert!(md.contains("p95 send-to-inclusion latency exceeds 10.0 s"));
+        assert!(md.contains("p95 s (limit 10.0)"));
+        assert!(md.contains("| 0 | 15 | 60.0 | 900 |"));
+        assert!(!md.contains("wait for one transaction"));
     }
 
     #[test]
