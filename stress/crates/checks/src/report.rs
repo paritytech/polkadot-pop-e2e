@@ -5,7 +5,7 @@
 use stress_files::summary::{ProbePhase, Rule, Summary};
 use stress_files::{BlockStats, FileError, FinalStep, RunDir, build_run_om, num, parse_run_om, to_fixed};
 
-use crate::{CheckResult, RunData, Window, all, run};
+use crate::{CheckResult, RunData, Status, Window, all, run};
 
 /// Builds run.om, runs every check, writes summary.json (with the checks) and summary.md.
 pub fn write(dir: &RunDir, mut summary: Summary, finals: &[FinalStep]) -> Result<Vec<CheckResult>, FileError> {
@@ -22,7 +22,7 @@ pub fn write(dir: &RunDir, mut summary: Summary, finals: &[FinalStep]) -> Result
 
 /// The whole summary.md.
 pub fn markdown(s: &Summary, finals: &[FinalStep], d: &RunData, checks: &[CheckResult]) -> String {
-    format!("{}\n### Outcome checks\n\n{}\n", render_summary(s, finals, d), render_checks(checks))
+    format!("{}\n### Outcome checks\n\n{}\n", render_summary(s, finals, d, checks), render_checks(checks))
 }
 
 /// The checks table.
@@ -95,22 +95,43 @@ fn collator_cells(c: Option<&CollatorStep>) -> Vec<String> {
     vec![fmt(c.and_then(|c| c.build_ms), 0), fmt(c.and_then(|c| c.validations), 0), fmt(c.and_then(|c| c.waiting), 0), fmt(c.and_then(|c| c.ready), 0), why]
 }
 
-fn headline(s: &Summary, steps: &[FinalStep]) -> String {
-    let rate_of = |step: Option<u32>| step.and_then(|k| steps.iter().find(|f| f.step == k)).map_or("null".to_owned(), |f| num(f.target_rate));
-    match s.stop.class {
-        Some(class) => format!("failed at {} tx/s: {} ({})", rate_of(s.stop.step), s.stop.rule.name(), class.name()),
-        None if s.stop.rule == Rule::RateCap => format!("no failure up to {} tx/s", steps.last().map_or("0".into(), |f| num(f.target_rate))),
-        None => format!("ended by {} before a failure", s.stop.rule.name()),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverallStatus {
+    Pass,
+    Warn,
+    Fail,
+    Inconclusive,
+}
+
+impl OverallStatus {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Pass => "PASS",
+            Self::Warn => "WARN",
+            Self::Fail => "FAIL",
+            Self::Inconclusive => "INCONCLUSIVE",
+        }
     }
 }
 
-fn verdict(s: &Summary) -> String {
-    if s.stop.class.is_some() || !s.failure_modes.is_empty() {
-        format!("Failure modes: {}.", s.failure_modes.iter().map(|m| format!("**{}** ({})", m.class.name(), m.what)).collect::<Vec<_>>().join("; "))
-    } else if s.stop.rule == Rule::RateCap {
-        "No failure. A stress test that ends without failure is a performance test with a generous budget: raise `--steps` or `--step`.".into()
+/// One top-level answer from the runner's stop, its performance measure and the outcome checks.
+fn overall_status(s: &Summary, checks: &[CheckResult]) -> OverallStatus {
+    if s.stop.class.is_some() || !s.failure_modes.is_empty() || s.breaking_point.is_some() || checks.iter().any(|r| r.verdict.status == Status::Fail) {
+        return OverallStatus::Fail;
+    }
+    if s.stop.rule != Rule::RateCap {
+        return OverallStatus::Inconclusive;
+    }
+    let definitions = all();
+    let required_gap = checks.iter().any(|r| {
+        r.verdict.status == Status::NoResult && definitions.iter().any(|c| c.name == r.check && !c.optional)
+    });
+    if required_gap {
+        OverallStatus::Inconclusive
+    } else if checks.iter().any(|r| r.verdict.status == Status::Warn) {
+        OverallStatus::Warn
     } else {
-        format!("Not a stress result: the run ended before the chain failed ({}).", s.stop.rule.name())
+        OverallStatus::Pass
     }
 }
 
@@ -190,19 +211,19 @@ fn rpc_errors(steps: &[FinalStep]) -> Vec<(String, u64)> {
     errors
 }
 
-fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData) -> String {
+fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[CheckResult]) -> String {
     let r = &s.recovery;
     let bp = s.breaking_point.as_ref().map_or("no measure violated".into(), |b| format!("step {} ({} tx/s): {}, {}", b.step, num(b.target_rate), b.measure, b.detail));
     let best = s.max_sustained.as_ref().map_or("none".into(), |m| format!("{} tx/s target (step {}), {} tx/s included", num(m.target_rate), m.step, to_fixed(m.included_per_s, 0)));
     let windows = d.steps();
     let step_window = |k: u32| windows.iter().find(|w| w.label == format!("step {k}"));
     let mut lines: Vec<String> = vec![
-        format!("### {}: {}", s.scenario, headline(s, steps)),
+        format!("### {}", s.scenario),
         String::new(),
-        format!("- **Verdict:** {}", verdict(s)),
+        format!("- **Verdict:** {}", overall_status(s, checks).name()),
         format!("- **Breaking point** (first violated measure): {bp}"),
         format!("- **Max sustained:** {best}"),
-        format!("- **Failure:** {}: {}", s.stop.rule.name(), s.stop.detail),
+        format!("- **Load stop:** {}: {}", s.stop.rule.name(), s.stop.detail),
         format!("- **Recovery:** {}", recovery_line(s)),
         format!("- **Loss check:** {}", loss_line(s)),
         format!("- **Baseline:** {} probes before the load, p50 {} s, max {} s", s.baseline.probes, to_fixed(s.baseline.p50_ms as f64 / 1000.0, 1), to_fixed(s.baseline.max_ms as f64 / 1000.0, 1)),
@@ -220,9 +241,9 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData) -> String {
     lines.push(row(&cells));
     lines.extend([
         String::new(),
-        "People node (collator) per step:".into(),
+        "People collator metrics per step (CPU/memory: submitting collator; block/pool metrics: all collators):".into(),
         String::new(),
-        "| step | max CPU % | max memory MiB | block build ms | pool validations | validations waiting | pool ready txs | why blocks ended |".into(),
+        "| step | max CPU % | max memory MiB | block build ms | pool validations (all) | validations waiting (all) | pool ready txs (all) | why blocks ended |".into(),
         format!("|{} --- |", " ---: |".repeat(7)),
     ]);
     for f in steps {
@@ -251,4 +272,67 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData) -> String {
         lines.push(String::new());
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use stress_files::registry::Outcome;
+    use stress_files::summary::BreakingPoint;
+
+    use super::*;
+    use crate::Verdict;
+
+    fn summary() -> Summary {
+        serde_json::from_str(include_str!("../tests/summary.json")).expect("summary fixture")
+    }
+
+    fn check(name: &'static str, status: Status) -> CheckResult {
+        CheckResult { outcome: Outcome::Run, check: name, verdict: Verdict::new(status, "test") }
+    }
+
+    #[test]
+    fn passing_checks_and_a_rate_cap_pass() {
+        assert_eq!(overall_status(&summary(), &[check("monitors recorded everything", Status::Pass)]), OverallStatus::Pass);
+    }
+
+    #[test]
+    fn a_breaking_point_fails() {
+        let mut s = summary();
+        s.breaking_point = Some(BreakingPoint { step: 1, target_rate: 18.0, measure: "latency".into(), detail: "p95 27.3 s".into() });
+        assert_eq!(overall_status(&s, &[]), OverallStatus::Fail);
+    }
+
+    #[test]
+    fn ending_before_the_rate_cap_is_inconclusive() {
+        let mut s = summary();
+        s.stop = stress_files::summary::Stop::new(Rule::BudgetUsedUp, Some(1), "no claims left");
+        assert_eq!(overall_status(&s, &[]), OverallStatus::Inconclusive);
+    }
+
+    #[test]
+    fn a_failed_outcome_check_fails() {
+        assert_eq!(overall_status(&summary(), &[check("People relay slots (level 1)", Status::Fail)]), OverallStatus::Fail);
+    }
+
+    #[test]
+    fn the_summary_separates_the_verdict_from_the_load_stop() {
+        let s = summary();
+        let data = RunData::new(parse_run_om("# EOF\n"), s.clone());
+        let md = markdown(&s, &[], &data, &[check("People relay slots (level 1)", Status::Fail)]);
+        assert!(md.contains("- **Verdict:** FAIL"));
+        assert!(md.contains("- **Load stop:** rate cap"));
+        assert!(!md.contains("- **Failure:**"));
+        assert!(md.contains("pool validations (all)"));
+    }
+
+    #[test]
+    fn a_required_gap_is_inconclusive_but_an_optional_gap_is_not() {
+        assert_eq!(overall_status(&summary(), &[check("monitors recorded everything", Status::NoResult)]), OverallStatus::Inconclusive);
+        assert_eq!(overall_status(&summary(), &[check("time from load to built root", Status::NoResult)]), OverallStatus::Pass);
+    }
+
+    #[test]
+    fn warnings_warn() {
+        assert_eq!(overall_status(&summary(), &[check("build time within the authoring deadline", Status::Warn)]), OverallStatus::Warn);
+    }
 }

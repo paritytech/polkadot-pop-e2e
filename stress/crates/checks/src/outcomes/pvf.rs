@@ -53,6 +53,10 @@ struct WindowSlots {
     extra: f64,
 }
 
+fn worst_violation(windows: &[WindowSlots]) -> Option<&WindowSlots> {
+    windows.iter().filter(|s| s.extra > f64::from(LIMITS.max_extra_missed_slots)).max_by(|a, b| a.extra.total_cmp(&b.extra))
+}
+
 fn relay_slots(d: &RunData) -> Result<Verdict, CounterReset> {
     let (Some(base), true) = (d.phase("baseline"), d.has("stress_para_slots_total", &[PEOPLE])) else {
         return Ok(Verdict::new(Status::NoResult, "no relay recorder data"));
@@ -67,7 +71,7 @@ fn relay_slots(d: &RunData) -> Result<Verdict, CounterReset> {
             Ok(WindowSlots { window: w.label, extra: s.missed - idle_rate * s.relay_blocks, slots: s })
         })
         .collect::<Result<Vec<_>, CounterReset>>()?;
-    let bad = windows.iter().find(|s| s.extra > f64::from(LIMITS.max_extra_missed_slots));
+    let bad = worst_violation(&windows);
     let split = |s: &Slots| format!("not built {} (collator), not backed {} (PVF, delivery or statements; forks not measured yet), timed out {} (availability)", num(s.not_built), num(s.not_backed), num(s.timed_out));
     let detail = match bad {
         Some(b) => format!("{}: missed {} of {} slots, {} more than at idle: {}", b.window, num(b.slots.missed), num(b.slots.offered), to_fixed(b.extra, 1), split(&b.slots)),
@@ -168,3 +172,22 @@ pub const CHECKS: &[Check] = &[
     Check { outcome: Outcome::Pvf, name: "PVF time on validators (level 2, all parachains)", optional: false, run: pvf_time },
     Check { outcome: Outcome::Pvf, name: "collation funnel (People)", optional: false, run: collation_funnel },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(name: &str, offered: f64, missed: f64) -> WindowSlots {
+        WindowSlots {
+            window: name.into(),
+            slots: Slots { relay_blocks: 1.0, offered, included: offered - missed, missed, not_built: 0.0, timed_out: 0.0, not_backed: missed },
+            extra: missed,
+        }
+    }
+
+    #[test]
+    fn the_worst_violating_window_is_reported() {
+        let windows = [window("step 1", 30.0, 3.0), window("recovery", 15.0, 9.0)];
+        assert_eq!(worst_violation(&windows).unwrap().window, "recovery");
+    }
+}
