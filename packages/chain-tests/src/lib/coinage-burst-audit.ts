@@ -35,7 +35,7 @@ async function rpc<T>(port: number, method: string, params: unknown[] = []): Pro
 
 export async function auditBurst(input: {
   name: string; expected: number; results: Array<SubmissionResult | undefined>;
-  operation: 'CoinTransferred' | 'RecyclerLoadedWithExternalAsset';
+  operation: 'CoinTransferred' | 'RecyclerLoadedWithExternalAsset' | 'CoinSplit' | 'RecyclerLoadedWithCoin';
   out: string; api: ReturnType<typeof createCoinageClient>['api']; summary: Record<string, unknown>;
 }) {
   const { name, expected, results, operation, out, api, summary } = input;
