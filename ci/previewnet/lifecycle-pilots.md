@@ -103,3 +103,9 @@ a_paced, a_pool, b_paced, b_pool, a20000, a40000,
 a100000, b20000, b40000, b100000. Explicit selection also permits
 a required fallback after its failed baseline was recorded in an earlier run.
 Retain both run URLs and classify the original failure separately.
+
+Recovery runs preserve a small runner-preflight artifact before network setup.
+It records CPU affinity, cgroup limits and initial memory/OOM counters. If a
+runner disappears later, this establishes its initial environment, but does not
+prove the cause of failure. Workload artifacts and final counters may still be
+missing. Do not count such a job as a submitted workload.

@@ -46,6 +46,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Save runner preflight before network setup
+        run: |
+          python3 - <<'PYPREFLIGHT'
+          import datetime, json, os, platform, sys
+          from pathlib import Path
+          sys.path.insert(0, 'ci/previewnet')
+          from monitor import cgroup_directories, host_sample, read_file
+          paths = ['/proc/self/cgroup', '/proc/meminfo']
+          paths += [str(group / name) for group in cgroup_directories()
+                    for name in ('cpu.max', 'cpuset.cpus.effective', 'memory.max', 'memory.swap.max')]
+          evidence = {
+              'recordedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'runId': os.environ['GITHUB_RUN_ID'], 'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'commit': os.environ['GITHUB_SHA'], 'runner': os.environ['RUNNER_NAME'],
+              'platform': platform.platform(), 'cpuCount': os.cpu_count(),
+              'affinity': sorted(os.sched_getaffinity(0)),
+              'limits': {path: read_file(path) for path in paths}, 'host': host_sample(),
+              'scope': 'Before dependencies, snapshot preparation or node startup; not a crash diagnosis.'
+          }
+          Path('network-out').mkdir(exist_ok=True)
+          Path('network-out/runner-preflight.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          PYPREFLIGHT
+      - name: Preserve preflight even if the runner later disappears
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinage-${{ inputs.scenario }}-${{ inputs.actors }}-${{ inputs.mode }}-${{ inputs.pool }}-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: network-out/runner-preflight.json
+          retention-days: 30
       - name: Validate requested load and client
         run: |
           python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000'
