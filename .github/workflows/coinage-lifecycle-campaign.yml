@@ -2,13 +2,11 @@ name: Sequential Coinage lifecycle campaign
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/th-coinage-lifecycle-pilots]
-    paths:
-      - .github/workflows/coinage-lifecycle*.yml
-      - packages/chain-tests/scripts/coinage-lifecycle-pilot.ts
-      - packages/chain-tests/src/lib/coinage-lifecycle*
-      - ci/previewnet/*lifecycle*
+    inputs:
+      cases:
+        description: 'JSON case IDs to run, or ["all"] for the full campaign'
+        type: string
+        default: '["all"]'
 
 permissions:
   contents: read
@@ -21,8 +19,28 @@ concurrency:
 # Every case has its own disposable network and artifacts. A red case is evidence,
 # not permission to skip the rest. Only the two failed-baseline fallbacks are conditional.
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate selected cases
+        env:
+          CASES: ${{ inputs.cases }}
+        run: |
+          python3 - <<'PYCASES'
+          import json, os
+          cases = json.loads(os.environ['CASES'])
+          allowed = {'all', 'a100', 'a1000', 'a10000', 'b100', 'b1000', 'b10000',
+                     'a_paced', 'a_pool', 'b_paced', 'b_pool', 'a20000', 'a40000',
+                     'a100000', 'b20000', 'b40000', 'b100000'}
+          assert isinstance(cases, list) and cases
+          assert all(isinstance(case, str) for case in cases)
+          assert len(cases) == len(set(cases)) and set(cases) <= allowed
+          assert 'all' not in cases or cases == ['all']
+          print('Selected:', ', '.join(cases))
+          PYCASES
   a100:
-    if: ${{ always() && !cancelled() }}
+    needs: [validate]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a100') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -31,8 +49,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   a1000:
-    needs: [a100]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a100]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a1000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -41,8 +59,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   a10000:
-    needs: [a1000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a1000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a10000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -51,8 +69,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   b100:
-    needs: [a10000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a10000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b100') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -61,8 +79,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   b1000:
-    needs: [b100]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, b100]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b1000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -71,8 +89,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   b10000:
-    needs: [b1000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, b1000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b10000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -81,8 +99,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   a_paced:
-    needs: [b10000, a10000]
-    if: ${{ always() && !cancelled() && needs.a10000.result == 'failure' }}
+    needs: [validate, b10000, a10000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a_paced') || (contains(fromJSON(inputs.cases || '["all"]'), 'all') && needs.a10000.result == 'failure')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -91,8 +109,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   a_pool:
-    needs: [a_paced, a10000]
-    if: ${{ always() && !cancelled() && needs.a10000.result == 'failure' }}
+    needs: [validate, a_paced, a10000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a_pool') || (contains(fromJSON(inputs.cases || '["all"]'), 'all') && needs.a10000.result == 'failure')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -101,8 +119,8 @@ jobs:
       pool: enlarged
       pool-transactions: '11000'
   b_paced:
-    needs: [a_pool, b10000]
-    if: ${{ always() && !cancelled() && needs.b10000.result == 'failure' }}
+    needs: [validate, a_pool, b10000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b_paced') || (contains(fromJSON(inputs.cases || '["all"]'), 'all') && needs.b10000.result == 'failure')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -111,8 +129,8 @@ jobs:
       pool: default
       pool-transactions: '11000'
   b_pool:
-    needs: [b_paced, b10000]
-    if: ${{ always() && !cancelled() && needs.b10000.result == 'failure' }}
+    needs: [validate, b_paced, b10000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b_pool') || (contains(fromJSON(inputs.cases || '["all"]'), 'all') && needs.b10000.result == 'failure')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -121,8 +139,8 @@ jobs:
       pool: enlarged
       pool-transactions: '11000'
   a20000:
-    needs: [b_pool]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, b_pool]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a20000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -131,8 +149,8 @@ jobs:
       pool: enlarged
       pool-transactions: '22000'
   a40000:
-    needs: [a20000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a20000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a40000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -141,8 +159,8 @@ jobs:
       pool: enlarged
       pool-transactions: '44000'
   a100000:
-    needs: [a40000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a40000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'a100000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: split
@@ -151,8 +169,8 @@ jobs:
       pool: enlarged
       pool-transactions: '110000'
   b20000:
-    needs: [a100000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, a100000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b20000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -161,8 +179,8 @@ jobs:
       pool: enlarged
       pool-transactions: '22000'
   b40000:
-    needs: [b20000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, b20000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b40000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -171,8 +189,8 @@ jobs:
       pool: enlarged
       pool-transactions: '44000'
   b100000:
-    needs: [b40000]
-    if: ${{ always() && !cancelled() }}
+    needs: [validate, b40000]
+    if: ${{ always() && !cancelled() && needs.validate.result == 'success' && (contains(fromJSON(inputs.cases || '["all"]'), 'b100000') || contains(fromJSON(inputs.cases || '["all"]'), 'all')) }}
     uses: ./.github/workflows/coinage-lifecycle-pilots.yml
     with:
       scenario: recycle
@@ -182,7 +200,7 @@ jobs:
       pool-transactions: '110000'
 
   report:
-    needs: [a100, a1000, a10000, b100, b1000, b10000, a_paced, a_pool, b_paced, b_pool, a20000, a40000, a100000, b20000, b40000, b100000]
+    needs: [validate, a100, a1000, a10000, b100, b1000, b10000, a_paced, a_pool, b_paced, b_pool, a20000, a40000, a100000, b20000, b40000, b100000]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:

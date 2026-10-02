@@ -88,3 +88,18 @@ Preserve signed bytes, raw blocks, decoded indexed events, two-node finality
 views, fixture/state snapshots, watch outcomes and readiness polls. Pool and
 process samples help diagnose bottlenecks, but do not prove weight accuracy
 or PVF deadline compliance. Do not describe a runner loss as OOM without evidence.
+
+## Resume after a setup or runner failure
+
+The campaign accepts a JSON list of case IDs. Keep ["all"] for a full run.
+Use an explicit list such as ["a1000"] to repeat a case that never reached its
+workload. This does not rerun successful cases or infer success from a setup
+attempt. All invocations share one concurrency group, so recovery runs queue
+behind an active campaign. Dispatch recovery only after reviewing missing cases;
+GitHub retains only one pending run per concurrency group.
+
+Case IDs are a100, a1000, a10000, b100, b1000, b10000,
+a_paced, a_pool, b_paced, b_pool, a20000, a40000,
+a100000, b20000, b40000, b100000. Explicit selection also permits
+a required fallback after its failed baseline was recorded in an earlier run.
+Retain both run URLs and classify the original failure separately.
