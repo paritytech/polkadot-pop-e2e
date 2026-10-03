@@ -250,7 +250,9 @@ async function stage(count: number, name: string) {
       passed: !guard && state.passed && sentAt.length === actorIds.length && finalized === actorIds.length && sendWindowMs <= launchTargetMs };
     summaries.push(summary); save(`${label}-summary`, summary);
     console.log(json({ ...summary, actorIds: undefined }));
-    const audit = await auditBurst({ name: label, expected: actorIds.length, results, operation, out, api, summary });
+    const audit = await auditBurst({ name: label, expected: actorIds.length, results, operation, out, api, summary, requireScenarioPass: false });
+    assert(!guard && state.passed && sentAt.length === actorIds.length && finalized === actorIds.length,
+      `${label}: unsafe to continue after incomplete execution or failed state checks`);
     // Event fields are part of the scenario, not only the generic event-name audit.
     for (const receipt of JSON.parse(readFileSync(`${out}/${label}-receipts.json`, 'utf8'))) {
       const event = receipt.events.find((e: { type: string; value: { type: string } }) => e.type === 'Coinage' && e.value.type === operation);

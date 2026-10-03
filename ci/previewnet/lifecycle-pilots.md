@@ -109,3 +109,7 @@ It records CPU affinity, cgroup limits and initial memory/OOM counters. If a
 runner disappears later, this establishes its initial environment, but does not
 prove the cause of failure. Workload artifacts and final counters may still be
 missing. Do not count such a job as a submitted workload.
+
+### Launch timing and dependent claims
+
+A missed launch-time target keeps the experiment failed and marks it generator-limited. It does not withhold the claim phase when every split has a verified successful receipt, the expected state, and no safety guard. Missing receipts, incorrect state, or a safety guard still stop progression. The final verdict includes the launch target for every wave; completing claims does not turn a timing failure into a pass.

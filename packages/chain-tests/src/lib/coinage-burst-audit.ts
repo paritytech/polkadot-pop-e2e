@@ -37,6 +37,8 @@ export async function auditBurst(input: {
   name: string; expected: number; results: Array<SubmissionResult | undefined>;
   operation: 'CoinTransferred' | 'RecyclerLoadedWithExternalAsset' | 'CoinSplit' | 'RecyclerLoadedWithCoin';
   out: string; api: ReturnType<typeof createCoinageClient>['api']; summary: Record<string, unknown>;
+  // Lifecycle drivers can finish dependent operations while retaining a failed timing verdict.
+  requireScenarioPass?: boolean;
 }) {
   const { name, expected, results, operation, out, api, summary } = input;
   const receipts: unknown[] = [];
@@ -112,6 +114,9 @@ export async function auditBurst(input: {
     + `Download this artifact; inspect ${name}-transactions.csv, ${name}-receipts.json and evidence/${name}/block-*.json. Runtime, fixture and node provenance are saved alongside them.\n\n`
     + `Driver launch time and PAPI broadcast signals are not node acceptance timestamps. A fixture-seeded claim does not prove issuance or a full wallet payment. Metrics are sampled observations, not proof of weight accuracy or production capacity.\n\n`
     + `Audit errors: ${errors.length}.\n\n${errors.map(e => '- ' + e).join('\n')}\n`);
-  assert(passed, `${name}: block evidence or scenario checks failed; see audit artifact`);
+  assert(errors.length === 0 && receipts.length === expected, `${name}: block receipt evidence failed; see audit artifact`);
+  if (input.requireScenarioPass !== false) {
+    assert(passed, `${name}: scenario checks failed; see audit artifact`);
+  }
   return audit;
 }
