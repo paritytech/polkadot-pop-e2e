@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { WsProvider } from '@polkadot/api';
 import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
+import { armShutdownDeadline } from '../src/lib/coinage-shutdown.js';
 import { auditBurst } from '../src/lib/coinage-burst-audit.js';
 import { capacitySigner, writeCapacityJson } from '../src/lib/coinage-capacity.js';
 import { randomBytes } from 'node:crypto';
@@ -371,4 +372,7 @@ try {
 } catch (error) {
   save('lifecycle-error', { scenario, error: String(error), stack: error instanceof Error ? error.stack : undefined });
   console.error(error); process.exitCode = 1;
-} finally { coinage.close(); }
+} finally {
+  armShutdownDeadline(`${out}/lifecycle-shutdown-error.json`);
+  coinage.close();
+}

@@ -113,3 +113,5 @@ missing. Do not count such a job as a submitted workload.
 ### Launch timing and dependent claims
 
 A missed launch-time target keeps the experiment failed and marks it generator-limited. It does not withhold the claim phase when every split has a verified successful receipt, the expected state, and no safety guard. Missing receipts, incorrect state, or a safety guard still stop progression. The final verdict includes the launch target for every wave; completing claims does not turn a timing failure into a pass.
+
+After the driver finishes its workload, it allows two minutes for process shutdown. A remaining resource writes `lifecycle-shutdown-error.json` and exits with failure. This is a harness failure, separate from receipt and state results. The diagnostic lists active resource types; it does not establish the root cause.
