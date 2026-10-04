@@ -2351,7 +2351,7 @@ dependencies = [
 [[package]]
 name = "polkameter-chain"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=11277dd59f709119a1f863e9c0df5ca9f7264b4c#11277dd59f709119a1f863e9c0df5ca9f7264b4c"
+source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
 dependencies = [
  "frame-decode",
  "hex",
@@ -2371,7 +2371,7 @@ dependencies = [
 [[package]]
 name = "polkameter-checks"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=11277dd59f709119a1f863e9c0df5ca9f7264b4c#11277dd59f709119a1f863e9c0df5ca9f7264b4c"
+source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
 dependencies = [
  "polkameter-files",
  "serde",
@@ -2381,7 +2381,7 @@ dependencies = [
 [[package]]
 name = "polkameter-files"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=11277dd59f709119a1f863e9c0df5ca9f7264b4c#11277dd59f709119a1f863e9c0df5ca9f7264b4c"
+source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
 dependencies = [
  "serde",
  "serde_json",
@@ -2391,7 +2391,7 @@ dependencies = [
 [[package]]
 name = "polkameter-monitors"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=11277dd59f709119a1f863e9c0df5ca9f7264b4c#11277dd59f709119a1f863e9c0df5ca9f7264b4c"
+source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
 dependencies = [
  "futures-util",
  "hex",
@@ -2409,7 +2409,7 @@ dependencies = [
 [[package]]
 name = "polkameter-plugin-sdk"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=11277dd59f709119a1f863e9c0df5ca9f7264b4c#11277dd59f709119a1f863e9c0df5ca9f7264b4c"
+source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
 dependencies = [
  "anyhow",
  "hex",

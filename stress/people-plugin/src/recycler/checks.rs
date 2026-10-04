@@ -1,5 +1,5 @@
 //! Recycler maintenance checks: backlog, maintenance, cleanup, and the time from a voucher load to
-//! a built root. They read the merged `run.om`, which holds this plugin's series and the run's
+//! a built root. They read the run's series, which hold this plugin's series and the run's
 //! phases.
 
 use polkameter_checks::{CheckResult, CounterReset, RunData, Status, Verdict, Window, quantile};

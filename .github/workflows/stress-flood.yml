@@ -49,7 +49,7 @@ env:
   # Polkameter source with the People plugin, pinned to a commit on its main branch.
   # The guard below refuses anything but a full commit hash.
   POLKAMETER_REPO: agustinustheo/polkameter
-  POLKAMETER_REF: 11277dd59f709119a1f863e9c0df5ca9f7264b4c
+  POLKAMETER_REF: 3efb54af0f10f5f670e6177e8db5af8d7150d1de
 
 jobs:
   flood:

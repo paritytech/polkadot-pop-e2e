@@ -1,7 +1,7 @@
 //! The Recycler observer. `start` follows People's finalized blocks into this plugin's
-//! `series.jsonl` and declares the metrics in `metrics.json`, so Polkameter merges them into
-//! `run.om`. `stop` waits for the backlog to return to where it started, then stops. `checks`
-//! judges the recorded series against the run's phases.
+//! `series.jsonl` and declares the metrics in `metrics.json`, so Polkameter reads them with the
+//! run's own series. `stop` waits for the backlog to return to where it started, then stops.
+//! `checks` judges the recorded series against the run's phases.
 
 mod checks;
 mod metrics;
@@ -14,7 +14,7 @@ use anyhow::Result;
 use polkameter_chain::Client;
 use polkameter_checks::{CheckResult, RunData, Status, Verdict};
 use polkameter_files::summary::Summary;
-use polkameter_files::{Problems, RunDir, build_run_om, parse_run_om};
+use polkameter_files::{Problems, RunDir, read_store};
 use polkameter_monitors::{MonitorError, chain_series, walker};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -63,7 +63,7 @@ impl Running {
 pub fn checks(run_dir: &Path, problems: &[String]) -> Result<Vec<CheckResult>> {
 	let run = RunDir::open(run_dir);
 	let summary: Summary = serde_json::from_slice(&std::fs::read(run_dir.join("summary.json"))?)?;
-	let data = RunData::new(parse_run_om(&build_run_om(&run)?), summary);
+	let data = RunData::new(read_store(&run)?, summary);
 	let mut results = checks::run(&data);
 	let verdict = if problems.is_empty() {
 		Verdict::new(Status::Pass, "no unreadable blocks or unnamed extrinsics")

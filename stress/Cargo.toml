@@ -10,11 +10,11 @@ publish = false
 
 [workspace.dependencies]
 # Polkameter, pinned to one commit: the plugin SDK and the libraries the Recycler observer reuses.
-polkameter-plugin-sdk = { git = "https://github.com/agustinustheo/polkameter", rev = "11277dd59f709119a1f863e9c0df5ca9f7264b4c" }
-polkameter-chain = { git = "https://github.com/agustinustheo/polkameter", rev = "11277dd59f709119a1f863e9c0df5ca9f7264b4c" }
-polkameter-files = { git = "https://github.com/agustinustheo/polkameter", rev = "11277dd59f709119a1f863e9c0df5ca9f7264b4c" }
-polkameter-monitors = { git = "https://github.com/agustinustheo/polkameter", rev = "11277dd59f709119a1f863e9c0df5ca9f7264b4c" }
-polkameter-checks = { git = "https://github.com/agustinustheo/polkameter", rev = "11277dd59f709119a1f863e9c0df5ca9f7264b4c" }
+polkameter-plugin-sdk = { git = "https://github.com/agustinustheo/polkameter", rev = "3efb54af0f10f5f670e6177e8db5af8d7150d1de" }
+polkameter-chain = { git = "https://github.com/agustinustheo/polkameter", rev = "3efb54af0f10f5f670e6177e8db5af8d7150d1de" }
+polkameter-files = { git = "https://github.com/agustinustheo/polkameter", rev = "3efb54af0f10f5f670e6177e8db5af8d7150d1de" }
+polkameter-monitors = { git = "https://github.com/agustinustheo/polkameter", rev = "3efb54af0f10f5f670e6177e8db5af8d7150d1de" }
+polkameter-checks = { git = "https://github.com/agustinustheo/polkameter", rev = "3efb54af0f10f5f670e6177e8db5af8d7150d1de" }
 ring-proofs = { path = "proofs" }
 
 anyhow = "1"
