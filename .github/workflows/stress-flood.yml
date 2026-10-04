@@ -193,6 +193,11 @@ jobs:
       - name: Wait for every chain to produce and finalize
         run: node ppn/bin/ppn.mjs fork wait "$FORK_DIR" 900
 
+      # The run measures the block interval over the last 60 blocks before setup. A freshly
+      # bitten fork produces its first blocks unevenly, so let a full window pass first.
+      - name: Let the fork settle
+        run: sleep 120
+
       - name: Register the topology and the People node process
         run: |
           # The flood samples this process's CPU and memory with ps; the scraper reads every
