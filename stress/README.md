@@ -2,14 +2,29 @@
 
 `.github/workflows/stress-flood.yml` floods People on a fresh fork of previewnet with
 proof-authorized statement claims and measures where the chain degrades. It runs
-[Polkameter](https://github.com/agustinustheo/polkameter) with its People plugin, driven by
-an XML plan in [`plans/`](plans). It replaces the standalone Rust `stress` tool proposed in
-#37; the load, recovery, loss and check semantics are the same code, migrated into Polkameter.
+[Polkameter](https://github.com/agustinustheo/polkameter), a chain-agnostic load engine, with
+the People plugin in this directory, driven by an XML plan in [`plans/`](plans). It replaces the
+standalone Rust `stress` tool proposed in #37.
 
-One run: recognize people with sudo, wait for their rings, prove every claim before the
-load, take a baseline, apply rising transaction rates until a stop rule fires, measure
-recovery, then reconcile every submitted transaction against the finalized chain and the
-node's ready pool. Results are in the job summary and the uploaded `flood-results` artifact.
+One run: recognize people with sudo, wait for their rings, prove every claim before the load,
+take a baseline, apply rising transaction rates until a stop rule fires, measure recovery, then
+reconcile every submitted transaction against the finalized chain and the node's ready pool.
+Results are in the job summary and the uploaded `flood-results` artifact.
+
+## What lives where
+
+Polkameter submits the prepared transactions, controls the rate, follows blocks, reconciles
+every transaction, scrapes the nodes, observes the relay for parachain 1502 and judges block
+production, the pool and PVF. Everything specific to People is in [`people-plugin/`](people-plugin):
+
+- `recognize`, `prepare-claims`, `validate-prepared`: the setup and the ring-proof claims, with
+  the v5 extension encoding and its layout check ([`proofs/`](proofs) makes the proofs);
+- `check-state`: whether finalized claims left their allowance entry;
+- `recycler-start`, `recycler-stop`, `recycler-checks`: the Recycler observer. It records ring
+  backlog, maintenance calls and cleanup into the run, and judges them after the load.
+
+The plugin depends on Polkameter's crates at the commit `Cargo.toml` pins. Bump that commit and
+`POLKAMETER_REF` in the workflow together.
 
 ## Plans
 
@@ -20,32 +35,39 @@ node's ready pool. Results are in the job summary and the uploaded `flood-result
 | `default` | 750 × 20 | 6 tx/s, + 4 tx/s per step, ten 60 s steps | 900 s / 5 | 3 / 5 |
 
 Each plan declares the block interval it expects (6 s on 1 core, 2 s on 3 cores). The run
-measures the interval before setup and stops if it differs by more than 25%, so a plan
-always runs on the topology it was written for. The workflow derives that topology from the
-plan; to try another combination, add a plan and a row in the workflow's topology table.
+measures the interval before setup and stops if it differs by more than 25%, so a plan always
+runs on the topology it was written for. The workflow derives that topology from the plan; to
+try another combination, add a plan and a row in the workflow's topology table.
 
 ## Results and exit code
 
-Smoke mode fails the job on any gap: a monitor problem or a required check without a result.
-Stress mode (capacity and default) is a measurement, not a gate: the job fails only when the
-network, the setup or the tool fails, and failed health checks are reported in the summary.
+Smoke mode fails the job on any gap: a monitor problem or a required check without a result,
+including the Recycler checks. Stress mode (capacity and default) is a measurement, not a gate:
+the job fails only when the network, the setup or the tools fail, and failed health checks are
+reported in the summary.
 
 Each run directory holds `summary.md`/`summary.json` (verdicts and stop reason),
-`transactions.jsonl` (one accounting status per submitted transaction), raw scrapes,
-blocks and OpenMetrics. `polkameter report <run directory>` regenerates the checks offline.
+`transactions.jsonl` (one accounting status per submitted transaction), raw scrapes, blocks,
+`run.om`, and the plugin's own series in `plugins/people/`. `polkameter report <run directory>`
+regenerates the checks offline.
 
 ## Running it locally
 
-From a Polkameter checkout, with a Zombienet config of a previewnet fork
+Build the plugin here, and Polkameter in its own checkout:
+
+```sh
+cargo build --release --bin polkameter-people-plugin            # in stress/
+pnpm install && pnpm build && cargo build --release -p polkameter  # in polkameter/
+```
+
+Then, from the Polkameter checkout, with a Zombienet config of a previewnet fork
 (`ppn fork toml <bundle> <out>` in previewnet-engine):
 
 ```sh
-pnpm install && pnpm build
-cargo build --release -p polkameter -p polkameter-scenarios
-scripts/local-people-run.sh /path/to/fork.toml /path/to/polkadot-pop-e2e/stress/plans/people-smoke.polkameter.xml
+POLKAMETER_PLUGINS=/path/to/stress/target/release/polkameter-people-plugin \
+POLKAMETER_CREDENTIALS="previewnet-sudo=POLKAMETER_SETUP_SURI" POLKAMETER_SETUP_SURI=//Alice \
+scripts/local-fork-run.sh /path/to/fork.toml /path/to/stress/plans/people-smoke.polkameter.xml
 ```
 
-## Updating Polkameter
-
-`POLKAMETER_REF` in the workflow pins the Polkameter commit that is built. Bump it to a
-newer commit on Polkameter's `main` to pick up changes.
+`cargo test` here checks the claim encoding, people generation and proofs against vectors from
+the TypeScript implementation.
