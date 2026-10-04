@@ -48,7 +48,7 @@ reported in the summary.
 
 Each run directory holds `summary.md`/`summary.json` (verdicts and stop reason),
 `transactions.jsonl` (one accounting status per submitted transaction), raw scrapes, blocks,
-`run.om`, and the plugin's own series in `plugins/people/`. `polkameter report <run directory>`
+and the plugin's own series in `plugins/people/`. `polkameter report <run directory>`
 regenerates the checks offline.
 
 ## Running it locally
