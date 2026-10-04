@@ -27,6 +27,9 @@
       <input name="target" ref="targets.people"/>
       <input name="identity" ref="steps.claims.identity"/>
     </step>
+    <step id="recycler" use="people.recycler-start">
+      <input name="target" ref="targets.people"/>
+    </step>
   </setup>
   <load target="people" source-ref="steps.claims.flood" probes-ref="steps.claims.probes" state-check="people.check-state" state-ref="steps.claims.state" connections="4" baseline-probes="5" recovery-seconds="900" block-interval-seconds="2">
     <rate tx-per-second="12" seconds="60"/>
@@ -34,9 +37,18 @@
     <rate tx-per-second="18" seconds="60"/>
     <rate tx-per-second="21" seconds="60"/>
   </load>
-  <monitors topology="previewnet" relay-target="relay">
-    <metric role="people-collator" name="substrate_block_height"/>
+  <monitors topology="previewnet" relay-target="relay" para-id="1502">
+    <metric role="collator" name="substrate_block_height"/>
     <metric role="validator" name="substrate_block_height"/>
   </monitors>
   <thresholds stall-ms="30000" finality-stall-ms="60000"/>
+  <evaluate>
+    <step id="recycler-stopped" use="people.recycler-stop" timeout-ms="240000">
+      <input name="drain-ms" value="180000"/>
+    </step>
+    <step id="recycler-checks" use="people.recycler-checks" timeout-ms="120000">
+      <input name="run-dir" ref="run.directory"/>
+      <input name="problems" ref="steps.recycler-stopped.problems"/>
+    </step>
+  </evaluate>
 </polkameter-plan>
