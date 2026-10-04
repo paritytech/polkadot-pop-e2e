@@ -1,0 +1,40 @@
+name: Stress · People plugin
+
+# Format, lint and test the Polkameter People plugin in stress/, and keep ark-vrf's `parallel`
+# feature off (nested proof pools exhaust threads on a long proving run).
+on:
+  pull_request:
+    paths:
+      - .github/workflows/stress-plugin.yml
+      - stress/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stress-plugin.yml
+      - stress/**
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.93.0
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stress
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: stress
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: python3 check-proof-features.py
