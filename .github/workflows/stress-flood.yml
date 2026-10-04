@@ -58,6 +58,8 @@ jobs:
     # A fresh bite takes about 15 minutes; a hung one is retried twice, 30 minutes each.
     timeout-minutes: 180
     env:
+      # previewnet-engine fetches release assets when it bites and when it starts the fork.
+      GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
       PLAN_NAME: ${{ inputs.plan || 'capacity' }}
       FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
       RESULTS_DIR: ${{ github.workspace }}/stress-results
@@ -145,8 +147,6 @@ jobs:
 
       # Same retry loop as the release gate: the bite can hang.
       - name: Ensure engine dependencies and bite the fork
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           for attempt in 1 2 3; do
             if timeout 1800 make -C ppn ensure-deps FORK=1 FRESH_BITE=1 CORES="$CORES" COLLATORS="$COLLATORS"; then
