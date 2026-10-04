@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<polkameter-plan xmlns="https://polkameter.dev/schema/plan/v2" version="2" name="people-default" mode="stress" timeout-ms="7200000">
+<polkameter-plan xmlns="https://polkameter.dev/schema/plan" version="1" name="people-default" mode="stress" timeout-ms="7200000">
   <plugins><plugin id="people" version="0.1.0" protocol="1"/></plugins>
   <targets>
     <target id="people" endpoint="ws://127.0.0.1:10010"/>
