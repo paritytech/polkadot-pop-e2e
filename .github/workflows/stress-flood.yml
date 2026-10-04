@@ -117,8 +117,9 @@ jobs:
       - name: Build Polkameter and the People plugin
         working-directory: polkameter
         run: |
-          corepack pnpm install --frozen-lockfile
-          corepack pnpm build
+          # This checkout sits inside this repository's pnpm workspace; install Polkameter on its own.
+          corepack pnpm install --frozen-lockfile --ignore-workspace
+          corepack pnpm --ignore-workspace build
           cargo build --release --locked -p polkameter --bin polkameter -p polkameter-scenarios --bin polkameter-people-plugin
           python3 scripts/check-proof-features.py
           echo "$PWD/target/release" >> "$GITHUB_PATH"
