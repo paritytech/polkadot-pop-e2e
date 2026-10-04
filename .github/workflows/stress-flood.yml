@@ -1,0 +1,233 @@
+name: Stress · flood
+
+# Starts a fork of previewnet (live state: chunks, rings, the Asset Hub
+# subscription and a coinage instance are all there; a genesis network has
+# none of them), and runs one flood: a baseline, a ramp until the chain fails,
+# recovery and a loss check.
+#
+# The fork is always bitten fresh: People's cores and collators are state inside
+# the bundle (`ppn bite --cores/--collators`, previewnet-engine#39), and the
+# published bundle only has the defaults (1 core, 1 collator). The flood runs
+# in Polkameter (https://github.com/agustinustheo/polkameter): an XML plan in
+# stress/plans/ drives its People plugin. The plan fixes the mode, the workload
+# and the expected block interval, so each plan below also fixes the People
+# cores and collators it needs. See stress/README.md.
+#
+# It is a measurement, not a gate: in stress mode the job fails only when the
+# network, the setup or our own tools fail; the outcome checks only report.
+# Smoke mode fails on any gap (a failed scrape, a check without a result).
+# The result is in the job summary and the uploaded artifacts.
+
+on:
+  # TEMP: a push to the PR branch runs the capacity plan, because workflow_dispatch only
+  # works once this file is on main. Remove this trigger and the `|| ...` push fallbacks before merging.
+  push:
+    branches: [feat/th-polkameter-stress-flood]
+    paths:
+      - .github/workflows/stress-flood.yml
+      - stress/plans/**
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: "smoke: 40 people, 2/4/6 tx/s, strict (1 core); capacity: 250 people, 12/15/18/21 tx/s (3 cores); default: 750 people, 6 + 4 tx/s × 10 steps (3 cores)"
+        type: choice
+        options: [capacity, smoke, default]
+        default: default
+      ppn_ref:
+        description: "previewnet-engine ref (v0.7.0 or later: fresh bites with cores/collators)"
+        default: "v0.7.0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.93.0
+  # Polkameter source with the People plugin, pinned to a commit on its main branch.
+  # The guard below refuses anything but a full commit hash.
+  POLKAMETER_REPO: agustinustheo/polkameter
+  POLKAMETER_REF: 984e61efb72cc7d7da8f11755a4bd105c46eca34
+
+jobs:
+  flood:
+    # A five-chain network plus the load generator; same runner as the release gate.
+    runs-on: parity-large
+    # A fresh bite takes about 15 minutes; a hung one is retried twice, 30 minutes each.
+    timeout-minutes: 180
+    env:
+      PLAN_NAME: ${{ inputs.plan || 'capacity' }}
+      FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
+      RESULTS_DIR: ${{ github.workspace }}/stress-results
+      ZOMBIE_JSON: ${{ github.workspace }}/ppn/data-fork/zombie.json
+      POLKAMETER_PLUGIN_REGISTRY: ${{ github.workspace }}/polkameter-plugins.json
+      POLKAMETER_SETUP_SURI: //Alice
+    steps:
+      - name: Require an immutable Polkameter revision
+        run: |
+          if ! [[ "$POLKAMETER_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::set POLKAMETER_REF to a reviewed commit hash"; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Checkout Polkameter
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.POLKAMETER_REPO }}
+          ref: ${{ env.POLKAMETER_REF }}
+          path: polkameter
+
+      - name: Checkout the engine (previewnet-engine)
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: ${{ inputs.ppn_ref || 'v0.7.0' }}
+          path: ppn
+
+      # Node and pnpm build the engine and Polkameter's embedded frontend.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The Polkameter CLI shares a crate with its desktop app, so it links GTK and WebKit.
+      - name: Install missing system packages
+        run: |
+          sudo=$(command -v sudo || true)
+          missing=$(for p in build-essential make jq libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          if [ -n "$missing" ]; then
+            $sudo apt-get update
+            # shellcheck disable=SC2086
+            $sudo apt-get install -y $missing
+          fi
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: polkameter
+
+      # Before the network starts, so the fork does not sit idle while this compiles.
+      - name: Build Polkameter and the People plugin
+        working-directory: polkameter
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm build
+          cargo build --release --locked -p polkameter --bin polkameter -p polkameter-scenarios --bin polkameter-people-plugin
+          python3 scripts/check-proof-features.py
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+          target/release/polkameter plugin install target/release/polkameter-people-plugin
+          target/release/polkameter plugin credential previewnet-sudo POLKAMETER_SETUP_SURI
+
+      - name: Resolve the plan and its topology
+        run: |
+          case "$PLAN_NAME" in
+            smoke) cores=1; collators=1 ;;
+            capacity | default) cores=3; collators=5 ;;
+            *) echo "::error::unknown plan $PLAN_NAME"; exit 1 ;;
+          esac
+          # The same layout goes to the bite and to the start: `ppn start` refuses a
+          # bundle whose recorded layout differs from the one it is asked for.
+          echo "CORES=people=$cores" >> "$GITHUB_ENV"
+          echo "COLLATORS=people=$collators" >> "$GITHUB_ENV"
+          mkdir -p "$RESULTS_DIR"
+          cp "stress/plans/people-$PLAN_NAME.polkameter.xml" "$RESULTS_DIR/plan.xml"
+          echo "$POLKAMETER_REF" > "$RESULTS_DIR/polkameter-ref.txt"
+          echo "PLAN=$RESULTS_DIR/plan.xml" >> "$GITHUB_ENV"
+          polkameter plugin inspect "$RESULTS_DIR/plan.xml" > "$RESULTS_DIR/requirements.json"
+
+      # Same retry loop as the release gate: the bite can hang.
+      - name: Ensure engine dependencies and bite the fork
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 1800 make -C ppn ensure-deps FORK=1 FRESH_BITE=1 CORES="$CORES" COLLATORS="$COLLATORS"; then
+              jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion), topology \(.topology // "defaults")"' "$FORK_DIR/manifest.json"
+              cp "$FORK_DIR/manifest.json" "$RESULTS_DIR/fork-manifest.json"
+              python3 polkameter/scripts/verify-previewnet-requirements.py "$RESULTS_DIR/requirements.json" "$FORK_DIR/manifest.json" > "$RESULTS_DIR/provisioning.json"
+              exit 0
+            fi
+            echo "::warning::bite attempt $attempt failed or hung; retrying"
+            make -C ppn kill || true
+            pkill -f doppelganger || true
+            rm -rf "$FORK_DIR"
+          done
+          echo "::error::no fork bundle after 3 attempts"; exit 1
+
+      - name: Reap anything left behind on the runner
+        run: make -C ppn kill || true
+
+      # No FRESH_BITE here: that would bite a second time and replace the bundle above.
+      - name: Start the fork
+        run: |
+          nohup make -C ppn start FORK=1 CORES="$CORES" COLLATORS="$COLLATORS" > /tmp/ppn-spawn.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::the network exited during startup"; tail -40 /tmp/ppn-spawn.log; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              echo "relay is up after $((i * 10)) s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::the relay did not come up in 10 minutes"; tail -40 /tmp/ppn-spawn.log; exit 1
+
+      - name: Wait for every chain to produce and finalize
+        run: node ppn/bin/ppn.mjs fork wait "$FORK_DIR" 900
+
+      - name: Register the topology and the People node process
+        run: |
+          # The flood samples this process's CPU and memory with ps; the scraper reads every
+          # node's metrics URL from the registered topology.
+          polkameter plugin topology previewnet "$ZOMBIE_JSON"
+          pid=$(ss -Hltnp 'sport = :10010' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+          [ -n "$pid" ] && echo "PEOPLE_PID=$pid" >> "$GITHUB_ENV"
+          echo "People node PID: ${pid:-not found}"
+
+      # `run` calibrates the block interval and runs live preflight before setup.
+      - name: Flood
+        run: polkameter run "$PLAN" --output "$RESULTS_DIR"
+
+      - name: Write the job summary
+        if: always()
+        run: |
+          echo "Plan: $PLAN_NAME · cores $CORES, collators $COLLATORS · Polkameter $POLKAMETER_REF" >> "$GITHUB_STEP_SUMMARY"
+          if ls "$RESULTS_DIR"/*/summary.md >/dev/null 2>&1; then
+            cat "$RESULTS_DIR"/*/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Flood: no result (setup or run failed; see the logs)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flood-results
+          path: ${{ env.RESULTS_DIR }}
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop the network
+        if: always()
+        run: make -C ppn kill || true
+
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flood-node-logs
+          path: |
+            /tmp/ppn-spawn.log
+            ppn/data-fork/*/*.log
+          retention-days: 14
+          if-no-files-found: ignore
