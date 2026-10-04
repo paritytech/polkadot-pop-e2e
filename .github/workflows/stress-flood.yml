@@ -49,7 +49,7 @@ env:
   # Polkameter source with the People plugin, pinned to a commit on its main branch.
   # The guard below refuses anything but a full commit hash.
   POLKAMETER_REPO: agustinustheo/polkameter
-  POLKAMETER_REF: 984e61efb72cc7d7da8f11755a4bd105c46eca34
+  POLKAMETER_REF: 11277dd59f709119a1f863e9c0df5ca9f7264b4c
 
 jobs:
   flood:
@@ -113,20 +113,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: polkameter
+          workspaces: |
+            polkameter
+            stress
 
       # Before the network starts, so the fork does not sit idle while this compiles.
-      - name: Build Polkameter and the People plugin
+      - name: Build Polkameter
         working-directory: polkameter
         run: |
           # This checkout sits inside this repository's pnpm workspace; install Polkameter on its own.
           corepack pnpm install --frozen-lockfile --ignore-workspace
           corepack pnpm --ignore-workspace build
-          cargo build --release --locked -p polkameter --bin polkameter -p polkameter-scenarios --bin polkameter-people-plugin
-          python3 scripts/check-proof-features.py
+          cargo build --release --locked -p polkameter --bin polkameter
           echo "$PWD/target/release" >> "$GITHUB_PATH"
-          target/release/polkameter plugin install target/release/polkameter-people-plugin
-          target/release/polkameter plugin credential previewnet-sudo POLKAMETER_SETUP_SURI
+
+      - name: Build and install the People plugin
+        working-directory: stress
+        run: |
+          cargo build --release --locked --bin polkameter-people-plugin
+          python3 check-proof-features.py
+          polkameter plugin install target/release/polkameter-people-plugin
+          polkameter plugin credential previewnet-sudo POLKAMETER_SETUP_SURI
 
       - name: Resolve the plan and its topology
         run: |
@@ -192,7 +199,7 @@ jobs:
           # node's metrics URL from the registered topology.
           polkameter plugin topology previewnet "$ZOMBIE_JSON"
           pid=$(ss -Hltnp 'sport = :10010' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
-          [ -n "$pid" ] && echo "PEOPLE_PID=$pid" >> "$GITHUB_ENV"
+          [ -n "$pid" ] && echo "POLKAMETER_NODE_PID=$pid" >> "$GITHUB_ENV"
           echo "People node PID: ${pid:-not found}"
 
       # `run` calibrates the block interval and runs live preflight before setup.
