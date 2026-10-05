@@ -53,7 +53,6 @@ cargo build --release --locked
 
 ```sh
 ./target/release/stress stmt-flood --mode smoke \
-  --members 40 --slots 12 \
   --start 2 --step 2 --interval 30 --steps 3 \
   --recovery 120 --probes 3
 ```
@@ -69,14 +68,16 @@ monitor problem or when a required outcome check has no result.
 
 The authoritative defaults are `Options` and `StmtFlood::RAMP` in
 [`crates/scenarios/src/stmt/flood.rs`](./crates/scenarios/src/stmt/flood.rs). The current defaults
-prepare 750 people × 20 slots (15,000 claims), then run ten 60-second steps from 6 tx/s to
-42 tx/s in increments of 4 tx/s. Recovery is observed for up to 900 seconds. Proof generation
-and waiting for rings happen before the ramp and can take several minutes.
+run ten 60-second steps from 6 tx/s to 42 tx/s in increments of 4 tx/s, and prepare as many
+people as that ramp and the probes need (about 740 people × 20 slots). Recovery is observed for
+up to 900 seconds. Proof generation and waiting for rings happen before the ramp and can take
+several minutes.
 
 `--growth <factor>` multiplies the rate every step instead of adding `--step`, e.g.
 `--start 10 --growth 2 --steps 5` runs 10, 20, 40, 80 and 160 tx/s. It reaches failure in fewer
-steps, but the breaking point lies anywhere between the last two rates. Size `--members` and
-`--slots` for the top steps: a run whose claims run out ends with "budget used up" and no failure.
+steps, but the breaking point lies anywhere between the last two rates. `--members` is derived
+from the ramp and the probe reserve when left out, so the claims cannot run out; give it only to
+test a bigger ring (a value too small for the ramp fails at setup).
 !TODO: maybe we want to provide the option of not providing `--steps`, which runs until the first failure happens (like tx pool limit)
 
 ### 5. Stop the previewnet fork

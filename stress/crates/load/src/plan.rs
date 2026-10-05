@@ -65,6 +65,13 @@ impl Plan {
         let steps = (0..steps).map(|k| StepPlan { seconds: interval_s, rates: vec![start * growth.powf(f64::from(k))] }).collect();
         Self { steps }
     }
+
+    /// Txs each lane sends when every step runs to its end, in lane order: what a lane's
+    /// source must hold, besides the probes.
+    pub fn txs_per_lane(&self) -> Vec<u64> {
+        let lanes = self.steps.first().map_or(0, |s| s.rates.len());
+        (0..lanes).map(|l| self.steps.iter().map(|s| (s.rates.get(l).copied().unwrap_or(0.0) * f64::from(s.seconds)).ceil() as u64).sum()).collect()
+    }
 }
 
 impl Plan {
@@ -96,6 +103,14 @@ mod tests {
         let uneven = Plan { steps: vec![StepPlan { seconds: 60, rates: vec![1.0, 5.0] }, StepPlan { seconds: 60, rates: vec![2.0] }] };
         assert!(uneven.check(None).is_err());
         assert!(Plan::ramp(6.0, 4.0, 60, 0).check(None).is_err());
+    }
+
+    #[test]
+    fn a_plan_knows_how_many_txs_each_lane_sends() {
+        assert_eq!(Plan::ramp(12.0, 3.0, 60, 4).txs_per_lane(), [3960]);
+        assert_eq!(Plan::geometric(10.0, 2.0, 60, 3).txs_per_lane(), [4200]);
+        let two = Plan { steps: vec![StepPlan { seconds: 30, rates: vec![1.5, 5.0] }, StepPlan { seconds: 30, rates: vec![0.5, 5.0] }] };
+        assert_eq!(two.txs_per_lane(), [60, 300]);
     }
 
     #[test]

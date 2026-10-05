@@ -44,6 +44,8 @@ pub struct Setup {
     pub block_interval_s: f64,
     /// Probes the runner will ask each lane for (baseline + recovery).
     pub probes: usize,
+    /// Txs the plan sends per lane when every step runs; with `probes`, what a lane must hold.
+    pub load: Vec<u64>,
 }
 
 /// A boxed future, for the object-safe [`StateCheck`].

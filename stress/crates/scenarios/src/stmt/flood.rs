@@ -31,9 +31,9 @@ const KEYS_PER_TX: usize = 500;
 /// Options of the claim flood.
 #[derive(Debug, Clone, Serialize, clap::Args)]
 pub struct Options {
-    /// New people to recognize.
-    #[arg(long, default_value_t = 750)]
-    pub members: u32,
+    /// New people to recognize; left out, as many as the ramp and the probes need.
+    #[arg(long)]
+    pub members: Option<u32>,
     /// Claims per person (people have 20 slots a day).
     #[arg(long, default_value_t = 20)]
     pub slots: u32,
@@ -68,7 +68,7 @@ impl Scenario for StmtFlood {
     async fn prepare(opts: &Options, setup: &Setup) -> Result<Prepared, SetupError> {
         let claims = claims(setup, opts.members, opts.slots, opts.threads).await?;
         Ok(Prepared {
-            budget: format!("{} people × {} slots = {} claims ({} kept for probes)", opts.members, opts.slots, opts.members * opts.slots, setup.probes),
+            budget: claims.budget,
             lanes: vec![claims.lane],
             extra: claims.extra,
             state_check: Some(Box::new(claims.landed)),
@@ -85,16 +85,34 @@ pub struct Claims {
     pub landed: ClaimsLanded,
     /// Numbers for summary.json.
     pub extra: serde_json::Value,
+    /// The budget line of the summary.
+    pub budget: String,
 }
 
-/// Recognizes `members` new people, waits for their rings and proves `members × slots` claims:
-/// the claim lane of the claim flood.
-pub async fn claims(setup: &Setup, members: u32, slots: u32, threads: Option<usize>) -> Result<Claims, SetupError> {
-    let client = &setup.client;
-    let total = (members * slots) as usize;
-    if total <= setup.probes {
-        return Err(scenario("budget", format!("{total} claims is not more than the {} kept for probes; add members", setup.probes)));
+/// The people to recognize: `members` checked against what the ramp and the probes need, or
+/// the least that covers them (`true` then).
+fn members_for(members: Option<u32>, slots: u32, load: u64, probes: usize) -> Result<(u32, bool), SetupError> {
+    if slots == 0 {
+        return Err(scenario("budget", "a person needs at least 1 slot"));
     }
+    let needed = load + probes as u64;
+    let least = u32::try_from(needed.div_ceil(u64::from(slots))).map_err(|_| scenario("budget", format!("{needed} claims is more than any number of people can hold")))?;
+    match members {
+        None => Ok((least.max(1), true)),
+        Some(m) if u64::from(m) * u64::from(slots) < needed => Err(scenario("budget", format!("{m} people × {slots} slots = {} claims, {needed} needed ({load} for the ramp, {probes} for probes): at least {least} members", u64::from(m) * u64::from(slots)))),
+        Some(m) => Ok((m, false)),
+    }
+}
+
+/// Recognizes `members` new people (left out: as many as the ramp and the probes need), waits
+/// for their rings and proves `members × slots` claims: the claim lane of the claim flood.
+pub async fn claims(setup: &Setup, members: Option<u32>, slots: u32, threads: Option<usize>) -> Result<Claims, SetupError> {
+    let client = &setup.client;
+    let load = setup.load.first().copied().unwrap_or(0);
+    let (members, derived) = members_for(members, slots, load, setup.probes)?;
+    let total = (members * slots) as usize;
+    let budget = format!("{members} people × {slots} slots = {total} claims ({load} for the ramp, {} kept for probes{})", setup.probes, if derived { "; members from the ramp" } else { "" });
+    println!("budget: {budget}");
     // 1. People in built rings.
     let t0 = Instant::now();
     let people = make_people(&setup.run_seed, members);
@@ -139,7 +157,9 @@ pub async fn claims(setup: &Setup, members: u32, slots: u32, threads: Option<usi
     Ok(Claims {
         lane: Lane { call: CALL, source: Box::new(QueueSource::new(flood.to_vec(), probes.to_vec(), "claims")) },
         landed: ClaimsLanded { by_hash },
+        budget,
         extra: serde_json::json!({
+            "members": members, "membersFromRamp": derived,
             "period": period, "ringsSeconds": rings_s, "proveSeconds": prove_s.round(), "proverThreads": pool.threads(),
             "rings": rings.values().map(|r| serde_json::json!({ "index": r.index, "revision": r.revision, "keys": r.keys.len() })).collect::<Vec<_>>(),
         }),
@@ -184,5 +204,20 @@ impl StateCheck for ClaimsLanded {
 
     fn describe(&self, tx: &TxHash) -> serde_json::Value {
         self.by_hash.get(tx).map_or(serde_json::Value::Null, |c| serde_json::json!({ "member": c.member, "slot": c.slot, "target": format!("0x{}", hex::encode(c.target)) }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn members_cover_the_ramp_and_the_probes() {
+        // The CI ramp: (12 + 15 + 18 + 21) × 60 = 3960 txs, 390 probes.
+        assert_eq!(members_for(None, 20, 3960, 390).unwrap(), (218, true));
+        assert_eq!(members_for(Some(250), 20, 3960, 390).unwrap(), (250, false));
+        let err = members_for(Some(200), 20, 3960, 390).unwrap_err().to_string();
+        assert!(err.contains("4000 claims, 4350 needed") && err.ends_with("at least 218 members"), "{err}");
+        assert!(members_for(None, 0, 3960, 390).is_err());
     }
 }

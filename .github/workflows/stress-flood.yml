@@ -46,7 +46,7 @@ on:
         description: "People collators"
         default: "5"
       args:
-        description: "Extra flood arguments, e.g. --members 1000 --step 6 --steps 12 --recovery 1200"
+        description: "Extra flood arguments, e.g. --step 6 --steps 12 --recovery 1200"
         default: ""
       ppn_ref:
         description: "previewnet-engine ref"
@@ -72,7 +72,7 @@ jobs:
       SCENARIO: ${{ inputs.scenario || 'stmt-flood' }}
       # Focus on the current capacity boundary: 12, 15, 18 and 21 tx/s. The 5000 claims cover
       # 3960 load txs plus the baseline and up to about 465 recovery probes at 2 s blocks.
-      FLOOD_ARGS: ${{ github.event_name == 'push' && '--members 250 --slots 20 --start 12 --step 3 --interval 60 --steps 4 --recovery 900 --probes 5' || inputs.args }}
+      FLOOD_ARGS: ${{ github.event_name == 'push' && '--slots 20 --start 12 --step 3 --interval 60 --steps 4 --recovery 900 --probes 5' || inputs.args }}
       MODE: ${{ inputs.mode || 'stress' }}
       # The same layout goes to the bite and to the start: `ppn start` refuses a
       # bundle whose recorded layout differs from the one it is asked for.

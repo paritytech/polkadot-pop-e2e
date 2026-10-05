@@ -44,7 +44,7 @@ pub async fn scenario<S: Scenario>(common: Common, opts: S::Options) -> anyhow::
     // Setup.
     let t0 = Instant::now();
     let probes = probe_count(ramp.probes, ramp.recovery_s, block_interval_s);
-    let setup = Setup { client: client.clone(), chain, run_seed: run_seed(), block_interval_s, probes };
+    let setup = Setup { client: client.clone(), chain, run_seed: run_seed(), block_interval_s, probes, load: plan.txs_per_lane() };
     let mut prepared = S::prepare(&opts, &setup).await?;
     let setup_seconds = t0.elapsed().as_secs();
     plan.check(Some(prepared.lanes.len())).map_err(|e| anyhow::anyhow!("the plan against the scenario's lanes: {e}"))?;
