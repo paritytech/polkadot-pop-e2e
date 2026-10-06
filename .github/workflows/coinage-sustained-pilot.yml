@@ -78,7 +78,7 @@ jobs:
           retention-days: 30
       - name: Validate requested load and client
         run: |
-          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000; assert os.environ["POOL_PROFILE"] == "default"'
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 250000; assert os.environ["POOL_PROFILE"] == "default"'
           python3 -m unittest discover -s ci/previewnet -p test_lifecycle.py
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
@@ -112,7 +112,7 @@ jobs:
           assert 11000 <= limit <= 110000
           for node in people['collators']:
               node['args'] = [a for a in node['args'] if not a.startswith(('--state-pruning=', '--pool-limit=', '--pool-kbytes=', '--rpc-max-subscriptions-per-connection='))]
-              node['args'] += ['--state-pruning=10000', '--rpc-max-subscriptions-per-connection=20050', '--offchain-worker=always']
+              node['args'] += ['--state-pruning=10000', '--rpc-max-subscriptions-per-connection=64050', '--offchain-worker=always']
               if pool == 'enlarged':
                   node['args'] += [f'--pool-limit={limit}', '--pool-kbytes=262144']
           path.write_text(tomli_w.dumps(config))

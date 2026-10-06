@@ -23,12 +23,14 @@ export async function sustainPool<T, R>(options: {
   fillTimeoutMs?: number;
   pollMs?: number;
   batchSize?: number;
+  maxOutstanding?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }) {
   const target = options.target ?? 8000, limit = options.poolLimit ?? 8192;
   const duration = options.durationMs ?? 180000, fillTimeout = options.fillTimeoutMs ?? 120000;
   const pollMs = options.pollMs ?? 100, batchSize = options.batchSize ?? 256;
+  const maxOutstanding = options.maxOutstanding ?? Math.max(32, target * 8);
   if (!(target > 0 && target < limit && duration > 0 && pollMs > 0 && batchSize > 0)) {
     throw new Error('Invalid sustained-pool configuration');
   }
@@ -65,7 +67,7 @@ export async function sustainPool<T, R>(options: {
       // Unknown/ready local submissions remain reserved until inclusion or a terminal outcome.
       // A low or lagging gauge alone must never cause a second full batch of 8,000.
       const budget = Math.min(batchSize, Math.max(0, target - Math.max(ready, queued.size)),
-        Math.max(0, target * 2 - pending.size));
+        Math.max(0, maxOutstanding - pending.size));
       for (let n = 0; n < budget; n++) {
         if (holdStart !== undefined && now() >= holdStart + duration) break;
         const supplied = await options.next();
@@ -95,7 +97,7 @@ export async function sustainPool<T, R>(options: {
   // submit() must impose its own finality timeout. Audit terminal outcomes after draining.
   await Promise.all(pending.values());
   return {
-    target, poolLimit: limit, band: [lower, limit], requestedHoldMs: duration,
+    target, poolLimit: limit, maxOutstanding, band: [lower, limit], requestedHoldMs: duration,
     fillMs: (holdStart ?? stopped) - start,
     observedHoldMs: holdStart === undefined ? 0 : Math.min(duration, stopped - holdStart),
     holdCompleted: holdStart !== undefined && stopped >= holdStart + duration,

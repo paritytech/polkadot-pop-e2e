@@ -82,6 +82,7 @@ type Work = { actor: number; stage: Stage; operation: Operation; hex: string; tx
 async function run() {
   const preparationStart = performance.now();
   const seedCoins = ['claim', 'merchant', 'split', 'recycle'].includes(scenario);
+  const needsVoucher = ['topup', 'recycle', 'quota', 'offboard', 'full-flow'].includes(scenario);
   const needsPeople = ['quota', 'offboard', 'full-flow'].includes(scenario);
   const min = await api.constants.Coinage.MinimumExponent();
   const unit = 1n << BigInt(Math.max(0, -min)), denomination = scenario === 'split' ? 2 : 1;
@@ -111,13 +112,13 @@ async function run() {
     const entropy = randomBytes(32), recycledEntropy = randomBytes(32);
     const personEntropy = needsPeople ? personSecrets[scenario === 'quota' ? Math.floor(id / quotaLimit) : id] : undefined;
     return { id, source, payment, destination,
-      sourceSigner: signerFor(sourceKey) as ReturnType<typeof signerFor> | undefined,
+      sourceSigner: (seedCoins ? capacitySigner(sourceKey.publicKey, data => sourceKey.sign(data)) : signerFor(sourceKey)) as ReturnType<typeof signerFor> | undefined,
       paymentSigner: paymentKey ? signerFor(paymentKey) : undefined,
       destinationSigner: destinationKey ? signerFor(destinationKey) : undefined,
       change: encodeAddress(randomBytes(32)), entropy, recycledEntropy, personEntropy,
       person: personEntropy ? Binary.toHex(member_from_entropy(personEntropy)) : undefined,
-      voucher: topUpArguments(instanceId, denomination, source, entropy),
-      recycledVoucher: topUpArguments(instanceId, denomination, destination, recycledEntropy),
+      voucher: needsVoucher ? topUpArguments(instanceId, denomination, source, entropy) : undefined,
+      recycledVoucher: scenario === 'full-flow' ? topUpArguments(instanceId, denomination, destination, recycledEntropy) : undefined,
       started: false, stage: (scenario === 'full-flow' || scenario === 'topup' ? 'topup'
         : scenario === 'offboard' || scenario === 'quota' ? 'offboard'
         : scenario === 'merchant' ? 'claim' : scenario) as Stage };
@@ -137,7 +138,7 @@ async function run() {
         id: asset, beneficiary: { type: 'Id', value: a.source }, amount }).decodedCall) }));
       if (scenario === 'offboard' || scenario === 'quota') {
         await Promise.all(batch.map(async a => {
-          const signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher)
+          const signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher!)
             .sign(a.sourceSigner!, { ...unpaidTopUpOptions(0), mortality: { mortal: false } });
           const result = await watchCoinageTransaction(client, { signed, txHash: blake2AsHex(signed) }, 180000);
           log('sustained-fixture-loads', result); assert.equal(result.status, 'finalized');
@@ -179,14 +180,14 @@ async function run() {
     }
   }
   if (peopleCollection) await awaitRings(peopleCollection, 9, new Set(actors.map(a => a.person!)));
-  if (scenario === 'offboard' || scenario === 'quota') await awaitRings(recyclerCollection, 10, new Set(actors.map(a => a.voucher.member_key)));
+  if (scenario === 'offboard' || scenario === 'quota') await awaitRings(recyclerCollection, 10, new Set(actors.map(a => a.voucher!.member_key)));
 
   async function prepare(id: number): Promise<Work | undefined> {
     const a = actors[id], stage = a.stage;
     const options = { ...coinClaimOptions(), mortality: { mortal: false as const } };
     let signed: Uint8Array, operation: Operation, period: number | undefined, counter: number | undefined;
     if (stage === 'topup') {
-      signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher).sign(a.sourceSigner!, { ...unpaidTopUpOptions(0), mortality: { mortal: false } });
+      signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher!).sign(a.sourceSigner!, { ...unpaidTopUpOptions(0), mortality: { mortal: false } });
       operation = 'RecyclerLoadedWithExternalAsset';
     } else if (stage === 'claim') {
       signed = await api.tx.Coinage.transfer({ to: a.destination }).sign((scenario === 'split' || scenario === 'full-flow' ? a.paymentSigner! : a.sourceSigner!), options);
@@ -195,14 +196,14 @@ async function run() {
       signed = await api.tx.Coinage.split({ split_into: [[1, [a.payment, a.change]]] }).sign(a.sourceSigner!, options);
       operation = 'CoinSplit';
     } else if (stage === 'recycle') {
-      const voucher = scenario === 'full-flow' ? a.recycledVoucher : a.voucher;
+      const voucher = scenario === 'full-flow' ? a.recycledVoucher! : a.voucher!;
       signed = await api.tx.Coinage.load_recycler_with_coin({ member_key: voucher.member_key, proof_of_ownership: voucher.proof_of_ownership })
         .sign((scenario === 'full-flow' ? a.destinationSigner! : a.sourceSigner!), options);
       operation = 'RecyclerLoadedWithCoin';
     } else {
       assert(stage === 'unload' || stage === 'offboard');
       const recycled = scenario === 'full-flow' && stage === 'offboard';
-      const voucher = recycled ? a.recycledVoucher : a.voucher, entropy = recycled ? a.recycledEntropy : a.entropy;
+      const voucher = recycled ? a.recycledVoucher! : a.voucher!, entropy = recycled ? a.recycledEntropy : a.entropy;
       const recycler = rings.get(recyclerCollection)?.get(voucher.member_key);
       if (!recycler) return undefined;
       const person = rings.get(peopleCollection!)!.get(a.person!)!;
@@ -230,7 +231,7 @@ async function run() {
     quotaLimit, peopleCount: personSecrets.length, peopleCollection, recyclerCollection, seedCoins,
     preparationMs: performance.now() - preparationStart, nativeWallet: false,
     actors: actors.map(a => ({ id: a.id, source: a.source, payment: a.payment, recipient: a.destination,
-      change: a.change, person: a.person, member: a.voucher.member_key, recycledMember: a.recycledVoucher.member_key })) });
+      change: a.change, person: a.person, member: a.voucher?.member_key, recycledMember: a.recycledVoucher?.member_key })) });
   log('sustained-phases', { phase: 'prepared', wallTime: new Date().toISOString() });
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
   const notifications = new Map<string, (state: PoolTransition) => void>();
@@ -254,7 +255,7 @@ async function run() {
     if (followupIndex > 4096) { followups.splice(0, followupIndex); followupIndex = 0; }
     if (followupIndex === followups.length) return undefined;
     if (scenario === 'full-flow' && performance.now() - lastRefresh > 2000) {
-      await refreshRings(recyclerCollection, 10, new Set(actors.flatMap(a => a.started ? [a.voucher.member_key, a.recycledVoucher.member_key] : [])));
+      await refreshRings(recyclerCollection, 10, new Set(actors.flatMap(a => a.started ? [a.voucher!.member_key, a.recycledVoucher!.member_key] : [])));
       lastRefresh = performance.now();
     }
     // Try each currently waiting actor once; an unbuilt ring must not block other ready work.
@@ -296,7 +297,7 @@ async function run() {
   try {
     const endpoints = JSON.parse(readFileSync(`${out}/metrics-endpoints.json`, 'utf8'));
     const metricsUrl = endpoints['Collator-1502']; assert.equal(typeof metricsUrl, 'string');
-    const pressure = await sustainPool({ target, poolLimit: 8192, durationMs, fillTimeoutMs: 180000,
+    const pressure = await sustainPool({ target, poolLimit: 8192, durationMs, fillTimeoutMs: 600000,
       release: work => { if (actors[work.actor].started) followups.push(work.actor); },
       readReady: () => readReadyPool(metricsUrl), next: offer, submit: send, recordResult: finish,
       recordSample: sample => { phase = sample.phase; log('sustained-pool', { ...sample, wallTime: new Date().toISOString(), memory: process.memoryUsage(), cpu: process.cpuUsage() }); } });
@@ -361,7 +362,7 @@ async function run() {
       if (consumed === undefined) stateErrors.push(`Token missing for ${work.actor}/${work.stage}`);
     });
     if (scenario === 'topup' || scenario === 'recycle') {
-      await awaitRings(recyclerCollection, 10, new Set(startedActors.filter(a => a.stage === 'done').map(a => a.voucher.member_key)));
+      await awaitRings(recyclerCollection, 10, new Set(startedActors.filter(a => a.stage === 'done').map(a => a.voucher!.member_key)));
     }
     const summary = { scenario, runtime: await api.constants.System.Version(), poolProfile: 'default', pressure,
       admittedActors: startedActors.length, inventory: count, transactions: completed.length, completionMs,

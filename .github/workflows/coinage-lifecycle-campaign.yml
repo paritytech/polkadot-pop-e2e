@@ -42,7 +42,7 @@ jobs:
     uses: ./.github/workflows/coinage-sustained-pilot.yml
     with:
       scenario: claim
-      actors: '100000'
+      actors: '250000'
       smoke-only: 'false'
   smoke_split:
     needs: [hold_claim]
@@ -90,7 +90,7 @@ jobs:
     uses: ./.github/workflows/coinage-sustained-pilot.yml
     with:
       scenario: merchant
-      actors: '100000'
+      actors: '250000'
       smoke-only: 'false'
   smoke_quota:
     needs: [hold_merchant]
