@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { WsProvider } from '@polkadot/api';
 import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
+import { armShutdownDeadline } from '../src/lib/coinage-shutdown.js';
 import { auditBurst } from '../src/lib/coinage-burst-audit.js';
 import { capacitySigner, writeCapacityJson } from '../src/lib/coinage-capacity.js';
 import { randomBytes } from 'node:crypto';
@@ -321,4 +322,4 @@ try {
   save('claim-error', { error: String(error) });
   console.error(error);
   process.exitCode = 1;
-} finally { coinage.close(); }
+} finally { armShutdownDeadline(`${out}/claim-shutdown-error.json`); coinage.close(); }
