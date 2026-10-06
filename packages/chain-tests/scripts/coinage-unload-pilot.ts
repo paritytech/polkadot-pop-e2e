@@ -81,12 +81,12 @@ function latencies(values: number[]) {
 
 
 import { member_from_entropy } from 'verifiablejs/nodejs';
-import { encodeMembers, PEOPLE_IDENTIFIER } from '../src/lib/ring.js';
+import { encodeMembers } from '../src/lib/ring.js';
 import { unloadSigner, voucherAlias, type ProofRing } from '../src/lib/coinage-unload.js';
 import { groups, recyclingDecision } from '../src/lib/coinage-campaign.js';
 async function stage(count: number, name: string) {
   const prepStart = performance.now();
-  const peopleCollection = Binary.toHex(PEOPLE_IDENTIFIER);
+  let peopleCollection: string;
   const min = await api.constants.Coinage.MinimumExponent();
   const unit = 1n << BigInt(Math.max(0, -min));
   const denomination = 1, amount = 2n * unit;
@@ -136,6 +136,15 @@ async function stage(count: number, name: string) {
       log(`${name}-setup-loads`, result); assert.equal(result.status, 'finalized');
     }));
   }
+  // The older helper uses the retired "people ..." identifier. Discover the actual
+  // collection from the member just recognized on this runtime, never from a name guess.
+  const membershipAt = await client.getFinalizedBlock();
+  const memberPages = await api.query.Members.RingKeys.getEntries({ at: membershipAt.hash });
+  const collections = [...new Set(memberPages.filter(page => page.value.includes(actors[0].person))
+    .map(page => page.keyArgs[0]))];
+  save(`${name}-people-collection`, { at: membershipAt, member: actors[0].person, collections });
+  assert.equal(collections.length, 1, 'Recognized person must identify exactly one Members collection');
+  peopleCollection = collections[0];
   async function rings(id: string, keys: Set<string>, exponent: 9 | 10) {
     const started = performance.now();
     while (performance.now() - started < deadlineMs) {
@@ -145,6 +154,7 @@ async function stage(count: number, name: string) {
         api.query.Members.Root.getEntries(id, opts),
       ]);
       const located = readyMembers(pages, statuses, roots, keys);
+      save(`${name}-${id === peopleCollection ? 'people' : 'recycler'}-readiness-state`, { at: block, pages, statuses, roots });
       log(`${name}-fixture-readiness`, { collection: id, at: block, ready: located.size, expected: keys.size, elapsedMs: performance.now() - started });
       if (located.size === keys.size) {
         save(`${name}-${id === collection ? 'recycler' : 'people'}-rings`, { at: block, pages, statuses, roots });
