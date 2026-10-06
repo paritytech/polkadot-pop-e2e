@@ -27,7 +27,25 @@ if args.scenario != 'merchant':
     state_paths = sorted(args.directory.glob(f'{name}-wave-*-state.json'))
     states = [json.loads(path.read_text()) for path in state_paths]
     assert states and sum(len(state['states']) for state in states) == expected
+    fixture = json.loads((args.directory / f'{name}-fixture.json').read_text())
+    seen = set()
+    completed = 0
     for state in states:
+        for row in state['states']:
+            assert row['actor'] not in seen
+            seen.add(row['actor'])
+            assert int(row['balance']) == int(fixture['amount'])
+            assert row['source'] is None and row['recipient'] is None
+        completed += len(state['states'])
+        expected_held = 0 if args.scenario == 'full-flow' else int(fixture['amount']) * (expected - completed)
+        assert int(state['heldBacking']) == expected_held
+        assert int(state['finalBacking']) == 1
         assert state['finalBacking'] == state['expectedBacking']
         assert state['heldBacking'] == state['expectedHeldBacking']
+    assert seen == set(range(expected))
+    token_paths = sorted(args.directory.glob(f'{name}-wave-*-tokens.json'))
+    tokens = [token for path in token_paths for token in json.loads(path.read_text())['tokens']]
+    assert len(tokens) == expected * (2 if args.scenario == 'full-flow' else 1)
+    assert all(t['consumed'] for t in tokens)
+    assert len({(t['period'], t['alias']) for t in tokens}) == len(tokens)
 print(f'{name}: receipt evidence and workload gates verified for {expected} actors')
