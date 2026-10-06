@@ -18,6 +18,7 @@ import {
   unpaidTopUpOptions, watchCoinageTransaction,
 } from '../src/lib/coinage-client.js';
 
+const merchantMode = process.env.SCENARIO === 'merchant';
 const users = Number(process.env.ACTOR_COUNT ?? '100');
 assert(Number.isInteger(users) && users >= 1 && users <= 1000000);
 const mode = process.env.LOAD_MODE ?? 'burst';
@@ -106,10 +107,12 @@ async function stage(count: number, name: string) {
   await fixture('create sufficient instance', api.tx.Sudo.sudo({ call:
     api.tx.Coinage.create_sufficient_instance({ asset_id: asset, asset_unit: unit }).decodedCall,
   }), true);
+  const merchant = merchantMode ? keyring.addFromSeed(randomBytes(32)) : undefined;
+  if (merchant) keyring.removePair(merchant.address);
   const actors = Array.from({ length: count }, (_, id) => {
     const source = keyring.addFromSeed(randomBytes(32));
     keyring.removePair(source.address);
-    const recipient = encodeAddress(randomBytes(32));
+    const recipient = merchant ? merchant.derive(`//receipt//${id}`).address : encodeAddress(randomBytes(32));
     return { id, source: source.address, recipient,
       signer: capacitySigner(source.publicKey, data => source.sign(data)) as ReturnType<typeof capacitySigner> | undefined };
   });
@@ -192,6 +195,9 @@ async function stage(count: number, name: string) {
       }
     })();
     const sentAt: number[] = [];
+    let merchantSubmitted = 0, merchantSettled = 0;
+    const backlog = merchantMode ? setInterval(() => log(`${name}-merchant-backlog`, { elapsedMs: performance.now() - started, arrived: merchantArrived, submitted: merchantSubmitted, settled: merchantSettled, queued: merchantArrived - merchantSubmitted, outstanding: merchantSubmitted - merchantSettled }), 1000) : undefined;
+    let merchantArrived = 0;
     const results: BurstResult[] = [];
     const waveSizes = name === 'claim-burst' && mode === 'paced' ? [firstWave, count - firstWave] : [count];
     const waves: Array<{ count: number; startActor: number; startedMs: number; sendWindowMs: number;
@@ -203,10 +209,13 @@ async function stage(count: number, name: string) {
         const waveStarted = performance.now();
         const deadline = waveStarted + deadlineMs;
         const pending: Promise<void>[] = [];
+        if (merchantMode) { merchantArrived += size; log(`${name}-merchant-arrivals`, { startActor: offset, count: size, arrivedMs: waveStarted - started }); }
         for (let i = offset; i < offset + size && !guard; i++) {
           sentAt[i] = performance.now() - started;
+          merchantSubmitted++;
           pending.push(submit(wire[i], Math.max(1, Math.floor(deadline - performance.now()))).then(result => {
-            log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...result });
+            merchantSettled++;
+            log(`${name}-transactions`, { actor: i, sentAtMs: sentAt[i], ...(merchantMode ? { memoArrivedMs: waveStarted - started, memoToSubmitMs: sentAt[i] - (waveStarted - started), memoToOutcomeMs: performance.now() - waveStarted } : {}), ...result });
             // Detailed transitions are on disk. Retain only receipt and summary data for the audit.
             result.rpcObservations = [];
             results[i] = result;
@@ -238,6 +247,8 @@ async function stage(count: number, name: string) {
       guard = `Wave submission or receipt gate failed: ${String(error)}`;
       save(`${name}-waves`, waves);
     }
+    if (backlog) clearInterval(backlog);
+    if (merchantMode) save(`${name}-merchant-summary`, { merchant: merchant!.address, source: 'test-owned memo arrival scheduler', nativeWallet: false, rpcConnectionsForSubmission: 1, arrived: merchantArrived, submitted: merchantSubmitted, settled: merchantSettled, unresolved: results.filter(r => r.status !== 'finalized').length, pending: merchantSubmitted - merchantSettled, preparedBeforeArrival: true });
     const sendWindowMs = Math.max(0, ...waves.map(w => w.sendWindowMs));
     stopped = true;
     await observer;
@@ -305,7 +316,7 @@ try {
     mode, firstWave: mode === 'paced' ? firstWave : undefined, poolProfile,
     launchTargetMs, deadlineMs, poolKbytes, fixtureBatch, poolTransactions: poolProfile === 'enlarged' ? poolTransactions : undefined });
   await stage(1, 'claim-smoke');
-  await stage(users, 'claim-burst');
+  if (process.env.SMOKE_ONLY !== 'true') await stage(users, 'claim-burst');
 } catch (error) {
   save('claim-error', { error: String(error) });
   console.error(error);

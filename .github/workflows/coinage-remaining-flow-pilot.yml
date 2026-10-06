@@ -1,0 +1,204 @@
+name: Coinage remaining-flow pilot
+on:
+  workflow_call:
+    inputs:
+      scenario:
+        type: string
+        required: true
+      actors:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: burst
+      pool:
+        type: string
+        default: default
+      pool-transactions:
+        type: string
+        default: '11000'
+      smoke-only:
+        type: string
+        default: 'false'
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  pilot:
+    runs-on: parity-large
+    timeout-minutes: 720
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PREVIEWNET_BUNDLE_RUN_ID: '36614342201'
+      PREVIEWNET_BUNDLE_SHA256: edab76b213657e499ae9fcb95673a2bf4ca717b78b00caf3d7783fc18b562b4f
+      NODE_OPTIONS: --max-old-space-size=12288
+      SCENARIO: ${{ inputs.scenario }}
+      ACTOR_COUNT: ${{ inputs.actors }}
+      SMOKE_ONLY: ${{ inputs.smoke-only }}
+      LOAD_MODE: ${{ inputs.mode }}
+      POOL_PROFILE: ${{ inputs.pool }}
+      POOL_TRANSACTIONS: ${{ inputs.pool-transactions }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Save runner preflight before network setup
+        run: |
+          python3 - <<'PYPREFLIGHT'
+          import datetime, json, os, platform, sys
+          from pathlib import Path
+          sys.path.insert(0, 'ci/previewnet')
+          from monitor import cgroup_directories, host_sample, read_file
+          paths = ['/proc/self/cgroup', '/proc/meminfo']
+          paths += [str(group / name) for group in cgroup_directories()
+                    for name in ('cpu.max', 'cpuset.cpus.effective', 'memory.max', 'memory.swap.max')]
+          evidence = {
+              'recordedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'runId': os.environ['GITHUB_RUN_ID'], 'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'commit': os.environ['GITHUB_SHA'], 'runner': os.environ['RUNNER_NAME'],
+              'platform': platform.platform(), 'cpuCount': os.cpu_count(),
+              'affinity': sorted(os.sched_getaffinity(0)),
+              'limits': {path: read_file(path) for path in paths}, 'host': host_sample(),
+              'scope': 'Before dependencies, snapshot preparation or node startup; not a crash diagnosis.'
+          }
+          Path('network-out').mkdir(exist_ok=True)
+          Path('network-out/runner-preflight.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          PYPREFLIGHT
+      - name: Preserve preflight even if the runner later disappears
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinage-${{ inputs.scenario }}-${{ inputs.actors }}-${{ inputs.mode }}-${{ inputs.pool }}-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: network-out/runner-preflight.json
+          retention-days: 30
+      - name: Validate requested load and client
+        run: |
+          python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 100000'
+          python3 -m unittest discover -s ci/previewnet -p test_lifecycle.py
+          pip install tomli-w==1.2.0
+          pnpm install --frozen-lockfile
+          pnpm --filter @pop-e2e/chain-tests test:coinage-client
+          pnpm --filter @pop-e2e/chain-tests exec tsx --test src/lib/coinage-burst-audit.test.ts src/lib/coinage-burst-submit.test.ts src/lib/coinage-capacity.test.ts src/lib/coinage-lifecycle.test.ts src/lib/coinage-campaign.test.ts src/lib/coinage-unload.test.ts
+      - uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: 7907a3bfa7b2e47535a74b7920086a05ca94773a
+          path: ppn
+      - name: Prepare the PreviewNet engine network from PR 32
+        run: |
+          bash ci/previewnet/prepare.sh network-inputs
+          sha256sum --check network-inputs/network-inputs.sha256
+          tar -xzf network-inputs/network-inputs.tar.gz -C ppn
+          pnpm --dir ppn install --frozen-lockfile
+          pnpm --dir ppn exec tsc -b
+          node ppn/bin/ppn.mjs fork toml ppn/bundle ppn/full-fork.toml
+          python3 ci/previewnet/network.py prepare --people-collators 2
+          # Record pool changes explicitly; keep the two default-pool baselines unchanged.
+          python3 - <<'PYCONFIG'
+          from pathlib import Path
+          import os, tomllib, tomli_w
+          path = Path('network-out/network.toml')
+          config = tomllib.loads(path.read_text())
+          people = next(p for p in config['parachains'] if p['id'] == 1502)
+          count = int(os.environ['ACTOR_COUNT'])
+          pool = os.environ['POOL_PROFILE']
+          assert pool in ('default', 'enlarged')
+          limit = int(os.environ['POOL_TRANSACTIONS'])
+          assert 11000 <= limit <= 110000
+          for node in people['collators']:
+              node['args'] = [a for a in node['args'] if not a.startswith(('--state-pruning=', '--pool-limit=', '--pool-kbytes=', '--rpc-max-subscriptions-per-connection='))]
+              node['args'] += ['--state-pruning=10000', f'--rpc-max-subscriptions-per-connection={max(4050, 2 * count + 50)}', '--offchain-worker=always']
+              if pool == 'enlarged':
+                  node['args'] += [f'--pool-limit={limit}', '--pool-kbytes=262144']
+          path.write_text(tomli_w.dumps(config))
+          PYCONFIG
+          cp ppn/provenance.json network-out/
+          cp ppn/bundle/manifest.json network-out/snapshot.json
+      - name: Start six relay validators and two People collators
+        run: |
+          python3 ci/previewnet/start.py start
+          node ppn/bin/ppn.mjs fork wait ppn/bundle 900
+          node ci/previewnet/people-collators.mjs setup
+          python3 ci/previewnet/network.py observe --phase baseline
+      - name: Check lifecycle driver types
+        working-directory: packages/chain-tests
+        run: >-
+          pnpm exec tsc --noEmit --target es2022 --module esnext
+          --moduleResolution bundler --strict --skipLibCheck scripts/coinage-unload-pilot.ts scripts/coinage-claim-burst.ts
+      - name: Run smoke and lifecycle pilot
+        working-directory: packages/chain-tests
+        run: |
+          (while true; do date -u; ps -eo pid,ppid,pcpu,rss,comm; sleep 10; done) > ../../network-out/process-samples.txt &
+          monitor_pid=$!
+          python3 ../../ci/previewnet/monitor.py --directory ../../network-out &
+          metrics_pid=$!
+          trap 'kill "$monitor_pid" "$metrics_pid" 2>/dev/null || true' EXIT
+          if [ "$SCENARIO" = merchant ]; then
+            export POOL_KBYTES=262144
+            timeout --signal=TERM --kill-after=30s 600m pnpm exec tsx scripts/coinage-claim-burst.ts
+          else
+            timeout --signal=TERM --kill-after=30s 600m pnpm exec tsx scripts/coinage-unload-pilot.ts
+          fi
+      - name: Verify saved receipts and lifecycle state
+        if: always()
+        run: |
+          python3 ci/previewnet/verify-remaining-flow.py network-out --scenario "$SCENARIO" --expected "$ACTOR_COUNT" --smoke-only "$SMOKE_ONLY"
+      - name: Save results before recovery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinage-${{ inputs.scenario }}-${{ inputs.actors }}-${{ inputs.mode }}-${{ inputs.pool }}-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.txt
+            network-out/*.log
+            network-out/*.md
+            network-out/*.csv
+            network-out/data/*/*.log
+            network-out/evidence/**
+            network-out/*-observed-blocks/**
+          retention-days: 30
+      - name: Summarise pilot
+        if: always()
+        run: |
+          python3 - <<'PYREPORT'
+          import os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## Coinage lifecycle pilot\n\nRoot-seeded coins; no production wallet. Pool settings are in the fixture and network.toml.\n\n')
+              for name in ('claim-burst-summary' if os.environ['SCENARIO'] == 'merchant' else f"{os.environ['SCENARIO']}-{'smoke' if os.environ['SMOKE_ONLY'] == 'true' else 'pilot'}-summary", 'unload-error'):
+                  p = Path(f'network-out/{name}.json')
+                  out.write(f'### {name}\n\n' + ('```json\n' + p.read_text() + '\n```\n' if p.exists() else 'No result produced.\n'))
+          PYREPORT
+      - name: Check network recovery and both People authors
+        if: always()
+        timeout-minutes: 9
+        run: |
+          python3 ci/previewnet/network.py observe --phase recovery
+          node ci/previewnet/people-collators.mjs verify
+      - name: Stop this run's network
+        if: always()
+        run: python3 ci/previewnet/start.py stop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coinage-${{ inputs.scenario }}-${{ inputs.actors }}-${{ inputs.mode }}-${{ inputs.pool }}-pilot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            network-out/*.json
+            network-out/*.jsonl
+            network-out/*.toml
+            network-out/*.txt
+            network-out/*.log
+            network-out/*.md
+            network-out/*.csv
+            network-out/data/*/*.log
+            network-out/evidence/**
+            network-out/*-observed-blocks/**
+          retention-days: 30
