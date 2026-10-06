@@ -13,6 +13,7 @@ export interface PoolSample {
 export async function sustainPool<T, R>(options: {
   readReady: () => Promise<number>;
   next: () => Promise<Supply<T>>;
+  release?: (work: T) => void;
   submit: (work: T, transition: (value: PoolTransition) => void) => Promise<R>;
   recordSample: (sample: PoolSample) => void;
   recordResult: (work: T, result: R) => void;
@@ -33,7 +34,7 @@ export async function sustainPool<T, R>(options: {
   }
   const now = options.now ?? (() => performance.now());
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
-  const start = now(), lower = Math.floor(target * .95);
+  const start = now(), lower = Math.max(1, Math.floor(target * .95));
   const queued = new Set<number>();
   const pending = new Map<number, Promise<void>>();
   let submitted = 0, settled = 0, holdStart: number | undefined;
@@ -70,7 +71,9 @@ export async function sustainPool<T, R>(options: {
         const supplied = await options.next();
         if (supplied.kind === 'exhausted') { reason = 'inventory-exhausted'; break; }
         if (supplied.kind === 'wait') break;
-        if (holdStart !== undefined && now() >= holdStart + duration) break;
+        if (holdStart !== undefined && now() >= holdStart + duration) {
+          options.release?.(supplied.work); break;
+        }
         const id = submitted++;
         queued.add(id);
         const transition = (value: PoolTransition) => {

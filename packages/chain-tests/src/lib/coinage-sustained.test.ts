@@ -62,3 +62,16 @@ test('telemetry failure stops new submissions without inventing pool observation
   assert.match(result.error!, /metrics unavailable/);
   assert(result.unobservedHoldMs > 0);
 });
+
+test('returns a prepared dependency when preparation crosses the hold deadline', async () => {
+  let clock = 0, released = 0;
+  const result = await sustainPool({ target: 10, poolLimit: 12, durationMs: 1000,
+    now: () => clock, sleep: async ms => { clock += ms; }, readReady: async () => 9,
+    next: async () => { clock += 1100; return { kind: 'work', work: 42 }; },
+    release: work => { assert.equal(work, 42); released++; }, submit: async () => {},
+    recordSample: () => {}, recordResult: () => {},
+  });
+  assert.equal(result.submitted, 0);
+  assert.equal(released, 1);
+  assert.equal(result.holdCompleted, true);
+});
