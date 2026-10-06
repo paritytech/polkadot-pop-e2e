@@ -331,17 +331,19 @@ async function run() {
     const at = await client.getFinalizedBlock(), stateErrors: string[] = [];
     const startedActors = actors.filter(a => a.started);
     await inGroups(startedActors, async a => {
-      const [source, payment, recipient, change, external] = await Promise.all([
+      const [source, payment, recipient, change, external, sourceExternal] = await Promise.all([
         api.query.Coinage.CoinsByOwner.getValue(a.source, { at: at.hash }),
         api.query.Coinage.CoinsByOwner.getValue(a.payment, { at: at.hash }),
         api.query.Coinage.CoinsByOwner.getValue(a.destination, { at: at.hash }),
         api.query.Coinage.CoinsByOwner.getValue(a.change, { at: at.hash }),
         api.query.Assets.Account.getValue(asset, a.destination, { at: at.hash }),
+        seedCoins ? Promise.resolve(undefined) : api.query.Assets.Account.getValue(asset, a.source, { at: at.hash }),
       ]);
       log('sustained-state', { at, actor: a.id, stage: a.stage, source: source ?? null, payment: payment ?? null,
-        recipient: recipient ?? null, change: change ?? null, external: external ?? null });
+        recipient: recipient ?? null, change: change ?? null, external: external ?? null, sourceExternal: sourceExternal ?? null });
       try {
         assert.equal(a.stage, 'done'); assert.equal(source, undefined); assert.equal(payment, undefined);
+        if (!seedCoins) assert.equal(sourceExternal?.balance ?? 0n, 0n, 'Source asset was not debited');
         if (scenario === 'claim' || scenario === 'merchant' || scenario === 'split') {
           assert.deepEqual(recipient, { instance_id: instanceId, value: 1, age: scenario === 'split' ? 2 : 1 });
           if (scenario === 'split') assert.deepEqual(change, { instance_id: instanceId, value: 1, age: 1 });
@@ -355,10 +357,11 @@ async function run() {
     const topups = completed.filter(r => r.work.stage === 'topup' && r.result.status === 'finalized').length;
     const expectedHeld = seedCoins ? 0n : amount * BigInt((scenario === 'offboard' || scenario === 'quota' ? count : topups) - offboards);
     if (finalBacking !== backing || heldBacking !== expectedHeld) stateErrors.push('Backing differs');
-    await inGroups(completed.filter(row => row.work.period !== undefined && row.result.status === 'finalized'), async ({ work }) => {
+    await inGroups(completed.filter(row => row.work.period !== undefined && row.result.status === 'finalized'), async ({ work, result }) => {
       const alias = Binary.toHex(alias_in_context(actors[work.actor].personEntropy!, tokenContext(work.period!, work.counter!)));
-      const consumed = await api.query.Coinage.ConsumedFreeUnloadTokens.getValue(work.period!, alias, { at: at.hash });
-      log('sustained-tokens', { at, actor: work.actor, period: work.period, counter: work.counter, alias, consumed: consumed !== undefined });
+      assert(result.block);
+      const consumed = await api.query.Coinage.ConsumedFreeUnloadTokens.getValue(work.period!, alias, { at: result.block.hash });
+      log('sustained-tokens', { at: result.block, actor: work.actor, period: work.period, counter: work.counter, alias, consumed: consumed !== undefined });
       if (consumed === undefined) stateErrors.push(`Token missing for ${work.actor}/${work.stage}`);
     });
     if (scenario === 'topup' || scenario === 'recycle') {

@@ -68,6 +68,8 @@ with (root / 'sustained-state.jsonl').open() as stream:
         assert row['actor'] not in seen and row['stage'] == 'done'
         seen.add(row['actor'])
         assert row['source'] is None and row['payment'] is None
+        if not fixture['seedCoins']:
+            assert int((row['sourceExternal'] or {}).get('balance', 0)) == 0
         if args.scenario in ['claim', 'merchant', 'split']:
             assert row['recipient'] == {'instance_id': fixture['instanceId'], 'value': 1,
                                         'age': 2 if args.scenario == 'split' else 1}
