@@ -35,7 +35,7 @@ async function rpc<T>(port: number, method: string, params: unknown[] = []): Pro
 
 export async function auditBurst(input: {
   name: string; expected: number; results: Array<SubmissionResult | undefined>;
-  operation: 'CoinTransferred' | 'RecyclerLoadedWithExternalAsset' | 'CoinSplit' | 'RecyclerLoadedWithCoin';
+  operation: 'CoinTransferred' | 'RecyclerLoadedWithExternalAsset' | 'CoinSplit' | 'RecyclerLoadedWithCoin' | 'RecyclerUnloadedIntoCoin' | 'RecyclerUnloadedIntoExternalAsset';
   out: string; api: ReturnType<typeof createCoinageClient>['api']; summary: Record<string, unknown>;
   // Lifecycle drivers can finish dependent operations while retaining a failed timing verdict.
   requireScenarioPass?: boolean;
