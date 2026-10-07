@@ -35,7 +35,10 @@ assert((process.env.POOL_PROFILE ?? 'default') === 'default', 'Sustained test mu
 const count = Number(process.env.ACTOR_COUNT ?? '20000');
 assert(Number.isInteger(count) && count >= 1 && count <= 250000);
 const stateQueryConcurrency = 64;
-const deadlineMs = 1800000;
+// Offboarding 1,000 transactions took up to 285s in verified run 37593396451.
+// Allow the proof-heavy inventory to drain; the measured hold stays at 180s.
+const deadlineMs = ['quota', 'offboard', 'full-flow'].includes(scenario)
+  ? Math.max(1_800_000, count * 600) : 1_800_000;
 const smoke = process.env.SMOKE_ONLY === 'true';
 const target = smoke ? 1 : 8000;
 const durationMs = smoke ? 10000 : 180000;
@@ -259,7 +262,7 @@ async function run() {
   }
   save('sustained-fixture', { scenario, inventory: count, instanceId, asset, unit, amount, backing, palletAccount,
     quotaLimit, peopleCount: personSecrets.length, peopleCollection, recyclerCollection, seedCoins,
-    preparationMs: performance.now() - preparationStart, proofWorkers: proofPool.size, nativeWallet: false,
+    observationDeadlineMs: deadlineMs, preparationMs: performance.now() - preparationStart, proofWorkers: proofPool.size, nativeWallet: false,
     actors: actors.map(a => ({ id: a.id, source: a.source, payment: a.payment, recipient: a.destination,
       change: a.change, person: a.person, member: a.voucher?.member_key, recycledMember: a.recycledVoucher?.member_key })) });
   log('sustained-phases', { phase: 'prepared', wallTime: new Date().toISOString() });
