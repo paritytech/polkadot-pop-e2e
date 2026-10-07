@@ -78,6 +78,7 @@ def find_dispatched(case, since):
 
 
 def watch(path, ledger, case, attempt):
+    expected_attempt = attempt.setdefault('runAttempt', 1)
     while True:
         try:
             run = gh_json('run', 'view', str(attempt['runId']), '-R', REPO, '--json',
@@ -88,6 +89,16 @@ def watch(path, ledger, case, attempt):
             print(f"status read timed out; still watching {attempt['runId']}", flush=True)
             time.sleep(POLL_SECONDS)
             continue
+        if run['attempt'] != expected_attempt:
+            # Infrastructure bots can rerun a failed job between polls. Do not
+            # replace the original result with that unreviewed attempt.
+            attempt['externalRerun'] = {
+                'expectedAttempt': expected_attempt, 'observedAttempt': run['attempt'],
+                'status': run['status'], 'observedAt': now().isoformat(),
+            }
+            save(path, ledger)
+            raise RuntimeError(f"External rerun of {attempt['runId']} detected: "
+                               f"attempt {expected_attempt} -> {run['attempt']}; review before continuing")
         attempt.update(status=run['status'], conclusion=run['conclusion'] or None, headSha=run['headSha'],
                        runAttempt=run['attempt'], observedAt=now().isoformat(),
                        jobs=[{'name': j['name'], 'conclusion': j['conclusion'] or None,
@@ -142,7 +153,7 @@ def cmd_run(args):
                             *[a for k, v in case['inputs'].items() for a in ('-f', f'{k}={v}')]], check=True)
             run = find_dispatched(case, since)
             last = {'runId': run['databaseId'], 'url': run['url'], 'dispatchedAt': since.isoformat(),
-                    'status': 'queued'}
+                    'status': 'queued', 'runAttempt': 1}
             case['runs'].append(last)
             save(args.ledger, ledger)
             print('dispatched', case['id'], last['url'], flush=True)
