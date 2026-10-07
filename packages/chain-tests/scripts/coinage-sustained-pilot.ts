@@ -52,6 +52,7 @@ const signerFor = (pair: ReturnType<typeof keyring.addFromUri>) =>
 const admin = keyring.addFromUri('//Alice');
 const adminSigner = signerFor(admin);
 const standardExtensions = { ...unpaidTopUpOptions(0).customSignedExtensions, AsCoinage: { value: undefined } };
+let reached = 'startup';
 
 async function fixture(label: string, tx: ReturnType<typeof api.tx.Sudo.sudo>, sudo = false) {
   const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
@@ -124,6 +125,22 @@ async function run() {
         : scenario === 'merchant' ? 'claim' : scenario) as Stage };
   });
   const recognized = new Set<string>();
+  reached = 'setup';
+  // PAPI's submitAndWatch uses transaction_v1_broadcast, which this node caps at 16 active
+  // broadcasts per connection. Beyond that it returns null, PAPI drops the error and the
+  // transaction is never sent. Fixture loads use the same legacy watch path as the hold.
+  const setupSender = new WsProvider('ws://127.0.0.1:10010', false, {}, 180_000);
+  await connectBurstProvider(setupSender);
+  const setupSubmit = burstSubmitter(setupSender, async hash => {
+    const [block, events] = await Promise.all([
+      client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
+      api.query.System.Events.getValue({ at: hash }),
+    ]);
+    save(`sustained-setup-block-${Number.parseInt(block.block.header.number, 16)}`, { hash, block, events });
+    return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
+  }, (txHash, observation) => log('sustained-setup-watch-transitions', { txHash, ...observation }));
+  const setupOutcomes: Record<string, number> = {};
+  try {
   for (let offset = 0; offset < count; offset += seedCoins ? 5000 : 100) {
     const batch = actors.slice(offset, offset + (seedCoins ? 5000 : 100));
     if (seedCoins) {
@@ -137,15 +154,23 @@ async function run() {
       await fixture('fund source accounts', api.tx.Utility.batch_all({ calls: batch.map(a => api.tx.Assets.mint({
         id: asset, beneficiary: { type: 'Id', value: a.source }, amount }).decodedCall) }));
       if (scenario === 'offboard' || scenario === 'quota') {
-        await Promise.all(batch.map(async a => {
+        // Keep every outcome in the batch before deciding; the first unresolved watch is not the whole story.
+        const results = await Promise.all(batch.map(async a => {
           const signed = await api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher!)
             .sign(a.sourceSigner!, { ...unpaidTopUpOptions(0), mortality: { mortal: false } });
-          const result = await watchCoinageTransaction(client, { signed, txHash: blake2AsHex(signed) }, 180000);
-          log('sustained-fixture-loads', result); assert.equal(result.status, 'finalized');
+          return setupSubmit({ hex: Binary.toHex(signed), txHash: blake2AsHex(signed) }, 180_000);
         }));
+        results.forEach((result, i) => {
+          log('sustained-fixture-loads', { actor: batch[i].id, ...result });
+          setupOutcomes[result.status] = (setupOutcomes[result.status] ?? 0) + 1;
+        });
+        save('sustained-setup-outcome', { requested: count, attempted: offset + batch.length, outcomes: setupOutcomes });
+        const incomplete = results.length - results.filter(r => r.status === 'finalized').length;
+        if (incomplete) throw new Error(`Setup top-ups incomplete: ${incomplete} of ${results.length} in batch at actor ${offset} did not finalize successfully`);
       }
     }
   }
+  } finally { await setupSender.disconnect(); }
   const collectionBytes = new Uint8Array(32); collectionBytes.set(new TextEncoder().encode('coinage/recycler'));
   new DataView(collectionBytes.buffer).setUint32(16, instanceId, true); collectionBytes[20] = denomination;
   const recyclerCollection = Binary.toHex(collectionBytes);
@@ -233,6 +258,7 @@ async function run() {
     actors: actors.map(a => ({ id: a.id, source: a.source, payment: a.payment, recipient: a.destination,
       change: a.change, person: a.person, member: a.voucher?.member_key, recycledMember: a.recycledVoucher?.member_key })) });
   log('sustained-phases', { phase: 'prepared', wallTime: new Date().toISOString() });
+  reached = 'hold';
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
   const notifications = new Map<string, (state: PoolTransition) => void>();
   const submit = burstSubmitter(sender, async hash => {
@@ -391,5 +417,5 @@ try {
     poolProfile: 'default', target, durationMs, smoke });
   await run();
 }
-catch (error) { save('sustained-error', { error: String(error), stack: error instanceof Error ? error.stack : undefined }); console.error(error); process.exitCode = 1; }
+catch (error) { save('sustained-error', { phase: reached, error: String(error), stack: error instanceof Error ? error.stack : undefined }); console.error(error); process.exitCode = 1; }
 finally { armShutdownDeadline(`${out}/sustained-shutdown-error.json`); coinage.close(); }
