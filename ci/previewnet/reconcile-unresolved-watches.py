@@ -29,21 +29,36 @@ def main():
     args = parser.parse_args()
     root, name = args.directory, args.name
 
-    signed = json.loads((root / f'{name}-signed.json').read_text())
+    signed_path = root / f'{name}-signed.json'
+    if signed_path.exists():
+        signed = json.loads(signed_path.read_text())
+    else:
+        with (root / f'{name}-signed.jsonl').open() as stream:
+            signed = [json.loads(line) for line in stream]
+    # Sustained lifecycle files contain several operations for the same actor.
+    signed = [tx for tx in signed if tx.get('operation', args.operation) == args.operation]
     for tx in signed:
         assert digest(tx['hex']) == tx['txHash'], f"actor {tx['actor']}: signed bytes do not match txHash"
     by_hash = {tx['txHash']: tx['actor'] for tx in signed}
     watches = {}
     for line in (root / f'{name}-transactions.jsonl').read_text().splitlines():
         row = json.loads(line)
-        watches[row['actor']] = row
-    receipts = json.loads((root / f'{name}-receipts.json').read_text())
+        if row['txHash'] in by_hash:
+            watches[row['txHash']] = row
+    receipts_path = root / f'{name}-receipts.json'
+    evidence_name = name
+    if not receipts_path.exists():
+        evidence_name = f'{name}-{args.operation}'
+        receipts_path = root / f'{evidence_name}-receipts.json'
+    receipts = json.loads(receipts_path.read_text())
     receipt_hashes = {r['txHash'] for r in receipts}
+
+    assert receipt_hashes <= by_hash.keys(), 'Receipt hashes are outside the selected signed operation'
 
     # Every saved block with finality evidence, indexed by extrinsic hash.
     found = {}
     numbers = []
-    for path in sorted((root / 'evidence' / name).glob('block-*.json')):
+    for path in sorted((root / 'evidence' / evidence_name).glob('block-*.json')):
         evidence = json.loads(path.read_text())
         number = int(evidence['block']['block']['header']['number'], 16)
         numbers.append(number)
@@ -56,13 +71,16 @@ def main():
                 events.setdefault(item['phase']['value'], []).append(item['event'])
         for index, raw in enumerate(evidence['block']['block']['extrinsics']):
             kinds = {(e['type'], e['value']['type']) for e in events.get(index, [])}
+            if found.get(digest(raw), {}).get('canonical') and not canonical:
+                continue
             found[digest(raw)] = {'number': number, 'hash': evidence['hash'], 'index': index, 'canonical': canonical,
                                   'success': ('System', 'ExtrinsicSuccess') in kinds,
                                   'failed': ('System', 'ExtrinsicFailed') in kinds,
                                   'operation': ('Coinage', args.operation) in kinds}
 
     rows, counts = [], Counter()
-    for actor, watch in sorted(watches.items()):
+    for tx_hash, watch in sorted(watches.items()):
+        actor = watch['actor']
         if watch['status'] == 'finalized':
             continue
         tx_hash = watch['txHash']
@@ -71,7 +89,7 @@ def main():
         hit = found.get(tx_hash)
         if hit and hit['canonical'] and hit['success'] and hit['operation'] and not hit['failed']:
             outcome = 'reconciled-success'
-        elif hit and hit['failed']:
+        elif hit and hit['canonical'] and hit['failed']:
             outcome = 'included-dispatch-failed'
         elif hit:
             outcome = 'included-unverified'
