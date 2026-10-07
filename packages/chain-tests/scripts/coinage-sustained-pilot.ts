@@ -329,7 +329,12 @@ async function run() {
   try {
     const endpoints = JSON.parse(readFileSync(`${out}/metrics-endpoints.json`, 'utf8'));
     const metricsUrl = endpoints['Collator-1502']; assert.equal(typeof metricsUrl, 'string');
-    const pressure = await sustainPool({ target, poolLimit: 8192, durationMs, fillTimeoutMs: 600000,
+    // The pinned fork-aware pool admits ready.count + future.count globally (8192 + 819).
+    // Inclusion can leave a transaction in that mempool until finality. Reserve 32 entries
+    // for maintenance traffic; this is a client bound, never a node configuration change.
+    // SDK: polkadot-weekly2026w33-rc2, transaction-pool/src/{builder,fork_aware_txpool/fork_aware_txpool}.rs.
+    const pressure = await sustainPool({ target, poolLimit: 8192, admissionLimit: 9011,
+      maxOutstanding: 9011 - 32, durationMs, fillTimeoutMs: 600000,
       release: work => { if (actors[work.actor].started) followups.push(work.actor); },
       readReady: () => readReadyPool(metricsUrl), next: offer, submit: send, recordResult: finish,
       recordSample: sample => { phase = sample.phase; log('sustained-pool', { ...sample, wallTime: new Date().toISOString(), memory: process.memoryUsage(), cpu: process.cpuUsage() }); } });

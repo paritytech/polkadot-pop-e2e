@@ -113,3 +113,22 @@ test('a pool rejection stops admission rather than consuming the remaining inven
   assert.equal(result.reason, 'admission-rejected');
   assert.equal(result.holdCompleted, false);
 });
+
+test('uses the explicit total admission bound without treating it as ready occupancy', async () => {
+  let clock = 0;
+  const completions: Array<() => void> = [];
+  const result = await sustainPool({
+    target: 10, poolLimit: 12, admissionLimit: 15, maxOutstanding: 14,
+    durationMs: 1000, fillTimeoutMs: 300, batchSize: 10, pollMs: 100,
+    now: () => clock, readReady: async () => 0,
+    sleep: async ms => { clock += ms; if (clock >= 300) completions.splice(0).forEach(f => f()); },
+    next: async () => ({ kind: 'work', work: 1 }),
+    submit: (_, notify) => new Promise<void>(resolve => { completions.push(resolve); notify('in-block'); }),
+    recordSample: sample => assert.equal(sample.ready, 0), recordResult: () => {},
+  });
+  assert.equal(result.submitted, 14);
+  assert.equal(result.poolLimit, 12);
+  assert.equal(result.admissionLimit, 15);
+  assert.equal(result.holdCompleted, false);
+  assert.equal(result.sampledInBandMs, 0);
+});
