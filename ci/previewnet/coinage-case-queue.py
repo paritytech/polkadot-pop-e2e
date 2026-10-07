@@ -57,11 +57,10 @@ def active_case_runs():
     runs = []
     for workflow in BUSY_WORKFLOWS:
         for status in ('queued', 'in_progress', 'waiting', 'pending'):
-            try:
-                runs += gh_json('run', 'list', '-R', REPO, '--workflow', workflow, '--status', status,
-                                '--json', 'databaseId,displayTitle,status', '-L', '20')
-            except subprocess.CalledProcessError:
-                pass  # The workflow may not exist on the default branch yet.
+            # Fail closed when GitHub cannot establish whether another case is active.
+            # An API error (including a missing workflow) is not an empty run list.
+            runs += gh_json('run', 'list', '-R', REPO, '--workflow', workflow, '--status', status,
+                            '--json', 'databaseId,displayTitle,status', '-L', '20')
     return runs
 
 
