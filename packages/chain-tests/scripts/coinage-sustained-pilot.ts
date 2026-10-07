@@ -304,7 +304,13 @@ async function run() {
     actors[work.actor].started = true;
     notifications.set(work.txHash, notify); inFlight++;
     log('sustained-signed', { ...work, phase, wallTime: new Date().toISOString() });
-    try { return await submit(work, deadlineMs); }
+    try {
+      const result = await submit(work, deadlineMs);
+      if (result.status === 'submission-error' && /1016|pool.*limit|Immediately Dropped/i.test(String(result.error ?? ''))) {
+        notify('rejected');
+      }
+      return result;
+    }
     finally { inFlight--; notifications.delete(work.txHash); notify('terminal'); }
   }
   function finish(work: Work, result: BurstResult) {

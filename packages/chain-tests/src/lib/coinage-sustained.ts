@@ -1,5 +1,5 @@
 /** Feedback-controlled submission. Pool pressure and successful receipts are separate results. */
-export type PoolTransition = 'ready' | 'in-block' | 'retracted' | 'terminal';
+export type PoolTransition = 'ready' | 'in-block' | 'retracted' | 'terminal' | 'rejected';
 export type Supply<T> = { kind: 'work'; work: T } | { kind: 'wait' } | { kind: 'exhausted' };
 export interface PoolSample {
   elapsedMs: number;
@@ -30,8 +30,10 @@ export async function sustainPool<T, R>(options: {
   const target = options.target ?? 8000, limit = options.poolLimit ?? 8192;
   const duration = options.durationMs ?? 180000, fillTimeout = options.fillTimeoutMs ?? 120000;
   const pollMs = options.pollMs ?? 100, batchSize = options.batchSize ?? 256;
-  const maxOutstanding = options.maxOutstanding ?? Math.max(32, target * 8);
-  if (!(target > 0 && target < limit && duration > 0 && pollMs > 0 && batchSize > 0)) {
+  // Inclusion does not establish that the node released all pool admission resources.
+  // Bound unresolved submissions separately from the measured ready gauge.
+  const maxOutstanding = Math.min(options.maxOutstanding ?? limit, limit);
+  if (!(target > 0 && target < limit && duration > 0 && pollMs > 0 && batchSize > 0 && maxOutstanding > 0)) {
     throw new Error('Invalid sustained-pool configuration');
   }
   const now = options.now ?? (() => performance.now());
@@ -41,6 +43,7 @@ export async function sustainPool<T, R>(options: {
   const pending = new Map<number, Promise<void>>();
   let submitted = 0, settled = 0, holdStart: number | undefined;
   let reason = 'hold-complete', error: string | undefined;
+  let admissionRejected = false;
   let peak = 0, minimum: number | undefined, sampledInBandMs = 0, sampledMs = 0;
   let previous: { time: number; ready: number } | undefined;
   const asyncErrors: string[] = [];
@@ -63,22 +66,28 @@ export async function sustainPool<T, R>(options: {
         ready, locallyQueued: queued.size, outstanding: pending.size, submitted });
       if (holdStart !== undefined && time >= holdStart + duration) break;
       if (holdStart === undefined && time - start >= fillTimeout) { reason = 'fill-timeout'; break; }
+      if (admissionRejected) { reason = 'admission-rejected'; break; }
       if (asyncErrors.length) { reason = 'submit-or-evidence-error'; break; }
       // Unknown/ready local submissions remain reserved until inclusion or a terminal outcome.
       // A low or lagging gauge alone must never cause a second full batch of 8,000.
       const budget = Math.min(batchSize, Math.max(0, target - Math.max(ready, queued.size)),
         Math.max(0, maxOutstanding - pending.size));
       for (let n = 0; n < budget; n++) {
+        if (admissionRejected) { reason = 'admission-rejected'; break; }
         if (holdStart !== undefined && now() >= holdStart + duration) break;
         const supplied = await options.next();
         if (supplied.kind === 'exhausted') { reason = 'inventory-exhausted'; break; }
         if (supplied.kind === 'wait') break;
+        if (admissionRejected) {
+          options.release?.(supplied.work); reason = 'admission-rejected'; break;
+        }
         if (holdStart !== undefined && now() >= holdStart + duration) {
           options.release?.(supplied.work); break;
         }
         const id = submitted++;
         queued.add(id);
         const transition = (value: PoolTransition) => {
+          if (value === 'rejected') admissionRejected = true;
           if (value === 'ready' || value === 'retracted') queued.add(id);
           else queued.delete(id);
         };

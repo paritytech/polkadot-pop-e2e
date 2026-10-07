@@ -75,3 +75,41 @@ test('returns a prepared dependency when preparation crosses the hold deadline',
   assert.equal(released, 1);
   assert.equal(result.holdCompleted, true);
 });
+
+test('inclusion does not release unresolved admission budget before finality', async () => {
+  let clock = 0, submitted = 0, peakUnresolved = 0;
+  const pending: Array<() => void> = [];
+  const result = await sustainPool({
+    target: 10, poolLimit: 12, maxOutstanding: 96,
+    durationMs: 1000, fillTimeoutMs: 500, batchSize: 10, pollMs: 100,
+    now: () => clock,
+    // Reproduce an optimistic ready gauge while included transactions remain unfinalized.
+    readReady: async () => 0,
+    sleep: async ms => { clock += ms; if (clock >= 500) pending.splice(0).forEach(resolve => resolve()); },
+    next: async () => ({ kind: 'work', work: submitted++ }),
+    submit: (_, notify) => new Promise<void>(resolve => {
+      pending.push(resolve); peakUnresolved = Math.max(peakUnresolved, pending.length);
+      notify('ready'); notify('in-block');
+    }),
+    recordSample: () => {}, recordResult: () => {},
+  });
+  assert.equal(result.maxOutstanding, 12);
+  assert.equal(result.submitted, 12);
+  assert.equal(peakUnresolved, 12);
+  assert.equal(result.reason, 'fill-timeout');
+});
+
+test('a pool rejection stops admission rather than consuming the remaining inventory', async () => {
+  let clock = 0;
+  const result = await sustainPool({
+    target: 10, poolLimit: 12, batchSize: 1, durationMs: 1000,
+    now: () => clock, sleep: async ms => { clock += ms; },
+    readReady: async () => 5,
+    next: async () => ({ kind: 'work', work: 1 }),
+    submit: async (_, notify) => { notify('rejected'); notify('terminal'); return 'rejected'; },
+    recordSample: () => {}, recordResult: () => {},
+  });
+  assert.equal(result.submitted, 1);
+  assert.equal(result.reason, 'admission-rejected');
+  assert.equal(result.holdCompleted, false);
+});
