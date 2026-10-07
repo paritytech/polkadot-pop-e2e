@@ -16,13 +16,14 @@ def read_evidence(path):
     return evidence, by_index
 
 
-def verify(root, audit_path):
+def verify(root, audit_path, *, receipts_only=False):
     audit = json.loads(audit_path.read_text())
     name = audit['name']
     receipts = json.loads((root / f'{name}-receipts.json').read_text())
-    assert audit['passed'] and audit['summary']['passed'], f'{name}: failed run'
-    assert not audit['summary'].get('generatorLimited'), f'{name}: missed launch target'
-    assert len(receipts) == audit['expected'] > 0, f'{name}: missing receipts'
+    if not receipts_only:
+        assert audit['passed'] and audit['summary']['passed'], f'{name}: failed run'
+        assert not audit['summary'].get('generatorLimited'), f'{name}: missed launch target'
+        assert len(receipts) == audit['expected'] > 0, f'{name}: missing receipts'
     hashes = set()
     actors = set()
     for receipt in receipts:
@@ -47,13 +48,18 @@ def verify(root, audit_path):
         assert ('System', 'ExtrinsicSuccess') in kinds
         assert ('System', 'ExtrinsicFailed') not in kinds
         assert ('Coinage', audit['operation']) in kinds
-    assert actors == set(range(audit['expected'])), f'{name}: actor coverage differs'
+    if not receipts_only:
+        assert actors == set(range(audit['expected'])), f'{name}: actor coverage differs'
+    else:
+        assert actors <= set(range(audit['expected'])), f'{name}: actor outside expected population'
+        print(f'{name}: receipt-only check; workload gates and completeness are NOT asserted')
     print(f'{name}: {len(receipts)} unique transactions matched saved block bodies and successful dispatch events')
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('directory', type=Path)
+    parser.add_argument('--receipts-only', action='store_true', help='Verify existing receipts without asserting workload success or completeness')
     parser.add_argument('--stage', help='Require this burst stage, so smoke results alone cannot pass')
     parser.add_argument('--expected', type=int, help='Required burst transaction count')
     args = parser.parse_args()
@@ -64,7 +70,7 @@ def main():
     audits = sorted(args.directory.glob('*-audit.json'))
     assert audits, 'No audited results found'
     for audit in audits:
-        verify(args.directory, audit)
+        verify(args.directory, audit, receipts_only=args.receipts_only)
     print('This checks saved evidence consistency; it does not authenticate the RPC nodes or prove consensus.')
 
 
