@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { RingProofPool } from './coinage-proof-pool.js';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { compact, decAnyMetadata, unifyMetadata } from '@polkadot-api/substrate-bindings';
@@ -9,7 +10,9 @@ import { member_from_entropy, is_valid } from 'verifiablejs/nodejs';
 import { encodeMembers } from './ring.js';
 import { unloadSigner, tokenContext, recyclerContext, voucherAlias } from './coinage-unload.js';
 
-test('free unload binds recycler proof to call and token proof to aliases plus call', async () => {
+for (const workerCount of [0, 2]) test(`free unload binds recycler and token proofs (workers=${workerCount})`, async t => {
+  const pool = workerCount ? new RingProofPool(workerCount) : undefined;
+  t.after(async () => { await pool?.close(); });
   const metadata = await previewPeople.getMetadata(); assert(metadata);
   const extensions = unifyMetadata(decAnyMetadata(metadata)).extrinsic.signedExtensions[0];
   const signed = Object.fromEntries(extensions.map(({identifier}, i) => [identifier,
@@ -18,7 +21,7 @@ test('free unload binds recycler proof to call and token proof to aliases plus c
   const person = { entropy: personEntropy, members: encodeMembers([member_from_entropy(personEntropy)]), exponent: 9 as const, ring: 0, revision: 1 };
   const voucher = { entropy: voucherEntropy, members: encodeMembers([member_from_entropy(voucherEntropy)]), exponent: 10 as const, ring: 0, revision: 1 };
   const call = Uint8Array.of(12, 4, 1, 2, 3);
-  const output = await unloadSigner({ person, vouchers: [voucher], period: 123, counter: 5 }).signTx(call, signed, metadata, 0);
+  const output = await unloadSigner({ prove: pool?.prove, person, vouchers: [voucher], period: 123, counter: 5 }).signTx(call, signed, metadata, 0);
   // Decode the general extrinsic envelope and this extension's wire fields independently.
   const bodyLength = compact.dec(output); let offset = compact.enc(bodyLength).length;
   assert.equal(output[offset++], 0x45); assert.equal(output[offset++], 0);
@@ -38,4 +41,22 @@ test('free unload binds recycler proof to call and token proof to aliases plus c
   assert(is_valid(9, tokenProof, person.members, tokenContext(123, 5), alias_in_context(personEntropy, tokenContext(123, 5)), blake2b256(mergeUint8([aliases, implication]))));
   const tampered = implication.slice(); tampered[2] ^= 1;
   assert(!is_valid(10, recyclerProof, voucher.members, recyclerContext, voucherAlias(voucherEntropy), blake2b256(tampered)));
+});
+
+test('proof workers preserve bindings with more jobs than workers', async t => {
+  const pool = new RingProofPool(2);
+  t.after(() => pool.close());
+  const { alias_in_context } = await import('verifiablejs/nodejs');
+  const entropy = randomBytes(32), members = encodeMembers([member_from_entropy(entropy)]);
+  const inputs = Array.from({ length: 5 }, (_, i) => ({ exponent: 9 as const, entropy, members,
+    context: tokenContext(123, i), message: blake2b256(Uint8Array.of(i)) }));
+  const outputs = await Promise.all(inputs.map(pool.prove));
+  for (const [i, output] of outputs.entries()) {
+    const input = inputs[i];
+    assert(is_valid(9, output.proof, members, input.context, alias_in_context(entropy, input.context), input.message));
+    assert(!is_valid(9, output.proof, members, input.context, alias_in_context(entropy, input.context), inputs[(i + 1) % inputs.length].message));
+    assert(output.elapsedMs >= output.computationMs);
+  }
+  await pool.close();
+  await assert.rejects(pool.prove(inputs[0]), /closed/);
 });

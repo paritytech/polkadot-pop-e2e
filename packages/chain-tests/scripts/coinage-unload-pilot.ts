@@ -1,3 +1,4 @@
+import { RingProofPool } from '../src/lib/coinage-proof-pool.js';
 /** Split-and-claim or recycling pilot on a disposable PreviewNet; fixed plans, real calls. */
 import assert from 'node:assert/strict';
 import { WsProvider } from '@polkadot/api';
@@ -52,6 +53,7 @@ const admin = keyring.addFromUri('//Alice');
 const adminSigner = signerFor(admin);
 const standardExtensions = { ...unpaidTopUpOptions(0).customSignedExtensions, AsCoinage: { value: undefined } };
 let phase = 'startup';
+const proofPool = new RingProofPool();
 
 async function fixture(label: string, tx: ReturnType<typeof api.tx.Sudo.sudo>, sudo = false) {
   const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
@@ -213,7 +215,7 @@ async function stage(count: number, name: string) {
   const allGroups = groups(count, name.endsWith('smoke') ? 'burst' : mode);
   save(`${name}-fixture`, { scenario, count, instanceId, asset, unit, amount, backing, palletAccount, collection,
     quotaLimit, peopleCount: quotaPeople.length, actorMeaning: scenario === 'quota' ? 'unload requests grouped by person allowance' : 'distinct person',
-    poolProfile, poolTransactions, preparationMs: performance.now() - prepStart,
+    poolProfile, poolTransactions, preparationMs: performance.now() - prepStart, proofWorkers: proofPool.size,
     boundary: scenario === 'full-flow' ? 'Root-created people and funded actors; real top-up, unload, claim, recycle and offboard; fixed plan without native wallet' : 'Root-created people and funded actors; real top-ups create vouchers and Wrapped holds; no native wallet',
     actors: actors.map(a => ({ id: a.id, source: a.coin.address, payment: a.payment.address, destination: a.destination.address, person: a.person, member: a.voucher.member_key, recycledMember: a.recycledVoucher.member_key })) });
   let firstSubmission = 0;
@@ -229,7 +231,7 @@ async function stage(count: number, name: string) {
     finally { sampling = false; }
   }, 5000);
   async function execute(prefix: string, ids: number[], prepared: Wire[], operation: Parameters<typeof auditBurst>[0]['operation']) {
-    save(`${prefix}-signed`, prepared);
+    save(`${prefix}-signed`, prepared.map((tx, i) => ({ ...tx, actor: ids[i] })));
     const wallStart = new Date().toISOString(), started = performance.now(); firstSubmission ||= started;
     const pending = prepared.map((tx, i) => {
       const sentAtMs = performance.now() - started;
@@ -246,22 +248,24 @@ async function stage(count: number, name: string) {
   async function unload(ids: number[], prefix: string, locate: (key: string, entropy: Uint8Array) => ProofRing, intoCoin: boolean, recycled: boolean, counter: number) {
     const timestamp = await api.query.Timestamp.Now.getValue();
     const period = Math.floor(Number(timestamp) / 86400000), prepared: Wire[] = [];
-    for (const id of ids) {
-      const a = actors[id], entropy = recycled ? a.recycledEntropy : a.entropy;
-      const voucher = recycled ? a.recycledVoucher : a.voucher;
-      const ring = locate(voucher.member_key, entropy);
-      const tokenCounter = scenario === 'quota' ? id % quotaLimit : counter;
-      const signer = unloadSigner({ person: personRing(a.person, a.personEntropy), vouchers: [ring], period, counter: tokenCounter,
-        observe: timing => log(`${prefix}-proofs`, { actor: id, ...timing, cpu: process.cpuUsage(), memory: process.memoryUsage() }) });
-      const args = { instance_id: instanceId, aliases: [Binary.toHex(voucherAlias(entropy))],
-        value: denomination, index: ring.ring, revision: ring.revision, to: intoCoin ? a.payment.address : a.destination.address };
-      const call = intoCoin ? api.tx.Coinage.unload_recycler_into_coin(args) : api.tx.Coinage.unload_recycler_into_external_asset({ ...args, max_fee: 0n });
-      const options = unpaidTopUpOptions(0);
-      const signed = await call.sign(signer, { ...options, mortality: { mortal: false }, customSignedExtensions: {
-        ...options.customSignedExtensions, AsCoinage: { value: undefined },
-      } });
-      prepared.push(wire(signed));
-      if (id % 10 === 0) await yieldLoop();
+    for (let offset = 0; offset < ids.length; offset += proofPool.size) {
+      await Promise.all(ids.slice(offset, offset + proofPool.size).map(async (id, index) => {
+        const a = actors[id], entropy = recycled ? a.recycledEntropy : a.entropy;
+        const voucher = recycled ? a.recycledVoucher : a.voucher;
+        const ring = locate(voucher.member_key, entropy);
+        const tokenCounter = scenario === 'quota' ? id % quotaLimit : counter;
+        const signer = unloadSigner({ prove: proofPool.prove, person: personRing(a.person, a.personEntropy), vouchers: [ring], period, counter: tokenCounter,
+          observe: timing => log(`${prefix}-proofs`, { actor: id, ...timing, cpu: process.cpuUsage(), memory: process.memoryUsage() }) });
+        const args = { instance_id: instanceId, aliases: [Binary.toHex(voucherAlias(entropy))],
+          value: denomination, index: ring.ring, revision: ring.revision, to: intoCoin ? a.payment.address : a.destination.address };
+        const call = intoCoin ? api.tx.Coinage.unload_recycler_into_coin(args) : api.tx.Coinage.unload_recycler_into_external_asset({ ...args, max_fee: 0n });
+        const options = unpaidTopUpOptions(0);
+        const signed = await call.sign(signer, { ...options, mortality: { mortal: false }, customSignedExtensions: {
+          ...options.customSignedExtensions, AsCoinage: { value: undefined },
+        } });
+        prepared[offset + index] = wire(signed);
+      }));
+      await yieldLoop();
     }
     assert.equal(Math.floor(Number(await api.query.Timestamp.Now.getValue()) / 86400000), period, 'Period changed while preparing proofs');
     await execute(prefix, ids, prepared, intoCoin ? 'RecyclerUnloadedIntoCoin' : 'RecyclerUnloadedIntoExternalAsset');
@@ -341,7 +345,7 @@ async function stage(count: number, name: string) {
         // Two real negative probes: duplicate a consumed token, and cross the allowance bound.
         for (const counter of [0, limit]) {
           const ring = fixtureRecyclerRing!(a.voucher.member_key, a.entropy);
-          const signer = unloadSigner({ person: personRing(a.person, a.personEntropy), vouchers: [ring], period, counter });
+          const signer = unloadSigner({ prove: proofPool.prove, person: personRing(a.person, a.personEntropy), vouchers: [ring], period, counter });
           const options = unpaidTopUpOptions(0);
           const signed = await api.tx.Coinage.unload_recycler_into_external_asset({ instance_id: instanceId,
             aliases: [Binary.toHex(voucherAlias(a.entropy))], value: denomination, index: ring.ring, revision: ring.revision,
@@ -376,4 +380,4 @@ try {
 } catch (error) {
   save('unload-error', { phase, error: String(error), stack: error instanceof Error ? error.stack : undefined });
   console.error(error); process.exitCode = 1;
-} finally { armShutdownDeadline(`${out}/unload-shutdown-error.json`); coinage.close(); }
+} finally { armShutdownDeadline(`${out}/unload-shutdown-error.json`); await proofPool.close(); coinage.close(); }

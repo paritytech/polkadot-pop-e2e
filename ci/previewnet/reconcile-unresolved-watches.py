@@ -38,8 +38,8 @@ def main():
     # Sustained lifecycle files contain several operations for the same actor.
     signed = [tx for tx in signed if tx.get('operation', args.operation) == args.operation]
     for tx in signed:
-        assert digest(tx['hex']) == tx['txHash'], f"actor {tx['actor']}: signed bytes do not match txHash"
-    by_hash = {tx['txHash']: tx['actor'] for tx in signed}
+        assert digest(tx['hex']) == tx['txHash'], f"actor {tx.get('actor', 'unknown')}: signed bytes do not match txHash"
+    by_hash = {tx['txHash']: tx.get('actor') for tx in signed}
     watches = {}
     for line in (root / f'{name}-transactions.jsonl').read_text().splitlines():
         row = json.loads(line)
@@ -84,7 +84,7 @@ def main():
         if watch['status'] == 'finalized':
             continue
         tx_hash = watch['txHash']
-        assert by_hash.get(tx_hash) == actor, f'actor {actor}: watch hash is not its signed transaction'
+        assert tx_hash in by_hash and by_hash[tx_hash] in (None, actor), f'actor {actor}: watch hash is not its signed transaction'
         error = str(watch.get('error'))
         hit = found.get(tx_hash)
         if hit and hit['canonical'] and hit['success'] and hit['operation'] and not hit['failed']:
