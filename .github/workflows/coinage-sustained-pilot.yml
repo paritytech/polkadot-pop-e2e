@@ -82,6 +82,7 @@ jobs:
         run: |
           python3 -c 'import os; n=int(os.environ["ACTOR_COUNT"]); assert 1 <= n <= 250000; assert os.environ["POOL_PROFILE"] == "default"'
           python3 -m unittest discover -s ci/previewnet -p test_lifecycle.py
+          python3 -m unittest discover -s ci/previewnet -p test_reserved_ports.py
           pip install tomli-w==1.2.0
           pnpm install --frozen-lockfile
           pnpm --filter @pop-e2e/chain-tests test:coinage-client
