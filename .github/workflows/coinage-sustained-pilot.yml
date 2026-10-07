@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   pilot:
+    # Reviewed retries use a fresh workflow_dispatch URL, never an automatic rerun.
+    if: github.run_attempt == 1
     runs-on: parity-large
     timeout-minutes: 720
     env:
