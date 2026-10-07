@@ -11,7 +11,7 @@ run is watched rather than dispatched again.
 
   coinage-case-queue.py add LEDGER --workflow coinage-burst-case.yml --ref BRANCH \\
       --title "Coinage burst · quota · 100-default" -f scenario=quota -f profile=100-default
-  coinage-case-queue.py run LEDGER
+  coinage-case-queue.py run LEDGER --preserve EVIDENCE_DIR
   coinage-case-queue.py retry LEDGER CASE_ID
   coinage-case-queue.py status LEDGER
 """
@@ -92,6 +92,22 @@ def watch(path, ledger, case, attempt):
         time.sleep(POLL_SECONDS)
 
 
+def preserve(directory, case, attempt):
+    """Copy the run's final artifacts locally; GitHub deletes them after 30 days."""
+    target = Path(directory) / f"{case['id']}-{attempt['runId']}"
+    target.mkdir(parents=True, exist_ok=True)
+    artifacts = gh_json('api', f"repos/{REPO}/actions/runs/{attempt['runId']}/artifacts?per_page=100")['artifacts']
+    (target / 'artifact-manifest.json').write_text(json.dumps(artifacts, indent=2) + '\n')
+    for artifact in artifacts:
+        name = artifact['name']
+        if artifact['expired'] or '-pilot-' not in name or (target / name / '.download-complete').exists():
+            continue
+        subprocess.run(['gh', 'run', 'download', str(attempt['runId']), '-R', REPO, '-n', name,
+                        '-D', str(target / name)], check=True, timeout=1800)
+        (target / name / '.download-complete').write_text(json.dumps(artifact, indent=2) + '\n')
+    attempt['preservedAt'] = str(target)
+
+
 def cmd_add(args):
     ledger = load(args.ledger)
     fields = dict(f.split('=', 1) for f in args.field)
@@ -125,6 +141,9 @@ def cmd_run(args):
             save(args.ledger, ledger)
             print('dispatched', case['id'], last['url'], flush=True)
         watch(args.ledger, ledger, case, last)
+        if args.preserve:
+            preserve(args.preserve, case, last)
+            save(args.ledger, ledger)
         print('finished', case['id'], last['conclusion'], last['url'], flush=True)
         if args.once:
             return
@@ -163,6 +182,7 @@ add.set_defaults(func=cmd_add)
 run = sub.add_parser('run')
 run.add_argument('ledger')
 run.add_argument('--once', action='store_true', help='Stop after one case finishes')
+run.add_argument('--preserve', help='Download each finished run\'s pilot artifacts into this directory')
 run.set_defaults(func=cmd_run)
 retry = sub.add_parser('retry')
 retry.add_argument('ledger')
