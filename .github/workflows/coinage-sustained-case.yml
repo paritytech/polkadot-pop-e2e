@@ -1,0 +1,65 @@
+name: Coinage sustained case
+run-name: ${{ github.event_name == 'push' && 'Register Coinage sustained case workflow' || format('Coinage sustained · {0} · {1}', inputs.scenario, inputs.phase) }}
+# One scenario and one phase per run: a short smoke, or the 180-second hold that keeps the
+# People collators' ready pool in the 7,600–8,192 band. Pool limits stay at node defaults.
+# ci/previewnet/coinage-case-queue.py runs cases in order.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Sustained scenario
+        type: choice
+        options: [topup, claim, split, recycle, merchant, quota, offboard, full-flow]
+      phase:
+        description: smoke (20 actors, 10-second hold of a ready pool of 1) or hold (8,000 for 180 seconds)
+        type: choice
+        options: [smoke, hold]
+  # GitHub only dispatches a workflow from a feature branch once it is registered. A push to
+  # this file registers it; every job is skipped on push, so no load runs.
+  push:
+    branches: [feat/th-coinage-sustained-pool]
+    paths: [.github/workflows/coinage-sustained-case.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ${{ github.event_name == 'push' && format('register-{0}', github.run_id) || 'coinage-previewnet-case' }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      actors: ${{ steps.case.outputs.actors }}
+      smoke-only: ${{ steps.case.outputs.smoke-only }}
+    steps:
+      - id: case
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+          PHASE: ${{ inputs.phase }}
+        run: |
+          python3 - <<'PY'
+          import os
+          # Hold inventory: enough operations to keep the pool near 8,000 for 180 seconds.
+          # It is an upper bound on supply, not a burst size; the driver stops at the end of the hold.
+          hold = {'topup': '20000', 'claim': '250000', 'split': '50000', 'recycle': '40000',
+                  'merchant': '250000', 'quota': '20000', 'offboard': '20000', 'full-flow': '20000'}
+          scenario, phase = os.environ['SCENARIO'], os.environ['PHASE']
+          assert scenario in hold and phase in ('smoke', 'hold')
+          actors, smoke = ('20', 'true') if phase == 'smoke' else (hold[scenario], 'false')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'actors={actors}\nsmoke-only={smoke}\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write(f'## Case\n\n{scenario} · {phase}: inventory {actors}, default pool limits.\n')
+          PY
+
+  case:
+    needs: resolve
+    uses: ./.github/workflows/coinage-sustained-pilot.yml
+    with:
+      scenario: ${{ inputs.scenario }}
+      actors: ${{ needs.resolve.outputs.actors }}
+      mode: sustained
+      pool: default
+      smoke-only: ${{ needs.resolve.outputs.smoke-only }}
