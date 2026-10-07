@@ -33,7 +33,10 @@ const poolProfile = process.env.POOL_PROFILE ?? 'default';
 assert(poolProfile === 'default' || poolProfile === 'enlarged');
 const poolTransactions = Number(process.env.POOL_TRANSACTIONS ?? '11000');
 assert(Number.isInteger(poolTransactions) && poolTransactions >= 11000 && poolTransactions <= 110000);
-const deadlineMs = users > 10000 ? 1_800_000 : 600_000;
+// The verified 1,000-offboard run needed 285 seconds after submission.
+// Allow up to 0.6 seconds per requested transaction, with a ten-minute minimum.
+// This is an observation deadline, not pacing or a capacity claim.
+const deadlineMs = Math.max(600_000, users * 600);
 const launchTargetMs = users >= 100000 ? 10000 : users >= 40000 ? 5000 : 1000;
 const fixtureBatch = Math.min(users, 5000);
 const stateQueryConcurrency = 64;
@@ -215,7 +218,7 @@ async function stage(count: number, name: string) {
   const allGroups = groups(count, name.endsWith('smoke') ? 'burst' : mode);
   save(`${name}-fixture`, { scenario, count, instanceId, asset, unit, amount, backing, palletAccount, collection,
     quotaLimit, peopleCount: quotaPeople.length, actorMeaning: scenario === 'quota' ? 'unload requests grouped by person allowance' : 'distinct person',
-    poolProfile, poolTransactions, preparationMs: performance.now() - prepStart, proofWorkers: proofPool.size,
+    poolProfile, poolTransactions, observationDeadlineMs: deadlineMs, preparationMs: performance.now() - prepStart, proofWorkers: proofPool.size,
     boundary: scenario === 'full-flow' ? 'Root-created people and funded actors; real top-up, unload, claim, recycle and offboard; fixed plan without native wallet' : 'Root-created people and funded actors; real top-ups create vouchers and Wrapped holds; no native wallet',
     actors: actors.map(a => ({ id: a.id, source: a.coin.address, payment: a.payment.address, destination: a.destination.address, person: a.person, member: a.voucher.member_key, recycledMember: a.recycledVoucher.member_key })) });
   let firstSubmission = 0;
