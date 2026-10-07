@@ -1,5 +1,6 @@
 /** Default-pool sustained load. Inventory size is a ceiling, not a promised actor count. */
 import assert from 'node:assert/strict';
+import { RingProofPool } from '../src/lib/coinage-proof-pool.js';
 import { WsProvider } from '@polkadot/api';
 import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
 import { armShutdownDeadline } from '../src/lib/coinage-shutdown.js';
@@ -26,6 +27,7 @@ import { unloadSigner, voucherAlias, tokenContext, type ProofRing } from '../src
 import { encodeMembers } from '../src/lib/ring.js';
 import { member_from_entropy, alias_in_context } from 'verifiablejs/nodejs';
 
+const proofPool = new RingProofPool();
 const scenario = process.env.SCENARIO ?? 'claim';
 const scenarios = ['topup', 'claim', 'split', 'recycle', 'merchant', 'quota', 'offboard', 'full-flow'];
 assert(scenarios.includes(scenario));
@@ -234,7 +236,7 @@ async function run() {
       const person = rings.get(peopleCollection!)!.get(a.person!)!;
       period = Math.floor(Number(await api.query.Timestamp.Now.getValue()) / 86400000);
       counter = scenario === 'quota' ? a.id % quotaLimit : recycled ? 1 : 0;
-      const signer = unloadSigner({ person: { ...person, entropy: a.personEntropy! }, vouchers: [{ ...recycler, entropy }], period, counter,
+      const signer = unloadSigner({ prove: proofPool.prove, person: { ...person, entropy: a.personEntropy! }, vouchers: [{ ...recycler, entropy }], period, counter,
         observe: timing => log('sustained-proofs', { actor: id, stage, ...timing }) });
       const args = { instance_id: instanceId, aliases: [Binary.toHex(voucherAlias(entropy))], value: denomination,
         index: recycler.ring, revision: recycler.revision, to: stage === 'unload' ? a.payment : a.destination };
@@ -248,13 +250,16 @@ async function run() {
   }
 
   const initial: Work[] = [];
-  for (const a of actors) {
-    const work = await prepare(a.id); assert(work); initial.push(work); a.sourceSigner = undefined;
-    if (a.id % 100 === 0) await yieldLoop();
+  for (let offset = 0; offset < actors.length; offset += proofPool.size) {
+    await Promise.all(actors.slice(offset, offset + proofPool.size).map(async (a, index) => {
+      const work = await prepare(a.id); assert(work);
+      initial[offset + index] = work; a.sourceSigner = undefined;
+    }));
+    await yieldLoop();
   }
   save('sustained-fixture', { scenario, inventory: count, instanceId, asset, unit, amount, backing, palletAccount,
     quotaLimit, peopleCount: personSecrets.length, peopleCollection, recyclerCollection, seedCoins,
-    preparationMs: performance.now() - preparationStart, nativeWallet: false,
+    preparationMs: performance.now() - preparationStart, proofWorkers: proofPool.size, nativeWallet: false,
     actors: actors.map(a => ({ id: a.id, source: a.source, payment: a.payment, recipient: a.destination,
       change: a.change, person: a.person, member: a.voucher?.member_key, recycledMember: a.recycledVoucher?.member_key })) });
   log('sustained-phases', { phase: 'prepared', wallTime: new Date().toISOString() });
@@ -434,4 +439,4 @@ try {
   await run();
 }
 catch (error) { save('sustained-error', { phase: reached, error: String(error), stack: error instanceof Error ? error.stack : undefined }); console.error(error); process.exitCode = 1; }
-finally { armShutdownDeadline(`${out}/sustained-shutdown-error.json`); coinage.close(); }
+finally { armShutdownDeadline(`${out}/sustained-shutdown-error.json`); await proofPool.close(); coinage.close(); }
