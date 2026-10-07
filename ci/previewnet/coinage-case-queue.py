@@ -103,7 +103,7 @@ def preserve(directory, case, attempt):
         if artifact['expired'] or '-pilot-' not in name or (target / name / '.download-complete').exists():
             continue
         subprocess.run(['gh', 'run', 'download', str(attempt['runId']), '-R', REPO, '-n', name,
-                        '-D', str(target / name)], check=True, timeout=1800)
+                        '-D', str(target / name)], check=True, timeout=7200)
         (target / name / '.download-complete').write_text(json.dumps(artifact, indent=2) + '\n')
     attempt['preservedAt'] = str(target)
 
