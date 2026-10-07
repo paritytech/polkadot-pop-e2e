@@ -51,6 +51,7 @@ const signerFor = (pair: ReturnType<typeof keyring.addFromUri>) =>
 const admin = keyring.addFromUri('//Alice');
 const adminSigner = signerFor(admin);
 const standardExtensions = { ...unpaidTopUpOptions(0).customSignedExtensions, AsCoinage: { value: undefined } };
+let phase = 'startup';
 
 async function fixture(label: string, tx: ReturnType<typeof api.tx.Sudo.sudo>, sudo = false) {
   const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
@@ -120,6 +121,22 @@ async function stage(count: number, name: string) {
       voucher: topUpArguments(instanceId, denomination, coin.address, entropy) };
   });
   const recognized = new Set<string>();
+  phase = `${name}: setup`;
+  // PAPI's submitAndWatch uses transaction_v1_broadcast, which this node caps at 16 active
+  // broadcasts per connection. Beyond that it returns null, PAPI drops the error and the
+  // transaction is never sent. Setup loads use the same legacy watch path as the workload.
+  const setupSender = new WsProvider('ws://127.0.0.1:10010', false, {}, 180_000);
+  await connectBurstProvider(setupSender);
+  const setupSubmit = burstSubmitter(setupSender, async hash => {
+    const [block, events] = await Promise.all([
+      client._request<{ block: { header: { number: string }; extrinsics: string[] } }>('chain_getBlock', [hash]),
+      api.query.System.Events.getValue({ at: hash }),
+    ]);
+    save(`${name}-setup-block-${Number.parseInt(block.block.header.number, 16)}`, { hash, block, events });
+    return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
+  }, (txHash, observation) => log(`${name}-setup-watch-transitions`, { txHash, ...observation }));
+  const setupOutcomes: Record<string, number> = {};
+  try {
   for (let offset = 0; offset < count; offset += 100) {
     const batch = actors.slice(offset, offset + 100);
     const newPeople = [...new Set(batch.map(a => a.person))].filter(p => !recognized.has(p));
@@ -131,11 +148,18 @@ async function stage(count: number, name: string) {
     // Real setup top-ups create Wrapped holds, which offboarding releases.
     const signedLoads = await Promise.all(batch.map(a => api.tx.Coinage.load_recycler_with_external_asset_unpaid(a.voucher)
       .sign(signerFor(a.coin), { ...unpaidTopUpOptions(0), mortality: { mortal: false } })));
-    await Promise.all(signedLoads.map(async signed => {
-      const result = await watchCoinageTransaction(client, { signed, txHash: blake2AsHex(signed) }, 180000);
-      log(`${name}-setup-loads`, result); assert.equal(result.status, 'finalized');
-    }));
+    // Keep every outcome in the batch before deciding; the first unresolved watch is not the whole story.
+    const results = await Promise.all(signedLoads.map(signed => setupSubmit(
+      { hex: Binary.toHex(signed), txHash: blake2AsHex(signed) }, 180_000)));
+    results.forEach((result, i) => {
+      log(`${name}-setup-loads`, { actor: batch[i].id, ...result });
+      setupOutcomes[result.status] = (setupOutcomes[result.status] ?? 0) + 1;
+    });
+    save(`${name}-setup-outcome`, { requested: count, attempted: offset + batch.length, outcomes: setupOutcomes });
+    const incomplete = results.length - results.filter(r => r.status === 'finalized').length;
+    if (incomplete) throw new Error(`Setup top-ups incomplete: ${incomplete} of ${results.length} in batch at actor ${offset} did not finalize successfully`);
   }
+  } finally { await setupSender.disconnect(); }
   // The older helper uses the retired "people ..." identifier. Discover the actual
   // collection from the member just recognized on this runtime, never from a name guess.
   const membershipAt = await client.getFinalizedBlock();
@@ -169,6 +193,7 @@ async function stage(count: number, name: string) {
     }
     throw new Error(`Fixture ring readiness timed out for ${id}`);
   }
+  phase = `${name}: fixture readiness`;
   const personRing = await rings(peopleCollection, new Set(actors.map(a => a.person)), 9);
   const fixtureRecyclerRing = scenario !== 'full-flow' ? await rings(collection, new Set(actors.map(a => a.voucher.member_key)), 10) : undefined;
   const sender = new WsProvider('ws://127.0.0.1:10010', false, {}, deadlineMs);
@@ -254,6 +279,7 @@ async function stage(count: number, name: string) {
   }
   try {
     await connectBurstProvider(sender);
+    phase = `${name}: workload`;
     for (const [waveIndex, ids] of allGroups.entries()) {
       const prefix = `${name}-wave-${waveIndex + 1}`;
       let recyclerRing = fixtureRecyclerRing;
@@ -348,6 +374,6 @@ try {
   await stage(1, `${scenario}-smoke`);
   if (process.env.SMOKE_ONLY !== 'true') await stage(users, `${scenario}-pilot`);
 } catch (error) {
-  save('unload-error', { error: String(error), stack: error instanceof Error ? error.stack : undefined });
+  save('unload-error', { phase, error: String(error), stack: error instanceof Error ? error.stack : undefined });
   console.error(error); process.exitCode = 1;
 } finally { armShutdownDeadline(`${out}/unload-shutdown-error.json`); coinage.close(); }
