@@ -1,5 +1,6 @@
 /** Free-token unload proofs. Secrets stay in memory, outside saved evidence. */
 import assert from 'node:assert/strict';
+import type { ProofInput, ProofOutput } from './coinage-proof-pool.js';
 import { compact, decAnyMetadata, extrinsicFormat, unifyMetadata } from '@polkadot-api/substrate-bindings';
 import { mergeUint8 } from 'polkadot-api/utils';
 import { blake2b256 } from '@polkadot-labs/hdkd-helpers';
@@ -19,7 +20,8 @@ const bytes = (value: Uint8Array) => mergeUint8([compact.enc(value.length), valu
 export interface ProofRing { entropy: Uint8Array; members: Uint8Array; exponent: RingExponent; ring: number; revision: number }
 export function unloadSigner(input: {
   person: ProofRing; vouchers: ProofRing[]; period: number; counter: number;
-  observe?: (value: { kind: string; durationMs: number }) => void;
+  prove?: (input: ProofInput) => Promise<ProofOutput>;
+  observe?: (value: { kind: string; durationMs: number; waitAndIpcMs?: number }) => void;
 }): PolkadotSigner {
   assert(input.vouchers.length > 0);
   return {
@@ -33,15 +35,21 @@ export function unloadSigner(input: {
       const trailing = resolved.slice(index + 1);
       const implication = mergeUint8([Uint8Array.of(0), callData,
         ...trailing.map(e => e.value), ...trailing.map(e => e.additionalSigned)]);
-      const proofFor = (ring: ProofRing, context: Uint8Array, message: Uint8Array, kind: string) => {
+      const proofFor = async (ring: ProofRing, context: Uint8Array, message: Uint8Array, kind: string) => {
         const start = performance.now();
+        if (input.prove) {
+          const result = await input.prove({ ...ring, context, message });
+          input.observe?.({ kind, durationMs: result.computationMs,
+            waitAndIpcMs: Math.max(0, result.elapsedMs - result.computationMs) });
+          return result.proof;
+        }
         const result = one_shot(ring.exponent, ring.entropy, ring.members, context, message);
         input.observe?.({ kind, durationMs: performance.now() - start });
         return result.proof;
       };
-      const aliases = mergeUint8([compact.enc(input.vouchers.length), ...input.vouchers.map(v =>
-        bytes(proofFor(v, recyclerContext, blake2b256(implication), 'recycler')))]);
-      const proof = proofFor(input.person, tokenContext(input.period, input.counter),
+      const aliases = mergeUint8([compact.enc(input.vouchers.length), ...await Promise.all(input.vouchers.map(async v =>
+        bytes(await proofFor(v, recyclerContext, blake2b256(implication), 'recycler'))))]);
+      const proof = await proofFor(input.person, tokenContext(input.period, input.counter),
         blake2b256(mergeUint8([aliases, implication])), 'person-token');
       // Option::Some, AsUnloadTokenPeople (variant 1), MembershipProof, period, counter, aliases.
       resolved[index].value = mergeUint8([Uint8Array.of(1, 1), bytes(proof),
