@@ -5,6 +5,7 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+from reserved_ports import reserve
 
 parser = argparse.ArgumentParser()
 parser.add_argument('command', choices=['start', 'stop'])
@@ -12,6 +13,7 @@ args = parser.parse_args()
 out = Path('network-out').resolve()
 pidfile = out / 'spawn.pid'
 if args.command == 'start':
+    reserve(out / 'network.toml', out / 'reserved-ports.json')
     engine = Path('ppn').resolve()
     env = {**os.environ, 'BIN': str(engine / 'bin'), 'SCRIPTS': str(engine / 'scripts')}
     with (out / 'spawn.log').open('w') as log:
