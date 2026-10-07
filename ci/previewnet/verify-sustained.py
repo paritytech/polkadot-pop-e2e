@@ -20,6 +20,7 @@ pressure = summary['pressure']
 assert pressure['target'] == (1 if smoke else 8000)
 assert pressure['requestedHoldMs'] == (10000 if smoke else 180000)
 assert pressure['poolLimit'] == 8192
+assert pressure['band'] == [1 if smoke else 7600, 8192]
 assert summary['workloadPassed'] and summary['pressurePassed']
 assert not summary['auditErrors'] and not summary['stateErrors']
 assert pressure['holdCompleted'] and pressure['reason'] == 'hold-complete'
@@ -41,6 +42,10 @@ for previous, current in zip(hold, hold[1:]):
             in_band += interval
 assert abs(observed - pressure['sampledMs']) < .001
 assert abs(in_band - pressure['sampledInBandMs']) < .001
+assert abs(in_band / pressure['requestedHoldMs'] - pressure['fractionOfRequestedHoldInBand']) < 1e-9
+assert abs(max(0, pressure['requestedHoldMs'] - observed) - pressure['unobservedHoldMs']) < .001
+if not smoke:
+    assert in_band / pressure['requestedHoldMs'] >= .95
 spec = importlib.util.spec_from_file_location('audit', Path(__file__).with_name('verify-burst-artifact.py'))
 audit = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(audit)
