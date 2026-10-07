@@ -308,6 +308,11 @@ async function run() {
       const result = await submit(work, deadlineMs);
       if (result.status === 'submission-error' && /1016|pool.*limit|Immediately Dropped/i.test(String(result.error ?? ''))) {
         notify('rejected');
+      } else if (result.status === 'dispatch-error') {
+        notify('failed');
+      } else if (result.status !== 'finalized') {
+        // A terminated watch does not establish that the transaction left every pool view.
+        notify('unresolved');
       }
       return result;
     }

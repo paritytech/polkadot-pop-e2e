@@ -132,3 +132,17 @@ test('uses the explicit total admission bound without treating it as ready occup
   assert.equal(result.holdCompleted, false);
   assert.equal(result.sampledInBandMs, 0);
 });
+
+test('an unresolved watch stops admission without calling it a pool rejection', async () => {
+  let clock = 0;
+  const result = await sustainPool({
+    target: 10, poolLimit: 12, batchSize: 1, durationMs: 1000,
+    now: () => clock, sleep: async ms => { clock += ms; },
+    readReady: async () => 5, next: async () => ({ kind: 'work', work: 1 }),
+    submit: async (_, notify) => { notify('unresolved'); notify('terminal'); },
+    recordSample: () => {}, recordResult: () => {},
+  });
+  assert.equal(result.submitted, 1);
+  assert.equal(result.reason, 'unresolved-watch');
+  assert.equal(result.holdCompleted, false);
+});

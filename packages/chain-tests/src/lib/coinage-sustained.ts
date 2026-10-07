@@ -1,5 +1,5 @@
 /** Feedback-controlled submission. Pool pressure and successful receipts are separate results. */
-export type PoolTransition = 'ready' | 'in-block' | 'retracted' | 'terminal' | 'rejected';
+export type PoolTransition = 'ready' | 'in-block' | 'retracted' | 'terminal' | 'rejected' | 'unresolved' | 'failed';
 export type Supply<T> = { kind: 'work'; work: T } | { kind: 'wait' } | { kind: 'exhausted' };
 export interface PoolSample {
   elapsedMs: number;
@@ -45,7 +45,7 @@ export async function sustainPool<T, R>(options: {
   const pending = new Map<number, Promise<void>>();
   let submitted = 0, settled = 0, holdStart: number | undefined;
   let reason = 'hold-complete', error: string | undefined;
-  let admissionRejected = false;
+  let admissionFailure: 'admission-rejected' | 'unresolved-watch' | 'workload-failed' | undefined;
   let peak = 0, minimum: number | undefined, sampledInBandMs = 0, sampledMs = 0;
   let previous: { time: number; ready: number } | undefined;
   const asyncErrors: string[] = [];
@@ -68,20 +68,20 @@ export async function sustainPool<T, R>(options: {
         ready, locallyQueued: queued.size, outstanding: pending.size, submitted });
       if (holdStart !== undefined && time >= holdStart + duration) break;
       if (holdStart === undefined && time - start >= fillTimeout) { reason = 'fill-timeout'; break; }
-      if (admissionRejected) { reason = 'admission-rejected'; break; }
+      if (admissionFailure) { reason = admissionFailure; break; }
       if (asyncErrors.length) { reason = 'submit-or-evidence-error'; break; }
       // Unknown/ready local submissions remain reserved until inclusion or a terminal outcome.
       // A low or lagging gauge alone must never cause a second full batch of 8,000.
       const budget = Math.min(batchSize, Math.max(0, target - Math.max(ready, queued.size)),
         Math.max(0, maxOutstanding - pending.size));
       for (let n = 0; n < budget; n++) {
-        if (admissionRejected) { reason = 'admission-rejected'; break; }
+        if (admissionFailure) { reason = admissionFailure; break; }
         if (holdStart !== undefined && now() >= holdStart + duration) break;
         const supplied = await options.next();
         if (supplied.kind === 'exhausted') { reason = 'inventory-exhausted'; break; }
         if (supplied.kind === 'wait') break;
-        if (admissionRejected) {
-          options.release?.(supplied.work); reason = 'admission-rejected'; break;
+        if (admissionFailure) {
+          options.release?.(supplied.work); reason = admissionFailure; break;
         }
         if (holdStart !== undefined && now() >= holdStart + duration) {
           options.release?.(supplied.work); break;
@@ -89,7 +89,9 @@ export async function sustainPool<T, R>(options: {
         const id = submitted++;
         queued.add(id);
         const transition = (value: PoolTransition) => {
-          if (value === 'rejected') admissionRejected = true;
+          if (value === 'rejected') admissionFailure = 'admission-rejected';
+          if (value === 'unresolved') admissionFailure = 'unresolved-watch';
+          if (value === 'failed') admissionFailure = 'workload-failed';
           if (value === 'ready' || value === 'retracted') queued.add(id);
           else queued.delete(id);
         };
