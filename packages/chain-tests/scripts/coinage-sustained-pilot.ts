@@ -61,6 +61,17 @@ let reached = 'startup';
 
 async function fixture(label: string, tx: ReturnType<typeof api.tx.Sudo.sudo>, sudo = false) {
   const signed = await tx.sign(adminSigner, { customSignedExtensions: standardExtensions });
+  if (label === 'recognize people' || label === 'fund source accounts') {
+    const info = await tx.getPaymentInfo(admin.address, { customSignedExtensions: standardExtensions });
+    const weights = await api.constants.System.BlockWeights();
+    const lengths = await api.constants.System.BlockLength();
+    const limit = weights.per_class.normal.max_extrinsic;
+    assert.equal(info.class.type, 'Normal'); assert(limit, 'Missing normal extrinsic limit');
+    log('lifecycle-fixture-budget', { label, declared: info.weight, limit, signedBytes: signed.length, lengthLimit: lengths.max.normal });
+    assert(info.weight.ref_time <= limit.ref_time && info.weight.proof_size <= limit.proof_size,
+      `Fixture exceeds normal extrinsic weight: ${label}`);
+    assert(signed.length <= lengths.max.normal, `Fixture exceeds normal block length: ${label}`);
+  }
   const result = await watchCoinageTransaction(client, { signed, txHash: blake2AsHex(signed) }, 180_000);
   log('lifecycle-fixture', { label, ...result });
   assert.equal(result.status, 'finalized', `Fixture failed: ${label}`);
@@ -146,8 +157,8 @@ async function run() {
   }, (txHash, observation) => log('sustained-setup-watch-transitions', { txHash, ...observation }));
   const setupOutcomes: Record<string, number> = {};
   try {
-  for (let offset = 0; offset < count; offset += seedCoins ? 5000 : 100) {
-    const batch = actors.slice(offset, offset + (seedCoins ? 5000 : 100));
+  for (let offset = 0; offset < count; offset += seedCoins ? 5000 : 250) {
+    const batch = actors.slice(offset, offset + (seedCoins ? 5000 : 250));
     if (seedCoins) {
       const items = await Promise.all(batch.map(async a => [Binary.fromHex(await api.query.Coinage.CoinsByOwner.getKey(a.source)),
         codecs.query.Coinage.CoinsByOwner.value.enc({ instance_id: instanceId, value: denomination, age: 0 })] as [Uint8Array, Uint8Array]));
@@ -262,7 +273,7 @@ async function run() {
   }
   save('sustained-fixture', { scenario, inventory: count, instanceId, asset, unit, amount, backing, palletAccount,
     quotaLimit, peopleCount: personSecrets.length, peopleCollection, recyclerCollection, seedCoins,
-    observationDeadlineMs: deadlineMs, preparationMs: performance.now() - preparationStart, proofWorkers: proofPool.size, nativeWallet: false,
+    setupBatchSize: seedCoins ? 5000 : 250, observationDeadlineMs: deadlineMs, preparationMs: performance.now() - preparationStart, proofWorkers: proofPool.size, nativeWallet: false,
     actors: actors.map(a => ({ id: a.id, source: a.source, payment: a.payment, recipient: a.destination,
       change: a.change, person: a.person, member: a.voucher?.member_key, recycledMember: a.recycledVoucher?.member_key })) });
   log('sustained-phases', { phase: 'prepared', wallTime: new Date().toISOString() });
