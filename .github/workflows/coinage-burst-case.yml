@@ -1,0 +1,82 @@
+name: Coinage burst case
+run-name: ${{ github.event_name == 'push' && 'Register Coinage burst case workflow' || format('Coinage burst · {0} · {1}', inputs.scenario, inputs.profile) }}
+# One scenario and one load profile per run, so each case has its own URL, logs and
+# artifacts and can be retried alone. ci/previewnet/coinage-case-queue.py runs cases in order.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Remaining-flow scenario
+        type: choice
+        options: [merchant, quota, offboard, full-flow]
+      profile:
+        description: Load profile (smoke is the one-operation gate)
+        type: choice
+        options:
+          - smoke
+          - 100-default
+          - 1000-default
+          - 10000-burst-default
+          - 10000-paced-default
+          - 10000-burst-enlarged
+          - 20000-burst-enlarged
+  # GitHub only dispatches a workflow from a feature branch once it is registered. A push to
+  # this file registers it; every job is skipped on push, so no load runs.
+  push:
+    branches: [feat/th-coinage-unload-campaign, feat/th-coinage-sustained-pool]
+    paths: [.github/workflows/coinage-burst-case.yml]
+permissions:
+  contents: read
+  actions: read
+# Cases share one PreviewNet design; never run two at once. The queue dispatches one at a time.
+concurrency:
+  group: ${{ github.event_name == 'push' && format('register-{0}', github.run_id) || 'coinage-previewnet-case' }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      actors: ${{ steps.case.outputs.actors }}
+      mode: ${{ steps.case.outputs.mode }}
+      pool: ${{ steps.case.outputs.pool }}
+      pool-transactions: ${{ steps.case.outputs.pool-transactions }}
+      smoke-only: ${{ steps.case.outputs.smoke-only }}
+    steps:
+      - id: case
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          python3 - <<'PY'
+          import os
+          # Paced runs 8,000, then 2,000 after the first wave settles (coinage-campaign.ts groups()).
+          profiles = {
+              'smoke': ('1', 'burst', 'default', '11000', 'true'),
+              '100-default': ('100', 'burst', 'default', '11000', 'false'),
+              '1000-default': ('1000', 'burst', 'default', '11000', 'false'),
+              '10000-burst-default': ('10000', 'burst', 'default', '11000', 'false'),
+              '10000-paced-default': ('10000', 'paced', 'default', '11000', 'false'),
+              '10000-burst-enlarged': ('10000', 'burst', 'enlarged', '11000', 'false'),
+              '20000-burst-enlarged': ('20000', 'burst', 'enlarged', '22000', 'false'),
+          }
+          assert os.environ['SCENARIO'] in ('merchant', 'quota', 'offboard', 'full-flow')
+          actors, mode, pool, limit, smoke = profiles[os.environ['PROFILE']]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'actors={actors}\nmode={mode}\npool={pool}\npool-transactions={limit}\nsmoke-only={smoke}\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              note = 'node default pool limits' if pool == 'default' else f'--pool-limit={limit} --pool-kbytes=262144'
+              out.write(f"## Case\n\n{os.environ['SCENARIO']} · {os.environ['PROFILE']}: {actors} actors, {mode}, {note}.\n")
+          PY
+
+  case:
+    needs: resolve
+    uses: ./.github/workflows/coinage-remaining-flow-pilot.yml
+    with:
+      scenario: ${{ inputs.scenario }}
+      actors: ${{ needs.resolve.outputs.actors }}
+      mode: ${{ needs.resolve.outputs.mode }}
+      pool: ${{ needs.resolve.outputs.pool }}
+      pool-transactions: ${{ needs.resolve.outputs.pool-transactions }}
+      smoke-only: ${{ needs.resolve.outputs.smoke-only }}
