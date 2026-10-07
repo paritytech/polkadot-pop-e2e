@@ -222,6 +222,7 @@ async function stage(count: number, name: string) {
     return { number: Number.parseInt(block.block.header.number, 16), extrinsics: block.block.extrinsics, events };
   }, (txHash, observation) => log(`${name}-watch-transitions`, { txHash, ...observation }));
   const waves: unknown[] = [];
+  let lastUnload: { ids: number[]; period: number; counter: number } | undefined;
   const members = async (ids: number[], recycled = false) => rings(collection,
     new Set(ids.map(i => recycled ? actors[i].recycledVoucher.member_key : actors[i].voucher.member_key)), 10);
   type Wire = { hex: string; txHash: string };
@@ -262,6 +263,7 @@ async function stage(count: number, name: string) {
   async function unload(ids: number[], prefix: string, locate: (key: string, entropy: Uint8Array) => ProofRing, intoCoin: boolean, recycled: boolean, counter: number) {
     const timestamp = await api.query.Timestamp.Now.getValue();
     const period = Math.floor(Number(timestamp) / 86400000), prepared: Wire[] = [];
+    lastUnload = { ids, period, counter };
     for (let offset = 0; offset < ids.length; offset += proofPool.size) {
       await Promise.all(ids.slice(offset, offset + proofPool.size).map(async (id, index) => {
         const a = actors[id], entropy = recycled ? a.recycledEntropy : a.entropy;
@@ -384,6 +386,44 @@ async function stage(count: number, name: string) {
         policyExecution: 'separate model only' });
     }
     save(`${name}-summary`, { count, waves, elapsedMs: performance.now() - firstSubmission, passed: true });
+  } catch (error) {
+    // Preserve observations after a failed wave without treating them as receipts or a pass.
+    let observedActors = 0;
+    const capture = new AbortController();
+    try {
+      const signal = AbortSignal.any([capture.signal, AbortSignal.timeout(120_000)]);
+      const at = await client.getFinalizedBlock();
+      const options = { at: at.hash, signal };
+      const finalBacking = (await api.query.Assets.Account.getValue(asset, palletAccount, options))?.balance ?? 0n;
+      const heldBacking = await api.query.AssetsHolder.BalancesOnHold.getValue(asset, palletAccount, options) ?? 0n;
+      const snapshot = { at, count, finalBacking, heldBacking, cause: String(error),
+        scope: 'Finalized state observations only; not successful receipts or a workload pass' };
+      save(`${name}-failure-state`, { ...snapshot, observedActors, complete: false });
+      const { alias_in_context } = await import('verifiablejs/nodejs');
+      const { tokenContext } = await import('../src/lib/coinage-unload.js');
+      const tokenActors = new Set(lastUnload?.ids ?? []);
+      await inGroups(actors, async a => {
+        const balance = (await api.query.Assets.Account.getValue(asset, a.destination.address, options))?.balance ?? 0n;
+        const source = await api.query.Coinage.CoinsByOwner.getValue(a.coin.address, options);
+        const recipient = await api.query.Coinage.CoinsByOwner.getValue(a.destination.address, options);
+        let token: { period: number; counter: number; alias: string; consumed: boolean } | undefined;
+        if (lastUnload && tokenActors.has(a.id)) {
+          const { period } = lastUnload;
+          const counter = scenario === 'quota' ? a.id % quotaLimit : lastUnload.counter;
+          const alias = Binary.toHex(alias_in_context(a.personEntropy, tokenContext(period, counter)));
+          const consumed = await api.query.Coinage.ConsumedFreeUnloadTokens.getValue(period, alias, options);
+          token = { period, counter, alias, consumed: consumed !== undefined };
+        }
+        signal.throwIfAborted();
+        log(`${name}-failure-state-observations`, { at, actor: a.id, balance,
+          source: source ?? null, recipient: recipient ?? null, token });
+        observedActors++;
+      });
+      save(`${name}-failure-state`, { ...snapshot, observedActors, complete: observedActors === count });
+    } catch (captureError) {
+      save(`${name}-failure-state-error`, { observedActors, error: String(captureError), originalError: String(error) });
+    } finally { capture.abort(); }
+    throw error;
   } finally { clearInterval(samples); await sender.disconnect(); }
 
 }
