@@ -80,8 +80,15 @@ def find_dispatched(case, since):
 
 def watch(path, ledger, case, attempt):
     while True:
-        run = gh_json('run', 'view', str(attempt['runId']), '-R', REPO, '--json',
-                      'status,conclusion,headSha,attempt,jobs')
+        try:
+            run = gh_json('run', 'view', str(attempt['runId']), '-R', REPO, '--json',
+                          'status,conclusion,headSha,attempt,jobs')
+        except subprocess.TimeoutExpired:
+            # A read timeout says nothing about the workflow outcome. Keep watching
+            # this run; never redispatch or advance the queue without a terminal result.
+            print(f"status read timed out; still watching {attempt['runId']}", flush=True)
+            time.sleep(POLL_SECONDS)
+            continue
         attempt.update(status=run['status'], conclusion=run['conclusion'] or None, headSha=run['headSha'],
                        runAttempt=run['attempt'], observedAt=now().isoformat(),
                        jobs=[{'name': j['name'], 'conclusion': j['conclusion'] or None,
