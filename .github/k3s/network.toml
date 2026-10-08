@@ -15,6 +15,10 @@
 # whole physical cores and no node shares a core's sibling thread with another.
 # Requests equal limits, CPU and memory both, or the pod is not Guaranteed and
 # the static CPU manager leaves it on the shared pool.
+#
+# Resources are per node: zombienet-sdk v0.4.15 did not apply
+# `relaychain.default_resources` on k8s (first run: bob..ferdie fell back to the
+# LimitRange's 500m and were CFS-throttled in ~40% of periods).
 
 [settings]
 timeout = 1200
@@ -24,14 +28,6 @@ node_spawn_timeout = 400
 chain = "westend-local"
 default_command = "polkadot"
 default_image = "{{POLKADOT_IMAGE}}"
-
-[relaychain.default_resources.requests]
-cpu = "2"
-memory = "3Gi"
-
-[relaychain.default_resources.limits]
-cpu = "2"
-memory = "3Gi"
 
 [[relaychain.nodes]]
 name = "alice"
@@ -49,21 +45,61 @@ memory = "4Gi"
 name = "bob"
 validator = true
 
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
 
 [[relaychain.nodes]]
 name = "dave"
 validator = true
 
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
 [[relaychain.nodes]]
 name = "eve"
 validator = true
 
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
 [[relaychain.nodes]]
 name = "ferdie"
 validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
 
 [[parachains]]
 id = 1000
