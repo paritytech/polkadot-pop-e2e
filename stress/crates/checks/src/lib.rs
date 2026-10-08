@@ -12,7 +12,7 @@ pub mod report;
 use serde::Serialize;
 use stress_files::registry::Outcome;
 
-pub use data::{CounterReset, RunData, Window, count_above, quantile};
+pub use data::{CounterReset, RunData, Window, count_above, quantile, quantile_bucket};
 pub use limits::LIMITS;
 pub use outcomes::all;
 

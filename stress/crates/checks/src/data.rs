@@ -241,6 +241,14 @@ pub fn quantile(b: Option<&Buckets>, q: f64) -> Option<f64> {
     Some(b.iter().find(|(_, n)| *n >= q * total).map_or(f64::INFINITY, |x| x.0))
 }
 
+/// The bucket the share `q` falls in: above the first bound, at most the second (infinite in
+/// the `+Inf` bucket). A histogram does not say where inside it; `None` with no counts.
+pub fn quantile_bucket(b: Option<&Buckets>, q: f64) -> Option<(f64, f64)> {
+    let upper = quantile(b, q)?;
+    let lower = b?.iter().map(|x| x.0).filter(|le| *le < upper).fold(0.0, f64::max);
+    Some((lower, upper))
+}
+
 /// Counts above `bound` (one of the buckets).
 pub fn count_above(b: Option<&Buckets>, bound: f64) -> Option<f64> {
     let b = b?;
