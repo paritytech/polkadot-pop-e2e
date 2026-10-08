@@ -42,8 +42,8 @@ env:
   ZOMBIE_CLI_VERSION: v0.4.15
   NAMESPACE: zombie-pop-spike
   NODES: alice bob charlie dave eve ferdie asset-hub-collator people-collator coretime-collator
-  # name:local-port, for the chains whose progress we sample
-  CHAINS: alice:19000 asset-hub-collator:19001 people-collator:19002 coretime-collator:19003
+  # The nodes whose chains we sample: the relay, then each parachain
+  CHAINS: alice asset-hub-collator people-collator coretime-collator
   KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 jobs:
@@ -191,13 +191,13 @@ jobs:
           SOAK_MINUTES: ${{ inputs.soak_minutes || '10' }}
         run: |
           set -euo pipefail
-          for c in $CHAINS; do
-            kubectl -n "$NAMESPACE" port-forward "pod/${c%%:*}" "${c##*:}:9944" >/dev/null 2>&1 &
-          done
-          sleep 5
+          # Pod IPs route from the host on K3s, so no port-forward to keep alive
+          # (the first soak's forwards to the collators read back nothing).
+          declare -A ip
+          for c in $CHAINS; do ip[$c]=$(kubectl -n "$NAMESPACE" get pod "$c" -o jsonpath='{.status.podIP}'); done
           rpc() {
             curl -sS --max-time 5 -H 'Content-Type: application/json' \
-              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":${3:-[]}}" "http://127.0.0.1:$1"
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":${3:-[]}}" "http://${ip[$1]}:9944"
           }
           best() { printf '%d' "$(rpc "$1" chain_getHeader | jq -r .result.number)"; }
           finalized() {
@@ -208,8 +208,8 @@ jobs:
           for i in $(seq 1 60); do
             pending=""
             for c in $CHAINS; do
-              f=$(finalized "${c##*:}" 2>/dev/null || echo 0)
-              [ "$f" -gt 0 ] || pending="$pending ${c%%:*}"
+              f=$(finalized "$c" 2>/dev/null || echo 0)
+              [ "$f" -gt 0 ] || pending="$pending $c"
             done
             [ -z "$pending" ] && { echo "every chain finalizing after $((i * 10))s"; break; }
             echo "$((i * 10))s: not finalizing yet:$pending"
@@ -218,7 +218,7 @@ jobs:
           done
 
           declare -A b0 f0
-          for c in $CHAINS; do b0[$c]=$(best "${c##*:}"); f0[$c]=$(finalized "${c##*:}"); done
+          for c in $CHAINS; do b0[$c]=$(best "$c"); f0[$c]=$(finalized "$c"); done
           sleep $(( SOAK_MINUTES * 60 ))
 
           {
@@ -228,11 +228,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           stalled=""
           for c in $CHAINS; do
-            b1=$(best "${c##*:}"); f1=$(finalized "${c##*:}")
+            b1=$(best "$c"); f1=$(finalized "$c")
             produced=$(( b1 - b0[$c] ))
-            [ $(( f1 - f0[$c] )) -gt 0 ] || stalled="$stalled ${c%%:*}"
+            [ $(( f1 - f0[$c] )) -gt 0 ] || stalled="$stalled $c"
             mean=$(awk -v s="$(( SOAK_MINUTES * 60 ))" -v n="$produced" 'BEGIN { print n > 0 ? sprintf("%.1fs", s / n) : "-" }')
-            echo "| ${c%%:*} | $(( produced / SOAK_MINUTES )) | $mean | $(( b1 - f1 )) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| $c | $(( produced / SOAK_MINUTES )) | $mean | $(( b1 - f1 )) |" >> "$GITHUB_STEP_SUMMARY"
           done
           [ -z "$stalled" ] || { echo "::error::finality stalled during the soak:$stalled"; exit 1; }
 

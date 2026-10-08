@@ -109,6 +109,9 @@ default_image = "{{CUMULUS_IMAGE}}"
 
 [[parachains.collators]]
 name = "asset-hub-collator"
+# Its runtime checks relay-parent descendants, which only the slot-based
+# collator supplies; the engine runs these chains the same way.
+args = ["--authoring=slot-based"]
 
 [parachains.collators.resources.requests]
 cpu = "4"
@@ -126,6 +129,9 @@ default_image = "{{CUMULUS_IMAGE}}"
 
 [[parachains.collators]]
 name = "people-collator"
+# Its runtime checks relay-parent descendants, which only the slot-based
+# collator supplies; the engine runs these chains the same way.
+args = ["--authoring=slot-based"]
 
 [parachains.collators.resources.requests]
 cpu = "2"
