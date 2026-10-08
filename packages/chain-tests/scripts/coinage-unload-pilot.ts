@@ -247,6 +247,7 @@ async function stage(count: number, name: string) {
   }, 5000);
   async function execute(prefix: string, ids: number[], prepared: Wire[], operation: Parameters<typeof auditBurst>[0]['operation']) {
     save(`${prefix}-signed`, prepared.map((tx, i) => ({ ...tx, actor: ids[i] })));
+    const evidenceStartBlock = (await client.getFinalizedBlock()).number;
     const wallStart = new Date().toISOString(), started = performance.now(); firstSubmission ||= started;
     const pending = prepared.map((tx, i) => {
       const sentAtMs = performance.now() - started;
@@ -257,7 +258,7 @@ async function stage(count: number, name: string) {
       finalityMs: latencies(results.filter(r => r.status === 'finalized').map(r => r.elapsedMs)),
       settledMs: performance.now() - started, passed: results.every(r => r.status === 'finalized') };
     save(`${prefix}-summary`, summary); waves.push(summary); save(`${name}-progress`, { waves });
-    await auditBurst({ name: prefix, expected: ids.length, results, operation, out, api, summary });
+    await auditBurst({ name: prefix, expected: ids.length, results, operation, out, api, summary, evidenceStartBlock });
     return results;
   }
   async function unload(ids: number[], prefix: string, locate: (key: string, entropy: Uint8Array) => ProofRing, intoCoin: boolean, recycled: boolean, counter: number) {
