@@ -59,7 +59,10 @@ substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-c
     let results = stress_checks::run(&stress_checks::all(), &d);
     let work = results.iter().find(|r| r.check == "pool work leaves time for blocks").unwrap();
     assert_eq!(work.verdict.status, Status::Fail);
-    assert_eq!(work.verdict.detail, "step 0: maintenance p95 between 1.25 and 1.5 s, against a limit of 1.0 s (50% of a block)");
+    assert_eq!(
+        work.verdict.detail,
+        "step 0: pool maintenance after each new block took between 1.25 and 1.5 s (p95); the threshold is 1.0 s, 50% of the block interval at the start (2 s)"
+    );
 }
 
 #[test]

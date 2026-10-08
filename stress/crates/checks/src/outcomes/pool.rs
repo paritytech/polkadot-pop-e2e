@@ -117,12 +117,17 @@ fn pool_work(d: &RunData) -> Result<Verdict, CounterReset> {
     }
     let slow = windows.iter().find(|s| s.maintain_p95_s.unwrap_or(0.0) > budget);
     let backed = windows.iter().find(|s| s.backlog > LIMITS.max_validation_backlog);
-    let share = LIMITS.max_maintain_share_of_block * 100.0;
+    let threshold = format!(
+        "the threshold is {} s, {}% of the block interval at the start ({} s)",
+        to_fixed(budget, 1),
+        LIMITS.max_maintain_share_of_block * 100.0,
+        num(d.block_interval_s)
+    );
     let (status, detail) = match (slow, backed) {
-        // Fails when the p95's bucket reaches past the limit, so the p95 itself may be just under it.
-        (Some(s), _) => (Status::Fail, format!("{}: maintenance p95 {}, against a limit of {} s ({share}% of a block)", s.window, p95_range(s), to_fixed(budget, 1))),
+        // Fails when the p95's bucket reaches past the threshold, so the p95 itself may be just under it.
+        (Some(s), _) => (Status::Fail, format!("{}: pool maintenance after each new block took {} (p95); {threshold}", s.window, p95_range(s))),
         (None, Some(b)) => (Status::Warn, format!("{}: {} txs waiting for validation", b.window, b.backlog)),
-        (None, None) => (Status::Pass, format!("maintenance p95 within {} s in every step and in recovery", to_fixed(budget, 1))),
+        (None, None) => (Status::Pass, format!("pool maintenance after each new block stayed within the threshold (p95) in every step and in recovery; {threshold}")),
     };
     Ok(Verdict::new(status, detail).with(serde_json::json!({ "windows": windows })))
 }
