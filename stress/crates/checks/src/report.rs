@@ -144,19 +144,36 @@ fn overall_status(s: &Summary, checks: &[CheckResult]) -> OverallStatus {
     }
 }
 
-fn recovery_line(s: &Summary) -> String {
+/// The two answers of the recovery, which come at different times: when a new tx lands in time
+/// again (the probes), and when the txs queued at the load stop are all in blocks (the backlog).
+/// New txs can be back first: once less than a block's worth is queued, they make the next block.
+fn recovery_lines(s: &Summary) -> [String; 2] {
     let r = &s.recovery;
     if !r.measured {
-        return format!("not measured: {}", r.detail);
+        return [format!("- **Latency recovery:** not measured: {}", r.detail), "- **Backlog drain:** not measured".into()];
     }
-    if r.recovered {
-        let left = match r.drained_seconds {
-            None => format!("{} left", r.backlog_at_end),
-            Some(d) => format!("drained after {d} s"),
-        };
-        format!("back {} s after the load stopped ({}). Backlog at stop {} txs, {left}, at {} tx/s.", fmt(r.seconds.map(|x| x as f64), 0), r.detail, r.backlog_at_stop, to_fixed(r.drain_per_s, 1))
+    let latency = if r.recovered {
+        format!("back {} s after the load stopped ({})", fmt(r.seconds.map(|x| x as f64), 0), r.detail)
     } else {
-        format!("not back within the budget: {}. Backlog at stop {} txs, {} left, drained at {} tx/s.", r.detail, r.backlog_at_stop, r.backlog_at_end, to_fixed(r.drain_per_s, 1))
+        format!("not back within the budget: {}", r.detail)
+    };
+    let drain = if r.backlog_at_stop == 0 {
+        "no backlog at the load stop".into()
+    } else if let Some(d) = r.drained_seconds {
+        format!("the {} txs queued at the load stop were all in blocks after {d} s, at {} tx/s", r.backlog_at_stop, to_fixed(r.drain_per_s, 1))
+    } else {
+        format!("{} of the {} txs queued at the load stop were not in a block at the end, drained at {} tx/s", r.backlog_at_end, r.backlog_at_stop, to_fixed(r.drain_per_s, 1))
+    };
+    [format!("- **Latency recovery:** {latency}"), format!("- **Backlog drain:** {drain}")]
+}
+
+/// The machine's CPUs, and the load tool's share of them when a cpuset gave it fewer.
+fn runner_line(s: &Summary) -> String {
+    let r = &s.runner;
+    let model = r.cpu_model.as_deref().unwrap_or("?");
+    match r.machine_cpus {
+        Some(m) if m != r.cpus => format!("{m} CPUs ({model}); the load tool ran on {} of them", r.cpus),
+        m => format!("{} CPUs ({model})", m.unwrap_or(r.cpus)),
     }
 }
 
@@ -341,17 +358,15 @@ fn render_overview(s: &Summary, steps: &[FinalStep], checks: &[CheckResult]) -> 
     } else {
         lines.push("- **Failure onset:** no response criterion was violated".into());
     }
-    lines.extend([
-        format!("- **Load stop:** {} — {}", s.stop.rule.name(), s.stop.detail),
-        format!("- **Recovery:** {}", recovery_line(s)),
-        format!("- **Integrity:** {}", short_loss_line(s)),
-        format!("- **Checks:** {}", check_counts(checks)),
-    ]);
+    lines.push(format!("- **Load stop:** {} — {}", s.stop.rule.name(), s.stop.detail));
+    lines.extend(recovery_lines(s));
+    lines.push(format!("- **Integrity:** {}", short_loss_line(s)));
     lines.extend(checks.iter().filter(|r| r.verdict.status == Status::Fail).map(|r| format!("- **Failed check — {}:** {}", r.check, r.verdict.detail)));
     let warnings: Vec<_> = checks.iter().filter(|r| r.verdict.status == Status::Warn).map(|r| r.check).collect();
     if !warnings.is_empty() {
         lines.push(format!("- **Warnings:** {}", warnings.join("; ")));
     }
+    lines.push(format!("- **Checks:** {}", check_counts(checks)));
     lines.join("\n")
 }
 
@@ -388,11 +403,13 @@ fn render_diagnostics(s: &Summary, steps: &[FinalStep], d: &RunData) -> String {
         "#### Detailed result".into(),
         String::new(),
         format!("- **Load stop:** {}: {}", s.stop.rule.name(), s.stop.detail),
-        format!("- **Recovery:** {}", recovery_line(s)),
+    ]);
+    lines.extend(recovery_lines(s));
+    lines.extend([
         format!("- **Loss check:** {}", loss_line(s)),
         format!("- **Baseline:** {} probes before the load, p50 {} s, max {} s", s.baseline.probes, to_fixed(s.baseline.p50_ms as f64 / 1000.0, 1), to_fixed(s.baseline.max_ms as f64 / 1000.0, 1)),
         format!("- **Network:** People spec {}, {} s blocks at start", s.network.spec_version, num(s.network.block_interval_s)),
-        format!("- **Runner:** {} CPUs ({})", s.runner.cpus, s.runner.cpu_model.as_deref().unwrap_or("?")),
+        format!("- **Runner:** {}", runner_line(s)),
         String::new(),
         "#### Full load steps".into(),
         String::new(),
@@ -612,5 +629,46 @@ mod tests {
     #[test]
     fn warnings_warn() {
         assert_eq!(overall_status(&summary(), &[check("build time within the authoring deadline", Status::Warn)]), OverallStatus::Warn);
+    }
+
+    #[test]
+    fn recovery_reports_latency_and_the_backlog_drain_apart() {
+        let mut s = summary();
+        let [latency, drain] = recovery_lines(&s);
+        assert_eq!(latency, "- **Latency recovery:** back 1 s after the load stopped (3 probes in a row landed within 4.0 s)");
+        assert_eq!(drain, "- **Backlog drain:** the 11 txs queued at the load stop were all in blocks after 3 s, at 1.8 tx/s");
+        // Not back in time while the backlog did drain: each answer stands on its own.
+        s.recovery.recovered = false;
+        s.recovery.detail = "after 900 s no 3 probes in a row landed within 4.0 s".into();
+        let [latency, drain] = recovery_lines(&s);
+        assert!(latency.ends_with("not back within the budget: after 900 s no 3 probes in a row landed within 4.0 s"));
+        assert!(drain.contains("were all in blocks after 3 s"));
+        s.recovery.drained_seconds = None;
+        s.recovery.backlog_at_end = 4;
+        assert!(recovery_lines(&s)[1].contains("4 of the 11 txs queued at the load stop were not in a block at the end"));
+        s.recovery.backlog_at_stop = 0;
+        assert!(recovery_lines(&s)[1].ends_with("no backlog at the load stop"));
+    }
+
+    #[test]
+    fn the_check_counts_close_the_key_findings() {
+        let checks = [check("failure", Status::Fail), check("warning", Status::Warn)];
+        let overview = render_overview(&summary(), &[], &checks);
+        assert!(overview.ends_with("- **Checks:** 1 failed, 1 warned, 0 passed, 0 had no result, 0 informational"));
+    }
+
+    #[test]
+    fn the_runner_line_names_the_load_tools_share_of_a_pinned_machine() {
+        let mut s = summary();
+        s.runner.cpu_model = Some("AMD EPYC 7B13".into());
+        s.runner.cpus = 12;
+        s.runner.machine_cpus = Some(32);
+        assert_eq!(runner_line(&s), "32 CPUs (AMD EPYC 7B13); the load tool ran on 12 of them");
+        s.runner.machine_cpus = Some(12);
+        assert_eq!(runner_line(&s), "12 CPUs (AMD EPYC 7B13)");
+        // The fixture is from before `machineCpus` was recorded.
+        assert_eq!(summary().runner.machine_cpus, None);
+        s.runner.machine_cpus = None;
+        assert_eq!(runner_line(&s), "12 CPUs (AMD EPYC 7B13)");
     }
 }

@@ -158,8 +158,10 @@ pub struct Network {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Runner {
-    /// CPUs.
+    /// CPUs the load tool may use: fewer than the machine's when a cpuset confines it.
     pub cpus: usize,
+    /// CPUs of the machine; `None` in summaries from before it was recorded.
+    pub machine_cpus: Option<usize>,
     /// CPU model.
     pub cpu_model: Option<String>,
     /// Memory.

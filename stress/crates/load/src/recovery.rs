@@ -20,9 +20,24 @@ pub fn recovered_at(probes: &[Probe], blocks: &[BlockRecord], threshold_ms: Mill
     })
 }
 
+/// Flood txs included per second from the load stop until none was left (`drained_at`), or
+/// until `now` when that never came. Not until recovery ends: the probes can confirm it after
+/// the backlog is gone, and that wait has no txs left to include.
+pub fn drain_per_s(drained: u64, stopped_at: Millis, drained_at: Option<Millis>, now: Millis) -> f64 {
+    drained as f64 / (drained_at.unwrap_or(now).saturating_sub(stopped_at) as f64 / 1000.0).max(0.001)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_drain_rate_ends_when_the_backlog_is_gone() {
+        // Run 37800300053: 351 txs gone by the tick at about 29.5 s, the probes confirmed at 32.5 s.
+        assert_eq!(format!("{:.1}", drain_per_s(351, 1_000, Some(30_500), 33_500)), "11.9");
+        assert_eq!(format!("{:.1}", drain_per_s(351, 1_000, None, 33_500)), "10.8");
+        assert_eq!(drain_per_s(0, 1_000, Some(1_000), 1_000), 0.0);
+    }
 
     fn probe(sent_at: Millis, latency: Millis) -> Probe {
         Probe { phase: ProbePhase::Recovery, sent_at_s: sent_at as f64 / 1000.0, latency_ms: Some(latency), outcome: Outcome::Included, sent_at }

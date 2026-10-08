@@ -24,7 +24,7 @@ use crate::plan::Plan;
 mod load;
 
 pub use load::load;
-use crate::recovery::recovered_at;
+use crate::recovery::{drain_per_s, recovered_at};
 use crate::rules::{RULES, secs};
 use crate::sender::Reply;
 use crate::steps::{block_stats, percentile};
@@ -237,7 +237,7 @@ pub async fn recover<S: Submit>(t: &mut Tracker<S>, io: &mut Io, opts: &RunOptio
         backlog_at_stop,
         backlog_at_end: t.outstanding().len() as u64,
         drained_seconds: seconds(drained_at),
-        drain_per_s: t.drained as f64 / (now_ms().saturating_sub(stopped_at) as f64 / 1000.0).max(0.001),
+        drain_per_s: drain_per_s(t.drained, stopped_at, drained_at, now_ms()),
         probes: t.probes.iter().filter(|p| p.phase == ProbePhase::Recovery).cloned().collect(),
         blocks: block_stats(&t.recovery_blocks),
         node: NodeMax::default(),
