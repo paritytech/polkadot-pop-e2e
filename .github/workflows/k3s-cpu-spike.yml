@@ -42,95 +42,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # cpu-manager-policy=static: a pod asking for whole CPUs gets cores of
-      # its own. full-pcpus-only: always both threads of a physical core.
-      # reserved-cpus: physical cores 0 and 1 stay for the OS and K3s (on
-      # parity-large, CPU n and n+16 are the two threads of one core).
+      # Every step's script lives in .github/k3s/ and explains itself there.
+
       - name: Install K3s
-        run: |
-          curl -sfL https://get.k3s.io | sudo sh -s - \
-            --write-kubeconfig-mode 644 \
-            --disable traefik --disable metrics-server \
-            --kubelet-arg=cpu-manager-policy=static \
-            --kubelet-arg=cpu-manager-policy-options=full-pcpus-only=true \
-            --kubelet-arg=reserved-cpus=0,1,16,17
-          until kubectl get node >/dev/null 2>&1; do sleep 2; done
-          kubectl wait --for=condition=Ready node --all --timeout=180s
+        run: .github/k3s/install-k3s.sh
 
       - name: Install zombie-cli
         run: |
           curl -sfL -o zombie-cli https://github.com/paritytech/zombienet-sdk/releases/download/v0.4.15/zombie-cli-x86_64-unknown-linux-gnu
           sudo install -m 0755 zombie-cli /usr/local/bin/
 
-      # See limitrange.yaml for why. The wait is for Kubernetes to finish
-      # setting up the namespace; zombienet fails if it starts too early.
-      - name: Prepare the namespace
-        run: |
-          kubectl create namespace "$NAMESPACE"
-          kubectl -n "$NAMESPACE" apply -f .github/k3s/limitrange.yaml
-          until kubectl -n "$NAMESPACE" get serviceaccount default >/dev/null 2>&1; do sleep 1; done
-
-      # Most of the ~7 minutes here is pulling images onto a fresh runner.
-      # The two env vars tell zombienet to use the namespace we just made.
       - name: Start the network
-        run: |
-          sed -e "s|{{POLKADOT_IMAGE}}|$POLKADOT_IMAGE|" -e "s|{{CUMULUS_IMAGE}}|$CUMULUS_IMAGE|" \
-            .github/k3s/network.toml > network.toml
-          RUN_IN_CI=1 ZOMBIE_K8S_CI_NAMESPACE="$NAMESPACE" \
-            nohup zombie-cli spawn -p k8s network.toml > spawn.log 2>&1 &
-          timeout 900 bash -c 'until grep -q "network is up" spawn.log; do sleep 10; done' \
-            || { tail -40 spawn.log; exit 1; }
-          kubectl -n "$NAMESPACE" get pods
+        run: .github/k3s/start-network.sh
 
-      # Each chain is asked for its finalized block number, straight at the
-      # pod's IP. Wait until all four have finalized something, watch for
-      # SOAK_MINUTES, and fail if any chain stopped finalizing.
       - name: Check every chain finalizes
-        env:
-          SOAK_MINUTES: ${{ inputs.soak_minutes || '10' }}
-        run: |
-          # rpc <pod> <method> <params>
-          rpc() {
-            ip=$(kubectl -n "$NAMESPACE" get pod "$1" -o jsonpath='{.status.podIP}')
-            curl -s -H 'Content-Type: application/json' \
-              -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"$2\",\"params\":$3}" "http://$ip:9944"
-          }
-          # finalized <pod>: the chain's finalized block number, 0 if none yet
-          finalized() {
-            hash=$(rpc "$1" chain_getFinalizedHead '[]' | jq -r .result)
-            printf '%d' "$(rpc "$1" chain_getHeader "[\"$hash\"]" | jq -r '.result.number // "0x0"')"
-          }
-          chains="alice asset-hub-collator people-collator coretime-collator"
-
-          for c in $chains; do
-            for _ in $(seq 60); do
-              [ "$(finalized "$c")" -gt 0 ] && break
-              sleep 10
-            done
-            [ "$(finalized "$c")" -gt 0 ] || { echo "::error::$c never finalized a block"; exit 1; }
-          done
-
-          declare -A start
-          for c in $chains; do start[$c]=$(finalized "$c"); done
-          sleep $(( SOAK_MINUTES * 60 ))
-
-          echo "| chain | blocks finalized in ${SOAK_MINUTES} min |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          for c in $chains; do
-            gained=$(( $(finalized "$c") - start[$c] ))
-            echo "| $c | $gained |" | tee -a "$GITHUB_STEP_SUMMARY"
-            [ "$gained" -gt 0 ] || { echo "::error::$c stopped finalizing"; exit 1; }
-          done
+        run: .github/k3s/check-chains.sh "${{ inputs.soak_minutes || '10' }}"
 
       - name: Collect logs
         if: always()
-        run: |
-          mkdir -p logs
-          cp spawn.log network.toml logs/ 2>/dev/null || true
-          kubectl -n "$NAMESPACE" get pods -o wide > logs/pods.txt 2>&1 || true
-          for pod in $(kubectl -n "$NAMESPACE" get pods -o name 2>/dev/null); do
-            kubectl -n "$NAMESPACE" logs "$pod" > "logs/${pod#pod/}.log" 2>&1 || true
-          done
+        run: .github/k3s/collect-logs.sh
 
       - uses: actions/upload-artifact@v4
         if: always()
