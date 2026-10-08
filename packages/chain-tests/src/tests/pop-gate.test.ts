@@ -30,6 +30,7 @@ import {
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
+import { createPgasPayerSigner } from "../lib/claim-signer.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   BUMP_SELECTOR_HEX,
@@ -157,11 +158,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         // — that's exactly the context PopCounter checks.
         const creds = await ensureAttested();
         const keyPair = deriveKeyPair(creds.entropy);
-        const signer = getPolkadotSigner(
-          keyPair.publicKey,
-          "Sr25519",
-          async (input) => keyPair.sign(input),
-        );
+        const signer = createPgasPayerSigner(keyPair);
         console.log(`[pop-gate] PoP caller: ${creds.address}`);
 
         // Snapshot the byAlias mapping for the attested person before

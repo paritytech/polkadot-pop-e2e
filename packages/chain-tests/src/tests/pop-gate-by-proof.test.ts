@@ -35,6 +35,7 @@ import {
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
+import { createPgasPayerSigner } from "../lib/claim-signer.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   fetchRingMembers,
@@ -91,7 +92,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       const creds = await ensureAttested();
       caller = creds.address;
       const keyPair = deriveKeyPair(creds.entropy);
-      signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", async (i) => keyPair.sign(i));
+      signer = createPgasPayerSigner(keyPair);
       console.log(`[pop-by-proof] caller (lite-person, no alias registered): ${caller}`);
     });
 
