@@ -1,0 +1,271 @@
+name: K3s CPU isolation spike
+
+# Can the release gate's network run on parity-large with cores split per node,
+# instead of six validators and every collator fighting over one process table?
+#
+# This job installs K3s on the runner with the kubelet's static CPU manager,
+# spawns a relay plus collators through zombienet-sdk's k8s provider (each node
+# its own Guaranteed pod; sizing lives in .github/k3s/network.toml), then
+# asserts the kubelet really handed out disjoint cores and the chains finalize
+# on them. It does not touch the gate: the engine still spawns with
+# `-p native`, and forked DB snapshots on k8s are a separate question.
+#
+# parity-large is a Cattery GCE VM (c2d-highcpu-32: 32 vCPU = 16 cores x 2 SMT
+# threads, 64 GB) with root, so K3s runs on the host rather than nested in a
+# container.
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: "How long to watch block production once every chain finalizes"
+        default: "10"
+      polkadot_image:
+        description: "Relay image"
+        default: "docker.io/parity/polkadot:latest"
+      cumulus_image:
+        description: "Collator image"
+        default: "docker.io/parity/polkadot-parachain:latest"
+  pull_request:
+    paths:
+      - .github/workflows/k3s-cpu-spike.yml
+      - .github/k3s/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ZOMBIE_CLI_VERSION: v0.4.15
+  NAMESPACE: zombie-pop-spike
+  NODES: alice bob charlie dave eve ferdie asset-hub-collator people-collator coretime-collator
+  # name:local-port, for the chains whose progress we sample
+  CHAINS: alice:19000 asset-hub-collator:19001 people-collator:19002 coretime-collator:19003
+  KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+jobs:
+  spike:
+    # Self-hosted, so never for a fork PR: a PR can edit the workflow it runs.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: parity-large
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Recorded first, so a failed install still says what it was installed on.
+      - name: Inspect the runner
+        run: |
+          {
+            echo "### Runner"
+            echo '```'
+            echo "user: $(id -un) ($(id -u))   nproc: $(nproc)   mem: $(free -g | awk '/Mem:/{print $2}') GiB"
+            echo "cgroup fs: $(stat -fc %T /sys/fs/cgroup)   in a container: $([ -f /.dockerenv ] || grep -qa container= /proc/1/environ && echo yes || echo no)"
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread\(s\) per core|Core\(s\) per socket|NUMA node\(s\)'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          # Root on some trays, a sudoer on others.
+          echo "SUDO=$([ "$(id -u)" = 0 ] || echo sudo)" >> "$GITHUB_ENV"
+
+      - name: Install jq and curl
+        run: |
+          which jq curl || ($SUDO apt-get update && $SUDO apt-get install -y jq curl)
+
+      # Two whole physical cores (both SMT siblings of each) for everything that
+      # is not a chain node. GCE does not promise sibling numbering, so read it.
+      - name: Pick the reserved cores
+        id: reserved
+        run: |
+          set -euo pipefail
+          siblings() { cat "/sys/devices/system/cpu/cpu$1/topology/thread_siblings_list"; }
+          expand() { tr ',' '\n' <<<"$1" | awk -F- '{for (i=$1; i<=($2==""?$1:$2); i++) print i}'; }
+          first=$(expand "$(siblings 0)")
+          next=$(seq 0 $(( $(nproc) - 1 )) | grep -vxF "$first" | head -1)
+          reserved=$( { echo "$first"; expand "$(siblings "$next")"; } | sort -n | paste -sd, )
+          echo "reserved CPUs: $reserved"
+          echo "cpus=$reserved" >> "$GITHUB_OUTPUT"
+
+      # static: Guaranteed pods with integer CPU get exclusive cores.
+      # full-pcpus-only: those cores come as whole physical cores, never one
+      # SMT thread shared with a neighbour.
+      - name: Install K3s
+        run: |
+          set -euo pipefail
+          curl -sfL https://get.k3s.io | $SUDO env INSTALL_K3S_CHANNEL=stable sh -s - \
+            --write-kubeconfig-mode 644 \
+            --disable traefik --disable metrics-server \
+            --kubelet-arg=cpu-manager-policy=static \
+            --kubelet-arg=cpu-manager-policy-options=full-pcpus-only=true \
+            --kubelet-arg=reserved-cpus=${{ steps.reserved.outputs.cpus }}
+          for _ in $(seq 1 30); do kubectl get node >/dev/null 2>&1 && break; sleep 2; done
+          kubectl wait --for=condition=Ready node --all --timeout=180s
+          kubectl version
+          $SUDO jq . /var/lib/kubelet/cpu_manager_state
+
+      - name: Install zombie-cli
+        run: |
+          set -euo pipefail
+          curl -sfL -o /tmp/zombie-cli \
+            "https://github.com/paritytech/zombienet-sdk/releases/download/$ZOMBIE_CLI_VERSION/zombie-cli-x86_64-unknown-linux-gnu"
+          $SUDO install -m 0755 /tmp/zombie-cli /usr/local/bin/zombie-cli
+          zombie-cli --version
+
+      # Pre-created so our LimitRange is in place before the first pod; see the
+      # comment in limitrange.yaml for why the defaults need limits.
+      - name: Prepare the namespace
+        run: |
+          kubectl create namespace "$NAMESPACE"
+          kubectl -n "$NAMESPACE" apply -f .github/k3s/limitrange.yaml
+
+      # ZOMBIE_K8S_CI_NAMESPACE + RUN_IN_CI=1 is the provider's "namespace
+      # already exists" path: it skips creating one and only adds its policies.
+      - name: Spawn the network
+        env:
+          POLKADOT_IMAGE: ${{ inputs.polkadot_image || 'docker.io/parity/polkadot:latest' }}
+          CUMULUS_IMAGE: ${{ inputs.cumulus_image || 'docker.io/parity/polkadot-parachain:latest' }}
+        run: |
+          set -euo pipefail
+          sed -e "s|{{POLKADOT_IMAGE}}|$POLKADOT_IMAGE|g" -e "s|{{CUMULUS_IMAGE}}|$CUMULUS_IMAGE|g" \
+            .github/k3s/network.toml > /tmp/network.toml
+          RUN_IN_CI=1 ZOMBIE_K8S_CI_NAMESPACE="$NAMESPACE" \
+            nohup zombie-cli spawn -p k8s -d /tmp/zn /tmp/network.toml > /tmp/zn-spawn.log 2>&1 &
+          echo $! > /tmp/zn-spawn.pid
+          for i in $(seq 1 90); do
+            if ! kill -0 "$(cat /tmp/zn-spawn.pid)" 2>/dev/null; then
+              echo "::error::zombie-cli exited during the spawn"; tail -40 /tmp/zn-spawn.log; exit 1
+            fi
+            ready=0
+            for n in $NODES; do
+              [ "$(kubectl -n "$NAMESPACE" get pod "$n" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null)" = true ] \
+                && ready=$((ready + 1))
+            done
+            echo "$((i * 10))s: $ready/$(wc -w <<<"$NODES") node pods ready"
+            [ "$ready" = "$(wc -w <<<"$NODES")" ] && exit 0
+            sleep 10
+          done
+          echo "::error::not every node pod became ready in 15 minutes"
+          kubectl -n "$NAMESPACE" get pods -o wide; tail -40 /tmp/zn-spawn.log; exit 1
+
+      - name: Assert each node got its own cores
+        run: |
+          set -euo pipefail
+          $SUDO cat /var/lib/kubelet/cpu_manager_state > /tmp/cpu_manager_state.json
+          kubectl -n "$NAMESPACE" get pods -o json > /tmp/pods.json
+          {
+            echo "### CPU split (kubelet static CPU manager)"
+            # shellcheck disable=SC2086 # NODES is a word list
+            node .github/k3s/pinning.mjs /tmp/cpu_manager_state.json /tmp/pods.json $NODES
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The kubelet's bookkeeping says what it intended; the affinity of the
+      # actual processes on the host says what the kernel enforces. PVF workers
+      # are children of their validator and should carry the same mask.
+      - name: Show the affinity the kernel enforces
+        run: |
+          {
+            echo "### Host process affinity"
+            echo '```'
+            for pid in $(pgrep -f 'polkadot' || true); do
+              printf '%-8s %-34s %s\n' "$pid" "$(ps -o comm= -p "$pid")" "$(taskset -pc "$pid" 2>/dev/null | sed 's/.*: //')"
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for every chain to finalize, then soak
+        env:
+          SOAK_MINUTES: ${{ inputs.soak_minutes || '10' }}
+        run: |
+          set -euo pipefail
+          for c in $CHAINS; do
+            kubectl -n "$NAMESPACE" port-forward "pod/${c%%:*}" "${c##*:}:9944" >/dev/null 2>&1 &
+          done
+          sleep 5
+          rpc() {
+            curl -sS --max-time 5 -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":${3:-[]}}" "http://127.0.0.1:$1"
+          }
+          best() { printf '%d' "$(rpc "$1" chain_getHeader | jq -r .result.number)"; }
+          finalized() {
+            local hash; hash=$(rpc "$1" chain_getFinalizedHead | jq -r .result)
+            printf '%d' "$(rpc "$1" chain_getHeader "[\"$hash\"]" | jq -r .result.number)"
+          }
+
+          for i in $(seq 1 60); do
+            pending=""
+            for c in $CHAINS; do
+              f=$(finalized "${c##*:}" 2>/dev/null || echo 0)
+              [ "$f" -gt 0 ] || pending="$pending ${c%%:*}"
+            done
+            [ -z "$pending" ] && { echo "every chain finalizing after $((i * 10))s"; break; }
+            echo "$((i * 10))s: not finalizing yet:$pending"
+            [ "$i" = 60 ] && { echo "::error::did not finalize in 10 minutes:$pending"; exit 1; }
+            sleep 10
+          done
+
+          declare -A b0 f0
+          for c in $CHAINS; do b0[$c]=$(best "${c##*:}"); f0[$c]=$(finalized "${c##*:}"); done
+          sleep $(( SOAK_MINUTES * 60 ))
+
+          {
+            echo "### Block production over ${SOAK_MINUTES} min"
+            echo "| chain | blocks/min | mean block time | finalized lag at end |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          stalled=""
+          for c in $CHAINS; do
+            b1=$(best "${c##*:}"); f1=$(finalized "${c##*:}")
+            produced=$(( b1 - b0[$c] ))
+            [ $(( f1 - f0[$c] )) -gt 0 ] || stalled="$stalled ${c%%:*}"
+            mean=$(awk -v s="$(( SOAK_MINUTES * 60 ))" -v n="$produced" 'BEGIN { print n > 0 ? sprintf("%.1fs", s / n) : "-" }')
+            echo "| ${c%%:*} | $(( produced / SOAK_MINUTES )) | $mean | $(( b1 - f1 )) |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          [ -z "$stalled" ] || { echo "::error::finality stalled during the soak:$stalled"; exit 1; }
+
+      # Throttling is the tell that a node's allotment is too small: CFS quota
+      # hit means it wanted more cores than it was given.
+      - name: Record CPU throttling per node
+        if: always()
+        run: |
+          {
+            echo "### CFS throttling (cumulative)"
+            echo "| node | nr_periods | nr_throttled | throttled_s |"
+            echo "|---|---|---|---|"
+            for n in $NODES; do
+              s=$(kubectl -n "$NAMESPACE" exec "$n" -c "$n" -- cat /sys/fs/cgroup/cpu.stat 2>/dev/null) || continue
+              awk -v n="$n" '{ v[$1] = $2 } END { printf "| %s | %d | %d | %.1f |\n", n, v["nr_periods"], v["nr_throttled"], v["throttled_usec"] / 1e6 }' <<<"$s"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p spike-logs
+          cp /tmp/zn-spawn.log /tmp/network.toml /tmp/cpu_manager_state.json spike-logs/ 2>/dev/null || true
+          kubectl -n "$NAMESPACE" get pods -o wide > spike-logs/pods.txt 2>&1 || true
+          kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp > spike-logs/events.txt 2>&1 || true
+          for n in $NODES; do
+            kubectl -n "$NAMESPACE" logs "$n" -c "$n" > "spike-logs/$n.log" 2>&1 || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k3s-cpu-spike-logs
+          path: spike-logs
+          retention-days: 7
+
+      # The VM is ephemeral, but a spot preemption retry could land on the same
+      # disk; leave nothing running either way.
+      - name: Tear down
+        if: always()
+        run: |
+          kill "$(cat /tmp/zn-spawn.pid 2>/dev/null)" 2>/dev/null || true
+          $SUDO /usr/local/bin/k3s-uninstall.sh || true
