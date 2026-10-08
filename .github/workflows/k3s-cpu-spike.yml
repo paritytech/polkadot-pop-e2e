@@ -231,7 +231,7 @@ jobs:
             b1=$(best "$c"); f1=$(finalized "$c")
             produced=$(( b1 - b0[$c] ))
             [ $(( f1 - f0[$c] )) -gt 0 ] || stalled="$stalled $c"
-            mean=$(awk -v s="$(( SOAK_MINUTES * 60 ))" -v n="$produced" 'BEGIN { print n > 0 ? sprintf("%.1fs", s / n) : "-" }')
+            mean=$(awk -v s="$(( SOAK_MINUTES * 60 ))" -v n="$produced" 'BEGIN { print (n > 0 ? sprintf("%.1fs", s / n) : "-") }')
             echo "| $c | $(( produced / SOAK_MINUTES )) | $mean | $(( b1 - f1 )) |" >> "$GITHUB_STEP_SUMMARY"
           done
           [ -z "$stalled" ] || { echo "::error::finality stalled during the soak:$stalled"; exit 1; }
