@@ -16,8 +16,8 @@ name: Stress · flood
 # The result is in the job summary and the uploaded artifacts
 #
 # Once the network is up, stress/pin-nodes.sh gives each People collator its own cores with
-# cgroup v2, and the validators, the load tool and the rest of the network a set each, so a run
-# measures People on a known share of the runner. The layout is in the summary.
+# cgroup v2, and the validators, the other chains, the services and the load tool share the rest,
+# so a run measures People on a known share of the runner. The layout is in the summary.
 
 on:
   # TEMP: a push to the PR branch runs a focused stress flood, because workflow_dispatch only
@@ -50,7 +50,7 @@ on:
         description: "People collators"
         default: "5"
       people_collator_cpus:
-        description: "vCPUs per People collator, each in its own cgroup (validators get 6, the load tool 4); 0 runs unpinned"
+        description: "vCPUs per People collator, each in its own cgroup (everything else shares the rest, at least 8); 0 runs unpinned"
         default: "4"
       args:
         description: "Extra flood arguments, e.g. --step 6 --steps 12 --recovery 1200"
@@ -179,8 +179,8 @@ jobs:
 
       - name: Flood
         run: |
-          # Onto the load tool's own CPUs, when the nodes are pinned; the flood inherits the group.
-          if [ -d /sys/fs/cgroup/ppn/loadgen ]; then echo $$ | sudo tee /sys/fs/cgroup/ppn/loadgen/cgroup.procs >/dev/null; fi
+          # Off the People collators' CPUs, when they are pinned; the flood inherits the group.
+          if [ -d /sys/fs/cgroup/ppn/rest ]; then echo $$ | sudo tee /sys/fs/cgroup/ppn/rest/cgroup.procs >/dev/null; fi
           # FLOOD_ARGS is split into words on purpose.
           # shellcheck disable=SC2086
           stress/target/release/stress "$SCENARIO" --mode "$MODE" $FLOOD_ARGS --out "$RESULTS_DIR"
