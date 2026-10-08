@@ -357,6 +357,7 @@ async function run() {
     // Inclusion can leave a transaction in that mempool until finality. Reserve 32 entries
     // for maintenance traffic; this is a client bound, never a node configuration change.
     // SDK: polkadot-weekly2026w33-rc2, transaction-pool/src/{builder,fork_aware_txpool/fork_aware_txpool}.rs.
+    const evidenceStartBlock = (await client.getFinalizedBlock()).number;
     const pressure = await sustainPool({ target, poolLimit: 8192, admissionLimit: 9011,
       maxOutstanding: 9011 - 32, durationMs, fillTimeoutMs: 600000,
       release: work => { if (actors[work.actor].started) followups.push(work.actor); },
@@ -386,7 +387,8 @@ async function run() {
       const name = `sustained-${operation}`;
       const summary = { passed: results.every(r => r.status === 'finalized'), expected: results.length };
       save(`${name}-summary`, summary);
-      try { await auditBurst({ name, expected: results.length, results, operation, out, api, summary }); }
+      try { await auditBurst({ name, expected: results.length, results, operation, out, api, summary,
+        evidenceStartBlock: summary.passed ? undefined : evidenceStartBlock }); }
       catch (error) { auditErrors.push(`${operation}: ${String(error)}`); }
     }
     const at = await client.getFinalizedBlock(), stateErrors: string[] = [];
