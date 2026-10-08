@@ -1,15 +1,10 @@
-# zombienet-sdk gives every node pod a `helper-binaries-setup` init container
-# with no resources, and with RUN_IN_CI=1 it adds a LimitRange that sets only
-# defaultRequest (cpu 0.5, memory 1G). A container with a request but no limit
-# makes the whole pod Burstable, and the static CPU manager pins nothing for a
-# Burstable pod.
+# Without this file, no node gets its own cores.
 #
-# This adds the missing limits at the same values. Both LimitRanges apply, in an
-# order we do not control, so the request and limit come out equal either way
-# and the pod stays Guaranteed. The init container's half core is fractional, so
-# it runs on the shared pool and never takes a node's exclusive cores.
-# Source: crates/provider/src/kubernetes/{pod_spec_builder.rs,static-configs}
-# in zombienet-sdk v0.4.15.
+# K3s only gives a pod dedicated cores if every container in it has a CPU and
+# memory limit. zombienet adds a small setup container to each node pod with no
+# limits at all, which quietly disqualifies the whole pod. This sets a default
+# limit for any container that has none (the node containers set their own in
+# network.toml, so they are unaffected).
 apiVersion: v1
 kind: LimitRange
 metadata:
