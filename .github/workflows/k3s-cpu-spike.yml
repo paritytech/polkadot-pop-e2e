@@ -124,6 +124,13 @@ jobs:
         run: |
           kubectl create namespace "$NAMESPACE"
           kubectl -n "$NAMESPACE" apply -f .github/k3s/limitrange.yaml
+          # The controller adds `default` a moment after the namespace; a pod
+          # created before then is refused (seen on the first run).
+          for _ in $(seq 1 30); do
+            kubectl -n "$NAMESPACE" get serviceaccount default >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "::error::no default service account in $NAMESPACE after 30s"; exit 1
 
       # ZOMBIE_K8S_CI_NAMESPACE + RUN_IN_CI=1 is the provider's "namespace
       # already exists" path: it skips creating one and only adds its policies.
