@@ -362,10 +362,7 @@ fn render_overview(s: &Summary, steps: &[FinalStep], checks: &[CheckResult]) -> 
     lines.extend(recovery_lines(s));
     lines.push(format!("- **Integrity:** {}", short_loss_line(s)));
     lines.extend(checks.iter().filter(|r| r.verdict.status == Status::Fail).map(|r| format!("- **Failed check — {}:** {}", r.check, r.verdict.detail)));
-    let warnings: Vec<_> = checks.iter().filter(|r| r.verdict.status == Status::Warn).map(|r| r.check).collect();
-    if !warnings.is_empty() {
-        lines.push(format!("- **Warnings:** {}", warnings.join("; ")));
-    }
+    // No warnings line: the counts point to the checks table, which lists them after the failures.
     lines.push(format!("- **Checks:** {}", check_counts(checks)));
     lines.join("\n")
 }
@@ -558,7 +555,8 @@ mod tests {
         assert!(overview.contains("inclusion p95 (limit 10.0 s)"));
         assert!(overview.contains("| 12 tx/s | 12 | 3.6 s | ✅ within limits |"));
         assert!(overview.contains("**Failed check — failure:** test"));
-        assert!(overview.contains("**Warnings:** warning"));
+        assert!(!overview.contains("**Warnings:**"));
+        assert!(diagnostics.contains("| run | warning | **warn** | test |"));
         assert!(overview.contains("1 failed, 1 warned, 1 passed, 0 had no result, 0 informational"));
         assert!(!overview.contains("pool validations"));
         assert!(!overview.contains("#### Recovery probes"));
