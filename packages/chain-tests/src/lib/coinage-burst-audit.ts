@@ -39,6 +39,8 @@ export async function auditBurst(input: {
   out: string; api: ReturnType<typeof createCoinageClient>['api']; summary: Record<string, unknown>;
   // Lifecycle drivers can finish dependent operations while retaining a failed timing verdict.
   requireScenarioPass?: boolean;
+  // Finalized height immediately before submission; preserve blocks missed by watches.
+  evidenceStartBlock?: number;
 }) {
   const { name, expected, results, operation, out, api, summary } = input;
   const receipts: unknown[] = [];
@@ -59,6 +61,27 @@ export async function auditBurst(input: {
     group.push({ actor, result });
     groups.set(result.block.hash, group);
   });
+  let evidenceRange: { start: number; end: number | null } | undefined;
+  if (input.evidenceStartBlock !== undefined) {
+    const start = input.evidenceStartBlock + 1;
+    assert(Number.isSafeInteger(start) && start > 0, 'Invalid evidence start block');
+    evidenceRange = { start, end: null };
+    try {
+      const heads = await Promise.all([10010, 10011].map(async port => {
+        const head = await rpc<string>(port, 'chain_getFinalizedHead');
+        const header = await rpc<{ number: string }>(port, 'chain_getHeader', [head]);
+        return Number.parseInt(header.number, 16);
+      }));
+      evidenceRange.end = Math.min(...heads);
+      for (let number = start; number <= evidenceRange.end; number++) {
+        try {
+          const hash = await rpc<string>(10010, 'chain_getBlockHash', [number]);
+          // Empty groups still save the raw block, events and both finality views.
+          if (!groups.has(hash)) groups.set(hash, []);
+        } catch (error) { errors.push(`Evidence height ${number}: ${String(error)}`); }
+      }
+    } catch (error) { errors.push(`Evidence range: ${String(error)}`); }
+  }
   const csv = ['actor,tx_hash,block_number,block_hash,extrinsic_index,finality_ms,verified'];
   for (const [hash, group] of groups) {
     try {
@@ -101,7 +124,7 @@ export async function auditBurst(input: {
   }
   const passed = errors.length === 0 && receipts.length === expected && summary.passed === true && summary.generatorLimited !== true;
   const audit = { name, expected, verifiedReceipts: receipts.length, uniqueHashes: seen.size, passed, errors,
-    operation, nodes: [10010, 10011], runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
+    operation, evidenceRange, nodes: [10010, 10011], runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
     commit: process.env.GITHUB_SHA, summary,
     trustBoundary: 'Two local RPC views plus raw block bodies and decoded events; not an independent consensus or storage-proof verification.' };
   writeFileSync(`${out}/${name}-audit.json`, json(audit) + '\n');

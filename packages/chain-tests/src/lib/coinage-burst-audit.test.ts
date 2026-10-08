@@ -46,3 +46,34 @@ test('deferred timing verdict preserves failed audit and still rejects invalid r
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('preserves finalized blocks even when every transaction watch reports invalid', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'coinage-range-'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url, init) => {
+    const { method, params } = JSON.parse(String(init?.body));
+    const result = method === 'chain_getBlock' ? { block: { header: { number: '0x1' }, extrinsics: [extrinsic] } }
+      : method === 'chain_getHeader' ? { number: '0x1' }
+      : method === 'chain_getBlockHash' ? (assert.equal(params[0], 1), '0xab') : '0xab';
+    return new Response(JSON.stringify({ result }), { status: 200 });
+  }) as typeof fetch;
+  const input = {
+    name: 'missed-watch', expected: 1, out, operation: 'CoinTransferred', evidenceStartBlock: 0,
+    results: [{ status: 'submission-error', txHash: hash, error: 'invalid', elapsedMs: 10 }],
+    api: { query: { System: { Events: { getValue: async () => events } } } },
+    summary: { passed: false },
+  } as unknown as Parameters<typeof auditBurst>[0];
+  try {
+    await assert.rejects(auditBurst(input), /receipt evidence/);
+    const block = JSON.parse(readFileSync(`${out}/evidence/missed-watch/block-1.json`, 'utf8'));
+    assert.equal(block.block.block.extrinsics[0], extrinsic);
+    assert.equal(block.finalityViews.length, 2);
+    const audit = JSON.parse(readFileSync(`${out}/missed-watch-audit.json`, 'utf8'));
+    assert.deepEqual(audit.evidenceRange, { start: 1, end: 1 });
+    assert.equal(audit.verifiedReceipts, 0); // Reconciliation remains a separate operation.
+    assert.equal(audit.passed, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    rmSync(out, { recursive: true, force: true });
+  }
+});
