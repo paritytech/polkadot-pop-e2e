@@ -14,6 +14,10 @@ name: Stress · flood
 # network, the setup or our own tools fail; the outcome checks only report.
 # Smoke mode fails on any gap (a failed scrape, a check without a result).
 # The result is in the job summary and the uploaded artifacts
+#
+# Once the network is up, stress/pin-nodes.sh gives each People collator its own cores with
+# cgroup v2, and the validators, the load tool and the rest of the network a set each, so a run
+# measures People on a known share of the runner. The layout is in the summary.
 
 on:
   # TEMP: a push to the PR branch runs a focused stress flood, because workflow_dispatch only
@@ -45,6 +49,9 @@ on:
       people_collators:
         description: "People collators"
         default: "5"
+      people_collator_cpus:
+        description: "vCPUs per People collator, each in its own cgroup (validators get 6, the load tool 4); 0 runs unpinned"
+        default: "4"
       args:
         description: "Extra flood arguments, e.g. --step 6 --steps 12 --recovery 1200"
         default: ""
@@ -79,6 +86,7 @@ jobs:
       CORES: people=${{ inputs.people_cores || '3' }}
       COLLATORS: people=${{ inputs.people_collators || '5' }}
       ZOMBIE_JSON: ${{ github.workspace }}/ppn/data-fork/zombie.json
+      PEOPLE_CPUS: ${{ inputs.people_collator_cpus || '4' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -161,8 +169,18 @@ jobs:
           [ -n "$pid" ] && echo "PEOPLE_PID=$pid" >> "$GITHUB_ENV"
           echo "People node PID: ${pid:-not found}"
 
+      - name: Give the nodes their own CPUs
+        if: env.PEOPLE_CPUS != '0'
+        env:
+          PPN_DIR: ${{ github.workspace }}/ppn
+        run: |
+          mkdir -p "$RESULTS_DIR"
+          sudo -E stress/pin-nodes.sh | tee "$RESULTS_DIR/cpu-layout.md"
+
       - name: Flood
         run: |
+          # Onto the load tool's own CPUs, when the nodes are pinned; the flood inherits the group.
+          if [ -d /sys/fs/cgroup/ppn/loadgen ]; then echo $$ | sudo tee /sys/fs/cgroup/ppn/loadgen/cgroup.procs >/dev/null; fi
           # FLOOD_ARGS is split into words on purpose.
           # shellcheck disable=SC2086
           stress/target/release/stress "$SCENARIO" --mode "$MODE" $FLOOD_ARGS --out "$RESULTS_DIR"
@@ -175,6 +193,11 @@ jobs:
             cat "$RESULTS_DIR"/*/summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### Flood: no result (setup or run failed; see the logs)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$RESULTS_DIR/cpu-layout.md" ]; then
+            { echo; cat "$RESULTS_DIR/cpu-layout.md"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nodes unpinned: they share all of the runner's CPUs." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload results
