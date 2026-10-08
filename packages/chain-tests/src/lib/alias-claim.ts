@@ -38,7 +38,7 @@
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { createPgasPayerSigner } from "./claim-signer.js";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { verifiableFor } from "./verifiable-loader.js";
 import {
@@ -199,11 +199,7 @@ export async function setAliasAccount(args: {
       `[alias-claim] keypair pubkey ${Binary.toHex(keyPair.publicKey)} != creds.publicKey ${Binary.toHex(args.creds.publicKey)}`,
     );
   }
-  const signer = getPolkadotSigner(
-    keyPair.publicKey,
-    "Sr25519",
-    async (input) => keyPair.sign(input),
-  );
+  const signer = createPgasPayerSigner(keyPair);
 
   const { one_shot } = verifiableFor();
   const ctxPreview = Binary.toHex(args.context).slice(0, 14);
