@@ -136,7 +136,7 @@ Each run creates `results/<scenario>-<unix-seconds>/` (override the root with `-
 
 | File | Contents |
 | --- | --- |
-| `summary.md` | Human-readable result and outcome checks |
+| `summary.md` | Compact verdict, capacity table, recovery/integrity and key findings; full measurements and outcome checks in expandable diagnostics |
 | `summary.json` | Structured run parameters, measurements, and check verdicts |
 | `run.om` | Merged OpenMetrics data consumed by the evaluator |
 | `scrapes.jsonl` | Raw node metric scrapes |

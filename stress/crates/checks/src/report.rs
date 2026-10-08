@@ -20,15 +20,35 @@ pub fn write(dir: &RunDir, mut summary: Summary, finals: &[FinalStep]) -> Result
     Ok(checks)
 }
 
-/// The whole summary.md.
+/// The whole summary.md. The decision-making result stays above the fold; measurements needed
+/// for diagnosis remain available without making the GitHub job summary hard to scan.
 pub fn markdown(s: &Summary, finals: &[FinalStep], d: &RunData, checks: &[CheckResult]) -> String {
-    format!("{}\n### Outcome checks\n\n{}\n", render_summary(s, finals, d, checks), render_checks(checks))
+    format!(
+        "{}\n\n<details>\n<summary><strong>Diagnostics and full measurements</strong></summary>\n\n{}\n\n### Outcome checks\n\n{}\n\n</details>\n",
+        render_overview(s, finals, checks),
+        render_diagnostics(s, finals, d),
+        render_checks(checks)
+    )
 }
 
-/// The checks table.
+fn status_rank(status: Status) -> u8 {
+    match status {
+        Status::Fail => 0,
+        Status::Warn => 1,
+        Status::NoResult => 2,
+        Status::Info => 3,
+        Status::Pass => 4,
+    }
+}
+
+/// The checks table, ordered so that actionable results are visible first.
 pub fn render_checks(results: &[CheckResult]) -> String {
+    let mut ordered: Vec<_> = results.iter().collect();
+    ordered.sort_by_key(|r| status_rank(r.verdict.status));
     let mut lines = vec!["| outcome | check | status | detail |".to_owned(), "| --- | --- | --- | --- |".to_owned()];
-    lines.extend(results.iter().map(|r| format!("| {} | {} | **{}** | {} |", r.outcome.name(), r.check, r.verdict.status.name(), r.verdict.detail.replace('|', "\\|"))));
+    lines.extend(ordered.into_iter().map(|r| {
+        format!("| {} | {} | **{}** | {} |", r.outcome.name(), r.check, r.verdict.status.name(), r.verdict.detail.replace('|', "\\|"))
+    }));
     lines.join("\n")
 }
 
@@ -101,17 +121,6 @@ enum OverallStatus {
     Warn,
     Fail,
     Inconclusive,
-}
-
-impl OverallStatus {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Pass => "PASS",
-            Self::Warn => "WARN",
-            Self::Fail => "FAIL",
-            Self::Inconclusive => "INCONCLUSIVE",
-        }
-    }
 }
 
 /// One top-level answer from the runner's stop, its performance measure and the outcome checks.
@@ -213,16 +222,148 @@ fn rpc_errors(steps: &[FinalStep]) -> Vec<(String, u64)> {
     errors
 }
 
-fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[CheckResult]) -> String {
+fn status_badge(status: OverallStatus) -> &'static str {
+    match status {
+        OverallStatus::Pass => "✅ PASS",
+        OverallStatus::Warn => "⚠️ WARN",
+        OverallStatus::Fail => "❌ FAIL",
+        OverallStatus::Inconclusive => "❔ INCONCLUSIVE",
+    }
+}
+
+fn short_loss_line(s: &Summary) -> String {
+    let l = &s.loss;
+    let lost = l.lost.map_or_else(|| "loss not determined".into(), |n| format!("**{n} lost**"));
+    format!(
+        "{} sent; {} found on the finalized chain; {} refused; {} expired; {} failed in a block; {lost}",
+        l.sent, l.on_chain.included, l.refused, l.dropped, l.failed_in_block
+    )
+}
+
+fn check_counts(checks: &[CheckResult]) -> String {
+    let count = |status| checks.iter().filter(|r| r.verdict.status == status).count();
+    format!(
+        "{} failed, {} warned, {} passed, {} had no result, {} informational",
+        count(Status::Fail),
+        count(Status::Warn),
+        count(Status::Pass),
+        count(Status::NoResult),
+        count(Status::Info)
+    )
+}
+
+fn response_label(s: &Summary, step: &FinalStep) -> String {
+    if step.sent == 0 {
+        return "— no submissions".into();
+    }
+    let limit = |key, fallback| s.rules.get(key).and_then(serde_json::Value::as_f64).unwrap_or(fallback);
+    // Use the recorded rules, not today's runner defaults, when re-rendering old runs.
+    let mut failures = Vec::new();
+    if step.included_ratio < limit("minIncludedRatio", 0.9) {
+        failures.push("inclusion");
+    }
+    if step.p95_latency_ms as f64 > limit("maxP95LatencyMs", 10_000.0) {
+        failures.push("latency");
+    }
+    if step.rejected_ratio > limit("maxRefusedRatio", 0.01) {
+        failures.push("refusals");
+    }
+    if failures.is_empty() {
+        "✅ within limits".into()
+    } else {
+        format!("❌ {}", failures.join(", "))
+    }
+}
+
+/// The compact part of the report: enough to decide what happened without opening diagnostics.
+fn render_overview(s: &Summary, steps: &[FinalStep], checks: &[CheckResult]) -> String {
+    let status = overall_status(s, checks);
+    let capacity = s.max_sustained.as_ref().map_or_else(
+        || "No sustained rate was established".into(),
+        |m| format!("Sustained {} tx/s", num(m.target_rate)),
+    );
+    let onset = s.breaking_point.as_ref().map_or_else(
+        || "No response criterion was violated.".into(),
+        |b| format!("Failure began at {} tx/s: {}, {}.", num(b.target_rate), b.measure, b.detail),
+    );
+    let integrity = match s.loss.lost {
+        Some(n) => format!("Of {} sent, {} were found on the finalized chain; **{n} lost**.", s.loss.sent, s.loss.on_chain.included),
+        None => format!("Of {} sent, {} were found on the finalized chain; loss was not determined.", s.loss.sent, s.loss.on_chain.included),
+    };
+    let recovery = if s.recovery.measured && s.recovery.recovered {
+        let back = s.recovery.seconds.map_or_else(|| "Recovery was observed".into(), |n| format!("Normal response returned after {n} s"));
+        let drained = s.recovery.drained_seconds.map_or_else(
+            || format!("{} transactions remained in the backlog", s.recovery.backlog_at_end),
+            |n| format!("the backlog drained after {n} s"),
+        );
+        format!(" {back}; {drained}.")
+    } else if s.recovery.measured {
+        format!(" Recovery was not observed within the budget; {} transactions remained.", s.recovery.backlog_at_end)
+    } else {
+        String::new()
+    };
+
+    let mut lines = vec![
+        format!("### {} — {}", s.scenario, status_badge(status)),
+        String::new(),
+        format!("> **{capacity}.** {onset} {integrity}{recovery}"),
+    ];
+
+    if !steps.is_empty() {
+        lines.extend([
+            String::new(),
+            "#### Capacity".into(),
+            String::new(),
+            format!(
+                "| target | included/s | inclusion p95 (limit {} s) | response |",
+                to_fixed(s.rules.get("maxP95LatencyMs").and_then(serde_json::Value::as_f64).unwrap_or(10_000.0) / 1000.0, 1)
+            ),
+            "| ---: | ---: | ---: | --- |".into(),
+        ]);
+        lines.extend(steps.iter().map(|f| {
+            format!(
+                "| {} tx/s | {} | {} s | {} |",
+                num(f.target_rate),
+                to_fixed(f.included_per_s, 0),
+                to_fixed(f.p95_latency_ms as f64 / 1000.0, 1),
+                response_label(s, f)
+            )
+        }));
+    }
+
+    lines.extend([
+        String::new(),
+        "#### Key findings".into(),
+        String::new(),
+    ]);
+    if let Some(b) = &s.breaking_point {
+        lines.push(format!("- **Failure onset:** step {} at {} tx/s — {}, {}", b.step, num(b.target_rate), b.measure, b.detail));
+    } else {
+        lines.push("- **Failure onset:** no response criterion was violated".into());
+    }
+    lines.extend([
+        format!("- **Load stop:** {} — {}", s.stop.rule.name(), s.stop.detail),
+        format!("- **Recovery:** {}", recovery_line(s)),
+        format!("- **Integrity:** {}", short_loss_line(s)),
+        format!("- **Checks:** {}", check_counts(checks)),
+    ]);
+    lines.extend(checks.iter().filter(|r| r.verdict.status == Status::Fail).map(|r| format!("- **Failed check — {}:** {}", r.check, r.verdict.detail)));
+    let warnings: Vec<_> = checks.iter().filter(|r| r.verdict.status == Status::Warn).map(|r| r.check).collect();
+    if !warnings.is_empty() {
+        lines.push(format!("- **Warnings:** {}", warnings.join("; ")));
+    }
+    lines.join("\n")
+}
+
+/// Full-fidelity measurements retained behind the report's diagnostics disclosure.
+fn render_diagnostics(s: &Summary, steps: &[FinalStep], d: &RunData) -> String {
     let r = &s.recovery;
-    let bp = s.breaking_point.as_ref().map_or("no measure violated".into(), |b| format!("step {} ({} tx/s): {}, {}", b.step, num(b.target_rate), b.measure, b.detail));
-    let best = s.max_sustained.as_ref().map_or("none".into(), |m| format!("{} tx/s target (step {}), {} tx/s included", num(m.target_rate), m.step, to_fixed(m.included_per_s, 0)));
     let min_included_pct = s.rules.get("minIncludedRatio").and_then(serde_json::Value::as_f64).map(|v| 100.0 * v).unwrap_or(90.0);
     let max_latency_s = s.rules.get("maxP95LatencyMs").and_then(serde_json::Value::as_f64).map(|v| v / 1000.0).unwrap_or(10.0);
     let max_refused_pct = s.rules.get("maxRefusedRatio").and_then(serde_json::Value::as_f64).map(|v| 100.0 * v).unwrap_or(1.0);
     let windows = d.steps();
     let step_window = |k: u32| windows.iter().find(|w| w.label == format!("step {k}"));
-    let mut lines: Vec<String> = vec![format!("### {}", s.scenario), String::new()];
+    let mut lines: Vec<String> = Vec::new();
     if let Some(artifact) = &s.artifact {
         lines.extend([
             "#### Artifact under test".into(),
@@ -240,15 +381,12 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
         String::new(),
         "The stress test offers unique, prepared Artifact transactions at increasing rates in consecutive fixed-duration steps. The first step that violates a stress criterion is the failure onset.".into(),
         String::new(),
-        format!("A step fails the response criteria when fewer than {}% of its transactions are included, p95 send-to-inclusion latency exceeds {} s, or more than {}% of submissions are refused.", to_fixed(min_included_pct, 0), to_fixed(max_latency_s, 1), to_fixed(max_refused_pct, 0)),
+        format!("A step fails the response criteria when fewer than {}% of its transactions are eventually included, p95 send-to-inclusion latency exceeds {} s, or more than {}% of submissions are refused.", to_fixed(min_included_pct, 0), to_fixed(max_latency_s, 1), to_fixed(max_refused_pct, 0)),
         String::new(),
         format!("Scenario setup prepared {}. Setup took {} s and is excluded from the measured load. The baseline then sent {} probes, one per block.", s.budget, s.setup_seconds, s.baseline.probes),
         String::new(),
-        "#### Result".into(),
+        "#### Detailed result".into(),
         String::new(),
-        format!("- **Verdict:** {}", overall_status(s, checks).name()),
-        format!("- **Failure onset** (first failed load step): {bp}"),
-        format!("- **Max sustained:** {best}"),
         format!("- **Load stop:** {}: {}", s.stop.rule.name(), s.stop.detail),
         format!("- **Recovery:** {}", recovery_line(s)),
         format!("- **Loss check:** {}", loss_line(s)),
@@ -256,9 +394,9 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
         format!("- **Network:** People spec {}, {} s blocks at start", s.network.spec_version, num(s.network.block_interval_s)),
         format!("- **Runner:** {} CPUs ({})", s.runner.cpus, s.runner.cpu_model.as_deref().unwrap_or("?")),
         String::new(),
-        "#### Load steps".into(),
+        "#### Full load steps".into(),
         String::new(),
-        format!("| step | target tx/s | duration s | transactions sent | sent/s | included/s | included % | p50 s | p95 s (limit {}) | reply p95 s | refused | expired | failed | blocks | block gap s (mean / max) | max ours/block | max ref time % | max proof % |", to_fixed(max_latency_s, 1)),
+        format!("| step | target tx/s | duration s | transactions sent | sent/s | included/s | eventually included % | p50 s | p95 s (limit {}) | reply p95 s | refused | expired | failed | blocks | block gap s (mean / max) | max ours/block | max ref time % | max proof % |", to_fixed(max_latency_s, 1)),
         format!("|{}", " ---: |".repeat(18)),
     ]);
     lines.extend(steps.iter().map(step_row));
@@ -268,7 +406,9 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
     lines.push(row(&cells));
     lines.extend([
         String::new(),
-        "People collator metrics per step (CPU/memory: submitting collator; block/pool metrics: all collators):".into(),
+        "#### People collator metrics".into(),
+        String::new(),
+        "CPU/memory is for the submitting collator; block/pool metrics cover all collators.".into(),
         String::new(),
         "| step | max CPU % | max memory MiB | block build ms | pool validations (all) | validations waiting (all) | pool ready txs (all) | why blocks ended |".into(),
         format!("|{} --- |", " ---: |".repeat(7)),
@@ -290,11 +430,18 @@ fn render_summary(s: &Summary, steps: &[FinalStep], d: &RunData, checks: &[Check
             .iter()
             .map(|p| format!("{} s: {}", to_fixed(p.sent_at_s, 0), p.latency_ms.map_or_else(|| p.outcome.name().to_owned(), |l| format!("{} s", to_fixed(l as f64 / 1000.0, 1)))))
             .collect();
-        lines.extend([format!("Recovery probes (one per block; landing within {} s counts as back):", to_fixed(r.threshold_ms as f64 / 1000.0, 1)), String::new(), landed.join(", "), String::new()]);
+        lines.extend([
+            "#### Recovery probes".into(),
+            String::new(),
+            format!("One per block; landing within {} s counts as back:", to_fixed(r.threshold_ms as f64 / 1000.0, 1)),
+            String::new(),
+            landed.join(", "),
+            String::new(),
+        ]);
     }
     let errors = rpc_errors(steps);
     if !errors.is_empty() {
-        lines.extend(["RPC errors:".into(), String::new()]);
+        lines.extend(["#### RPC errors".into(), String::new()]);
         lines.extend(errors.iter().take(5).map(|(k, v)| format!("- {v} × `{k}`")));
         lines.push(String::new());
     }
@@ -346,7 +493,7 @@ mod tests {
         let s = summary();
         let data = RunData::new(parse_run_om("# EOF\n"), s.clone());
         let md = markdown(&s, &[], &data, &[check("People relay slots (level 1)", Status::Fail)]);
-        assert!(md.contains("- **Verdict:** FAIL"));
+        assert!(md.starts_with("### Statement-store claim flood — ❌ FAIL"));
         assert!(md.contains("- **Load stop:** rate cap"));
         assert!(!md.contains("- **Failure:**"));
         assert!(md.contains("pool validations (all)"));
@@ -370,6 +517,90 @@ mod tests {
         assert!(md.contains("p95 s (limit 10.0)"));
         assert!(md.contains("| 0 | 15 | 60.0 | 900 |"));
         assert!(!md.contains("wait for one transaction"));
+    }
+
+    #[test]
+    fn the_result_stays_above_the_fold_and_diagnostics_are_retained() {
+        let s = summary();
+        let data = RunData::new(parse_run_om("# EOF\n"), s.clone());
+        let step = FinalStep {
+            step: 0,
+            target_rate: 12.0,
+            sent: 720,
+            included_per_s: 12.0,
+            included_ratio: 1.0,
+            p95_latency_ms: 3_600,
+            ..FinalStep::default()
+        };
+        let checks = [check("passing check", Status::Pass), check("warning", Status::Warn), check("failure", Status::Fail)];
+        let md = markdown(&s, &[step], &data, &checks);
+        let (overview, diagnostics) = md.split_once("<details>").unwrap();
+        assert!(overview.contains("**Sustained 5 tx/s.**"));
+        assert!(overview.contains("144 were found on the finalized chain; **0 lost**"));
+        assert!(overview.contains("Normal response returned after 1 s; the backlog drained after 3 s"));
+        assert!(overview.contains("inclusion p95 (limit 10.0 s)"));
+        assert!(overview.contains("| 12 tx/s | 12 | 3.6 s | ✅ within limits |"));
+        assert!(overview.contains("**Failed check — failure:** test"));
+        assert!(overview.contains("**Warnings:** warning"));
+        assert!(overview.contains("1 failed, 1 warned, 1 passed, 0 had no result, 0 informational"));
+        assert!(!overview.contains("pool validations"));
+        assert!(!overview.contains("#### Recovery probes"));
+        assert!(diagnostics.contains("#### Full load steps"));
+        assert!(diagnostics.contains("eventually included %"));
+        assert!(diagnostics.contains("#### Recovery probes"));
+        assert!(diagnostics.contains("### Outcome checks"));
+        assert!(diagnostics.contains("State check: 100 of 100"));
+        assert!(md.ends_with("</details>\n"));
+    }
+
+    #[test]
+    fn response_labels_use_recorded_limits_and_each_steps_actual_measurements() {
+        let mut s = summary();
+        s.breaking_point = Some(BreakingPoint { step: 1, target_rate: 15.0, measure: "latency".into(), detail: "p95 24.7 s".into() });
+        let mut step = FinalStep { step: 2, sent: 900, included_ratio: 1.0, p95_latency_ms: 24_700, ..FinalStep::default() };
+        assert_eq!(response_label(&s, &step), "❌ latency");
+        s.rules["maxP95LatencyMs"] = serde_json::json!(30_000);
+        assert_eq!(response_label(&s, &step), "✅ within limits");
+        step.included_ratio = 0.8;
+        step.rejected_ratio = 0.02;
+        assert_eq!(response_label(&s, &step), "❌ inclusion, refusals");
+        step.sent = 0;
+        assert_eq!(response_label(&s, &step), "— no submissions");
+    }
+
+    #[test]
+    fn unknown_loss_and_unmeasured_recovery_are_not_reported_as_success() {
+        let mut s = summary();
+        s.max_sustained = None;
+        s.loss.lost = None;
+        s.recovery.measured = false;
+        s.recovery.detail = "RPC closed".into();
+        s.stop = stress_files::summary::Stop::new(Rule::BudgetUsedUp, Some(1), "no claims left");
+        let md = render_overview(&s, &[], &[]);
+        assert!(md.contains("❔ INCONCLUSIVE"));
+        assert!(md.contains("No sustained rate was established"));
+        assert!(md.contains("loss was not determined"));
+        assert!(md.contains("loss not determined"));
+        assert!(md.contains("not measured: RPC closed"));
+        assert!(!md.contains("Normal response returned"));
+        assert!(!md.contains("**0 lost**"));
+    }
+
+    #[test]
+    fn checks_are_sorted_by_severity_and_escape_table_separators() {
+        let mut failure = check("failed check", Status::Fail);
+        failure.verdict.detail = "left | right".into();
+        let checks = [
+            check("passed check", Status::Pass),
+            check("warning check", Status::Warn),
+            failure,
+            check("missing check", Status::NoResult),
+            check("info check", Status::Info),
+        ];
+        let md = render_checks(&checks);
+        let positions: Vec<_> = ["failed check", "warning check", "missing check", "info check", "passed check"].iter().map(|name| md.find(name).unwrap()).collect();
+        assert!(positions.windows(2).all(|p| p[0] < p[1]));
+        assert!(md.contains("left \\| right"));
     }
 
     #[test]

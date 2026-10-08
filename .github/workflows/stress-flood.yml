@@ -188,17 +188,25 @@ jobs:
       - name: Write the job summary
         if: always()
         run: |
-          echo "Scenario: $SCENARIO · cores $CORES, collators $COLLATORS · mode: $MODE · args: ${FLOOD_ARGS:-(defaults)}" >> "$GITHUB_STEP_SUMMARY"
           if ls "$RESULTS_DIR"/*/summary.md >/dev/null 2>&1; then
             cat "$RESULTS_DIR"/*/summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### Flood: no result (setup or run failed; see the logs)" >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -f "$RESULTS_DIR/cpu-layout.md" ]; then
-            { echo; cat "$RESULTS_DIR/cpu-layout.md"; } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Nodes unpinned: they share all of the runner's CPUs." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          {
+            echo
+            echo '<details><summary><strong>Run configuration and CPU layout</strong></summary>'
+            echo
+            echo "Scenario: $SCENARIO · cores $CORES, collators $COLLATORS · mode: $MODE · args: ${FLOOD_ARGS:-(defaults)}"
+            echo
+            if [ -f "$RESULTS_DIR/cpu-layout.md" ]; then
+              cat "$RESULTS_DIR/cpu-layout.md"
+            else
+              echo "Nodes unpinned: they share all of the runner's CPUs."
+            fi
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload results
         if: always()
