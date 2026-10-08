@@ -3,6 +3,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+from remaining_flow_evidence import require_wave_audits
 
 parser = argparse.ArgumentParser()
 parser.add_argument('directory', type=Path)
@@ -27,6 +28,7 @@ if args.scenario != 'merchant':
     state_paths = sorted(args.directory.glob(f'{name}-wave-*-state.json'))
     states = [json.loads(path.read_text()) for path in state_paths]
     assert states and sum(len(state['states']) for state in states) == expected
+    require_wave_audits(args.directory, name, args.scenario, zip(state_paths, states))
     fixture = json.loads((args.directory / f'{name}-fixture.json').read_text())
     seen = set()
     completed = 0
