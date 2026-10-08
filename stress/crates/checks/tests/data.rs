@@ -1,6 +1,6 @@
 //! Window math and one check on a small hand-written run.om.
 
-use stress_checks::{RunData, Status, count_above, quantile};
+use stress_checks::{RunData, Status, count_above, quantile, quantile_bucket};
 use stress_files::parse_run_om;
 use stress_files::summary::Summary;
 
@@ -34,7 +34,32 @@ fn steps_and_buckets() {
     let b = d.buckets("substrate_proposer_block_constructed", &[("job", "people-collator")], &steps[1]).unwrap().unwrap();
     assert_eq!(b, vec![(1.0, 0.0), (2.5, 1.0), (f64::INFINITY, 5.0)]);
     assert_eq!(quantile(Some(&b), 0.95), Some(f64::INFINITY));
+    assert_eq!(quantile_bucket(Some(&b), 0.95), Some((2.5, f64::INFINITY)));
+    assert_eq!(quantile_bucket(Some(&b), 0.1), Some((1.0, 2.5)));
+    assert_eq!(quantile_bucket(Some(&vec![(1.0, 5.0), (f64::INFINITY, 5.0)]), 0.95), Some((0.0, 1.0)));
     assert_eq!(count_above(Some(&b), 2.5), Some(4.0));
+}
+
+#[test]
+fn pool_work_names_the_bucket_the_maintenance_p95_is_in() {
+    // Step 0's 191 runs as run 37800300053 had them: 93.2% within 1.25 s, 97.4% within 1.5 s.
+    let run_om = r#"# TYPE stress_step gauge
+stress_step{instance="load-tool",job="stress"} 0 100.000
+stress_step{instance="load-tool",job="stress"} -1 110.000
+# TYPE substrate_sub_txpool_maintain_duration_seconds histogram
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="1.25"} 0 100.001
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="1.5"} 0 100.001
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="+Inf"} 0 100.001
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="1.25"} 178 110.001
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="1.5"} 186 110.001
+substrate_sub_txpool_maintain_duration_seconds_bucket{instance="c",job="people-collator",le="+Inf"} 191 110.001
+# EOF
+"#;
+    let d = RunData::new(parse_run_om(run_om), summary());
+    let results = stress_checks::run(&stress_checks::all(), &d);
+    let work = results.iter().find(|r| r.check == "pool work leaves time for blocks").unwrap();
+    assert_eq!(work.verdict.status, Status::Fail);
+    assert_eq!(work.verdict.detail, "step 0: maintenance p95 between 1.25 and 1.5 s, against a limit of 1.0 s (50% of a block)");
 }
 
 #[test]

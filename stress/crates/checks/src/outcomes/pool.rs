@@ -4,7 +4,7 @@ use serde::Serialize;
 use stress_files::registry::Outcome;
 use stress_files::{num, to_fixed};
 
-use crate::data::{CounterReset, RunData, Window, quantile};
+use crate::data::{CounterReset, RunData, Window, quantile_bucket};
 use crate::{Check, LIMITS, Status, Verdict};
 
 const COLLATOR: (&str, &str) = ("job", "people-collator");
@@ -86,8 +86,20 @@ fn refusals_clean(d: &RunData) -> Result<Verdict, CounterReset> {
 #[serde(rename_all = "camelCase")]
 struct PoolWork {
     window: String,
+    /// The maintenance p95 is at most this, the upper bound of its histogram bucket ...
     maintain_p95_s: Option<f64>,
+    /// ... and above this, the bucket's lower bound.
+    maintain_p95_above_s: Option<f64>,
     backlog: f64,
+}
+
+/// "between 1.25 and 1.5 s", or "over 3 s" in the `+Inf` bucket.
+fn p95_range(s: &PoolWork) -> String {
+    match (s.maintain_p95_above_s, s.maintain_p95_s) {
+        (Some(above), Some(at_most)) if at_most.is_finite() => format!("between {} and {} s", num(above), num(at_most)),
+        (Some(above), _) => format!("over {} s", num(above)),
+        _ => "unknown".into(),
+    }
 }
 
 fn pool_work(d: &RunData) -> Result<Verdict, CounterReset> {
@@ -100,13 +112,15 @@ fn pool_work(d: &RunData) -> Result<Verdict, CounterReset> {
         let scheduled = d.at("substrate_sub_txpool_validations_scheduled", &[COLLATOR], w.end).unwrap_or(0.0);
         let finished = d.at("substrate_sub_txpool_validations_finished", &[COLLATOR], w.end).unwrap_or(0.0);
         let b = d.buckets("substrate_sub_txpool_maintain_duration_seconds", &[COLLATOR], &w)?;
-        windows.push(PoolWork { maintain_p95_s: quantile(b.as_ref(), 0.95), backlog: scheduled - finished, window: w.label });
+        let p95 = quantile_bucket(b.as_ref(), 0.95);
+        windows.push(PoolWork { maintain_p95_s: p95.map(|p| p.1), maintain_p95_above_s: p95.map(|p| p.0), backlog: scheduled - finished, window: w.label });
     }
     let slow = windows.iter().find(|s| s.maintain_p95_s.unwrap_or(0.0) > budget);
     let backed = windows.iter().find(|s| s.backlog > LIMITS.max_validation_backlog);
     let share = LIMITS.max_maintain_share_of_block * 100.0;
     let (status, detail) = match (slow, backed) {
-        (Some(s), _) => (Status::Fail, format!("{}: maintenance p95 in the {} s bucket, over {} s ({share}% of a block)", s.window, num(s.maintain_p95_s.unwrap_or(0.0)), to_fixed(budget, 1))),
+        // Fails when the p95's bucket reaches past the limit, so the p95 itself may be just under it.
+        (Some(s), _) => (Status::Fail, format!("{}: maintenance p95 {}, against a limit of {} s ({share}% of a block)", s.window, p95_range(s), to_fixed(budget, 1))),
         (None, Some(b)) => (Status::Warn, format!("{}: {} txs waiting for validation", b.window, b.backlog)),
         (None, None) => (Status::Pass, format!("maintenance p95 within {} s in every step and in recovery", to_fixed(budget, 1))),
     };
