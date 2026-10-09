@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { RingProofPool } from '../src/lib/coinage-proof-pool.js';
 import { WsProvider } from '@polkadot/api';
-import { burstSubmitter, connectBurstProvider, type BurstResult } from '../src/lib/coinage-burst-submit.js';
+import { burstSubmitter, connectBurstProvider, isPoolEntryRejection, type BurstResult } from '../src/lib/coinage-burst-submit.js';
 import { armShutdownDeadline } from '../src/lib/coinage-shutdown.js';
 import { auditBurst } from '../src/lib/coinage-burst-audit.js';
 import { capacitySigner, writeCapacityJson } from '../src/lib/coinage-capacity.js';
@@ -325,7 +325,7 @@ async function run() {
     log('sustained-signed', { ...work, phase, wallTime: new Date().toISOString() });
     try {
       const result = await submit(work, deadlineMs);
-      if (result.status === 'submission-error' && /1016|pool.*limit|Immediately Dropped/i.test(String(result.error ?? ''))) {
+      if (result.status === 'submission-error' && isPoolEntryRejection(result.error)) {
         notify('rejected');
       } else if (result.status === 'dispatch-error') {
         notify('failed');
