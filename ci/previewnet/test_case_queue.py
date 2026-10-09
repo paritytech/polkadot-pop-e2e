@@ -11,6 +11,28 @@ spec.loader.exec_module(queue)
 
 
 class WatchTests(unittest.TestCase):
+    def test_skipped_bot_success_cannot_hide_original_failure(self):
+        attempt = {'runId': 123, 'runAttempt': 1, 'status': 'in_progress'}
+        original = {'attempt': 1, 'status': 'completed', 'conclusion': 'failure',
+                    'headSha': 'abc', 'jobs': [{'name': 'case / pilot',
+                                              'conclusion': 'failure', 'url': 'original-job'}]}
+        latest = {'attempt': 2, 'status': 'completed', 'conclusion': 'success',
+                  'headSha': 'abc', 'jobs': [{'name': 'case / pilot',
+                                            'conclusion': 'skipped', 'url': 'bot-job'}]}
+
+        def read(*args):
+            return original if '--attempt' in args and args[args.index('--attempt') + 1] == '1' else latest
+
+        with patch.object(queue, 'gh_json', side_effect=read) as request, \
+                patch.object(queue, 'save') as save:
+            queue.watch('ledger', {}, {}, attempt)
+        request.assert_called_once()
+        save.assert_called_once()
+        self.assertEqual(attempt['conclusion'], 'failure')
+        self.assertEqual(attempt['runAttempt'], 1)
+        self.assertEqual(attempt['jobs'][0]['url'], 'original-job')
+        self.assertEqual(attempt['jobs'][0]['conclusion'], 'failure')
+
     def test_external_rerun_does_not_replace_original_attempt(self):
         attempt = {'runId': 123, 'runAttempt': 1, 'status': 'in_progress'}
         with patch.object(queue, 'gh_json', return_value={'attempt': 2, 'status': 'queued'}), \

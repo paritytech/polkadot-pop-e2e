@@ -81,7 +81,9 @@ def watch(path, ledger, case, attempt):
     expected_attempt = attempt.setdefault('runAttempt', 1)
     while True:
         try:
-            run = gh_json('run', 'view', str(attempt['runId']), '-R', REPO, '--json',
+            # Read the authorized attempt even if a bot has since rerun skipped jobs.
+            run = gh_json('run', 'view', str(attempt['runId']), '-R', REPO,
+                          '--attempt', str(expected_attempt), '--json',
                           'status,conclusion,headSha,attempt,jobs')
         except subprocess.TimeoutExpired:
             # A read timeout says nothing about the workflow outcome. Keep watching
