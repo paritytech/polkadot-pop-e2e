@@ -377,6 +377,7 @@ async function run() {
       assert(performance.now() - completionStart < deadlineMs, 'Dependent flow completion timed out');
       const batch: Work[] = [];
       for (let i = 0; i < 128; i++) { const work = await nextFollowup(); if (!work) break; batch.push(work); }
+      if (batch.length) await connectBurstProvider(sender);
       await Promise.all(batch.map(async work => finish(work, await send(work, () => {}))));
       if (!batch.length) await delay(2000);
     }
