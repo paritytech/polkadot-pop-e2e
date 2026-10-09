@@ -1,5 +1,6 @@
 """Receipt reconciliation must preserve repeated actors and require finalized evidence."""
 import hashlib
+import importlib.util
 import json
 import subprocess
 import tempfile
@@ -7,9 +8,19 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name('reconcile-unresolved-watches.py')
+SPEC = importlib.util.spec_from_file_location('reconcile', SCRIPT)
+RECONCILE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(RECONCILE)
 
 
 class ReconcileTests(unittest.TestCase):
+    def test_pool_error_code_excludes_request_payload(self):
+        classify = RECONCILE.is_pool_entry_rejection
+        self.assertFalse(classify('Error: WebSocket is not connected\nFailed WS Request: {"params":["0x1016"]}'))
+        self.assertFalse(classify('Error: request 0x1016 timed out'))
+        self.assertTrue(classify('Error: 1016: Immediately Dropped\nFailed WS Request: {"params":["0x1234"]}'))
+        self.assertFalse(classify('dropped'))
+
     def reconcile(self, canonical=True, failed=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

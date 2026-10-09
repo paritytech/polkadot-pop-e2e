@@ -14,21 +14,27 @@ export type BurstResult = SubmissionResult & {
 
 };
 
-/** connect() only starts the handshake; wait for readiness before measuring a burst. */
+/** Wait for the current handshake; isReady only covers the first connection. */
 export async function connectBurstProvider(
-  provider: Pick<WsProvider, 'connect' | 'isReady' | 'disconnect'>, timeoutMs = 15_000,
+  provider: Pick<WsProvider, 'connect' | 'isConnected' | 'on' | 'disconnect'>, timeoutMs = 15_000,
 ) {
+  if (provider.isConnected) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let removeListener: (() => void) | undefined;
   try {
-    await provider.connect();
-    await Promise.race([
-      provider.isReady,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Burst RPC connection readiness timed out')), timeoutMs);
-      }),
-    ]);
+    await new Promise<void>((resolve, reject) => {
+      removeListener = provider.on('connected', () => { if (provider.isConnected) resolve(); });
+      timer = setTimeout(() => reject(new Error('Burst RPC connection readiness timed out')), timeoutMs);
+      void provider.connect().catch(reject);
+    });
   } catch (error) { await provider.disconnect(); throw error; }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); removeListener?.(); }
+}
+
+/** Request payloads can contain 1016 in their hex; classify only the error message. */
+export function isPoolEntryRejection(error: unknown) {
+  const message = String(error ?? '').split('\nFailed WS Request:')[0];
+  return /\b1016\b|Immediately Dropped/i.test(message);
 }
 
 /** Shared RPC connection with a bounded finalized-block cache. Evicted blocks can be read again. */
