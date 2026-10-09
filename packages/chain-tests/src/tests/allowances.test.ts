@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { getPolkadotSigner } from "polkadot-api/signer";
 import {
   createPeopleClient,
   createAssetHubClient,
@@ -30,6 +29,7 @@ import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   createClaimSigner,
+  createPgasPayerSigner,
   encodePgasClaim,
 } from "../lib/claim-signer.js";
 import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
@@ -419,11 +419,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // claim test used, so it owns the PGAS we just minted.
       const creds = await ensureAttested();
       const keyPair = deriveKeyPair(creds.entropy);
-      const signer = getPolkadotSigner(
-        keyPair.publicKey,
-        "Sr25519",
-        async (input) => keyPair.sign(input),
-      );
+      const signer = createPgasPayerSigner(keyPair);
 
       // Dry-run via ReviveApi.call to get exact weight + storage deposit.
       // Validate-time fee is computed against `weight_limit`; passing the

@@ -50,7 +50,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.5.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.9.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash

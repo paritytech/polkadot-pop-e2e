@@ -252,7 +252,7 @@ env:
   # Which previewnet-engine release the gate composes — a tag, so an engine merge
   # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
   # `advanced` overlay overrides it for runs against a branch.
-  PPN_REF_DEFAULT: v0.5.0
+  PPN_REF_DEFAULT: v0.9.0
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
