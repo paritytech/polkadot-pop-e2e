@@ -1,0 +1,70 @@
+name: K3s CPU isolation spike
+
+# Runs a relay + collator network on parity-large with each node on its own CPU
+# cores, using K3s. Sizing per node lives in .github/k3s/network.toml.
+#
+#   1. install K3s, told to give pods dedicated cores
+#   2. start the network with zombienet's k8s provider (one pod per node)
+#   3. check every chain produces and finalizes blocks for a while
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: "How long to watch the chains once they finalize"
+        default: "10"
+  pull_request:
+    paths:
+      - .github/workflows/k3s-cpu-spike.yml
+      - .github/k3s/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  NAMESPACE: zombie-pop-spike
+  POLKADOT_IMAGE: docker.io/parity/polkadot:latest
+  CUMULUS_IMAGE: docker.io/parity/polkadot-parachain:latest
+
+jobs:
+  spike:
+    # Self-hosted runner, so never for a PR from a fork.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: parity-large
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every step's script lives in .github/k3s/ and explains itself there.
+
+      - name: Install K3s
+        run: .github/k3s/install-k3s.sh
+
+      - name: Install zombie-cli
+        run: |
+          curl -sfL -o zombie-cli https://github.com/paritytech/zombienet-sdk/releases/download/v0.4.15/zombie-cli-x86_64-unknown-linux-gnu
+          sudo install -m 0755 zombie-cli /usr/local/bin/
+
+      - name: Start the network
+        run: .github/k3s/start-network.sh
+
+      - name: Check every chain finalizes
+        run: .github/k3s/check-chains.sh "${{ inputs.soak_minutes || '10' }}"
+
+      - name: Collect logs
+        if: always()
+        run: .github/k3s/collect-logs.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k3s-cpu-spike-logs
+          path: logs
+          retention-days: 7

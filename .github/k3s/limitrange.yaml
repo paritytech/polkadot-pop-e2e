@@ -1,0 +1,20 @@
+# Without this file, no node gets its own cores.
+#
+# K3s only gives a pod dedicated cores if every container in it has a CPU and
+# memory limit. zombienet adds a small setup container to each node pod with no
+# limits at all, which quietly disqualifies the whole pod. This sets a default
+# limit for any container that has none (the node containers set their own in
+# network.toml, so they are unaffected).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: guaranteed-defaults
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 1G
+      defaultRequest:
+        cpu: 500m
+        memory: 1G
