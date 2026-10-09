@@ -4,7 +4,7 @@ import { blake2AsHex } from '@polkadot/util-crypto';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { WsProvider } from '@polkadot/api';
-import { burstSubmitter, connectBurstProvider } from './coinage-burst-submit.js';
+import { burstSubmitter, connectBurstProvider, isPoolEntryRejection } from './coinage-burst-submit.js';
 
 function fixture() {
   const callbacks: Array<(error: Error | null, status: unknown) => void> = [];
@@ -68,7 +68,7 @@ test('records a synchronous provider failure instead of rejecting the burst', as
   assert.match(String(result.error), /disconnected/);
 });
 
-test('waits for an actual WebSocket handshake before allowing submissions', async () => {
+test('waits for each WebSocket handshake, even after the initial readiness promise resolves', async () => {
   const server = createServer();
   const sockets = new Set<import('node:stream').Duplex>();
   let upgraded = false;
@@ -90,6 +90,23 @@ test('waits for an actual WebSocket handshake before allowing submissions', asyn
     await connecting;
     assert.equal(upgraded, true);
     assert.equal(provider.isConnected, true);
+    // Already connected is safe, and must not call connect() again.
+    await connectBurstProvider(provider, 1000);
+    const disconnected = new Promise<void>(resolve => {
+      const off = provider.on('disconnected', () => { off(); resolve(); });
+    });
+    await provider.disconnect();
+    sockets.forEach(socket => socket.destroy());
+    await disconnected;
+    await provider.isReady; // This cached promise stays resolved after disconnect.
+    assert.equal(provider.isConnected, false);
+    upgraded = false;
+    const reconnecting = connectBurstProvider(provider, 1000);
+    await Promise.resolve();
+    assert.equal(provider.isConnected, false);
+    await reconnecting;
+    assert.equal(upgraded, true);
+    assert.equal(provider.isConnected, true);
   } finally {
     await provider.disconnect();
     sockets.forEach(socket => socket.destroy());
@@ -100,10 +117,17 @@ test('waits for an actual WebSocket handshake before allowing submissions', asyn
 test('cleans up when connection readiness times out', async () => {
   let disconnected = false;
   await assert.rejects(connectBurstProvider({
-    connect: async () => {}, isReady: new Promise<WsProvider>(() => {}),
+    connect: async () => {}, isConnected: false, on: () => () => {},
     disconnect: async () => { disconnected = true; },
   }, 5), /readiness timed out/);
   assert.equal(disconnected, true);
+});
+
+test('does not mistake transaction bytes in an RPC error for a pool rejection', () => {
+  assert.equal(isPoolEntryRejection('Error: WebSocket is not connected\nFailed WS Request: {"params":["0x1016"]}'), false);
+  assert.equal(isPoolEntryRejection('Error: 1016: Immediately Dropped\nFailed WS Request: {"params":["0x1234"]}'), true);
+  assert.equal(isPoolEntryRejection('dropped'), false);
+  assert.equal(isPoolEntryRejection('Error: request 0x1016 timed out'), false);
 });
 
 test('aggregates a million broadcasts and streams transitions without retaining an unbounded trace', async () => {

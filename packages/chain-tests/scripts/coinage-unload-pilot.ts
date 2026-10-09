@@ -248,6 +248,8 @@ async function stage(count: number, name: string) {
   async function execute(prefix: string, ids: number[], prepared: Wire[], operation: Parameters<typeof auditBurst>[0]['operation']) {
     save(`${prefix}-signed`, prepared.map((tx, i) => ({ ...tx, actor: ids[i] })));
     const evidenceStartBlock = (await client.getFinalizedBlock()).number;
+    // Signing and ring preparation can outlive an idle connection. No transaction is retried.
+    await connectBurstProvider(sender);
     const wallStart = new Date().toISOString(), started = performance.now(); firstSubmission ||= started;
     const pending = prepared.map((tx, i) => {
       const sentAtMs = performance.now() - started;
@@ -299,7 +301,6 @@ async function stage(count: number, name: string) {
     save(`${prefix}-tokens`, { at, tokens });
   }
   try {
-    await connectBurstProvider(sender);
     phase = `${name}: workload`;
     for (const [waveIndex, ids] of allGroups.entries()) {
       const prefix = `${name}-wave-${waveIndex + 1}`;

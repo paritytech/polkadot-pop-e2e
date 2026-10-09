@@ -12,12 +12,19 @@ That does not prove it never executed.
 import argparse
 import hashlib
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
 
 def digest(raw):
     return '0x' + hashlib.blake2b(bytes.fromhex(raw.removeprefix('0x')), digest_size=32).hexdigest()
+
+
+def is_pool_entry_rejection(error):
+    # Failed requests append signed hex, which can contain the digits 1016.
+    message = str(error).split('\nFailed WS Request:', 1)[0]
+    return re.search(r'\b1016\b|Immediately Dropped', message, re.IGNORECASE) is not None
 
 
 def main():
@@ -93,7 +100,7 @@ def main():
             outcome = 'included-dispatch-failed'
         elif hit:
             outcome = 'included-unverified'
-        elif '1016' in error:
+        elif is_pool_entry_rejection(error):
             outcome = 'rejected-at-pool-entry'
         else:
             outcome = 'not-found-in-saved-blocks'
