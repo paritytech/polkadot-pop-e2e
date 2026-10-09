@@ -41,6 +41,10 @@ function identifierFor(c: Collection): Uint8Array {
  * ring root is computed from this exact sequence, so fetching from
  * `Members.Members` (which is keyed by member-key and therefore *sorted*)
  * would produce a different root and proofs would fail to verify.
+ *
+ * Only the first `RingKeysStatus.included` keys are returned: keys can be
+ * appended to `RingKeys` a block before `build_ring` bakes them into the
+ * root, and a proof over the extra keys fails with `BadProof`.
  */
 export async function fetchRingMembers(
   peopleApi: PeopleApi,
@@ -53,6 +57,7 @@ export async function fetchRingMembers(
   const id = Binary.toHex(identifierFor(collection));
   const members: Uint8Array[] = [];
   const opts = at ? { at } : undefined;
+  const status = await peopleApi.query.Members.RingKeysStatus.getValue(id, ringIndex, opts);
   // Walk pages until we hit an empty one. Each page is a Vec<MemberKey>.
   for (let page = 0; ; page++) {
     const pageKeys = await peopleApi.query.Members.RingKeys.getValue(
@@ -68,10 +73,11 @@ export async function fetchRingMembers(
       members.push(Binary.fromHex(k));
     }
   }
+  const included = members.slice(0, status.included);
   console.log(
-    `[ring] ${collection} ring ${ringIndex}${at ? ` @ ${at.slice(0, 10)}…` : ""}: ${members.length} keys (insertion-ordered)`,
+    `[ring] ${collection} ring ${ringIndex}${at ? ` @ ${at.slice(0, 10)}…` : ""}: ${included.length}/${members.length} keys included (insertion-ordered)`,
   );
-  return members;
+  return included;
 }
 
 /**
