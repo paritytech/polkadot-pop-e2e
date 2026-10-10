@@ -2287,7 +2287,6 @@ dependencies = [
  "polkameter-monitors",
  "polkameter-plugin-sdk",
  "ring-proofs",
- "serde",
  "serde_json",
  "sp-crypto-hashing",
  "tokio",
@@ -2351,11 +2350,10 @@ dependencies = [
 [[package]]
 name = "polkameter-chain"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
+source = "git+https://github.com/agustinustheo/polkameter?rev=bbe2afad61111ee117d553294ce6658a7649b6b7#bbe2afad61111ee117d553294ce6658a7649b6b7"
 dependencies = [
  "frame-decode",
  "hex",
- "parity-scale-codec",
  "scale-decode",
  "scale-value",
  "serde",
@@ -2371,17 +2369,18 @@ dependencies = [
 [[package]]
 name = "polkameter-checks"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
+source = "git+https://github.com/agustinustheo/polkameter?rev=bbe2afad61111ee117d553294ce6658a7649b6b7#bbe2afad61111ee117d553294ce6658a7649b6b7"
 dependencies = [
  "polkameter-files",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "polkameter-files"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
+source = "git+https://github.com/agustinustheo/polkameter?rev=bbe2afad61111ee117d553294ce6658a7649b6b7#bbe2afad61111ee117d553294ce6658a7649b6b7"
 dependencies = [
  "serde",
  "serde_json",
@@ -2391,10 +2390,10 @@ dependencies = [
 [[package]]
 name = "polkameter-monitors"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
+source = "git+https://github.com/agustinustheo/polkameter?rev=bbe2afad61111ee117d553294ce6658a7649b6b7#bbe2afad61111ee117d553294ce6658a7649b6b7"
 dependencies = [
+ "anyhow",
  "futures-util",
- "hex",
  "parity-scale-codec",
  "polkameter-chain",
  "polkameter-files",
@@ -2409,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "polkameter-plugin-sdk"
 version = "0.1.0"
-source = "git+https://github.com/agustinustheo/polkameter?rev=3efb54af0f10f5f670e6177e8db5af8d7150d1de#3efb54af0f10f5f670e6177e8db5af8d7150d1de"
+source = "git+https://github.com/agustinustheo/polkameter?rev=bbe2afad61111ee117d553294ce6658a7649b6b7#bbe2afad61111ee117d553294ce6658a7649b6b7"
 dependencies = [
  "anyhow",
  "hex",
@@ -2671,10 +2670,7 @@ dependencies = [
 name = "ring-proofs"
 version = "0.1.0"
 dependencies = [
- "hex",
- "parity-scale-codec",
  "rayon",
- "serde_json",
  "thiserror 2.0.21",
  "verifiable",
 ]

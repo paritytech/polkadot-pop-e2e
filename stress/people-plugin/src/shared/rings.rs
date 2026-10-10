@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
+use polkameter_chain::value::{as_u64, field, variant_name};
 use polkameter_chain::{AtBlock, ChainError, Client, DecodeAsType, Value, fetch};
 use ring_proofs::Member;
 
@@ -65,12 +66,10 @@ async fn ring_of(
 }
 
 fn included_ring(v: &Value) -> Option<u32> {
-	use polkameter_chain::scale_value_reexport::{Composite, ValueDef};
-	let ValueDef::Variant(var) = &v.value else { return None };
-	let Composite::Named(fields) = &var.values else { return None };
-	(var.name == "Included")
-		.then(|| fields.iter().find(|(k, _)| k == "ring_index")?.1.as_u128()?.try_into().ok())
-		.flatten()
+	if variant_name(v)? != "Included" {
+		return None;
+	}
+	u32::try_from(field(v, "ring_index").and_then(as_u64)?).ok()
 }
 
 /// Waits until every key is in a built ring root of `collection` at the finalized block, so the

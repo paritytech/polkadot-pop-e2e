@@ -4,9 +4,8 @@
 //!   stale rings;
 //! - cleanup work left: ring pages to delete, old roots, suspended keys to remove;
 //! - the maintenance calls (Members and Coinage `*_authorized`) in every finalized block, by result;
-//! - for keys a load source hands over and a sample of keys queued in `coinage/recycler`
-//!   collections, the time from queueing (`queued_at`, or the block of `Members.MemberAdded`)
-//!   until a ring build covers the key.
+//! - for a sample of keys queued in `coinage/recycler` collections, the time from queueing
+//!   (`queued_at`, or the block of `Members.MemberAdded`) until a ring build covers the key.
 //!
 //! Every finalized block is walked for the calls and ring builds; the storage is read once per
 //! finalized update (see walker.rs).
@@ -14,11 +13,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use polkameter_chain::value::{as_bytes32, as_u64, field, variant_name};
-use polkameter_chain::{ChainError, Client, DecodeAsType, Value, calls, entries, events, fetch};
+use polkameter_chain::{
+	AtBlock, ChainError, Client, DecodeAsType, Value, calls, entries, events, fetch,
+};
 use polkameter_files::{Millis, Problems, now_ms};
 use polkameter_monitors::ChainSeries;
 use polkameter_monitors::walker::Walk;
 use tokio::sync::watch;
+
+use crate::block_time;
 
 use super::metrics::{
 	CLEANUP_BACKLOG, MAINTENANCE_CALLS, RECYCLER_QUEUED, RECYCLER_STALE, RECYCLER_UNBUILT,
@@ -65,6 +68,15 @@ pub fn collection_label(id: &Id) -> String {
 	}
 }
 
+/// Whether the runtime at `at` has the storage entry `pallet::entry` (metadata, not a read).
+fn has_storage(at: &AtBlock, pallet: &str, entry: &str) -> bool {
+	at.metadata()
+		.pallet_by_name(pallet)
+		.and_then(|p| p.storage())
+		.and_then(|s| s.entry_by_name(entry))
+		.is_some()
+}
+
 /// The Recycler recorder.
 pub struct RecyclerRecorder {
 	client: Client,
@@ -80,23 +92,22 @@ pub struct RecyclerRecorder {
 }
 
 impl RecyclerRecorder {
-	/// A recorder of `client`'s finalized blocks into `series`, following `vouchers` (a
-	/// collection and its keys) to a built root. `None` when the chain has no Members pallet;
-	/// nothing is recorded then. The receiver says when the backlog is back to where it started.
+	/// A recorder of `client`'s finalized blocks into `series`. `None` when the runtime has no
+	/// `Members.StaleRings` storage (no Members pallet); nothing is recorded then. A read that
+	/// fails is an error. The receiver says when the backlog is back to where it started.
 	pub async fn new(
 		client: Client,
 		series: ChainSeries,
-		vouchers: Option<(Id, Vec<Key>)>,
 	) -> Result<Option<(Self, watch::Receiver<bool>)>, ChainError> {
 		let at = client.finalized().await?;
-		if entries::<(Id, u32), Value>(&at, "Members", "StaleRings").await.is_err() {
+		if !has_storage(&at, "Members", "StaleRings") {
 			eprintln!(
-				"recycler: the chain has no Members pallet; no Recycler maintenance recorded"
+				"recycler: the chain has no Members.StaleRings; no Recycler maintenance recorded"
 			);
 			return Ok(None);
 		}
 		let (drained, rx) = watch::channel(true);
-		let mut r = Self {
+		let r = Self {
 			client,
 			series,
 			tracked: BTreeMap::new(),
@@ -105,11 +116,6 @@ impl RecyclerRecorder {
 			backlog: None,
 			drained,
 		};
-		if let Some((collection, keys)) = vouchers {
-			for key in keys {
-				r.tracked.insert((collection, key), Tracked::default());
-			}
-		}
 		Ok(Some((r, rx)))
 	}
 
@@ -147,13 +153,12 @@ impl Walk for RecyclerRecorder {
 	/// Counts the maintenance calls in one block and notes its ring builds.
 	async fn on_block(&mut self, _number: u32, hash: [u8; 32]) -> Result<(), ChainError> {
 		let at = self.client.at(hash).await?;
-		let (calls, events, now) =
-			tokio::join!(calls(&at), events(&at), fetch::<(), u64>(&at, "Timestamp", "Now", ()));
-		let (calls, events, t) = (calls?, events?, now?.unwrap_or(0));
+		let (calls, events, t) = tokio::join!(calls(&at), events(&at), block_time(&at));
+		let (calls, events, t) = (calls?, events?, t?);
 		let failed: HashSet<u32> = events
 			.iter()
-			.filter(|e| e.0 == "System" && e.1 == "ExtrinsicFailed")
-			.filter_map(|e| e.2)
+			.filter(|e| e.pallet == "System" && e.name == "ExtrinsicFailed")
+			.filter_map(|e| e.extrinsic)
 			.collect();
 		for (i, c) in calls.iter().enumerate() {
 			let Some((pallet, call)) = c else {
@@ -173,8 +178,8 @@ impl Walk for RecyclerRecorder {
 		// A key can be queued and onboarded within one block; MemberAdded gives its queue time then.
 		let added: HashSet<Key> = events
 			.iter()
-			.filter(|e| e.0 == "Members" && e.1 == "MemberAdded")
-			.filter_map(|e| field(&e.3, "key").and_then(as_bytes32))
+			.filter(|e| e.pallet == "Members" && e.name == "MemberAdded")
+			.filter_map(|e| field(&e.fields, "key").and_then(as_bytes32))
 			.collect();
 		if !added.is_empty() {
 			for ((_, key), v) in &mut self.tracked {
@@ -183,10 +188,10 @@ impl Walk for RecyclerRecorder {
 				}
 			}
 		}
-		for e in events.iter().filter(|e| e.0 == "Members" && e.1 == "RingBuilt") {
+		for e in events.iter().filter(|e| e.pallet == "Members" && e.name == "RingBuilt") {
 			let (Some(id), Some(ring)) = (
-				field(&e.3, "identifier").and_then(as_bytes32),
-				field(&e.3, "ring_index").and_then(as_u64),
+				field(&e.fields, "identifier").and_then(as_bytes32),
+				field(&e.fields, "ring_index").and_then(as_u64),
 			) else {
 				continue;
 			};

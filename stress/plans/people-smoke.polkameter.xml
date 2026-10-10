@@ -31,7 +31,7 @@
       <input name="target" ref="targets.people"/>
     </step>
   </setup>
-  <load target="people" source-ref="steps.claims.flood" probes-ref="steps.claims.probes" state-check="people.check-state" state-ref="steps.claims.state" connections="4" baseline-probes="3" recovery-seconds="120" block-interval-seconds="6">
+  <load target="people" source-ref="steps.claims.flood" probes-ref="steps.claims.probes" state-check="people.check-state" state-ref="steps.claims.state" baseline-probes="3" recovery-seconds="120" block-interval-seconds="6">
     <rate tx-per-second="2" seconds="30"/>
     <rate tx-per-second="4" seconds="30"/>
     <rate tx-per-second="6" seconds="30"/>

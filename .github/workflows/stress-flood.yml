@@ -10,8 +10,8 @@ name: Stress · flood
 # published bundle only has the defaults (1 core, 1 collator). The flood runs
 # in Polkameter (https://github.com/agustinustheo/polkameter): an XML plan in
 # stress/plans/ drives its People plugin. The plan fixes the mode, the workload
-# and the expected block interval, so each plan below also fixes the People
-# cores and collators it needs. See stress/README.md.
+# and the expected block interval; the PLAN_NAME case below fixes the People
+# cores and collators that plan needs. See stress/README.md.
 #
 # It is a measurement, not a gate: in stress mode the job fails only when the
 # network, the setup or our own tools fail; the outcome checks only report.
@@ -19,13 +19,6 @@ name: Stress · flood
 # The result is in the job summary and the uploaded artifacts.
 
 on:
-  # TEMP: a push to the PR branch runs the capacity plan, because workflow_dispatch only
-  # works once this file is on main. Remove this trigger and the `|| ...` push fallbacks before merging.
-  push:
-    branches: [feat/th-polkameter-stress-flood]
-    paths:
-      - .github/workflows/stress-flood.yml
-      - stress/plans/**
   workflow_dispatch:
     inputs:
       plan:
@@ -49,18 +42,21 @@ env:
   # Polkameter source with the People plugin, pinned to a commit on its main branch.
   # The guard below refuses anything but a full commit hash.
   POLKAMETER_REPO: agustinustheo/polkameter
-  POLKAMETER_REF: 3efb54af0f10f5f670e6177e8db5af8d7150d1de
+  POLKAMETER_REF: bbe2afad61111ee117d553294ce6658a7649b6b7
 
 jobs:
   flood:
     # A five-chain network plus the load generator; same runner as the release gate.
     runs-on: parity-large
-    # A fresh bite takes about 15 minutes; a hung one is retried twice, 30 minutes each.
-    timeout-minutes: 180
+    # Worst case, in minutes: builds 30, bite 3 x 30 (a hung bite is retried), start 10,
+    # fork wait 15, settle 2, flood 120 (the plan's root timeout-ms, 7200000), teardown and
+    # uploads 5. That is 272; 300 leaves room for a slow build.
+    timeout-minutes: 300
     env:
       # previewnet-engine fetches release assets when it bites and when it starts the fork.
       GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
-      PLAN_NAME: ${{ inputs.plan || 'capacity' }}
+      PLAN_NAME: ${{ inputs.plan || 'default' }}
+      PPN_REF: ${{ inputs.ppn_ref || 'v0.7.0' }}
       FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
       RESULTS_DIR: ${{ github.workspace }}/stress-results
       ZOMBIE_JSON: ${{ github.workspace }}/ppn/data-fork/zombie.json
@@ -86,21 +82,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          ref: ${{ inputs.ppn_ref || 'v0.7.0' }}
+          ref: ${{ env.PPN_REF }}
           path: ppn
 
-      # Node and pnpm build the engine and Polkameter's embedded frontend.
+      # The engine is a Node project (`node ppn/bin/ppn.mjs`); the CLI itself needs neither.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      # The Polkameter CLI shares a crate with its desktop app, so it links GTK and WebKit.
+      # The CLI build needs a C compiler (ring, through rustls); the engine needs make and jq.
       - name: Install missing system packages
         run: |
           sudo=$(command -v sudo || true)
-          missing=$(for p in build-essential make jq libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          missing=$(for p in build-essential make jq; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
           if [ -n "$missing" ]; then
             $sudo apt-get update
             # shellcheck disable=SC2086
@@ -117,21 +113,18 @@ jobs:
             polkameter
             stress
 
-      # Before the network starts, so the fork does not sit idle while this compiles.
+      # Before the network starts, so the fork does not sit idle while this compiles. The CLI
+      # has no desktop app, so there is no frontend to build.
       - name: Build Polkameter
         working-directory: polkameter
         run: |
-          # This checkout sits inside this repository's pnpm workspace; install Polkameter on its own.
-          corepack pnpm install --frozen-lockfile --ignore-workspace
-          corepack pnpm --ignore-workspace build
-          cargo build --release --locked -p polkameter --bin polkameter
+          cargo build --release --locked -p polkameter --no-default-features --bin polkameter
           echo "$PWD/target/release" >> "$GITHUB_PATH"
 
       - name: Build and install the People plugin
         working-directory: stress
         run: |
           cargo build --release --locked --bin polkameter-people-plugin
-          python3 check-proof-features.py
           polkameter plugin install target/release/polkameter-people-plugin
           polkameter plugin credential previewnet-sudo POLKAMETER_SETUP_SURI
 
@@ -198,14 +191,11 @@ jobs:
       - name: Let the fork settle
         run: sleep 120
 
-      - name: Register the topology and the People node process
-        run: |
-          # The flood samples this process's CPU and memory with ps; the scraper reads every
-          # node's metrics URL from the registered topology.
-          polkameter plugin topology previewnet "$ZOMBIE_JSON"
-          pid=$(ss -Hltnp 'sport = :10010' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
-          [ -n "$pid" ] && echo "POLKAMETER_NODE_PID=$pid" >> "$GITHUB_ENV"
-          echo "People node PID: ${pid:-not found}"
+      - name: Register the topology
+        # The scraper reads every node's metrics URL from the registered topology. The CPU and
+        # memory sampler finds the People node by its RPC port (lsof, then ss), unless
+        # POLKAMETER_NODE_PID is set.
+        run: polkameter plugin topology previewnet "$ZOMBIE_JSON"
 
       # `run` calibrates the block interval and runs live preflight before setup.
       - name: Flood

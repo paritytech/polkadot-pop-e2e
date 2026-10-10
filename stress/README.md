@@ -17,14 +17,15 @@ Polkameter submits the prepared transactions, controls the rate, follows blocks,
 every transaction, scrapes the nodes, observes the relay for parachain 1502 and judges block
 production, the pool and PVF. Everything specific to People is in [`people-plugin/`](people-plugin):
 
-- `recognize`, `prepare-claims`, `validate-prepared`: the setup and the ring-proof claims, with
-  the v5 extension encoding and its layout check ([`proofs/`](proofs) makes the proofs);
+- `preflight`, `recognize`, `prepare-claims`, `validate-prepared`: the setup and the ring-proof
+  claims, with the v5 extension encoding and its layout check ([`proofs/`](proofs) makes the
+  proofs);
 - `check-state`: whether finalized claims left their allowance entry;
 - `recycler-start`, `recycler-stop`, `recycler-checks`: the Recycler observer. It records ring
   backlog, maintenance calls and cleanup into the run, and judges them after the load.
 
-The plugin depends on Polkameter's crates at the commit `Cargo.toml` pins. Bump that commit and
-`POLKAMETER_REF` in the workflow together.
+The plugin builds against Polkameter's crates at one commit: the five `polkameter-*` `rev`s in
+`Cargo.toml` and `POLKAMETER_REF` in `stress-flood.yml` must be bumped together.
 
 ## Plans
 
@@ -34,10 +35,12 @@ The plugin depends on Polkameter's crates at the commit `Cargo.toml` pins. Bump 
 | `capacity` | 250 × 20 | 12, 15, 18, 21 tx/s for 60 s each | 900 s / 5 | 3 / 5 |
 | `default` | 750 × 20 | 6 tx/s, + 4 tx/s per step, ten 60 s steps | 900 s / 5 | 3 / 5 |
 
-Each plan declares the block interval it expects (6 s on 1 core, 2 s on 3 cores). The run
-measures the interval before setup and stops if it differs by more than 25%, so a plan always
-runs on the topology it was written for. The workflow derives that topology from the plan; to
-try another combination, add a plan and a row in the workflow's topology table.
+The topology is not in the plan. The workflow's `PLAN_NAME` case sets the People cores and
+collators (the last column), and the bite and the start use the same layout. Each plan declares
+the block interval it expects (6 s on 1 core, 2 s on 3 cores). The run measures the interval
+before setup and stops if it differs by more than 25%, so a plan never runs on a topology it was
+not written for. To try another combination, add a plan, a `case` arm in the workflow and a row
+in the table above.
 
 ## Results and exit code
 
@@ -56,9 +59,13 @@ regenerates the checks offline.
 Build the plugin here, and Polkameter in its own checkout:
 
 ```sh
-cargo build --release --bin polkameter-people-plugin            # in stress/
-pnpm install && pnpm build && cargo build --release -p polkameter  # in polkameter/
+cargo build --release --locked --bin polkameter-people-plugin   # in stress/
+cargo build --release --locked -p polkameter --no-default-features --bin polkameter  # in polkameter/
 ```
+
+The workflow installs these apt packages when they are missing: `build-essential` (a C compiler
+for `ring`) and `make` and `jq` (the engine). The Polkameter CLI is built without its desktop app,
+so it needs no GTK, WebKit or frontend build.
 
 Then, from the Polkameter checkout, with a Zombienet config of a previewnet fork
 (`ppn fork toml <bundle> <out>` in previewnet-engine):
@@ -69,5 +76,6 @@ POLKAMETER_CREDENTIALS="previewnet-sudo=POLKAMETER_SETUP_SURI" POLKAMETER_SETUP_
 scripts/local-fork-run.sh /path/to/fork.toml /path/to/stress/plans/people-smoke.polkameter.xml
 ```
 
-`cargo test` here checks the claim encoding, people generation and proofs against vectors from
-the TypeScript implementation.
+`cargo test` here checks the claim encoding, people generation and proofs against
+`people-plugin/tests/vectors/claim.json`, a frozen fixture written once by the TypeScript tool.
+Nothing regenerates the fixture, and no TypeScript runs in CI.

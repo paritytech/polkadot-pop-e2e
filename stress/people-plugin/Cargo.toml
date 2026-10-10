@@ -16,7 +16,6 @@ polkameter-files.workspace = true
 polkameter-monitors.workspace = true
 polkameter-plugin-sdk.workspace = true
 ring-proofs.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 sp-crypto-hashing.workspace = true
 tokio.workspace = true

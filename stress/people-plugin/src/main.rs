@@ -2,18 +2,18 @@
 //! their finalized state, and observes the Recycler during a run.
 use anyhow::{Context as _, Result, ensure};
 use people_plugin::{
-	recycler,
-	setup::signed,
+	block_time, recycler,
 	shared::{
 		people::{PEOPLE_COLLECTION, PEOPLE_EXPONENT, make_people},
 		rings::wait_for_rings,
 	},
 	stmt::claim::{self, Unproved},
-	tx::expected_extensions,
+	tx::{GeneralTx, expected_extensions},
 };
 use polkameter_chain::{Client, Keypair, Value as ScaleValue, fetch, has_prefix};
 use polkameter_plugin_sdk::{
-	Artifact, Context, Field, Manifest, Operation, PROTOCOL, Plugin, PreparedTx, Schema,
+	Artifact, Context, Manifest, Operation, PROTOCOL, Plugin, PreparedTx, Schema, StateCheckInput,
+	strip_0x,
 };
 use ring_proofs::{Job, Prover, ProverPool};
 use serde_json::{Value, json};
@@ -26,19 +26,6 @@ struct People {
 	check_state: Option<(std::path::PathBuf, String, BTreeMap<String, Value>)>,
 	recycler: Option<recycler::Running>,
 }
-fn operation(
-	description: &str,
-	inputs: &[(&str, Schema)],
-	outputs: &[(&str, Schema)],
-	read_only: bool,
-) -> Operation {
-	Operation {
-		description: description.into(),
-		inputs: inputs.iter().map(|(k, v)| (k.to_string(), Field::from(v.clone()))).collect(),
-		outputs: outputs.iter().map(|(k, v)| (k.to_string(), Field::from(v.clone()))).collect(),
-		read_only,
-	}
-}
 fn text<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
 	value[name].as_str().with_context(|| format!("missing {name}"))
 }
@@ -47,6 +34,12 @@ fn number(value: &Value, name: &str) -> Result<u32> {
 		.as_u64()
 		.and_then(|n| n.try_into().ok())
 		.with_context(|| format!("invalid {name}"))
+}
+/// The `members` input: 1 to 100000 people.
+fn member_count(value: &Value) -> Result<u32> {
+	let members = number(value, "members")?;
+	ensure!((1..=100_000).contains(&members), "members must be between 1 and 100000");
+	Ok(members)
 }
 fn seed(context: &Context) -> [u8; 32] {
 	sp_crypto_hashing::blake2_256(context.run_id.as_bytes())
@@ -79,16 +72,16 @@ impl Plugin for People {
 			operations: [
 				(
 					"preflight".into(),
-					operation(
+					Operation::new(
 						"Check People extension layout and claim encoding",
 						&[("target", Schema::String)],
 						&[("identity", Schema::Json)],
-						true,
-					),
+					)
+					.read_only(),
 				),
 				(
 					"recognize".into(),
-					operation(
+					Operation::new(
 						"Prepare signed sudo recognition transactions; the host submits them",
 						&[
 							("target", Schema::String),
@@ -96,12 +89,11 @@ impl Plugin for People {
 							("members", Schema::Integer),
 						],
 						&[("transactions", Schema::Json), ("members", Schema::Integer)],
-						false,
 					),
 				),
 				(
 					"prepare-claims".into(),
-					operation(
+					Operation::new(
 						"Wait for finalized rings and precompute statement-claim proofs",
 						&[
 							("target", Schema::String),
@@ -115,21 +107,20 @@ impl Plugin for People {
 							("state", Schema::Json),
 							("identity", Schema::Json),
 						],
-						false,
 					),
 				),
 				(
 					"validate-prepared".into(),
-					operation(
+					Operation::new(
 						"Reject expired or runtime-incompatible prepared claims",
 						&[("target", Schema::String), ("identity", Schema::Json)],
 						&[("valid", Schema::Boolean)],
-						true,
-					),
+					)
+					.read_only(),
 				),
 				(
 					"check-state".into(),
-					operation(
+					Operation::new(
 						"Check claim allowance state at the requested finalized block",
 						&[
 							("target", Schema::String),
@@ -142,38 +133,38 @@ impl Plugin for People {
 							("missing", Schema::Integer),
 							("detail", Schema::String),
 						],
-						true,
-					),
+					)
+					.read_only(),
 				),
 				(
 					"recycler-start".into(),
-					operation(
+					Operation::new(
 						"Start recording Recycler maintenance at finalized blocks",
 						&[("target", Schema::String)],
 						&[("started", Schema::Boolean)],
-						true,
-					),
+					)
+					.read_only(),
 				),
 				(
 					"recycler-stop".into(),
-					operation(
+					Operation::new(
 						"Wait for the Recycler backlog to drain, then stop recording",
 						&[("drain-ms", Schema::Integer)],
 						&[("problems", Schema::Array { items: Box::new(Schema::String) })],
-						true,
-					),
+					)
+					.read_only(),
 				),
 				(
 					"recycler-checks".into(),
-					operation(
+					Operation::new(
 						"Judge the recorded Recycler series against the run's phases",
 						&[
 							("run-dir", Schema::String),
 							("problems", Schema::Array { items: Box::new(Schema::String) }),
 						],
 						&[("checks", Schema::Json)],
-						true,
-					),
+					)
+					.read_only(),
 				),
 			]
 			.into(),
@@ -235,9 +226,7 @@ impl Plugin for People {
 						"prepared claim runtime identity changed"
 					);
 				}
-				let now: u64 = fetch(&client.finalized().await?, "Timestamp", "Now", ())
-					.await?
-					.context("timestamp missing")?;
+				let now = block_time(&client.finalized().await?).await?;
 				ensure!(
 					inputs["identity"]["period"].as_u64() == Some(u64::from(claim::period_of(now))),
 					"prepared claim period expired"
@@ -245,8 +234,7 @@ impl Plugin for People {
 				Ok(json!({"valid":true}))
 			},
 			"recognize" => {
-				let members = number(&inputs, "members")?;
-				ensure!(members > 0 && members <= 100_000, "members must be between 1 and 100000");
+				let members = member_count(&inputs)?;
 				let signer = Keypair::from_uri(
 					&text(&inputs, "credential")?
 						.parse()
@@ -263,7 +251,9 @@ impl Plugin for People {
 					let call = client
 						.call_data("People", "force_recognize_personhood", vec![keys])
 						.await?;
-					let tx = signed(&chain, &signer, nonce, client.sudo(&call).await?);
+					let tx = GeneralTx::new(&chain, client.sudo(&call).await?)
+						.nonce(nonce)
+						.sign(&signer);
 					client.validate(&tx, "recognize people").await?;
 					txs.push(PreparedTx::new(&tx, json!({"sudo":true})));
 					nonce = nonce.checked_add(1).context("nonce overflow")?;
@@ -273,13 +263,10 @@ impl Plugin for People {
 				)
 			},
 			"prepare-claims" => {
-				let members = number(&inputs, "members")?;
+				let members = member_count(&inputs)?;
 				let slots = number(&inputs, "slots")?;
 				let reserve = number(&inputs, "probe-reserve")? as usize;
-				ensure!(
-					members > 0 && members <= 100_000 && slots > 0 && slots <= 20,
-					"invalid member or slot budget"
-				);
+				ensure!((1..=20).contains(&slots), "slots must be between 1 and 20");
 				let total = (members as usize)
 					.checked_mul(slots as usize)
 					.context("claim budget overflow")?;
@@ -293,8 +280,7 @@ impl Plugin for People {
 					wait_for_rings(&client, PEOPLE_COLLECTION, &keys, Duration::from_secs(1200))
 						.await?;
 				let at = client.finalized().await?;
-				let now: u64 =
-					fetch(&at, "Timestamp", "Now", ()).await?.context("timestamp missing")?;
+				let now = block_time(&at).await?;
 				let suffix: Vec<u8> = fetch(&at, "NetworkSuffix", "NetworkSuffix", ())
 					.await?
 					.context("network suffix missing")?;
@@ -316,7 +302,7 @@ impl Plugin for People {
 				let mut metadata = Vec::new();
 				for slot in 0..slots {
 					for (member, ring) in ring_of.iter().enumerate() {
-						// Keep PR 37's workload target mapping for comparison.
+						// The target mapping of earlier runs, kept so their numbers compare.
 						let target: [u8; 32] = std::array::from_fn(|i| {
 							(member as u8) ^ (slot as u8) ^ seed(context)[i]
 						});
@@ -348,9 +334,7 @@ impl Plugin for People {
 				for tx in [&transactions[0], &transactions[total - 1]] {
 					client.validate(&tx.decode()?, "prepared claim").await?;
 				}
-				let after: u64 = fetch(&client.finalized().await?, "Timestamp", "Now", ())
-					.await?
-					.context("timestamp missing")?;
+				let after = block_time(&client.finalized().await?).await?;
 				ensure!(claim::period_of(after) == period, "claim period changed while proving");
 				let latest = client.chain_info().await?;
 				ensure!(latest == chain, "runtime changed while proving");
@@ -359,8 +343,10 @@ impl Plugin for People {
 					.iter()
 					.map(|t| (t.hash.clone(), t.metadata.clone()))
 					.collect::<BTreeMap<_, _>>();
+				let mut identity = identity;
+				identity["period"] = json!(period);
 				Ok(
-					json!({"flood":Artifact::write(&context.artifact_dir,"claims.json",&flood)?,"probes":Artifact::write(&context.artifact_dir,"probes.json",&probes)?,"state":Artifact::write(&context.artifact_dir,"claim-state.json",&state)?,"identity":{ "genesis":identity["genesis"],"specVersion":chain.spec_version,"transactionVersion":chain.tx_version,"period":period}}),
+					json!({"flood":Artifact::write(&context.artifact_dir,"claims.json",&flood)?,"probes":Artifact::write(&context.artifact_dir,"probes.json",&probes)?,"state":Artifact::write(&context.artifact_dir,"claim-state.json",&state)?,"identity":identity}),
 				)
 			},
 
@@ -375,7 +361,8 @@ impl People {
 		inputs: &Value,
 		context: &Context,
 	) -> Result<Value> {
-		let state: Artifact = serde_json::from_value(inputs["state"].clone())?;
+		let input: StateCheckInput = serde_json::from_value(inputs.clone())?;
+		let state: Artifact = serde_json::from_value(input.state)?;
 		if self
 			.check_state
 			.as_ref()
@@ -388,15 +375,14 @@ impl People {
 			));
 		}
 		let state = &self.check_state.as_ref().unwrap().2;
-		let at: [u8; 32] = hex::decode(text(inputs, "at")?.trim_start_matches("0x"))?
+		let at: [u8; 32] = hex::decode(strip_0x(&input.at))?
 			.try_into()
 			.map_err(|_| anyhow::anyhow!("invalid block hash"))?;
 		let block = client.at(at).await?;
-		let hashes = inputs["hashes"].as_array().context("hashes required")?;
 		let mut missing = 0;
-		for hash in hashes {
-			let hash = hash.as_str().context("invalid hash")?.trim_start_matches("0x");
-			let metadata = state.get(hash).context("claim hash absent from state mapping")?;
+		for hash in &input.hashes {
+			let metadata =
+				state.get(strip_0x(hash)).context("claim hash absent from state mapping")?;
 			let target: [u8; 32] = hex::decode(text(metadata, "target")?)?
 				.try_into()
 				.map_err(|_| anyhow::anyhow!("invalid target"))?;
@@ -412,7 +398,7 @@ impl People {
 			}
 		}
 		Ok(
-			json!({"checked":hashes.len(),"missing":missing,"detail":"claim targets have allowance entries at the selected finalized block"}),
+			json!({"checked":input.hashes.len(),"missing":missing,"detail":"claim targets have allowance entries at the selected finalized block"}),
 		)
 	}
 }

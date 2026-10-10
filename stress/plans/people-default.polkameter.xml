@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<polkameter-plan xmlns="https://polkameter.dev/schema/plan" version="1" name="people-default" mode="stress" timeout-ms="7200000">
+<polkameter-plan xmlns="https://polkameter.dev/schema/plan" version="1" name="people-default" timeout-ms="7200000">
   <plugins><plugin id="people" version="0.1.0" protocol="1"/></plugins>
   <targets>
     <target id="people" endpoint="ws://127.0.0.1:10010"/>
@@ -31,7 +31,7 @@
       <input name="target" ref="targets.people"/>
     </step>
   </setup>
-  <load target="people" source-ref="steps.claims.flood" probes-ref="steps.claims.probes" state-check="people.check-state" state-ref="steps.claims.state" connections="4" baseline-probes="5" recovery-seconds="900" block-interval-seconds="2">
+  <load target="people" source-ref="steps.claims.flood" probes-ref="steps.claims.probes" state-check="people.check-state" state-ref="steps.claims.state" block-interval-seconds="2">
     <ramp start="6" step="4" steps="10" seconds="60"/>
   </load>
   <monitors topology="previewnet" relay-target="relay" para-id="1502">

@@ -159,17 +159,27 @@ const CHECKS: [(&str, bool, Run); 4] = [
 	("time from load to built root", true, load_to_root),
 ];
 
-/// Runs every check; a counter that went down in a window gives that check no result.
-pub fn run(d: &RunData) -> Vec<CheckResult> {
-	CHECKS
+/// Runs every check, then whether the observer recorded everything (`problems` is what it could
+/// not record). A counter that went down in a window gives that check no result.
+pub fn run(d: &RunData, problems: &[String]) -> Vec<CheckResult> {
+	let mut results: Vec<CheckResult> = CHECKS
 		.iter()
-		.map(|(name, optional, check)| CheckResult {
-			outcome: "recycler".into(),
-			check: (*name).into(),
-			verdict: check(d).unwrap_or_else(|reset| {
+		.map(|(name, optional, check)| {
+			let verdict = check(d).unwrap_or_else(|reset| {
 				Verdict::new(Status::NoResult, format!("a node restarted: {reset}"))
-			}),
-			optional: *optional,
+			});
+			result(name, verdict, *optional)
 		})
-		.collect()
+		.collect();
+	let recorded = if problems.is_empty() {
+		Verdict::new(Status::Pass, "no unreadable blocks or unnamed extrinsics")
+	} else {
+		Verdict::new(Status::NoResult, problems.join("; "))
+	};
+	results.push(result("the Recycler observer recorded everything", recorded, false));
+	results
+}
+
+fn result(check: &str, verdict: Verdict, optional: bool) -> CheckResult {
+	CheckResult { outcome: "recycler".into(), check: check.into(), verdict, optional }
 }

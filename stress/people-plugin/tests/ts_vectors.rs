@@ -1,10 +1,12 @@
-//! Spike A: the Rust claim and people match the TS tool byte for byte, and ring proofs made by
-//! verifiablejs (git f65b39d) and by verifiable 0.3.0 validate against each other's rings.
+//! Checks against `vectors/claim.json`, a frozen fixture written once by the TypeScript tool
+//! (verifiablejs, git f65b39d). The TS tool and its scripts are gone, so the fixture is not
+//! regenerated: a failure means the Rust encoding changed, or the fixture was edited.
 
 use parity_scale_codec::{Decode, Encode};
 use people_plugin::shared::people::make_people;
 use people_plugin::stmt::claim::{self, Unproved};
 use polkameter_chain::ChainInfo;
+use polkameter_plugin_sdk::strip_0x;
 use serde_json::Value;
 use verifiable::GenerateVerifiable;
 use verifiable::ring::bandersnatch::BandersnatchVrfVerifiable as Vrf;
@@ -18,7 +20,7 @@ fn vectors() -> Value {
 }
 
 fn bytes(v: &Value) -> Vec<u8> {
-	hex::decode(v.as_str().unwrap().trim_start_matches("0x")).unwrap()
+	hex::decode(strip_0x(v.as_str().unwrap())).unwrap()
 }
 
 fn arr(v: &Value) -> [u8; 32] {
@@ -100,17 +102,9 @@ fn proofs_cross_validate() {
 		.expect("verifiablejs proof validates with verifiable 0.3.0");
 	assert_eq!(alias.to_vec(), bytes(&v["jsAlias"]));
 
-	// verifiable 0.3.0 proof, checked by the same crate (the JS side is checked in check-rust-proof.mts).
+	// verifiable 0.3.0 proof: same length and alias as the fixture's.
 	let prover = ring_proofs::Prover::new(9, members.clone()).unwrap();
 	let ours = prover.open(people[0].entropy).unwrap().prove(&context, &message).unwrap();
 	assert_eq!(ours.proof.len(), 785);
 	assert_eq!(ours.alias.to_vec(), bytes(&v["jsAlias"]), "same alias in the same context");
-	// STRESS_WRITE_PROOF=1 saves the proof for vectors/check-rust-proof.mts, the JS side of this check.
-	if std::env::var_os("STRESS_WRITE_PROOF").is_some() {
-		std::fs::write(
-			concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors/rust-proof.hex"),
-			hex::encode(&ours.proof),
-		)
-		.unwrap();
-	}
 }

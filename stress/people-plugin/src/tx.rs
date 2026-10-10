@@ -11,6 +11,7 @@
 //! encoding, so a mismatch is a tool error, not a chain result.
 
 use parity_scale_codec::{Compact, Encode};
+use polkameter_chain::Keypair;
 use sp_crypto_hashing::blake2_256;
 
 const GENERAL_V5: u8 = 0b0100_0101;
@@ -112,6 +113,14 @@ impl<'a> GeneralTx<'a> {
 	#[must_use]
 	pub fn nonce(self, nonce: u32) -> Self {
 		self.with(Ext::CheckNonce, Compact(nonce).encode())
+	}
+
+	/// Signs the tx with `VerifySignature::Signed` (sudo and coin transfers use it).
+	pub fn sign(self, signer: &Keypair) -> Vec<u8> {
+		let signature = signer.sign(&self.message_after(Ext::VerifyMultiSignature));
+		// VerifySignature::Signed(MultiSignature::Sr25519(signature), account)
+		let verify = [&[1u8, 1][..], &signature.0, &signer.public_key().0].concat();
+		self.with(Ext::VerifyMultiSignature, verify).encode()
 	}
 
 	fn explicit_of(&self, i: usize) -> &[u8] {

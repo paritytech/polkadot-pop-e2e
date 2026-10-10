@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use polkameter_chain::Client;
-use polkameter_checks::{CheckResult, RunData, Status, Verdict};
+use polkameter_checks::{CheckResult, RunData};
 use polkameter_files::summary::Summary;
 use polkameter_files::{Problems, RunDir, read_store};
 use polkameter_monitors::{MonitorError, chain_series, walker};
@@ -37,8 +37,7 @@ pub async fn start(client: Client, dir: &Path) -> Result<Option<Running>> {
 	std::fs::write(dir.join("metrics.json"), serde_json::to_vec_pretty(&metrics::declarations())?)?;
 	let (series, ops) = chain_series::channel();
 	let writer = tokio::spawn(chain_series::run(RunDir::open(dir).jsonl("series.jsonl")?, ops));
-	let Some((recorder, drained)) = RecyclerRecorder::new(client.clone(), series, None).await?
-	else {
+	let Some((recorder, drained)) = RecyclerRecorder::new(client.clone(), series).await? else {
 		writer.await??;
 		return Ok(None);
 	};
@@ -64,17 +63,5 @@ pub fn checks(run_dir: &Path, problems: &[String]) -> Result<Vec<CheckResult>> {
 	let run = RunDir::open(run_dir);
 	let summary: Summary = serde_json::from_slice(&std::fs::read(run_dir.join("summary.json"))?)?;
 	let data = RunData::new(read_store(&run)?, summary);
-	let mut results = checks::run(&data);
-	let verdict = if problems.is_empty() {
-		Verdict::new(Status::Pass, "no unreadable blocks or unnamed extrinsics")
-	} else {
-		Verdict::new(Status::NoResult, problems.join("; "))
-	};
-	results.push(CheckResult {
-		outcome: "recycler".into(),
-		check: "the Recycler observer recorded everything".into(),
-		verdict,
-		optional: false,
-	});
-	Ok(results)
+	Ok(checks::run(&data, problems))
 }
