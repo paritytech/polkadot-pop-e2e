@@ -1,5 +1,3 @@
-import type { Address } from "viem";
-
 /** Per-network capability flags — drives test gating. */
 export interface NetworkFeatures {
   /** `pallet-resources` allowance flow (StmtStore + LongTermStorage claims). */
@@ -14,6 +12,8 @@ export interface NetworkFeatures {
    * Check with `hop_poolStatus` over WS before flipping this on.
    */
   hop: boolean;
+  /** DotNS is deployed at the addresses product-sdk pins. */
+  dotns: boolean;
 }
 
 export interface NetworkConfig {
@@ -31,10 +31,6 @@ export interface NetworkConfig {
      */
     hopWs?: string;
   };
-  contracts: {
-    dotnsRegistry: Address;
-    dotnsContentResolver: Address;
-  } | null;
   identityBackend: string | null;
   /**
    * How identity-backend writes authenticate. Absent = legacy IBv1: HS256 over the
@@ -73,26 +69,24 @@ export const NETWORKS: Record<string, NetworkConfig> = {
       ws: "wss://paseo-bulletin-next-rpc.polkadot.io",
       hopWs: "wss://paseo-hop-next-0.polkadot.io",
     },
-    contracts: null,
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://identity.dotspark.app",
     identityBackendAuth: "challenge",
     networkSuffix: "paseo",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, hop: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true },
   },
   previewnet: {
     name: "Previewnet",
     assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },
     people: { ws: "wss://previewnet.substrate.dev/people" },
     bulletin: { ws: "wss://previewnet.substrate.dev/bulletin" },
-    contracts: null,
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://previewnet.substrate.dev/dub",
     identityBackendAuth: "challenge",
     networkSuffix: "testnet",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
-    features: { resources: true, pgas: true, hop: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true },
     // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
     // need a TEST_MNEMONIC secret to drive funded ops.
     testAccountUri: "//Alice",
@@ -108,10 +102,9 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
     people: { ws: "wss://people-paseo.rotko.net" },
     bulletin: { ws: "wss://bulletin-paseo.tservices.es:8443" },
-    contracts: null,
     identityBackend: null,
     ipfsGateway: "https://devnet-ipfs.api.polkadotcommunity.foundation/ipfs",
-    features: { resources: false, pgas: false, hop: false },
+    features: { resources: false, pgas: false, hop: false, dotns: false },
   },
 };
 
