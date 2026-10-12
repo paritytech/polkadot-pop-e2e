@@ -184,11 +184,32 @@ export interface MemberLocation {
 }
 
 /**
+ * Whether the key at `(ringPage, ringPosition)` is baked into the ring root,
+ * i.e. its absolute index is below `RingKeysStatus.included`.
+ */
+async function isInRoot(
+  peopleApi: PeopleApi,
+  collectionId: string,
+  ringIndex: number,
+  ringPage: number,
+  ringPosition: number,
+  at?: { at: string },
+): Promise<boolean> {
+  let index = ringPosition;
+  for (let page = 0; page < ringPage; page++) {
+    const keys = await peopleApi.query.Members.RingKeys.getValue(collectionId, ringIndex, page, at);
+    index += keys?.length ?? 0;
+  }
+  const status = await peopleApi.query.Members.RingKeysStatus.getValue(collectionId, ringIndex, at);
+  return index < status.included;
+}
+
+/**
  * Wait until the lite-person derived from `verifiableEntropy` is `Included`
- * in the on-chain ring AND its key is present in `RingKeys` at the latest
- * finalized block — `Members.Members` flips to `Included` slightly before
- * the ring rebuild lands, and submitting a proof in that window yields
- * `BadProof` because the recorded ring root doesn't include us yet.
+ * in the on-chain ring AND its key is baked into the ring root at the latest
+ * finalized block. `Members.Members` flips to `Included` and the key is
+ * appended to `RingKeys` before `build_ring` adds it to the root; submitting
+ * a proof in that window yields `BadProof`.
  *
  * Polls `peopleClient.getFinalizedBlock()` and reads both storage items
  * pinned to the same finalized hash so the snapshot is consistent.
@@ -249,21 +270,22 @@ export async function waitForInclusion(
     // computed via the `??` fallback.
     if (status?.type === "Included") {
       const v = status.value;
-      // Confirm our key actually appears at that ring/page. If not, the
-      // ring rebuild hasn't reached this finalized block yet — wait.
+      // Confirm our key appears at that ring/page and is already in the
+      // root. If not, the ring rebuild hasn't reached this finalized block
+      // yet — wait.
       const page = await peopleApi.query.Members.RingKeys.getValue(
         collectionId,
         v.ring_index,
         v.ring_page,
         at,
       );
-      const inRing = (page ?? []).some((k) => k === ownKeyHex);
+      const inRing =
+        (page ?? []).some((k) => k === ownKeyHex) &&
+        (await isInRoot(peopleApi, collectionId, v.ring_index, v.ring_page, v.ring_position, at));
       if (inRing && fin && peopleClient) {
-        // The ring-rebuild offchain worker writes Members.RingKeys + Root
-        // in one block, but the new revision can be invalidated by another
-        // rebuild a few blocks later (e.g. another member onboarding).
-        // To submit a stable proof, require the same (revision, member-set)
-        // to persist for at least one extra finalized block.
+        // A later rebuild (e.g. suspensions) can still reset the root, so
+        // require membership to persist for at least one extra finalized
+        // block.
         await new Promise((r) => setTimeout(r, stabilityWaitMs));
         const fin2 = await peopleClient.getFinalizedBlock();
         const at2 = { at: fin2.hash as string };
@@ -278,7 +300,9 @@ export async function waitForInclusion(
           v.ring_page,
           at2,
         );
-        const stillInRing = (page2 ?? []).some((k) => k === ownKeyHex);
+        const stillInRing =
+          (page2 ?? []).some((k) => k === ownKeyHex) &&
+          (await isInRoot(peopleApi, collectionId, v.ring_index, v.ring_page, v.ring_position, at2));
         if (!stillInRing || !root2) {
           if (lastTag !== "ring-unstable") {
             console.log(
@@ -314,7 +338,7 @@ export async function waitForInclusion(
       }
       if (lastTag !== "ring-pending") {
         console.log(
-          `[ring] member Included but not yet in RingKeys (${Math.round((Date.now() - startedAt) / 1000)}s) — waiting for ring rebuild…`,
+          `[ring] member Included but not yet in ring root (${Math.round((Date.now() - startedAt) / 1000)}s) — waiting for ring rebuild…`,
         );
         lastTag = "ring-pending";
       }
