@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
 import {
   HopClient,
+  HopNetworkError,
   HopNotFoundError,
   type CustomEnvironment,
   type HopTicket,
@@ -54,6 +55,24 @@ async function pollClaim(
     `hop_claim returned NOT_FOUND repeatedly for ${timeoutMs / 1000}s — ` +
       `submit landed but entry never became claimable`,
   );
+}
+
+/**
+ * Retry on `HopNetworkError`. hop-sdk connects lazily without retrying, so a
+ * single dropped WebSocket handshake would otherwise fail the whole suite.
+ * The SDK opens a fresh socket on the next call after an error.
+ */
+async function withConnectRetry<T>(fn: () => Promise<T>, delaysMs = [2_000, 5_000]): Promise<T> {
+  for (const delayMs of delaysMs) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof HopNetworkError)) throw err;
+      console.log(`[hop] ${err.message}, retrying in ${delayMs / 1000}s`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return fn();
 }
 
 /** Poll `HopRuntimeApi.can_account_promote` until the signer is HOP-eligible. */
@@ -132,7 +151,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
 
     // Idempotent: skip the LTS claim if the signer is already HOP-eligible
     // (re-claims in the same period fail with `Custom(231)`).
-    if (await senderHop.canAccountPromote(address, 100)) {
+    if (await withConnectRetry(() => senderHop.canAccountPromote(address, 100))) {
       console.log(`[hop] Already HOP-eligible — skipping LTS claim.`);
     } else {
       const peopleConn = createPeopleClient(network.people.ws);
