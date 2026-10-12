@@ -88,7 +88,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     bulletin: { ws: "wss://previewnet.substrate.dev/bulletin" },
     contracts: null,
     // device-uniqueness-backend (the new IB) — challenge→token auth.
-    identityBackend: "https://identity-previewnet.dotspark.app",
+    identityBackend: "https://previewnet.substrate.dev/dub",
     identityBackendAuth: "challenge",
     networkSuffix: "testnet",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
