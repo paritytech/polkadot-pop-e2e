@@ -17,26 +17,17 @@
  *     advanced, so the bound message no longer matches.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Binary, type PolkadotClient } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { Binary, type PolkadotClient, type PolkadotSigner } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { compact } from "@polkadot-api/substrate-bindings";
-import { ringRootsWindow } from "../lib/individuality-compat.js";
 import { mergeUint8 } from "@polkadot-api/utils";
-import { encodeFunctionData, decodeFunctionResult } from "viem";
-import {
-  createPeopleClient,
-  createAssetHubClient,
-  assertRichAssetHub,
-  type PeopleApi,
-  type RichAssetHubApi,
-  type AssetHubApi,
-} from "../lib/client.js";
+import { ringRootsWindow } from "../lib/individuality-compat.js";
+import { createPeopleClient, createAssetHubClient, type PeopleApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { createPgasPayerSigner } from "../lib/claim-signer.js";
-import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { getNetworkConfig } from "../config/networks.js";
 import {
   fetchRingMembers,
   encodeMembers,
@@ -46,53 +37,39 @@ import {
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { customAliasContext } from "../lib/alias-claim.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
-import { findPopCounterContract, POP_COUNTER_ABI } from "../lib/pop-counter-contract.js";
+import { connectPopCounter, revertName } from "../lib/pop-counter-contract.js";
 
 const CTX_LABEL = "triangle-e2e:pop-counter"; // == PopCounter.CTX
 const COLLECTION_HEX = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
 const MAX_PROOF_ATTEMPTS = 3;
 
 type Hex = `0x${string}`;
+type BumpArgs = [proof: Hex, expectedAlias: Hex, ringIndex: number, revision: number];
 
 describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
   "PoP-gated counter — stateless (personhoodInfoByProof)",
   () => {
-    let network: NetworkConfig;
     let peopleClient: PolkadotClient;
     let peopleApi: PeopleApi;
     let assetHubClient: PolkadotClient;
-    let assetHubApi: AssetHubApi;
-    let contractAddress: Hex;
-    let consumedCalldata: Hex | null = null;
+    let counter: Awaited<ReturnType<typeof connectPopCounter>>["contract"];
+    let consumedArgs: BumpArgs | null = null;
     let caller: string;
-    let signer: ReturnType<typeof getPolkadotSigner>;
+    let signer: PolkadotSigner;
 
     beforeAll(async () => {
       assertChainHealthy("people");
       assertChainHealthy("asset-hub");
-      network = getNetworkConfig();
-      console.log(`[pop-by-proof] Network: ${network.name}`);
-
-      const p = createPeopleClient(network.people.ws);
-      peopleClient = p.client;
-      peopleApi = p.api;
-      const ah = createAssetHubClient(network.assetHub.ws);
-      assetHubClient = ah.client;
-      assetHubApi = ah.api;
-
-      const addr = await findPopCounterContract(assetHubApi);
-      if (!addr) {
-        throw new Error(
-          "[pop-by-proof] No PopCounter contract deployed — run `pnpm deploy-counter` first.",
-        );
-      }
-      contractAddress = addr as Hex;
-      console.log(`[pop-by-proof] PopCounter at ${contractAddress}`);
+      const network = getNetworkConfig();
+      ({ client: peopleClient, api: peopleApi } = createPeopleClient(network.people.ws));
+      ({ client: assetHubClient } = createAssetHubClient(network.assetHub.ws));
+      const popCounter = await connectPopCounter(assetHubClient);
+      counter = popCounter.contract;
+      console.log(`[pop-by-proof] PopCounter at ${popCounter.address}`);
 
       const creds = await ensureAttested();
       caller = creds.address;
-      const keyPair = deriveKeyPair(creds.entropy);
-      signer = createPgasPayerSigner(keyPair);
+      signer = createPgasPayerSigner(deriveKeyPair(creds.entropy));
       console.log(`[pop-by-proof] caller (lite-person, no alias registered): ${caller}`);
     });
 
@@ -101,62 +78,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       assetHubClient?.destroy();
     });
 
-    interface DryRun {
-      reverted: boolean;
-      returnDataHex: string;
-      returnData: Uint8Array;
-      weight: unknown;
-      deposit: bigint;
-    }
-
-    /** Dry-run a contract call from `caller`. Never submits. */
-    async function dryRun(richAh: RichAssetHubApi, data: Hex): Promise<DryRun> {
-      const fin = await assetHubClient.getFinalizedBlock();
-      const dry = await richAh.apis.ReviveApi.call(
-        caller,
-        contractAddress,
-        0n,
-        undefined,
-        undefined,
-        Binary.fromHex(data),
-        { at: fin.hash },
-      );
-      const outerOk = dry.result.success;
-      const inner = outerOk
-        ? (dry.result.value as unknown as { flags: number; data: Uint8Array })
-        : null;
-      const reverted = !outerOk || (inner !== null && (inner.flags & 1) !== 0);
-      const deposit = dry.storage_deposit.type === "Charge" ? dry.storage_deposit.value : 0n;
-      return {
-        reverted,
-        returnDataHex: inner ? Binary.toHex(inner.data) : "",
-        returnData: inner ? inner.data : new Uint8Array(),
-        weight: dry.weight_required,
-        deposit,
-      };
-    }
-
-    /** Submit a contract call from `caller`, reusing a prior dry-run's limits. */
-    async function submit(richAh: RichAssetHubApi, data: Hex, dry: DryRun) {
-      const tx = richAh.tx.Revive.call({
-        dest: contractAddress,
-        value: 0n,
-        weight_limit: dry.weight as never,
-        storage_deposit_limit: dry.deposit > 0n ? dry.deposit : 1n,
-        data: Binary.fromHex(data),
-      });
-      return tx.signAndSubmit(signer);
-    }
-
-    /** Read a `bytes32`/`uint256` view return for the given calldata. */
-    async function readView(richAh: RichAssetHubApi, data: Hex): Promise<Hex> {
-      const { returnData } = await dryRun(richAh, data);
-      return Binary.toHex(returnData) as Hex;
-    }
-
     /** Poll AH RingRoots until it mirrors `targetRevision` for this ring. */
     async function waitForAhRingRevision(
-      richAh: RichAssetHubApi,
       ringIndex: number,
       targetRevision: number,
       timeoutMs = 120_000,
@@ -174,14 +97,11 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
     /**
      * Generate a ring-VRF proof bound to the contract's `expectedMessage()`
-     * and return validated `bumpByProof(...)` calldata + the derived alias.
-     * Re-snapshots the People ring per attempt (it can rebuild mid-flight)
-     * and waits for Asset Hub to mirror that revision; dry-runs each candidate
-     * so we only return calldata the precompile already accepted.
+     * and return `bumpByProof(...)` arguments the contract already accepts
+     * in a dry-run. Re-snapshots the People ring per attempt (it can rebuild
+     * mid-flight) and waits for Asset Hub to mirror that revision.
      */
-    async function buildBumpByProofCalldata(
-      richAh: RichAssetHubApi,
-    ): Promise<{ calldata: Hex; alias: Hex }> {
+    async function buildBumpByProofArgs(): Promise<BumpArgs> {
       const creds = await ensureAttested();
       const verifiableEntropy = blake2b256(creds.entropy);
       const context = customAliasContext(CTX_LABEL);
@@ -192,15 +112,9 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       const ringIndex = location.ringIndex;
 
       // The 32-byte message the contract reconstructs from msg.sender + nonce.
-      const msgHex = decodeFunctionResult({
-        abi: POP_COUNTER_ABI,
-        functionName: "expectedMessage",
-        data: await readView(
-          richAh,
-          encodeFunctionData({ abi: POP_COUNTER_ABI, functionName: "expectedMessage" }),
-        ),
-      }) as Hex;
-      const message = Uint8Array.from((msgHex.slice(2).match(/.{2}/g) ?? []).map((b) => parseInt(b, 16)));
+      const expected = await counter.expectedMessage.query({ origin: caller });
+      if (!expected.success) throw new Error(`[pop-by-proof] expectedMessage failed: ${revertName(expected)}`);
+      const message = Binary.fromHex(expected.value as Hex);
 
       const { one_shot } = verifiableFor();
       let lastErr: unknown;
@@ -210,67 +124,45 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         const root = await peopleApi.query.Members.Root.getValue(COLLECTION_HEX, ringIndex, { at });
         const revision = root?.revision ?? 0;
         const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-        const encodedMembers = encodeMembers(memberKeys);
         console.log(
-          `[pop-by-proof] attempt=${attempt} ring=${ringIndex} rev=${revision} members=${memberKeys.length} msg=${msgHex.slice(0, 14)}…`,
+          `[pop-by-proof] attempt=${attempt} ring=${ringIndex} rev=${revision} members=${memberKeys.length}`,
         );
 
-        await waitForAhRingRevision(richAh, ringIndex, revision);
+        await waitForAhRingRevision(ringIndex, revision);
 
-        const { proof, alias } = one_shot(verifiableEntropy, encodedMembers, context, message);
-        // The runtime's `Proof` type is `BoundedVec<u8, …>`, which SCALE-encodes
-        // as `compact(len) ++ bytes`. papi adds that prefix when encoding the
-        // `set_*_alias_account` extrinsic; the precompile decodes `T::Proof`
-        // from our raw `bytes proof`, so we must prepend the same prefix here —
-        // otherwise it reads the signature's leading bytes as a bogus length.
+        const { proof, alias } = one_shot(verifiableEntropy, encodeMembers(memberKeys), context, message);
+        // The precompile decodes `T::Proof` (a `BoundedVec<u8, …>`) from the raw
+        // `bytes proof`, so it needs SCALE's `compact(len)` prefix.
         const proofScale = mergeUint8([compact.enc(proof.length), proof]);
-        const calldata = encodeFunctionData({
-          abi: POP_COUNTER_ABI,
-          functionName: "bumpByProof",
-          args: [Binary.toHex(proofScale) as Hex, Binary.toHex(alias) as Hex, ringIndex, revision],
-        });
+        const args: BumpArgs = [Binary.toHex(proofScale) as Hex, Binary.toHex(alias) as Hex, ringIndex, revision];
 
-        const dry = await dryRun(richAh, calldata);
-        if (!dry.reverted) return { calldata, alias: Binary.toHex(alias) as Hex };
-        lastErr = new Error(`bumpByProof reverted (data=${dry.returnDataHex})`);
+        const dry = await counter.bumpByProof.query(...args, { origin: caller });
+        if (dry.success) return args;
+        lastErr = new Error(`bumpByProof reverted (${revertName(dry)})`);
         console.log(`[pop-by-proof] attempt=${attempt} reverted — re-snapshotting`);
       }
       throw lastErr ?? new Error("[pop-by-proof] proof generation exhausted retries");
     }
 
-    function readBumpCount(richAh: RichAssetHubApi, alias: Hex): Promise<bigint> {
-      return readView(
-        richAh,
-        encodeFunctionData({ abi: POP_COUNTER_ABI, functionName: "byAliasByProof", args: [alias] }),
-      ).then(
-        (hex) =>
-          decodeFunctionResult({
-            abi: POP_COUNTER_ABI,
-            functionName: "byAliasByProof",
-            data: hex,
-          }) as bigint,
-      );
+    async function readBumpCount(alias: Hex): Promise<bigint> {
+      const result = await counter.byAliasByProof.query(alias, { origin: caller });
+      if (!result.success) throw new Error(`[pop-by-proof] byAliasByProof failed: ${revertName(result)}`);
+      return result.value as bigint;
     }
 
     it(
       "accepts a fresh bound proof from a lite-person with no registered alias",
       async () => {
-        assertRichAssetHub(assetHubApi);
-        const richAh = assetHubApi;
+        const args = await buildBumpByProofArgs();
+        const before = await readBumpCount(args[1]);
 
-        const { calldata, alias } = await buildBumpByProofCalldata(richAh);
-        const before = await readBumpCount(richAh, alias);
+        const result = await counter.bumpByProof.tx(...args, { signer, origin: caller });
+        if (!result.ok) throw result.error;
+        expect(result.value.ok).toBe(true);
+        consumedArgs = args;
+        console.log(`[pop-by-proof] bumpByProof landed @#${result.value.block.number}`);
 
-        const dry = await dryRun(richAh, calldata);
-        expect(dry.reverted).toBe(false);
-        const result = await submit(richAh, calldata, dry);
-        if (!result.ok) {
-          throw new Error(`[pop-by-proof] dispatch failed: ${JSON.stringify(result.dispatchError)}`);
-        }
-        consumedCalldata = calldata;
-        console.log(`[pop-by-proof] bumpByProof landed @#${result.block.number}`);
-
-        expect(await readBumpCount(richAh, alias)).toBe(before + 1n);
+        expect(await readBumpCount(args[1])).toBe(before + 1n);
       },
       300_000,
     );
@@ -278,12 +170,11 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     it(
       "rejects replay of the consumed proof (nonce advanced)",
       async () => {
-        assertRichAssetHub(assetHubApi);
-        if (!consumedCalldata) throw new Error("[pop-by-proof] prior bump didn't run");
+        if (!consumedArgs) throw new Error("[pop-by-proof] prior bump didn't run");
         // The per-caller nonce advanced after the accepted bump, so the
         // contract now reconstructs a different message than the proof bound.
-        const { reverted } = await dryRun(assetHubApi, consumedCalldata);
-        expect(reverted).toBe(true);
+        const result = await counter.bumpByProof.query(...consumedArgs, { origin: caller });
+        expect(result.success).toBe(false);
       },
       120_000,
     );
