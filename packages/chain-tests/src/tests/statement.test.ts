@@ -1,28 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws";
-import { fromHex } from "@polkadot-api/utils";
-import {
-  createLazyClient,
-  createPapiStatementStoreAdapter,
-  createSr25519Prover,
-  createSr25519Secret,
-  NoAllowanceError,
-  type StatementStoreAdapter,
-  type StatementProver,
-} from "@novasamatech/statement-store";
-import { stringToTopic, createExpiryFromDuration } from "@novasamatech/sdk-statement";
+import { createSr25519Secret, NoAllowanceError } from "@novasamatech/statement-store";
+import { StatementStoreClient, StatementSubmitError } from "@parity/product-sdk-statement-store";
 import { createPeopleClient } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
+import { createNodeStatementTransport } from "../lib/statement-transport.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 describe("Statement: People Chain + Identity Backend", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let adapter: StatementStoreAdapter;
-  let prover: StatementProver;
-  let lazyClient: ReturnType<typeof createLazyClient>;
+  let statementSecret: Uint8Array;
+  const clients: StatementStoreClient[] = [];
 
   beforeAll(async () => {
     assertChainHealthy("people");
@@ -36,17 +26,14 @@ describe("Statement: People Chain + Identity Backend", () => {
     client = conn.client;
 
     if (network.identityBackend) {
-      lazyClient = createLazyClient(getWsProvider(network.people.ws));
-      adapter = createPapiStatementStoreAdapter(lazyClient);
-
       const creds = await ensureAttested();
-      prover = createSr25519Prover(creds.statementStoreSecret);
+      statementSecret = creds.statementStoreSecret;
       console.log(`[statement] Attested account: ${creds.address} (${creds.username})`);
     }
   });
 
   afterAll(() => {
-    lazyClient?.disconnect();
+    clients.forEach((c) => c.destroy());
     client?.destroy();
   });
 
@@ -81,44 +68,34 @@ describe("Statement: People Chain + Identity Backend", () => {
     }
   });
 
+  /** A product-sdk client publishing as `secret`, with the transport a host would provide. */
+  async function connectClient(secret: Uint8Array): Promise<StatementStoreClient> {
+    const { transport, signer } = createNodeStatementTransport(network.people.ws, secret);
+    const client = new StatementStoreClient({ appName: `pop-e2e-${Date.now()}`, transport });
+    await client.connect({ mode: "local", signer });
+    clients.push(client);
+    return client;
+  }
+
   it.skipIf(!needsAttestation())(
     "Statement Store write succeeds (after attestation)",
     async () => {
-      // Wait for daemon to process attestation from global setup
-      console.log(`[statement] Waiting for attestation daemon to process...`);
+      // The attestation daemon may still be granting the allowance.
+      const statements = await connectClient(statementSecret);
       const maxWait = 90_000;
-      const pollInterval = 5_000;
       const startWait = Date.now();
-      let writeOk = false;
-
+      let lastError: unknown;
       while (Date.now() - startWait < maxWait) {
-        const topicHex = stringToTopic(`triangle-e2e-probe-${Date.now()}`);
-        const data = new TextEncoder().encode("probe");
-        const expiry = createExpiryFromDuration(300);
-
-        const signed = await prover.generateMessageProof({
-          topics: [topicHex],
-          data,
-          expiry,
-        });
-        if (signed.isErr()) {
-          throw new Error(`Proof generation failed: ${signed.error.message}`);
+        const result = await statements.publish({ probe: Date.now() });
+        if (result.ok) {
+          console.log(`[statement] Statement write succeeded after ${Date.now() - startWait}ms wait`);
+          return;
         }
-
-        const result = await adapter.submitStatement(signed._unsafeUnwrap());
-        if (result.isOk()) {
-          writeOk = true;
-          const elapsed = Date.now() - startWait;
-          console.log(`[statement] Statement write succeeded after ${elapsed}ms wait`);
-          break;
-        }
-
-        const elapsed = Date.now() - startWait;
-        console.log(`[statement] Waiting... (${elapsed}ms) - ${result.error.message}`);
-        await new Promise((r) => setTimeout(r, pollInterval));
+        lastError = result.error;
+        console.log(`[statement] Waiting... (${Date.now() - startWait}ms) - ${result.error.message}`);
+        await new Promise((r) => setTimeout(r, 5_000));
       }
-
-      expect(writeOk).toBe(true);
+      throw lastError;
     },
     120_000,
   );
@@ -126,50 +103,17 @@ describe("Statement: People Chain + Identity Backend", () => {
   it.skipIf(!needsAttestation())(
     "Statement Store write + read roundtrip",
     async () => {
-      const uniqueId = `triangle-e2e-roundtrip-${Date.now()}`;
-      const topicHex = stringToTopic(uniqueId);
-      const topicBytes = fromHex(topicHex);
-      const payload = new TextEncoder().encode(uniqueId);
-      const expiry = createExpiryFromDuration(300);
-
-      // Write
-      const signed = await prover.generateMessageProof({
-        topics: [topicHex],
-        data: payload,
-        expiry,
+      const statements = await connectClient(statementSecret);
+      const marker = `pop-e2e-roundtrip-${Date.now()}`;
+      const received = new Promise<void>((resolve) => {
+        statements.subscribe<{ marker: string }>((s) => {
+          if (s.data?.marker === marker) resolve();
+        });
       });
-      expect(signed.isOk()).toBe(true);
 
-      const writeStart = Date.now();
-      const writeResult = await adapter.submitStatement(signed._unsafeUnwrap());
-      if (writeResult.isErr()) {
-        throw new Error(`Statement Store write failed: ${writeResult.error.message}`);
-      }
-      console.log(`[statement] Roundtrip: wrote (${Date.now() - writeStart}ms)`);
-
-      // Read back
-      const readStart = Date.now();
-      const readResult = await adapter.queryStatements({ matchAll: [topicBytes] });
-      if (readResult.isErr()) {
-        throw new Error(`Statement Store read failed: ${readResult.error.message}`);
-      }
-
-      const statements = readResult._unsafeUnwrap();
-      console.log(`[statement] Roundtrip: read ${statements.length} statement(s) (${Date.now() - readStart}ms)`);
-      expect(statements.length).toBeGreaterThan(0);
-
-      const found = statements.find((s) => {
-        if (!s.data) return false;
-        try {
-          const decoded = new TextDecoder().decode(
-            s.data instanceof Uint8Array ? s.data : fromHex(s.data as string),
-          );
-          return decoded === uniqueId;
-        } catch {
-          return false;
-        }
-      });
-      expect(found).toBeDefined();
+      const result = await statements.publish({ marker });
+      if (!result.ok) throw result.error;
+      await received;
       console.log(`[statement] Roundtrip: data verified`);
     },
     60_000,
@@ -180,24 +124,14 @@ describe("Statement: People Chain + Identity Backend", () => {
     async () => {
       const entropy = new Uint8Array(32);
       crypto.getRandomValues(entropy);
-      const secret = createSr25519Secret(entropy);
-      const nonPopProver = createSr25519Prover(secret);
+      const statements = await connectClient(createSr25519Secret(entropy));
 
-      const topicHex = stringToTopic(`triangle-e2e-nonpop-${Date.now()}`);
-      const data = new TextEncoder().encode("should-be-rejected");
-      const expiry = createExpiryFromDuration(300);
-
-      const signed = await nonPopProver.generateMessageProof({
-        topics: [topicHex],
-        data,
-        expiry,
-      });
-      expect(signed.isOk()).toBe(true);
-
-      const result = await adapter.submitStatement(signed._unsafeUnwrap());
-
-      expect(result.isErr()).toBe(true);
-      expect(result._unsafeUnwrapErr()).toBeInstanceOf(NoAllowanceError);
+      const result = await statements.publish({ shouldBe: "rejected" });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBeInstanceOf(StatementSubmitError);
+        expect((result.error as StatementSubmitError).detail).toBeInstanceOf(NoAllowanceError);
+      }
       console.log(`[statement] Non-PoP account correctly rejected with NoAllowanceError`);
     },
   );
