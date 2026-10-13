@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { PolkadotClient, PolkadotSigner } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import type { PolkadotClient } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import { getTxCreator } from "polkadot-api/tx-creator";
 import { AsyncBulletinClient, type BulletinTypedApi, type SubmitFn } from "@parity/bulletin-sdk";
 import { CloudStorageClient, type CloudStorageApi } from "@parity/product-sdk-cloud-storage";
 import { createBulletinClient, createPeopleClient, type BulletinApi } from "../lib/client.js";
@@ -10,7 +11,7 @@ import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 /** A product-sdk storage client over our own connection, as a BYOD product would build it. */
-function cloudStorage(client: PolkadotClient, api: BulletinApi, signer: PolkadotSigner) {
+function cloudStorage(client: PolkadotClient, api: BulletinApi, signer: CommonSignerTxCreator) {
   const inner = new AsyncBulletinClient(
     api as unknown as BulletinTypedApi,
     signer,
@@ -48,9 +49,9 @@ async function waitForBulletinAuthorization(
   );
 }
 
-function randomSigner(): PolkadotSigner {
+function randomSigner(): CommonSignerTxCreator {
   const keyPair = deriveKeyPair(crypto.getRandomValues(new Uint8Array(32)));
-  return getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
+  return getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
 }
 
 describe("Storage: Bulletin Chain", () => {
@@ -89,7 +90,7 @@ describe("Storage: Bulletin Chain", () => {
     const creds = await ensureAttested();
     const keyPair = deriveKeyPair(creds.entropy);
     address = creds.address;
-    storage = cloudStorage(client, api, getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign));
+    storage = cloudStorage(client, api, getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign));
     console.log(`[storage] Test account (attested): ${address} (${creds.username})`);
 
     // Bulletin rejects a second LTS claim in the same period with

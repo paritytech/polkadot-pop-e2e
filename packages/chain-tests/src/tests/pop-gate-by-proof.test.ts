@@ -17,7 +17,8 @@
  *     advanced, so the bound message no longer matches.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Binary, type PolkadotClient, type PolkadotSigner } from "polkadot-api";
+import { Binary, type PolkadotClient } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { compact } from "@polkadot-api/substrate-bindings";
 import { mergeUint8 } from "@polkadot-api/utils";
@@ -55,7 +56,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     let counter: Awaited<ReturnType<typeof connectPopCounter>>["contract"];
     let consumedArgs: BumpArgs | null = null;
     let caller: string;
-    let signer: PolkadotSigner;
+    let signer: CommonSignerTxCreator;
 
     beforeAll(async () => {
       assertChainHealthy("people");

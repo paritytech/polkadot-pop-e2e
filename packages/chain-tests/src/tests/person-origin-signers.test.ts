@@ -5,7 +5,8 @@
  * flow once one can run here (game sign-up needs a game in registration).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Binary, type PolkadotClient, type PolkadotSigner } from "polkadot-api";
+import { Binary, type PolkadotClient } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { submitAndWatch } from "@parity/product-sdk-tx";
 import {
   withAsPerson,
@@ -17,7 +18,7 @@ import { createTestAccount, type TestAccount } from "../lib/signer.js";
 import { getNetworkConfig } from "../config/networks.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 
-const ORIGIN_SIGNERS: Record<string, (signer: PolkadotSigner) => PolkadotSigner> = {
+const ORIGIN_SIGNERS: Record<string, (signer: CommonSignerTxCreator) => CommonSignerTxCreator> = {
   withAsPerson: (signer) => withAsPerson(signer, { tag: "AliasWithAccount" }),
   withLiteAlias: (signer) => withLiteAlias(signer, { tag: "AliasWithAccount" }),
   withScoreParticipant: (signer) => withScoreParticipant(signer),
