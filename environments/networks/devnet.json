@@ -10,7 +10,7 @@
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paseo-network/runtimes@v2.5.2"
+      "runtime": "paseo-network/runtimes@v2.5.3-ah-parachains"
     },
     "people": {
       "runtime": "paseo-network/runtimes@v2.5.2"
