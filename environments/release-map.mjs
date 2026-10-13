@@ -608,7 +608,13 @@ export function candidateMatrix(base, head) {
   const runtimeDim = (m) =>
     JSON.stringify(Object.fromEntries(Object.entries(m.chains ?? {}).map(([k, v]) => [k, v.runtime])));
 
-  const finish = (arr) => arr.map((c) => ({ ...c, transitions: transitions(base ?? head, c.manifest) }));
+  const pinsOf = (m) => binaryDim(m) + runtimeDim(m);
+  const finish = (arr) =>
+    arr.map((c) => ({
+      ...c,
+      steady: pinsOf(base ?? head) === pinsOf(c.manifest),
+      transitions: transitions(base ?? head, c.manifest),
+    }));
   const target = {
     id: 'target',
     gating: true,
@@ -636,9 +642,8 @@ export function candidateMatrix(base, head) {
       manifest: { ...head, binaries: base.binaries, services: base.services },
     },
   ];
-  const pins = (m) => binaryDim(m) + runtimeDim(m);
   for (const c of cross) {
-    if (pins(c.manifest) !== pins(head) && pins(c.manifest) !== pins(base)) {
+    if (pinsOf(c.manifest) !== pinsOf(head) && pinsOf(c.manifest) !== pinsOf(base)) {
       candidates.push({ ...c, gating: false });
     }
   }

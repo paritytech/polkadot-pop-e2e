@@ -420,6 +420,7 @@ jobs:
     continue-on-error: ${{ inputs.advisory == true || !matrix.candidate.gating }}
     env:
       MANIFEST: candidate-manifest.json
+      STEADY: ${{ matrix.candidate.steady }}
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -643,6 +644,7 @@ jobs:
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
+      # A steady-state run asks for nothing, so it skips this and tests the fork as is.
       #
       # Called directly, not through `make runtime-upgrade`: that target exports
       # ALLOW_SAME_SPEC unconditionally, and a defined env var is a set flag to
