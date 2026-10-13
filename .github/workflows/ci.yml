@@ -14,8 +14,10 @@ on:
   push:
     branches: [main]
 
+# The called release gate keys its own group on github.workflow, which is "CI"
+# here too; a distinct suffix keeps the two from colliding.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-pr-suite-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
