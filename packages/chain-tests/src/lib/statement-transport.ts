@@ -48,7 +48,8 @@ export function createNodeStatementTransport(
       if (submitted.isErr()) throw submitted.error;
     },
     destroy() {
-      lazyClient.disconnect();
+      // Let the unsubscribe RPC settle; destroying the client rejects it otherwise.
+      setTimeout(() => lazyClient.disconnect(), 1_000);
     },
   };
 
