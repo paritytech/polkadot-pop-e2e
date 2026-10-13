@@ -137,8 +137,7 @@ function localForkConfig(baseName: string): NetworkConfig {
     bulletin: { ws: process.env.FORK_BULLETIN_WS ?? "ws://127.0.0.1:10030" },
     // The engine runs identity-backend-rust (IBv2) locally — even when the base
     // network's deployment is IBv1. FORK_IDENTITY_BACKEND=none says this network's
-    // fork spawns NO identity backend at all (pnv2/devnet forks run only eth-rpc
-    // beside the chains) — attestation-dependent tests then skip.
+    // fork spawns NO identity backend at all — attestation-dependent tests then skip.
     identityBackend:
       base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
         ? (process.env.FORK_IDENTITY_BACKEND ?? "http://127.0.0.1:8092")

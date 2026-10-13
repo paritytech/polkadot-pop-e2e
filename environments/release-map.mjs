@@ -218,13 +218,18 @@ export const SERVICES = {
     'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
   },
-  // pnv2/devnet forks run only eth-rpc beside the chains — no identity backend, no
-  // storage stack (their engine descriptors declare exactly that). The workflow
-  // derives FORK_IDENTITY_BACKEND=none from the absence of the service here.
+  // The engine runs the identity backend on any fork carrying People; pnv2 and devnet
+  // forks have no storage stack. The workflow derives FORK_IDENTITY_BACKEND=none from
+  // the absence of the identity-backend service here.
   'paseo-next-v2': {
     'eth-rpc': {
       override: 'eth-rpc',
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    },
+    // Same wiring as previewnet's: unpinned, the engine's default DUB_TAG governs.
+    'identity-backend': {
+      envTag: 'DUB_TAG',
+      repos: ['paritytech/device-uniqueness-backend'],
     },
   },
   devnet: {
