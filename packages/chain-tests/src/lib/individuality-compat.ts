@@ -70,6 +70,23 @@ export async function usesProductContexts(client: PolkadotClient): Promise<boole
   return false;
 }
 
+/**
+ * Whether this People runtime accepts only `<Bytes>`-wrapped account signatures
+ * over non-transaction messages (paritytech/individuality-community#105): the
+ * people-lite candidate and consumer registration signatures among them.
+ * Version-gated: live previewnet and paseo-next-v2 run 3004000 without the
+ * change, and every build stamped above it carries it once
+ * paritytech/individuality-community#196 merges. Delete once the live networks
+ * run a release with the change.
+ */
+export async function usesWrappedBytesSignatures(client: PolkadotClient): Promise<boolean> {
+  const v = (await client.getUnsafeApi().apis.Core.version()) as {
+    spec_name: string;
+    spec_version: number;
+  };
+  return String(v.spec_name) === "next-people-paseo" && Number(v.spec_version) > 3_004_000;
+}
+
 export interface RingCommitmentRecord {
   revision: number;
 }

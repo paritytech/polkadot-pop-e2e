@@ -19,7 +19,17 @@ import { getNetworkConfig } from "../config/networks.js";
 const READ_SUB = "triangle-e2e-chain-tests";
 
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
+const BYTES_PREFIX = new TextEncoder().encode("<Bytes>");
+const BYTES_SUFFIX = new TextEncoder().encode("</Bytes>");
 const accountId = AccountId();
+
+/**
+ * Wraps `message` in `<Bytes>…</Bytes>` when the runtime expects it, as a wallet
+ * does before it signs raw bytes. See `usesWrappedBytesSignatures`.
+ */
+function accountSigningPayload(message: Uint8Array, wrapBytes: boolean): Uint8Array {
+  return wrapBytes ? mergeUint8([BYTES_PREFIX, message, BYTES_SUFFIX]) : message;
+}
 
 function randomEntropy(): Uint8Array {
   const entropy = new Uint8Array(32);
@@ -60,8 +70,10 @@ export interface RegisterParams {
 
 /**
  * Generate a fresh random account with all attestation parameters.
+ *
+ * `wrapBytes` selects the candidate signature form the People runtime accepts.
  */
-export function generateAttestationParams(): {
+export function generateAttestationParams(wrapBytes: boolean): {
   credentials: AttestationCredentials;
   params: RegisterParams;
 } {
@@ -79,10 +91,11 @@ export function generateAttestationParams(): {
   // Attestation message: MSG_PREFIX || publicKey || ringVrfKey
   const message = mergeUint8([MSG_PREFIX, publicKey, ringVrfKey]);
 
-  // Candidate signature (sr25519)
-  const candidateSignature = keyPair.sign(message);
+  // Candidate signature (sr25519), over the wrapped message on newer runtimes
+  const candidateSignature = keyPair.sign(accountSigningPayload(message, wrapBytes));
 
-  // Bandersnatch proof of ownership — 64 or 96 bytes depending on network
+  // Bandersnatch proof of ownership — 64 or 96 bytes depending on network.
+  // Always over the plain message: only account signatures are wrapped.
   const proofOfOwnership = sign(verifiableEntropy, message);
 
   // Identifier key (65 bytes), RFC-0004 format: first byte 0x00, matching what the
@@ -129,11 +142,15 @@ export function generateAttestationParams(): {
 
 /**
  * Fetch the attester public key, sign consumer registration, then POST to register.
+ *
+ * `wrapBytes` selects the consumer registration signature form the People
+ * runtime accepts.
  */
 export async function signAndRegister(
   backendUrl: string,
   entropy: Uint8Array,
   params: RegisterParams,
+  wrapBytes: boolean,
 ): Promise<{ username: string }> {
   // IBv2 issues its own token via the challenge flow, bound to the person's key;
   // IBv1 wants an HS256 token minted from the shared IB_JWT_SECRET.
@@ -172,7 +189,9 @@ export async function signAndRegister(
     new Uint8Array([0]), // Option::None (reserved_username)
   ]);
 
-  const consumerRegistrationSignature = keyPair.sign(consumerPayload);
+  const consumerRegistrationSignature = keyPair.sign(
+    accountSigningPayload(consumerPayload, wrapBytes),
+  );
   params.consumerRegistrationSignature = toHex(consumerRegistrationSignature);
 
   // POST to register

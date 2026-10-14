@@ -25,7 +25,9 @@ import {
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { createPeopleClient } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
+import { usesWrappedBytesSignatures } from "./individuality-compat.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
 
@@ -139,7 +141,13 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   console.log(`[attested-fixture] Network: ${network.name}`);
   console.log(`[attested-fixture] Identity backend: ${network.identityBackend}`);
 
-  const { credentials, params } = generateAttestationParams();
+  const people = createPeopleClient(network.people.ws);
+  const wrapBytes = await usesWrappedBytesSignatures(people.client).finally(() =>
+    people.client.destroy(),
+  );
+  console.log(`[attested-fixture] <Bytes>-wrapped account signatures: ${wrapBytes}`);
+
+  const { credentials, params } = generateAttestationParams(wrapBytes);
   console.log(`[attested-fixture] Fresh account: ${credentials.address}`);
   console.log(`[attested-fixture] Username: ${params.username}`);
 
@@ -148,6 +156,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     network.identityBackend,
     credentials.entropy,
     params,
+    wrapBytes,
   );
   console.log(
     `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,
