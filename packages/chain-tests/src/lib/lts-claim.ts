@@ -40,8 +40,7 @@ import {
   waitForInclusion,
 } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
-import { longTermStorageContextV012, usesProductContexts } from "./individuality-compat.js";
-import { getNetworkConfig } from "../config/networks.js";
+import { longTermStorageContextV012, productContextSuffix } from "./individuality-compat.js";
 import {
   longTermStorageContext,
   longTermStoragePeriodFromTimestamp,
@@ -129,8 +128,9 @@ export async function claimLongTermStorage(
     Math.floor(Date.now() / 1000),
     periodDurationSecs,
   );
-  const context = (await usesProductContexts(peopleClient))
-    ? longTermStorageContextV012(getNetworkConfig().networkSuffix ?? "paseo", period, counter)
+  const suffix = await productContextSuffix(peopleClient);
+  const context = suffix
+    ? longTermStorageContextV012(suffix, period, counter)
     : longTermStorageContext(period, counter);
 
   const exponent = await ringExponent(peopleApi, "LitePeople");

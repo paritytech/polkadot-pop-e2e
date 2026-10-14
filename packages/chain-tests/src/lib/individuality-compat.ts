@@ -22,8 +22,7 @@ import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
  * contexts": blake2_256("product/peopl.<networkSuffix>/" ++ suffix32), where
  * suffix32 = "sys/" ++ u32le(family) ++ u32le(a) ++ (u32le(b) | u8(b)).
  * Families: 1 resources-notification, 2 statement-store slot, 3 long-term
- * storage, 4 PGAS claim. The network suffix is a per-network runtime param —
- * "test" on previewnet, "paseo" on pnv2 once it takes v0.12.
+ * storage, 4 PGAS claim. The network suffix comes from `productContextSuffix`.
  */
 function productContext(
   networkSuffix: string,
@@ -54,20 +53,18 @@ export const stmtStoreContextV012 = (networkSuffix: string, period: number, seq:
   productContext(networkSuffix, 2, period, seq, "u32");
 
 /**
- * Whether this chain's runtime uses the v0.12 product-context format (and the
- * generation-keyed RingRoots). Version-gated per spec name; unknown chains
- * report false (legacy).
+ * The runtime's `NetworkSuffix`, read from chain as hosts do. Undefined on
+ * runtimes that predate product contexts, which use the legacy raw contexts.
  */
-export async function usesProductContexts(client: PolkadotClient): Promise<boolean> {
-  const v = (await client.getUnsafeApi().apis.Core.version()) as {
-    spec_name: string;
-    spec_version: number;
-  };
-  const name = String(v.spec_name);
-  const spec = Number(v.spec_version);
-  if (name === "next-asset-hub-paseo") return spec >= 2_000_038;
-  if (name === "next-people-paseo") return spec >= 1_000_035;
-  return false;
+export async function productContextSuffix(client: PolkadotClient): Promise<string | undefined> {
+  try {
+    const suffix = (await client.getUnsafeApi().query.NetworkSuffix.NetworkSuffix.getValue()) as
+      | Uint8Array
+      | undefined;
+    return suffix?.length ? new TextDecoder().decode(suffix) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface RingCommitmentRecord {

@@ -39,12 +39,6 @@ export interface NetworkConfig {
    * challenge→token flow, signed with the person's own key — no shared secret.
    */
   identityBackendAuth?: "challenge";
-  /**
-   * The runtime's NetworkSuffix param — the network half of individuality
-   * v0.12's hashed product contexts ("product/peopl.<suffix>/…"). "test" on
-   * previewnet, "paseo" on pnv2. Irrelevant on pre-v0.12 runtimes.
-   */
-  networkSuffix?: string;
   ipfsGateway: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
@@ -72,7 +66,6 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://identity.dotspark.app",
     identityBackendAuth: "challenge",
-    networkSuffix: "paseo",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
   },
@@ -84,7 +77,6 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://previewnet.substrate.dev/dub",
     identityBackendAuth: "challenge",
-    networkSuffix: "testnet",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
     // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't

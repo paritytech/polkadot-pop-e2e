@@ -23,7 +23,7 @@ import {
   type AssetHubApi,
 } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
-import { pgasContextV012, ringRootsWindow, usesProductContexts } from "../lib/individuality-compat.js";
+import { pgasContextV012, productContextSuffix, ringRootsWindow } from "../lib/individuality-compat.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -219,6 +219,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // proof verifies against one stable (members, revision) pair.
       let snapshot = await refreshSnapshot();
       const exponent = await ringExponent(peopleApi, "LitePeople");
+      const suffix = await productContextSuffix(assetHubClient);
 
       async function refreshSnapshot() {
         const synced = await waitForAssetHubRing(
@@ -292,8 +293,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             snapshot = await refreshSnapshot();
           }
 
-          const context = (await usesProductContexts(assetHubClient))
-            ? pgasContextV012(network.networkSuffix ?? "paseo", day, slotIndex)
+          const context = suffix
+            ? pgasContextV012(suffix, day, slotIndex)
             : pgasContext(day, slotIndex);
           const signer = createClaimSigner({
             extensionName: "AsPgas",
