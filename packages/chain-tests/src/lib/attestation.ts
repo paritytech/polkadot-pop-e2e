@@ -263,28 +263,6 @@ export async function fetchUsernameStatus(
   return entries.find((e) => e.username?.startsWith(username)) ?? null;
 }
 
-/**
- * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection. A hit proves the
- * whole asynchronous registration pipeline: writer lease, attestation allowance,
- * signing, submission, finalization and indexing — the same signal the engine's
- * own registration e2e uses. IBv2 exposes no RESERVED/ASSIGNED status field, so this
- * replaces the status poll there.
- */
-export async function searchUsername(
-  backendUrl: string,
-  username: string,
-): Promise<{ username: string; accountId: string } | null> {
-  const res = await fetch(
-    `${backendUrl}/api/v1/usernames/search?prefix=${encodeURIComponent(username)}`,
-    { signal: AbortSignal.timeout(8_000) },
-  );
-  if (!res.ok) return null;
-  const body = (await res.json()) as {
-    usernames?: Array<{ username: string; accountId: string }>;
-  };
-  return body.usernames?.find((u) => u.username === username) ?? null;
-}
-
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
   const bytes = new Uint8Array(clean.length / 2);

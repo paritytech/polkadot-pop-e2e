@@ -21,11 +21,11 @@ import { resolve } from "node:path";
 import {
   fetchUsernameStatus,
   generateAttestationParams,
-  searchUsername,
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
-import { createAssetHubClient } from "./client.js";
+import { lookupUsername } from "@parity/product-sdk-individuality";
+import { createAssetHubClient, createPeopleClient } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
@@ -155,7 +155,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,
   );
 
-  await waitForAssigned(network.identityBackend, result.username);
+  await waitForAssigned(network.identityBackend, result.username, credentials.address);
 
   const persisted: AttestedCredentials = {
     attested: true,
@@ -194,29 +194,29 @@ async function assetHubNowSecs(ws: string): Promise<bigint> {
  * with a precise message if the budget elapses — health-check picks this
  * up as the IB-health signal.
  */
-async function waitForAssigned(backendUrl: string, username: string): Promise<void> {
-  // IBv2 exposes no status field; landing in the indexer's search projection IS the
-  // assigned signal, and it proves the full pipeline (see searchUsername).
+async function waitForAssigned(backendUrl: string, username: string, address: string): Promise<void> {
+  // IBv2 exposes no status field. Like hosts, wait for the username on chain:
+  // the backend's search can list it before the registration is finalized.
   if (getNetworkConfig().identityBackendAuth === "challenge") {
+    const { client, api } = createPeopleClient(getNetworkConfig().people.ws);
     const start = Date.now();
     let polls = 0;
-    while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
-      polls++;
-      try {
-        const hit = await searchUsername(backendUrl, username);
-        if (hit) {
-          console.log(
-            `[attested-fixture] indexed in ${Date.now() - start}ms (${polls} polls)`,
-          );
+    try {
+      while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
+        polls++;
+        const found = await lookupUsername({ individuality: api }, { account: address });
+        if (found.ok && found.value?.liteUsername === username) {
+          console.log(`[attested-fixture] on chain in ${Date.now() - start}ms (${polls} polls)`);
           return;
         }
-      } catch (e: any) {
-        console.log(`[attested-fixture] poll error: ${e.message}`);
+        if (!found.ok) console.log(`[attested-fixture] poll error: ${found.error.message}`);
+        await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
       }
-      await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
+    } finally {
+      client.destroy();
     }
     throw new Error(
-      `[attested-fixture] ${username} never reached the search projection within ` +
+      `[attested-fixture] ${username} never reached Resources.Consumers within ` +
         `${V2_INDEXED_TIMEOUT_MS / 1000}s (${polls} polls) — check identity-chain-writer's log`,
     );
   }
