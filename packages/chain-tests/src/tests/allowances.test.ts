@@ -205,7 +205,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
       const PGAS_ASSET_ID = 2_000_000_000;
       const ringIndex = location.ringIndex;
-      const nowSecs = Math.floor(Date.now() / 1000);
+      // Hosts take the day from Asset Hub's clock, which the claim is checked against.
+      const nowSecs = Number((await assetHubApi.query.Timestamp.Now.getValue()) / 1000n);
       const day = dayFromTimestamp(nowSecs);
 
       const ring = await import("../lib/ring.js");
