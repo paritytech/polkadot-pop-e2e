@@ -25,6 +25,7 @@ import {
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { createAssetHubClient } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
@@ -148,6 +149,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     network.identityBackend,
     credentials.entropy,
     params,
+    network.identityBackendAuth === "challenge" ? await assetHubNowSecs(network.assetHub.ws) : undefined,
   );
   console.log(
     `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,
@@ -175,6 +177,16 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   );
 
   return persisted;
+}
+
+/** Asset Hub's `Timestamp.Now` in seconds. */
+async function assetHubNowSecs(ws: string): Promise<bigint> {
+  const { client, api } = createAssetHubClient(ws);
+  try {
+    return (await api.query.Timestamp.Now.getValue()) / 1000n;
+  } finally {
+    client.destroy();
+  }
 }
 
 /**

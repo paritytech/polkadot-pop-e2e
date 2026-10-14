@@ -11,6 +11,7 @@ import {
 } from "@polkadot-labs/hdkd-helpers";
 import { toHex, mergeUint8 } from "@polkadot-api/utils";
 import { AccountId } from "polkadot-api";
+import { Bytes, Option, Tuple, u64 } from "@polkadot-api/substrate-bindings";
 import { createSr25519Secret, deriveSr25519PublicKey } from "@novasamatech/statement-store";
 import { verifiableFor } from "./verifiable-loader.js";
 import { ibAuthHeader, ibV2AuthHeader } from "./ib-auth.js";
@@ -19,6 +20,14 @@ import { getNetworkConfig } from "../config/networks.js";
 const READ_SUB = "triangle-e2e-chain-tests";
 
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
+const RESERVE_MSG_PREFIX = new TextEncoder().encode("pop:dotns-gateway:reserve");
+
+/**
+ * What the candidate signs to let the dotNS gateway reserve its lite name:
+ * SCALE `(prefix, candidate, attester, username_base, chat_key, reserved, signed_at)`,
+ * matching the gateway pallet's `construct_reservation_message`.
+ */
+export const reservationMessage = Tuple(Bytes(), Bytes(32), Bytes(32), Bytes(), Bytes(), Option(Bytes()), u64);
 const accountId = AccountId();
 
 function randomEntropy(): Uint8Array {
@@ -134,6 +143,8 @@ export async function signAndRegister(
   backendUrl: string,
   entropy: Uint8Array,
   params: RegisterParams,
+  /** Asset Hub's `Timestamp.Now` in seconds; the gateway rejects times ahead of it. */
+  dotnsSignedAt?: bigint,
 ): Promise<{ username: string }> {
   // IBv2 issues its own token via the challenge flow, bound to the person's key;
   // IBv1 wants an HS256 token minted from the shared IB_JWT_SECRET.
@@ -175,6 +186,27 @@ export async function signAndRegister(
   const consumerRegistrationSignature = keyPair.sign(consumerPayload);
   params.consumerRegistrationSignature = toHex(consumerRegistrationSignature);
 
+  // Hosts also sign the dotNS lite-name reservation, which the backend forwards.
+  const dotns =
+    dotnsSignedAt === undefined
+      ? undefined
+      : {
+          signature: toHex(
+            keyPair.sign(
+              reservationMessage.enc([
+                RESERVE_MSG_PREFIX,
+                keyPair.publicKey,
+                attesterBytes,
+                usernameBytes,
+                identifierKeyBytes,
+                undefined,
+                dotnsSignedAt,
+              ]),
+            ),
+          ),
+          signedAt: Number(dotnsSignedAt),
+        };
+
   // POST to register
   const registerRes = await fetch(`${backendUrl}/api/v1/usernames`, {
     method: "POST",
@@ -182,7 +214,7 @@ export async function signAndRegister(
       "Content-Type": "application/json",
       ...auth,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(dotns ? { ...params, dotns } : params),
     signal: AbortSignal.timeout(30_000),
   });
 
