@@ -180,7 +180,7 @@ export async function claimLongTermStorage(
     };
 
     try {
-      const result = await tx.signSubmitAndWatch(signer, { customSignedExtensions });
+      const result = await tx.createSubmitAndWatch(signer, { customSignedExtensions });
       const finalized = await new Promise<{ ok: boolean; block?: number }>((resolve, reject) => {
         let lastBlock: number | undefined;
         result.subscribe({

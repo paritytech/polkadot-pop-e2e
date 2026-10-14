@@ -237,7 +237,7 @@ export async function setAliasAccount(args: {
     });
 
     try {
-      const result = await tx.signAndSubmit(signer);
+      const result = await tx.createAndSubmit(signer);
       if (!result.ok) {
         throw new Error(
           `[alias-claim] set_alias_account failed: ${JSON.stringify(result.dispatchError)}`,
