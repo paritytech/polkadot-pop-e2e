@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
-import { createSr25519Secret, NoAllowanceError } from "@novasamatech/statement-store";
+import { AccountId } from "@polkadot-api/substrate-bindings";
+import {
+  createSr25519Secret,
+  deriveSr25519PublicKey,
+  NoAllowanceError,
+} from "@novasamatech/statement-store";
 import { StatementStoreClient, StatementSubmitError } from "@parity/product-sdk-statement-store";
-import { createPeopleClient } from "../lib/client.js";
+import { createPeopleClient, type PeopleApi } from "../lib/client.js";
+import type { AttestedCredentials } from "../lib/credentials.js";
+import { claimStatementAllowance } from "../lib/statement-allowance.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { createNodeStatementTransport } from "../lib/statement-transport.js";
@@ -11,6 +18,9 @@ import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 describe("Statement: People Chain + Identity Backend", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
+  let peopleApi: PeopleApi;
+  let creds: AttestedCredentials;
+  // Hosts sign statements with a per-product allowance key, not the person's key.
   let statementSecret: Uint8Array;
   const clients: StatementStoreClient[] = [];
 
@@ -24,10 +34,11 @@ describe("Statement: People Chain + Identity Backend", () => {
 
     const conn = createPeopleClient(network.people.ws);
     client = conn.client;
+    peopleApi = conn.api;
 
     if (network.identityBackend) {
-      const creds = await ensureAttested();
-      statementSecret = creds.statementStoreSecret;
+      creds = await ensureAttested();
+      statementSecret = createSr25519Secret(creds.entropy, "//allowance//statement-store//pop-e2e.dot");
       console.log(`[statement] Attested account: ${creds.address} (${creds.username})`);
     }
   });
@@ -78,27 +89,23 @@ describe("Statement: People Chain + Identity Backend", () => {
   }
 
   it.skipIf(!needsAttestation())(
-    "Statement Store write succeeds (after attestation)",
+    "claims a statement allowance for the product key",
     async () => {
-      // The attestation daemon may still be granting the allowance.
-      const statements = await connectClient(statementSecret);
-      const maxWait = 90_000;
-      const startWait = Date.now();
-      let lastError: unknown;
-      while (Date.now() - startWait < maxWait) {
-        const result = await statements.publish({ probe: Date.now() });
-        if (result.ok) {
-          console.log(`[statement] Statement write succeeded after ${Date.now() - startWait}ms wait`);
-          return;
-        }
-        lastError = result.error;
-        console.log(`[statement] Waiting... (${Date.now() - startWait}ms) - ${result.error.message}`);
-        await new Promise((r) => setTimeout(r, 5_000));
-      }
-      throw lastError;
+      const target = AccountId().dec(deriveSr25519PublicKey(statementSecret));
+      const allowance = await claimStatementAllowance(peopleApi, client, creds, target);
+      console.log(
+        `[statement] Allowance for ${target}: period=${allowance.period} seq=${allowance.seq} ` +
+          (allowance.claimed ? "claimed" : "already held"),
+      );
     },
-    120_000,
+    240_000,
   );
+
+  it.skipIf(!needsAttestation())("Statement Store write succeeds with the product key", async () => {
+    const statements = await connectClient(statementSecret);
+    const result = await statements.publish({ probe: Date.now() });
+    if (!result.ok) throw result.error;
+  });
 
   it.skipIf(!needsAttestation())(
     "Statement Store write + read roundtrip",

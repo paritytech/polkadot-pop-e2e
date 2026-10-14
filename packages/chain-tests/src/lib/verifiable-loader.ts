@@ -23,6 +23,8 @@ export interface OneShotResult {
 export interface VerifiableApi {
   sign(entropy: Uint8Array, message: Uint8Array): Uint8Array;
   member_from_entropy(entropy: Uint8Array): Uint8Array;
+  /** The alias `entropy` proves as in `context`, without building a proof. */
+  alias_in_context(entropy: Uint8Array, context: Uint8Array): Uint8Array;
   /** `ringExponent` is the collection's on-chain `ring_size` (9 for `R2e9`). */
   one_shot(
     ringExponent: number,
@@ -37,6 +39,7 @@ export function verifiableFor(): VerifiableApi {
   return {
     sign: verifiable.sign,
     member_from_entropy: verifiable.member_from_entropy,
+    alias_in_context: verifiable.alias_in_context,
     one_shot: (ringExponent, entropy, members, context, message) =>
       verifiable.one_shot(ringExponent as verifiable.RingExponent, entropy, members, context, message),
   };
