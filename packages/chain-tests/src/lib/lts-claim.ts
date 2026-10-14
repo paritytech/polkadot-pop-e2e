@@ -31,6 +31,7 @@
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { asResources, createClaimSigner } from "./claim-signer.js";
+import { isRetryableInvalidTx, submitPeopleClaim } from "./people-claim.js";
 import type { PeopleApi } from "./client.js";
 import {
   encodeMembers,
@@ -55,23 +56,6 @@ export interface LtsClaimResult {
 }
 
 const MAX_PROOF_ATTEMPTS = 3;
-
-/**
- * Match the Invalid-tx variants that *we know* can be transient on this
- * chain shape — anything else escapes the retry loop so a real bug
- * surfaces loud instead of being papered over.
- *
- *   - `BadProof` — AsResources extension's ring-proof validate failed,
- *     almost always because our snapshot's revision is past grace.
- *   - `AncientBirthBlock` / `Future` — mortality era anchor is no
- *     longer valid (re-org, slow tx propagation, big clock skew).
- *   - `Stale` — nonce / replay defence; refreshing the snapshot picks
- *     up the new nonce.
- */
-function isRetryableInvalidTx(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /BadProof|AncientBirthBlock|Future|Stale/i.test(msg);
-}
 
 interface Snapshot {
   at: `0x${string}`;
@@ -162,35 +146,8 @@ export async function claimLongTermStorage(
       account_id: creds.address,
     });
 
-    // Passthrough values for the People chain's metadata-visible extensions;
-    // the signer overrides AsResources with the proof-bearing payload.
-    const customSignedExtensions = {
-      VerifyMultiSignature: { value: { type: "Disabled" as const, value: undefined } },
-      AsPerson: { value: undefined },
-      AsProofOfInkParticipant: { value: undefined },
-      ScoreAsParticipant: { value: undefined },
-      GameAsInvited: { value: undefined },
-      PeopleLiteAuth: { value: undefined },
-      AsMember: { value: undefined },
-      AsCoinage: { value: undefined },
-      AsResources: { value: undefined },
-      RestrictOrigins: { value: false },
-    };
-
     try {
-      const result = await tx.createSubmitAndWatch(signer, { customSignedExtensions });
-      const finalized = await new Promise<{ ok: boolean; block?: number }>((resolve, reject) => {
-        let lastBlock: number | undefined;
-        result.subscribe({
-          next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
-            if (e.block) lastBlock = e.block.number;
-            if (e.type === "finalized") {
-              resolve({ ok: !!e.ok, block: lastBlock });
-            }
-          },
-          error: reject,
-        });
-      });
+      const finalized = await submitPeopleClaim(tx, signer);
       console.log(
         `[lts-claim] attempt=${attempt} ok=${finalized.ok} block=#${finalized.block ?? "?"} ` +
           `rev=${snap.revisionIndex}`,
