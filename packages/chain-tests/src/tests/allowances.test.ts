@@ -313,7 +313,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             target: address,
           });
           try {
-            const result = await tx.signSubmitAndWatch(signer, { customSignedExtensions });
+            const result = await tx.createSubmitAndWatch(signer, { customSignedExtensions });
             const final = await new Promise<{ ok: boolean; block?: number }>(
               (resolve, reject) => {
                 let last: { block?: number } = {};
@@ -460,7 +460,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         storage_deposit_limit: storageDeposit > 0n ? storageDeposit : 1n,
         data: Binary.fromHex("0x"),
       });
-      const callResult = await callTx.signAndSubmit(signer);
+      const callResult = await callTx.createAndSubmit(signer);
       if (!callResult.ok) {
         throw new Error(
           `[pgas] revive call failed: dispatchError=${JSON.stringify(callResult.dispatchError)}`,

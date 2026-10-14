@@ -23,9 +23,10 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
 
-import { createClient, Binary, type SizedHex, type PolkadotSigner } from "polkadot-api";
+import { createClient, Binary, type SizedHex } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { getWsProvider } from "polkadot-api/ws";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { getTxCreator } from "polkadot-api/tx-creator";
 import { Keyring } from "@polkadot/keyring";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { getNetworkConfig } from "../src/config/networks.js";
@@ -45,7 +46,7 @@ import {
 async function deployIfMissing(args: {
   label: string;
   api: AssetHubApi;
-  signer: PolkadotSigner;
+  signer: CommonSignerTxCreator;
   bytecodeHex: string;
   codeHash: Uint8Array;
   existing: SizedHex<20> | null;
@@ -67,7 +68,7 @@ async function deployIfMissing(args: {
       data: Binary.fromHex("0x"),
       salt: undefined,
     });
-    result = await tx.signAndSubmit(args.signer);
+    result = await tx.createAndSubmit(args.signer);
   } else {
     console.log(`[deploy-counter] ${args.label}: first-time upload + instantiate.`);
     const tx = args.api.tx.Revive.instantiate_with_code({
@@ -78,7 +79,7 @@ async function deployIfMissing(args: {
       data: Binary.fromHex("0x"),
       salt: undefined,
     });
-    result = await tx.signAndSubmit(args.signer);
+    result = await tx.createAndSubmit(args.signer);
   }
   if (!result.ok) {
     throw new Error(
@@ -124,7 +125,7 @@ async function main() {
       "[deploy-counter] No deployer key available. Set network.testAccountUri or TEST_MNEMONIC.",
     );
   }
-  const signer = getPolkadotSigner(account.publicKey, "Sr25519", async (input) =>
+  const signer = getTxCreator(account.publicKey, "Sr25519", async (input) =>
     account.sign(input),
   );
   console.log(`[deploy-counter] Deploying from ${account.address} (${source})…`);

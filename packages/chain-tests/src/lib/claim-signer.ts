@@ -1,34 +1,26 @@
 /**
- * Custom PolkadotSigners that submit v5 general transactions whose target
- * extension binds to the live. The signer:
- *
- *   1. Picks the extension version whose pipeline carries the target
- *      extension (0 on legacy runtimes, 1 on runtimes with a separate
- *      Individuality pipeline).
- *   2. Computes `inherited_implication = [extVer] || callData ||
- *      concat(trailing values) || concat(trailing implicits)`.
- *   3. Hashes it via blake2_256 to get the message.
- *   4. Encodes the target extension value from the message (proof or
- *      signature) and replaces the placeholder value.
- *   5. Builds the v5 general blob.
- *
- * Workaround tracked at https://github.com/polkadot-api/polkadot-api/issues/760.
+ * Transaction creators for v5 general transactions authorized by one
+ * extension: a ring-VRF proof (`AsPgas`, `AsResources`) or an sr25519
+ * signature (`VerifyMultiSignature`) over the inherited implication.
  */
-import { type PolkadotSigner } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
 import {
-  AccountId,
-  compact,
-  decAnyMetadata,
-  extrinsicFormat,
-  unifyMetadata,
-} from "@polkadot-api/substrate-bindings";
+  getTxCreator,
+  signatureExtensionTxCreator,
+  type TxCreator,
+} from "polkadot-api/tx-creator";
+import {
+  withCommonExtensions,
+  withNonce,
+  type CommonEnhancersSpecs,
+  type CommonSignerTxCreator,
+} from "@polkadot-api/signers-common";
+import { AccountId, compact, decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import {
   getDynamicBuilder,
   getLookupFn,
   type LookupEntry,
 } from "@polkadot-api/metadata-builders";
-import { mergeUint8, toHex } from "polkadot-api/utils";
+import { toHex } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { verifiableFor } from "./verifiable-loader.js";
 
@@ -49,16 +41,7 @@ function withCompactLen(proof: Uint8Array): Uint8Array {
   return out;
 }
 
-type SignTx = PolkadotSigner["signTx"];
-type Metadata = ReturnType<typeof unifyMetadata>;
-
-/** Returns the highest extension version whose pipeline carries `identifier`. */
-function extensionVersion(meta: Metadata, identifier: string): number | undefined {
-  const versions = Object.entries(meta.extrinsic.signedExtensions)
-    .filter(([, list]) => list.some((e) => e.identifier === identifier))
-    .map(([version]) => Number(version));
-  return versions.length ? Math.max(...versions) : undefined;
-}
+const decodeMetadata = (metadata: string) => unifyMetadata(decAnyMetadata(metadata));
 
 /**
  * Returns the "do nothing" value of a metadata type: `None`, `false`, zero, or
@@ -90,71 +73,55 @@ function defaultValue(entry: LookupEntry): unknown {
       if (unit) return { type: unit[0] };
     }
   }
-  throw new Error(`generalSigner: no default value for type ${entry.id} (${entry.type})`);
+  throw new Error(`claimSigner: no default value for type ${entry.id} (${entry.type})`);
 }
 
 /**
- * Creates a `signTx` that builds a v5 general transaction in the pipeline
- * carrying `extensionName`, filling that extension with the value returned by
- * `encodeTarget` for the implication message.
+ * Fills every extension the payload still lacks with its "do nothing" value,
+ * so the pipeline carrying `target` can be selected and encoded.
  */
-function generalSignTx(
+const withDefaultExtensions =
+  (target: string) =>
+  (inner: TxCreator): TxCreator =>
+  (payload, opts, bindings, mocked) => {
+    const meta = decodeMetadata(payload.context.metadata);
+    const lookup = getLookupFn(meta);
+    const builder = getDynamicBuilder(lookup);
+    const encodeDefault = (type: number) =>
+      toHex(builder.buildDefinition(type).enc(defaultValue(lookup(type))));
+    const present = new Set(payload.extensions.map((e) => e.id));
+    const missing = Object.values(meta.extrinsic.extensions)
+      .filter(({ identifier }) => identifier !== target && !present.has(identifier))
+      .map(({ identifier, type, additionalSigned }) => ({
+        id: identifier,
+        extra: encodeDefault(type),
+        additionalSigned: encodeDefault(additionalSigned),
+      }));
+    return inner(
+      { ...payload, extensions: [...payload.extensions, ...missing] },
+      opts,
+      bindings,
+      mocked,
+    );
+  };
+
+/** A creator for a general transaction whose `extensionName` carries `encodeTarget(message)`. */
+function generalTxCreator(
+  publicKey: Uint8Array,
   extensionName: string,
   encodeTarget: (
     message: Uint8Array,
     codec: { enc: (value: any) => Uint8Array },
   ) => Uint8Array | Promise<Uint8Array>,
-): SignTx {
-  return async (callData, signedExtensions, metadata) => {
-    const decMeta = unifyMetadata(decAnyMetadata(metadata));
-    const version = extensionVersion(decMeta, extensionName);
-    if (version === undefined) {
-      throw new Error(`generalSigner: extension '${extensionName}' not found in chain metadata`);
-    }
-    const extList = decMeta.extrinsic.signedExtensions[version];
-    const targetIdx = extList.findIndex((e) => e.identifier === extensionName);
-    const lookup = getLookupFn(decMeta);
-    const builder = getDynamicBuilder(lookup);
-    const encodeDefault = (type: number) =>
-      builder.buildDefinition(type).enc(defaultValue(lookup(type)));
-
-    // Resolving every extension's bytes
-    const resolved = extList.map(({ identifier, type, additionalSigned }) => {
-      const ext = signedExtensions[identifier];
-      return ext
-        ? { value: ext.value, implicit: ext.additionalSigned }
-        : { value: encodeDefault(type), implicit: encodeDefault(additionalSigned) };
-    });
-
-    // Build inherited_implication for the target extension. Following the
-    // for_tuples loop in substrate's TransactionExtension impl for tuples,
-    // the encoding flattens to:
-    //   TxBaseImplication((extVer, call)) || trailing_explicit || trailing_implicit
-    // where "trailing" = positions strictly after the target extension.
-    const trailing = resolved.slice(targetIdx + 1);
-    const message = blake2b256(
-      mergeUint8([
-        new Uint8Array([version]),
-        callData,
-        ...trailing.map((r) => r.value),
-        ...trailing.map((r) => r.implicit),
-      ]),
-    );
-
-    resolved[targetIdx].value = await encodeTarget(
-      message,
-      builder.buildDefinition(extList[targetIdx].type),
-    );
-
-    // Assemble the v5 general blob.
-    const preResult = mergeUint8([
-      extrinsicFormat.enc({ version: 5, type: "general" }),
-      new Uint8Array([version]),
-      ...resolved.map((r) => r.value),
-      callData,
-    ]);
-    return mergeUint8([compact.enc(preResult.length), preResult]);
-  };
+) {
+  const creator = signatureExtensionTxCreator(extensionName, (implication, _mocked, _bindings, meta) => {
+    const lookup = getLookupFn(meta);
+    const ext = Object.values(meta.extrinsic.extensions).find((e) => e.identifier === extensionName)!;
+    return encodeTarget(blake2b256(implication), getDynamicBuilder(lookup).buildDefinition(ext.type));
+  });
+  return withNonce(publicKey)(
+    withCommonExtensions(withDefaultExtensions(extensionName)(creator as TxCreator) as TxCreator<[]>),
+  );
 }
 
 /**
@@ -166,9 +133,9 @@ function generalSignTx(
 export function createPgasPayerSigner(keyPair: {
   publicKey: Uint8Array;
   sign: (message: Uint8Array) => Uint8Array;
-}): PolkadotSigner {
-  const legacy = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
-  const general = generalSignTx("VerifyMultiSignature", (message, codec) =>
+}): CommonSignerTxCreator {
+  const legacy = getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
+  const general = generalTxCreator(keyPair.publicKey, "VerifyMultiSignature", (message, codec) =>
     codec.enc({
       type: "Signed",
       value: {
@@ -177,15 +144,17 @@ export function createPgasPayerSigner(keyPair: {
       },
     }),
   );
-  return {
-    ...legacy,
-    signTx(callData, signedExtensions, metadata, ...rest) {
-      const decMeta = unifyMetadata(decAnyMetadata(metadata));
-      return extensionVersion(decMeta, "VerifyMultiSignature")
-        ? general(callData, signedExtensions, metadata, ...rest)
-        : legacy.signTx(callData, signedExtensions, metadata, ...rest);
-    },
+  const create: TxCreator = (payload, opts, bindings, mocked) => {
+    const meta = decodeMetadata(payload.context.metadata);
+    const isGeneral = Object.values(meta.extrinsic.extensions).some(
+      (e) => e.identifier === "VerifyMultiSignature",
+    );
+    return (isGeneral ? general : legacy)(payload, opts as never, bindings, mocked);
   };
+  return Object.assign(create, {
+    publicKey: legacy.publicKey,
+    signBytes: legacy.signBytes,
+  }) as unknown as CommonSignerTxCreator;
 }
 
 export interface ClaimSignerOpts {
@@ -206,26 +175,13 @@ export interface ClaimSignerOpts {
   encodeExtensionValue: (proof: Uint8Array) => Uint8Array;
 }
 
-export function createClaimSigner(opts: ClaimSignerOpts): PolkadotSigner {
-  return {
-    publicKey: new Uint8Array(32),
-    signBytes() {
-      throw new Error("claimSigner: signBytes is unsupported");
-    },
-    // Generating the ring-VRF proof bound to (context, message). The
-    // verifiablejs build is network-aware — ThinVRF (v0.7.0+) vs
-    // pre-ThinVRF (v0.6.5).
-    signTx: generalSignTx(opts.extensionName, (message) => {
-      const { one_shot } = verifiableFor();
-      const result = one_shot(
-        opts.verifiableEntropy,
-        opts.encodedMembers,
-        opts.context,
-        message,
-      );
-      return opts.encodeExtensionValue(result.proof);
-    }),
-  };
+export function createClaimSigner(opts: ClaimSignerOpts): TxCreator<CommonEnhancersSpecs> {
+  // The verifiablejs build is network-aware: ThinVRF (v0.7.0+) vs pre-ThinVRF (v0.6.5).
+  return generalTxCreator(new Uint8Array(32), opts.extensionName, (message) => {
+    const { one_shot } = verifiableFor();
+    const result = one_shot(opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
+    return opts.encodeExtensionValue(result.proof);
+  });
 }
 
 /**
