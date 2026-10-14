@@ -23,6 +23,7 @@ import {
 import { toHex } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { verifiableFor } from "./verifiable-loader.js";
+import type { Collection } from "./ring.js";
 
 const decodeMetadata = (metadata: string) => unifyMetadata(decAnyMetadata(metadata));
 
@@ -149,6 +150,8 @@ export interface ClaimSignerOpts {
   verifiableEntropy: Uint8Array;
   /** SCALE-encoded `Vec<MemberKey>` for the active ring (insertion-ordered). */
   encodedMembers: Uint8Array;
+  /** The collection's ring size exponent, from `ringExponent`. */
+  ringExponent: number;
   /** The extension's value for `proof`, encoded with the live metadata's codec. */
   extensionValue: (proof: Uint8Array) => unknown;
 }
@@ -160,15 +163,13 @@ export interface ClaimSignerOpts {
 export function createClaimSigner(opts: ClaimSignerOpts): TxCreator<CommonEnhancersSpecs> {
   const inner = generalTxCreator(new Uint8Array(32), opts.extensionName, (message, codec) => {
     const { one_shot } = verifiableFor();
-    const { proof } = one_shot(opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
+    const { proof } = one_shot(opts.ringExponent, opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
     assertProof(proof);
     return codec.enc(opts.extensionValue(proof));
   });
   return (payload, txOpts, bindings, mocked) =>
     inner(payload, { ...txOpts, mortality: { mortal: false } }, bindings, mocked);
 }
-
-export type Collection = "People" | "LitePeople";
 
 export interface RingRef {
   ringIndex: number;

@@ -32,7 +32,7 @@ import {
   createPgasPayerSigner,
   pgasClaim,
 } from "../lib/claim-signer.js";
-import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
+import { encodeMembers, fetchRingMembers, ringExponent } from "../lib/ring.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
@@ -218,6 +218,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // yet → BadProof. The same snapshot is reused for all claims so every
       // proof verifies against one stable (members, revision) pair.
       let snapshot = await refreshSnapshot();
+      const exponent = await ringExponent(peopleApi, "LitePeople");
 
       async function refreshSnapshot() {
         const synced = await waitForAssetHubRing(
@@ -299,6 +300,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             context,
             verifiableEntropy,
             encodedMembers: snapshot.encodedMembers,
+            ringExponent: exponent,
             extensionValue: pgasClaim(
               { ringIndex, revision: snapshot.revisionIndex, collection: "LitePeople" },
               day,

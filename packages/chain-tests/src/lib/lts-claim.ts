@@ -35,6 +35,7 @@ import type { PeopleApi } from "./client.js";
 import {
   encodeMembers,
   fetchRingMembers,
+  ringExponent,
   LITE_PEOPLE_IDENTIFIER,
   waitForInclusion,
 } from "./ring.js";
@@ -132,6 +133,7 @@ export async function claimLongTermStorage(
     ? longTermStorageContextV012(getNetworkConfig().networkSuffix ?? "paseo", period, counter)
     : longTermStorageContext(period, counter);
 
+  const exponent = await ringExponent(peopleApi, "LitePeople");
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
     const snap = await takeSnapshot(peopleApi, peopleClient, ringIndex);
@@ -146,6 +148,7 @@ export async function claimLongTermStorage(
       context,
       verifiableEntropy,
       encodedMembers: snap.encodedMembers,
+      ringExponent: exponent,
       extensionValue: asResources("ClaimLongTermStorage", {
         ringIndex: snap.ringIndex,
         revision: snap.revisionIndex,
