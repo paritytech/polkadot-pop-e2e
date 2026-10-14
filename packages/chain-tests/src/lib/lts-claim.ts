@@ -30,10 +30,7 @@
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import {
-  createClaimSigner,
-  encodeClaimLongTermStorage,
-} from "./claim-signer.js";
+import { asResources, createClaimSigner } from "./claim-signer.js";
 import type { PeopleApi } from "./client.js";
 import {
   encodeMembers,
@@ -149,13 +146,11 @@ export async function claimLongTermStorage(
       context,
       verifiableEntropy,
       encodedMembers: snap.encodedMembers,
-      encodeExtensionValue: (proof) =>
-        encodeClaimLongTermStorage({
-          proof,
-          ringIndex: snap.ringIndex,
-          revisionIndex: snap.revisionIndex,
-          litePeople: true,
-        }),
+      extensionValue: asResources("ClaimLongTermStorage", {
+        ringIndex: snap.ringIndex,
+        revision: snap.revisionIndex,
+        collection: "LitePeople",
+      }),
     });
 
     const tx = peopleApi.tx.Resources.claim_long_term_storage({

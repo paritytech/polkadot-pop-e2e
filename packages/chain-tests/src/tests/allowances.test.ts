@@ -30,7 +30,7 @@ import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   createClaimSigner,
   createPgasPayerSigner,
-  encodePgasClaim,
+  pgasClaim,
 } from "../lib/claim-signer.js";
 import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
@@ -299,14 +299,10 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             context,
             verifiableEntropy,
             encodedMembers: snapshot.encodedMembers,
-            encodeExtensionValue: (proof) =>
-              encodePgasClaim({
-                proof,
-                ringIndex,
-                revisionIndex: snapshot.revisionIndex,
-                litePeople: true,
-                day,
-              }),
+            extensionValue: pgasClaim(
+              { ringIndex, revision: snapshot.revisionIndex, collection: "LitePeople" },
+              day,
+            ),
           });
           const tx = assetHubApi.tx.Pgas.claim_pgas({
             slot_index: slotIndex,
