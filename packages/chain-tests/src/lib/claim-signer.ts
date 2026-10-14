@@ -153,14 +153,19 @@ export interface ClaimSignerOpts {
   extensionValue: (proof: Uint8Array) => unknown;
 }
 
-/** Creates the unsigned general transaction for an allowance claim, with the ring-VRF proof in `extensionName`. */
+/**
+ * Creates the unsigned general transaction a host submits for an allowance
+ * claim: immortal, like truapi's, with the ring-VRF proof in `extensionName`.
+ */
 export function createClaimSigner(opts: ClaimSignerOpts): TxCreator<CommonEnhancersSpecs> {
-  return generalTxCreator(new Uint8Array(32), opts.extensionName, (message, codec) => {
+  const inner = generalTxCreator(new Uint8Array(32), opts.extensionName, (message, codec) => {
     const { one_shot } = verifiableFor();
     const { proof } = one_shot(opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
     assertProof(proof);
     return codec.enc(opts.extensionValue(proof));
   });
+  return (payload, txOpts, bindings, mocked) =>
+    inner(payload, { ...txOpts, mortality: { mortal: false } }, bindings, mocked);
 }
 
 export type Collection = "People" | "LitePeople";
