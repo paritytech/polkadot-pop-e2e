@@ -9,9 +9,9 @@ import {
 } from "hop-sdk";
 import { createBulletinClient, createPeopleClient } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { personKey } from "../lib/truapi-identity.js";
 
 /**
  * HOP requires raw byte signing — the SDK calls `signBytes(payload)` and
@@ -137,7 +137,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
 
     const creds = await ensureAttested();
     address = creds.address;
-    const keyPair = deriveKeyPair(creds.entropy);
+    const keyPair = personKey(creds);
 
     // `CustomEnvironment` is a `ws://${string}` | `wss://${string}` template
     // literal; our config types the endpoint as plain `string` so cast at

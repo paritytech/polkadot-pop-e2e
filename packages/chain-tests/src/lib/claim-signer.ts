@@ -177,20 +177,9 @@ export interface RingRef {
   collection: Collection;
 }
 
-/** `AsPgas::Claim`; the runtime derives the proof context from `day`. */
-export const pgasClaim =
-  ({ ringIndex, revision, collection }: RingRef, day: number) =>
-  (proof: Uint8Array) => ({
-    type: "Claim",
-    value: { proof, ring_index: ringIndex, revision, collection: { type: collection }, day },
-  });
-
 /** An `AsResources` variant carrying `(proof, ring_index, revision, collection)`. */
 export const asResources =
-  (
-    variant: "RegisterStatementStoreAllowance" | "ClaimLongTermStorage",
-    { ringIndex, revision, collection }: RingRef,
-  ) =>
+  (variant: "ClaimLongTermStorage", { ringIndex, revision, collection }: RingRef) =>
   (proof: Uint8Array) => ({
     type: variant,
     value: [proof, ringIndex, revision, { type: collection }],

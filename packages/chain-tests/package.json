@@ -20,7 +20,7 @@
     "compile-pop-counter": "tsx scripts/compile-pop-counter.ts"
   },
   "dependencies": {
-    "@noble/hashes": "^2.0.1",
+    "@noble/hashes": "^2.4.0",
     "@novasamatech/statement-store": "^0.7.7",
     "@parity/bulletin-sdk": "0.5.0",
     "@parity/product-sdk": "0.37.0",
@@ -39,6 +39,7 @@
     "@polkadot/keyring": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",
     "@pop-e2e/papi": "workspace:*",
+    "@scure/sr25519": "^2.4.0",
     "dotenv": "^17.3.1",
     "hop-sdk": "^0.2.1",
     "multiformats": "^14.0.0",
