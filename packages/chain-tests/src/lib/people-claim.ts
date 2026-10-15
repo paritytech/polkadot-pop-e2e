@@ -29,14 +29,27 @@ export function isRetryableInvalidTx(err: unknown): boolean {
   return /BadProof|Future|Stale/i.test(msg);
 }
 
-/** Submits a claim and resolves once it is finalized. */
+export interface FinalizedClaim {
+  ok: boolean;
+  block?: number;
+  blockHash?: string;
+}
+
+/** Submits a People claim and resolves once it is finalized. */
 export async function submitPeopleClaim(
   tx: Pick<Transaction<any>, "createSubmitAndWatch">,
   signer: TxCreator<CommonEnhancersSpecs>,
-): Promise<{ ok: boolean; block?: number; blockHash?: string }> {
-  const events = tx.createSubmitAndWatch(signer, {
-    customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS,
-  });
+): Promise<FinalizedClaim> {
+  return submitUntilFinalized(tx, signer, PEOPLE_CLAIM_EXTENSIONS);
+}
+
+/** Submits `tx` with `customSignedExtensions` and resolves once it is finalized. */
+export async function submitUntilFinalized(
+  tx: Pick<Transaction<any>, "createSubmitAndWatch">,
+  signer: TxCreator<CommonEnhancersSpecs>,
+  customSignedExtensions: Record<string, { value: unknown }>,
+): Promise<FinalizedClaim> {
+  const events = tx.createSubmitAndWatch(signer, { customSignedExtensions });
   return new Promise((resolve, reject) => {
     let last: { number: number; hash: string } | undefined;
     events.subscribe({

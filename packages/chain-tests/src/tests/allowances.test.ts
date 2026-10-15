@@ -34,6 +34,7 @@ import {
 } from "../lib/claim-signer.js";
 import { encodeMembers, fetchRingMembers, ringExponent } from "../lib/ring.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
+import { submitUntilFinalized } from "../lib/people-claim.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
 
@@ -313,19 +314,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             target: address,
           });
           try {
-            const result = await tx.createSubmitAndWatch(signer, { customSignedExtensions });
-            const final = await new Promise<{ ok: boolean; block?: number }>(
-              (resolve, reject) => {
-                let last: { block?: number } = {};
-                result.subscribe({
-                  next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
-                    if (e.block) last.block = e.block.number;
-                    if (e.type === "finalized") resolve({ ok: !!e.ok, block: last.block });
-                  },
-                  error: reject,
-                });
-              },
-            );
+            const final = await submitUntilFinalized(tx, signer, customSignedExtensions);
             console.log(
               `[pgas] slot=${slotIndex} attempt=${attempt} ok=${final.ok} block=#${final.block ?? "?"} rev=${snapshot.revisionIndex}`,
             );
