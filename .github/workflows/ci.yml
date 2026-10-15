@@ -1,8 +1,8 @@
 name: CI
 
 # `check` is offline: no chain, no RPC, no secrets. `live` runs the suite
-# against live previewnet, which needs no secrets either: it signs with
-# `//Alice` and its IB uses challenge auth. The forked runs are the Release
+# against the live networks: previewnet signs with `//Alice`, paseo-next-v2
+# with the funded `TEST_MNEMONIC` secret. The forked runs are the Release
 # Gate's, which runs on every PR.
 #
 # `check` exists because the environments tests previously ran in no workflow at
@@ -59,13 +59,18 @@ jobs:
           done
 
   live:
-    # The suite against the real chain. Outages on previewnet show up here,
+    # The suite against the real chains. Network outages show up here,
     # not in the gate.
-    name: live suite (previewnet)
+    name: live suite (${{ matrix.network }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [previewnet, paseo-next-v2]
     env:
-      NETWORK: previewnet
+      NETWORK: ${{ matrix.network }}
+      TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +95,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-test-results
+          name: live-test-results-${{ matrix.network }}
           path: packages/chain-tests/test-results/
           if-no-files-found: warn
