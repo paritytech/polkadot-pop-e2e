@@ -7,9 +7,9 @@ import { CloudStorageClient, type CloudStorageApi } from "@parity/product-sdk-cl
 import { createBulletinClient, createPeopleClient, type BulletinApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { identityKey, personKey } from "../lib/truapi-identity.js";
 /** A product-sdk storage client over our own connection, as a BYOD product would build it. */
 function cloudStorage(client: PolkadotClient, api: BulletinApi, signer: CommonSignerTxCreator) {
   const inner = new AsyncBulletinClient(
@@ -50,7 +50,7 @@ async function waitForBulletinAuthorization(
 }
 
 function randomSigner(): CommonSignerTxCreator {
-  const keyPair = deriveKeyPair(crypto.getRandomValues(new Uint8Array(32)));
+  const keyPair = identityKey(crypto.getRandomValues(new Uint8Array(16)), "testnet");
   return getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
 }
 
@@ -88,7 +88,7 @@ describe("Storage: Bulletin Chain", () => {
       return;
     }
     const creds = await ensureAttested();
-    const keyPair = deriveKeyPair(creds.entropy);
+    const keyPair = personKey(creds);
     address = creds.address;
     storage = cloudStorage(client, api, getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign));
     console.log(`[storage] Test account (attested): ${address} (${creds.username})`);

@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, Binary, type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import {
   buildLiteAliasBindTx,
   fromPapi,
@@ -31,6 +30,7 @@ import {
 } from "../lib/ring.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { personRingEntropy } from "../lib/truapi-identity.js";
 
 describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
   "Lite sign-up: bind alias to a product account",
@@ -52,7 +52,7 @@ describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
     /** What a host's `createRingVRFProof` returns, minted locally for `context`. */
     async function liteProver(context: Uint8Array): Promise<CreateRingVRFProof> {
       const creds = await ensureAttested();
-      const entropy = blake2b256(creds.entropy);
+      const entropy = personRingEntropy(creds);
       const { ringIndex } =
         getCachedRingLocation() ??
         (await waitForInclusion(peopleApi, "LitePeople", entropy, { peopleClient }));

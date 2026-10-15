@@ -19,14 +19,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { compact } from "@polkadot-api/substrate-bindings";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { ringRootsWindow } from "../lib/individuality-compat.js";
 import { createPeopleClient, createAssetHubClient, type PeopleApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { createPgasPayerSigner } from "../lib/claim-signer.js";
 import { getNetworkConfig } from "../config/networks.js";
 import {
@@ -40,6 +38,7 @@ import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { customAliasContext } from "../lib/alias-claim.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
 import { connectPopCounter, revertName } from "../lib/pop-counter-contract.js";
+import { personKey, personRingEntropy } from "../lib/truapi-identity.js";
 
 const CTX_LABEL = "triangle-e2e:pop-counter"; // == PopCounter.CTX
 const COLLECTION_HEX = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
@@ -71,7 +70,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
       const creds = await ensureAttested();
       caller = creds.address;
-      signer = createPgasPayerSigner(deriveKeyPair(creds.entropy));
+      signer = createPgasPayerSigner(personKey(creds));
       console.log(`[pop-by-proof] caller (lite-person, no alias registered): ${caller}`);
     });
 
@@ -105,7 +104,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
      */
     async function buildBumpByProofArgs(): Promise<BumpArgs> {
       const creds = await ensureAttested();
-      const verifiableEntropy = blake2b256(creds.entropy);
+      const verifiableEntropy = personRingEntropy(creds);
       const context = customAliasContext(CTX_LABEL);
 
       const location =

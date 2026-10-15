@@ -7,7 +7,6 @@
  */
 import { getSs58AddressInfo, type PolkadotClient, type SS58String } from "polkadot-api";
 import { toHex } from "polkadot-api/utils";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { asResources, createClaimSigner } from "./claim-signer.js";
 import type { PeopleApi } from "./client.js";
 import { productContextSuffix, stmtStoreContextV012 } from "./individuality-compat.js";
@@ -17,6 +16,7 @@ import { ringExponent, takeRingSnapshot, waitForInclusion } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
 import { verifiableFor } from "./verifiable-loader.js";
 import type { AttestedCredentials } from "./credentials.js";
+import { personRingEntropy } from "./truapi-identity.js";
 
 const MAX_PROOF_ATTEMPTS = 3;
 
@@ -43,10 +43,10 @@ const publicKeyOf = (address: SS58String | undefined) => {
 export async function claimStatementAllowance(
   peopleApi: PeopleApi,
   peopleClient: PolkadotClient,
-  creds: Pick<AttestedCredentials, "entropy">,
+  creds: Pick<AttestedCredentials, "entropy" | "networkSuffix">,
   target: SS58String,
 ): Promise<StatementAllowance> {
-  const entropy = blake2b256(creds.entropy);
+  const entropy = personRingEntropy(creds);
   const { ringIndex } =
     getCachedRingLocation() ??
     (await waitForInclusion(peopleApi, "LitePeople", entropy, { peopleClient }));

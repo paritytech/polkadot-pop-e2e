@@ -13,7 +13,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import {
   createPeopleClient,
   createAssetHubClient,
@@ -25,7 +24,6 @@ import {
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { pgasContextV012, productContextSuffix, ringRootsWindow } from "../lib/individuality-compat.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   createClaimSigner,
@@ -37,6 +35,7 @@ import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { submitUntilFinalized } from "../lib/people-claim.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
+import { personKey, personRingEntropy } from "../lib/truapi-identity.js";
 
 /**
  * Pick a People-chain finalized block whose ring root for `ringIndex`
@@ -144,7 +143,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
     assetHubApi = ahConn.api;
 
     const creds = await ensureAttested();
-    verifiableEntropy = blake2b256(creds.entropy);
+    verifiableEntropy = personRingEntropy(creds);
     address = creds.address;
     console.log(`[pgas] Lite-person: ${address} (${creds.username})`);
   });
@@ -407,7 +406,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // Build sr25519 signer from the attestation entropy — same key the
       // claim test used, so it owns the PGAS we just minted.
       const creds = await ensureAttested();
-      const keyPair = deriveKeyPair(creds.entropy);
+      const keyPair = personKey(creds);
       const signer = createPgasPayerSigner(keyPair);
 
       // Dry-run via ReviveApi.call to get exact weight + storage deposit.
