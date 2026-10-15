@@ -55,6 +55,9 @@ jobs:
       - name: Start the network
         run: .github/k3s/start-network.sh
 
+      - name: Check every node got its own cores
+        run: .github/k3s/check-cores.sh
+
       - name: Check every chain finalizes
         run: .github/k3s/check-chains.sh "${{ inputs.soak_minutes || '10' }}"
 
