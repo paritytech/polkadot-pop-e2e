@@ -11,7 +11,7 @@
  *   - Otherwise check `Revive.PristineCode[codeHash]`. If uploaded, call
  *     `Revive.instantiate`. If not, call `Revive.instantiate_with_code`.
  *
- * Sign with `network.testAccountUri` (e.g. `//Alice` on previewnet) or
+ * Sign with `network.testAccountUri` (`//Alice` on local forks) or
  * `TEST_MNEMONIC` env. The deployer must have native funds on Asset
  * Hub — PGAS pays for the *call*, not the deploy.
  *
@@ -109,7 +109,7 @@ async function main() {
   void descriptorsForNetwork; // re-export sanity — also used elsewhere
 
   // Pick a funded deployer — same resolution as chain-tests' funded ops:
-  //   1. `network.testAccountUri` (e.g. `//Alice` on previewnet)
+  //   1. `network.testAccountUri` (`//Alice` on local forks)
   //   2. `TEST_MNEMONIC` env (CI secret)
   const keyring = new Keyring({ type: "sr25519" });
   let account: ReturnType<typeof keyring.addFromUri>;

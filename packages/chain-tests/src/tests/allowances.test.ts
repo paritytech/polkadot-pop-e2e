@@ -363,7 +363,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
   // claimed PGAS. The contract is deployed out-of-band by
-  // `scripts/deploy-counter.ts` (idempotent — runs in CI with //Alice).
+  // `scripts/deploy-counter.ts` (idempotent — runs in CI before the suite).
   //
   // Fee charging: `ChargePGAS<ChargeAssetTxPayment>` is a runtime-wide
   // tx extension on Asset Hub. For `RuntimeCall::Revive(..)` it auto-

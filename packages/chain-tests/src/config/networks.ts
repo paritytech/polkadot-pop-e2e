@@ -42,8 +42,7 @@ export interface NetworkConfig {
   ipfsGateway: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
-  // the `TEST_MNEMONIC` env. Useful on dev testnets like previewnet
-  // where `//Alice` is pre-funded.
+  // the `TEST_MNEMONIC` env. Used on local forks, where `//Alice` is funded.
   testAccountUri?: string;
 }
 
@@ -79,9 +78,6 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     identityBackendAuth: "challenge",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
-    // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
-    // need a TEST_MNEMONIC secret to drive funded ops.
-    testAccountUri: "//Alice",
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —

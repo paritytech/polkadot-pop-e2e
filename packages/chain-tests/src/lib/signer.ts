@@ -39,7 +39,7 @@ function buildSigner(account: ReturnType<Keyring["addFromMnemonic"]>): TestAccou
 
 /**
  * Funded test account. If the network config sets `testAccountUri`
- * (e.g. `//Alice` on dev testnets), uses that; otherwise falls back to
+ * (`//Alice` on local forks), uses that; otherwise falls back to
  * `TEST_MNEMONIC` env.
  */
 export async function createTestAccount(): Promise<TestAccount> {
