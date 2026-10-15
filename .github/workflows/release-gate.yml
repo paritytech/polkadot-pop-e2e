@@ -19,10 +19,8 @@ name: Release Gate
 # this workflow only composes it. See environments/README.md.
 
 on:
+  # Every PR, so the required `gate (<network> · target)` checks always report.
   pull_request:
-    paths:
-      - "environments/**"
-      - ".github/workflows/release-gate.yml"
   # The machine-facing door: another repo's CI calls this when it cuts a release.
   # Same per-field overrides as the dispatch form below, because a caller reading
   # this file should see what it can set without decoding a JSON schema. Both
