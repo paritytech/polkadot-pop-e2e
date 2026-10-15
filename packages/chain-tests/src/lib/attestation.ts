@@ -21,6 +21,14 @@ const READ_SUB = "triangle-e2e-chain-tests";
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
 const accountId = AccountId();
 
+/**
+ * Prefixes `message` with the personhood signing context when the runtime
+ * expects it (`null` otherwise). See `usesSigningContext`.
+ */
+function accountSigningPayload(message: Uint8Array, context: Uint8Array | null): Uint8Array {
+  return context ? mergeUint8([context, message]) : message;
+}
+
 function randomEntropy(): Uint8Array {
   const entropy = new Uint8Array(32);
   crypto.getRandomValues(entropy);
@@ -60,8 +68,11 @@ export interface RegisterParams {
 
 /**
  * Generate a fresh random account with all attestation parameters.
+ *
+ * `signingContext` is the personhood signing context the People runtime
+ * expects the candidate signature in, or `null` for the plain message.
  */
-export function generateAttestationParams(): {
+export function generateAttestationParams(signingContext: Uint8Array | null): {
   credentials: AttestationCredentials;
   params: RegisterParams;
 } {
@@ -79,10 +90,11 @@ export function generateAttestationParams(): {
   // Attestation message: MSG_PREFIX || publicKey || ringVrfKey
   const message = mergeUint8([MSG_PREFIX, publicKey, ringVrfKey]);
 
-  // Candidate signature (sr25519)
-  const candidateSignature = keyPair.sign(message);
+  // Candidate signature (sr25519), in the signing context on newer runtimes
+  const candidateSignature = keyPair.sign(accountSigningPayload(message, signingContext));
 
-  // Bandersnatch proof of ownership — 64 or 96 bytes depending on network
+  // Bandersnatch proof of ownership — 64 or 96 bytes depending on network.
+  // Always over the plain message: only account signatures use the context.
   const proofOfOwnership = sign(verifiableEntropy, message);
 
   // Identifier key (65 bytes), RFC-0004 format: first byte 0x00, matching what the
@@ -129,11 +141,16 @@ export function generateAttestationParams(): {
 
 /**
  * Fetch the attester public key, sign consumer registration, then POST to register.
+ *
+ * `signingContext` is the personhood signing context the People runtime
+ * expects the consumer registration signature in, or `null` for the plain
+ * payload.
  */
 export async function signAndRegister(
   backendUrl: string,
   entropy: Uint8Array,
   params: RegisterParams,
+  signingContext: Uint8Array | null,
 ): Promise<{ username: string }> {
   // IBv2 issues its own token via the challenge flow, bound to the person's key;
   // IBv1 wants an HS256 token minted from the shared IB_JWT_SECRET.
@@ -172,7 +189,9 @@ export async function signAndRegister(
     new Uint8Array([0]), // Option::None (reserved_username)
   ]);
 
-  const consumerRegistrationSignature = keyPair.sign(consumerPayload);
+  const consumerRegistrationSignature = keyPair.sign(
+    accountSigningPayload(consumerPayload, signingContext),
+  );
   params.consumerRegistrationSignature = toHex(consumerRegistrationSignature);
 
   // POST to register

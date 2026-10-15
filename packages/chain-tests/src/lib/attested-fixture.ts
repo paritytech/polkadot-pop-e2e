@@ -25,7 +25,9 @@ import {
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { createPeopleClient } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
+import { signingContext, usesSigningContext } from "./individuality-compat.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
 
@@ -139,7 +141,14 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   console.log(`[attested-fixture] Network: ${network.name}`);
   console.log(`[attested-fixture] Identity backend: ${network.identityBackend}`);
 
-  const { credentials, params } = generateAttestationParams();
+  const people = createPeopleClient(network.people.ws);
+  const inContext = await usesSigningContext(people.client).finally(() =>
+    people.client.destroy(),
+  );
+  const context = inContext ? signingContext(network.networkSuffix ?? "paseo") : null;
+  console.log(`[attested-fixture] Account signatures in the signing context: ${inContext}`);
+
+  const { credentials, params } = generateAttestationParams(context);
   console.log(`[attested-fixture] Fresh account: ${credentials.address}`);
   console.log(`[attested-fixture] Username: ${params.username}`);
 
@@ -148,6 +157,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     network.identityBackend,
     credentials.entropy,
     params,
+    context,
   );
   console.log(
     `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,

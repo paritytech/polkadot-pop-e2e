@@ -39,11 +39,27 @@ function productContext(
   new DataView(suffix.buffer).setUint32(8, a, true);
   if (tail === "u32") new DataView(suffix.buffer).setUint32(12, b, true);
   else suffix[12] = b & 0xff;
-  const head = enc.encode(`product/peopl.${networkSuffix}/`);
+  return personhoodContext(networkSuffix, suffix);
+}
+
+/** blake2_256("product/peopl.<networkSuffix>/" ++ suffix32). */
+function personhoodContext(networkSuffix: string, suffix32: Uint8Array): Uint8Array {
+  const head = new TextEncoder().encode(`product/peopl.${networkSuffix}/`);
   const preimage = new Uint8Array(head.length + 32);
   preimage.set(head, 0);
-  preimage.set(suffix, head.length);
+  preimage.set(suffix32, head.length);
   return blake2b256(preimage);
+}
+
+/**
+ * The personhood signing context: the product context with the raw suffix
+ * "sig/" ++ 28 zero bytes. An account signs it followed by the message when it
+ * signs a non-transaction message for personhood (paritytech/individuality-community#105).
+ */
+export function signingContext(networkSuffix: string): Uint8Array {
+  const suffix = new Uint8Array(32);
+  suffix.set(new TextEncoder().encode("sig/"), 0);
+  return personhoodContext(networkSuffix, suffix);
 }
 
 export const pgasContextV012 = (networkSuffix: string, day: number, slot: number) =>
@@ -68,6 +84,23 @@ export async function usesProductContexts(client: PolkadotClient): Promise<boole
   if (name === "next-asset-hub-paseo") return spec >= 2_000_038;
   if (name === "next-people-paseo") return spec >= 1_000_035;
   return false;
+}
+
+/**
+ * Whether this People runtime accepts only account signatures over the
+ * personhood signing context followed by the message, for non-transaction
+ * messages (paritytech/individuality-community#105): the people-lite candidate
+ * and consumer registration signatures among them. Version-gated: live
+ * previewnet and paseo-next-v2 run 3004000 without the change, and every build
+ * stamped above it carries it once paritytech/individuality-community#196
+ * merges. Delete once the live networks run a release with the change.
+ */
+export async function usesSigningContext(client: PolkadotClient): Promise<boolean> {
+  const v = (await client.getUnsafeApi().apis.Core.version()) as {
+    spec_name: string;
+    spec_version: number;
+  };
+  return String(v.spec_name) === "next-people-paseo" && Number(v.spec_version) > 3_004_000;
 }
 
 export interface RingCommitmentRecord {
