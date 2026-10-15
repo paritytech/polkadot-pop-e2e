@@ -65,12 +65,13 @@ export async function claimStatementAllowance(
   const { alias_in_context } = verifiableFor();
   const targetKey = publicKeyOf(target);
   const slots = await peopleApi.view.Resources.get_lite_stmt_store_slots_per_period();
+  // Every slot is read: the target may hold one past the first free slot.
   let seq: number | undefined;
-  for (let s = 0; s < slots && seq === undefined; s++) {
+  for (let s = 0; s < slots; s++) {
     const alias = toHex(alias_in_context(entropy, contextFor(s)));
     const entry = await peopleApi.query.Resources.StatementStoreAllowances.getValue(periodKey(period), alias);
     if (entry && publicKeyOf(entry.account_id) === targetKey) return { period, seq: s, claimed: false };
-    if (!entry) seq = s;
+    if (!entry && seq === undefined) seq = s;
   }
   if (seq === undefined) throw new Error(`[stmt-allowance] all ${slots} slots of period ${period} are taken`);
 
