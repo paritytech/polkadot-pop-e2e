@@ -62,8 +62,13 @@ export async function productContextSuffix(client: PolkadotClient): Promise<stri
       | Uint8Array
       | undefined;
     return suffix?.length ? new TextDecoder().decode(suffix) : undefined;
-  } catch {
-    return undefined;
+  } catch (err) {
+    // Only a runtime without the pallet means legacy contexts; an RPC failure
+    // here would otherwise silently pick the wrong context and surface as BadProof.
+    if (err instanceof Error && /Runtime entry Storage\(.+\) not found/.test(err.message)) {
+      return undefined;
+    }
+    throw err;
   }
 }
 
