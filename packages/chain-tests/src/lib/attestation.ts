@@ -53,7 +53,6 @@ export function deriveKeyPair(entropy: Uint8Array) {
 export interface AttestationCredentials {
   address: string;
   publicKey: Uint8Array;
-  statementStoreSecret: Uint8Array;
   entropy: Uint8Array;
 }
 
@@ -116,14 +115,8 @@ export function generateAttestationParams(): {
   }
   const username = `etest${suffix}`;
 
-  // Must use the same derivation as the keyPair so the prover's signatures
-  // match what the chain has registered for this attested account. Host SDK
-  // stores `account.secret = createSr25519Secret(entropy, '//wallet//sso')`
-  // and passes it to `createSr25519Prover(ssSecret)`.
-  const statementStoreSecret = createSr25519Secret(entropy, LITE_PERSON_DERIVATION);
-
   return {
-    credentials: { address, publicKey, statementStoreSecret, entropy },
+    credentials: { address, publicKey, entropy },
     params: {
       candidateAccountId: address,
       username,

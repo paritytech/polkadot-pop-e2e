@@ -59,7 +59,6 @@ function parseAttested(path: string): AttestedCredentials | null {
       attested: true,
       address: raw.address,
       publicKey: Uint8Array.from(raw.publicKey),
-      statementStoreSecret: Uint8Array.from(raw.statementStoreSecret),
       entropy: Uint8Array.from(raw.entropy),
       username: raw.username,
     };
@@ -161,7 +160,6 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     attested: true,
     address: credentials.address,
     publicKey: credentials.publicKey,
-    statementStoreSecret: credentials.statementStoreSecret,
     entropy: credentials.entropy,
     username: result.username,
   };
@@ -171,7 +169,6 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     JSON.stringify({
       ...persisted,
       publicKey: Array.from(persisted.publicKey),
-      statementStoreSecret: Array.from(persisted.statementStoreSecret),
       entropy: Array.from(persisted.entropy),
     }),
   );
