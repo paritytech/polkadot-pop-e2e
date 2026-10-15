@@ -25,8 +25,8 @@
  * documented on `pallets/alias-accounts/src/lib.rs:is_revision_in_grace`.
  *
  * Fix: take a fresh People-finalized snapshot for every attempt, and
- * retry on any `InvalidTransaction::*` that mortality drift or ring
- * eviction can produce (BadProof, AncientBirthBlock, Future, Stale).
+ * retry on the `InvalidTransaction::*` variants ring eviction or replay
+ * checks can produce (BadProof, Future, Stale).
  */
 import { type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
@@ -56,8 +56,8 @@ const MAX_PROOF_ATTEMPTS = 3;
  *
  * Uses the cached ring-index from Ring Inclusion (stable for the
  * account's lifetime), but takes a FRESH People-finalized snapshot of
- * (members, revision) on every attempt. Retries on `BadProof` and the
- * mortality-related Invalid-tx variants up to 3 times.
+ * (members, revision) on every attempt. Retries on the Invalid-tx variants
+ * `isRetryableInvalidTx` accepts, up to 3 times.
  */
 export async function claimLongTermStorage(
   peopleApi: PeopleApi,

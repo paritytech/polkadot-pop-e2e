@@ -26,7 +26,7 @@ export const PEOPLE_CLAIM_EXTENSIONS = {
  */
 export function isRetryableInvalidTx(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /BadProof|AncientBirthBlock|Future|Stale/i.test(msg);
+  return /BadProof|Future|Stale/i.test(msg);
 }
 
 /** Submits a claim and resolves once it is finalized. */
