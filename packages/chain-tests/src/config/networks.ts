@@ -73,8 +73,8 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },
     people: { ws: "wss://previewnet.substrate.dev/people" },
     bulletin: { ws: "wss://previewnet.substrate.dev/bulletin" },
-    // device-uniqueness-backend (the new IB) — challenge→token auth.
-    identityBackend: "https://previewnet.substrate.dev/dub",
+    // The backend truapi-host's previewnet preset registers against.
+    identityBackend: "https://identity-previewnet.dotspark.app",
     identityBackendAuth: "challenge",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
