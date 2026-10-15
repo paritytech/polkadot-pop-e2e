@@ -340,10 +340,12 @@ jobs:
           if [ -n "$base_ref" ]; then
             git fetch --depth=1 origin "$base_ref"
             changed=$(git diff --name-only "origin/$base_ref" HEAD -- 'environments/networks/*.json')
-            # A PR that touches no manifest still gates the default set.
-            if [ -z "$changed" ]; then
-              for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do changed="$changed environments/networks/$net.json"; done
-            fi
+            # Every default network is gated too, unchanged ones steady-state, so
+            # each required `gate (<network> · target)` check reports.
+            for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do
+              m="environments/networks/$net.json"
+              echo "$changed" | grep -qxF "$m" || changed="$changed"$'\n'"$m"
+            done
             for c in $changed; do
               [ -f "$c" ] || continue  # manifest deleted in this PR
               # Engine-blocked networks stay out of PR runs; dispatch/issue can
