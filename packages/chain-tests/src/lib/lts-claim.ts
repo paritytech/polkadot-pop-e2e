@@ -28,18 +28,12 @@
  * retry on any `InvalidTransaction::*` that mortality drift or ring
  * eviction can produce (BadProof, AncientBirthBlock, Future, Stale).
  */
-import { Binary, type PolkadotClient } from "polkadot-api";
+import { type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { asResources, createClaimSigner } from "./claim-signer.js";
 import { isRetryableInvalidTx, submitPeopleClaim } from "./people-claim.js";
 import type { PeopleApi } from "./client.js";
-import {
-  encodeMembers,
-  fetchRingMembers,
-  ringExponent,
-  LITE_PEOPLE_IDENTIFIER,
-  waitForInclusion,
-} from "./ring.js";
+import { ringExponent, takeRingSnapshot, waitForInclusion } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
 import { longTermStorageContextV012, productContextSuffix } from "./individuality-compat.js";
 import {
@@ -56,29 +50,6 @@ export interface LtsClaimResult {
 }
 
 const MAX_PROOF_ATTEMPTS = 3;
-
-interface Snapshot {
-  at: `0x${string}`;
-  ringIndex: number;
-  revisionIndex: number;
-  encodedMembers: Uint8Array;
-  memberCount: number;
-}
-
-async function takeSnapshot(
-  peopleApi: PeopleApi,
-  peopleClient: PolkadotClient,
-  ringIndex: number,
-): Promise<Snapshot> {
-  const fin = await peopleClient.getFinalizedBlock();
-  const at = fin.hash as `0x${string}`;
-  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
-  const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
-  const revisionIndex = root?.revision ?? 0;
-  const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-  const encodedMembers = encodeMembers(memberKeys);
-  return { at, ringIndex, revisionIndex, encodedMembers, memberCount: memberKeys.length };
-}
 
 /**
  * Submit a long-term-storage allowance claim for `creds.address`.
@@ -120,7 +91,7 @@ export async function claimLongTermStorage(
   const exponent = await ringExponent(peopleApi, "LitePeople");
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
-    const snap = await takeSnapshot(peopleApi, peopleClient, ringIndex);
+    const snap = await takeRingSnapshot(peopleApi, peopleClient, ringIndex);
     console.log(
       `[lts-claim] attempt=${attempt} period=${period} counter=${counter} ` +
         `ring=${snap.ringIndex} rev=${snap.revisionIndex} members=${snap.memberCount} ` +

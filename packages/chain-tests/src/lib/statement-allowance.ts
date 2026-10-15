@@ -5,7 +5,7 @@
  * ring-VRF proof bound to that slot's context. The target is a separate
  * per-product key, which then signs the statements.
  */
-import { Binary, getSs58AddressInfo, type PolkadotClient, type SS58String } from "polkadot-api";
+import { getSs58AddressInfo, type PolkadotClient, type SS58String } from "polkadot-api";
 import { toHex } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { asResources, createClaimSigner } from "./claim-signer.js";
@@ -13,13 +13,7 @@ import type { PeopleApi } from "./client.js";
 import { productContextSuffix, stmtStoreContextV012 } from "./individuality-compat.js";
 import { stmtStoreContext, dayFromTimestamp } from "./allowances.js";
 import { isRetryableInvalidTx, submitPeopleClaim } from "./people-claim.js";
-import {
-  encodeMembers,
-  fetchRingMembers,
-  LITE_PEOPLE_IDENTIFIER,
-  ringExponent,
-  waitForInclusion,
-} from "./ring.js";
+import { ringExponent, takeRingSnapshot, waitForInclusion } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
 import { verifiableFor } from "./verifiable-loader.js";
 import type { AttestedCredentials } from "./credentials.js";
@@ -77,23 +71,22 @@ export async function claimStatementAllowance(
 
   const context = contextFor(seq);
   const exponent = await ringExponent(peopleApi, "LitePeople");
-  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
-    const at = (await peopleClient.getFinalizedBlock()).hash;
-    const revision = (await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at }))?.revision ?? 0;
-    const members = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-    console.log(`[stmt-allowance] attempt=${attempt} period=${period} seq=${seq} ring=${ringIndex} rev=${revision}`);
+    const snap = await takeRingSnapshot(peopleApi, peopleClient, ringIndex);
+    console.log(
+      `[stmt-allowance] attempt=${attempt} period=${period} seq=${seq} ring=${ringIndex} rev=${snap.revisionIndex}`,
+    );
 
     const signer = createClaimSigner({
       extensionName: "AsResources",
       context,
       verifiableEntropy: entropy,
-      encodedMembers: encodeMembers(members),
+      encodedMembers: snap.encodedMembers,
       ringExponent: exponent,
       extensionValue: asResources("RegisterStatementStoreAllowance", {
         ringIndex,
-        revision,
+        revision: snap.revisionIndex,
         collection: "LitePeople",
       }),
     });

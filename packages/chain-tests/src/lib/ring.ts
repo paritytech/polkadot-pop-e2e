@@ -110,6 +110,36 @@ export async function ringExponent(peopleApi: PeopleApi, collection: Collection)
   return exponent;
 }
 
+export interface RingSnapshot {
+  at: `0x${string}`;
+  ringIndex: number;
+  revisionIndex: number;
+  encodedMembers: Uint8Array;
+  memberCount: number;
+}
+
+/**
+ * The LitePeople ring's revision and included members, both read at the
+ * latest finalized block so a proof built from them matches one root.
+ */
+export async function takeRingSnapshot(
+  peopleApi: PeopleApi,
+  peopleClient: PolkadotClient,
+  ringIndex: number,
+): Promise<RingSnapshot> {
+  const at = (await peopleClient.getFinalizedBlock()).hash as `0x${string}`;
+  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
+  const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
+  const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
+  return {
+    at,
+    ringIndex,
+    revisionIndex: root?.revision ?? 0,
+    encodedMembers: encodeMembers(memberKeys),
+    memberCount: memberKeys.length,
+  };
+}
+
 /**
  * Helper used by the chain side to convert a raw timestamp (seconds) into
  * the daily period number used by stmt-store and PGAS contexts.
