@@ -96,9 +96,7 @@ export function generateAttestationParams(): {
   // Identifier key (65 bytes), RFC-0004 format: first byte 0x00, matching what the
   // host SDK emits today. NOT the legacy 0x04 SEC1-style prefix — IBv2's
   // username-indexer registers, attests and indexes those fine but excludes them
-  // from search results (`get_byte(identifier_key, 0) = 0` is the visibility
-  // filter), which fails the assigned-signal poll with a maximally confusing
-  // "on-chain but never searchable" symptom. Caught live by the release gate.
+  // from search results (`get_byte(identifier_key, 0) = 0` is the visibility filter).
   const identifierKeyEntropy = blake2b256(new Uint8Array([...entropy, 0x01]));
   const identifierSecret = createSr25519Secret(identifierKeyEntropy);
   const identifierPub = deriveSr25519PublicKey(identifierSecret);

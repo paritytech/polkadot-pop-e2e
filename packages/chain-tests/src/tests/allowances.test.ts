@@ -8,7 +8,7 @@
  *
  * NOTE: The Statement Store and LongTermStorage allowance claims used
  * to live here too. They are now exercised implicitly by:
- *   - statement.test.ts (StmtStore — daemon-granted on attestation)
+ *   - statement.test.ts (StmtStore — claimed for the product key that then publishes)
  *   - storage.test.ts (LTS — claimed in beforeAll, then upload tests it)
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
