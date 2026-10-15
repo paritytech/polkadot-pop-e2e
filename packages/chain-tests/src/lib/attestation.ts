@@ -254,6 +254,25 @@ export async function fetchUsernameStatus(
   return entries.find((e) => e.username?.startsWith(username)) ?? null;
 }
 
+/**
+ * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection, which hosts
+ * use to find people by username.
+ */
+export async function searchUsername(
+  backendUrl: string,
+  username: string,
+): Promise<{ username: string; accountId: string } | null> {
+  const res = await fetch(
+    `${backendUrl}/api/v1/usernames/search?prefix=${encodeURIComponent(username)}`,
+    { signal: AbortSignal.timeout(8_000) },
+  );
+  if (!res.ok) return null;
+  const body = (await res.json()) as {
+    usernames?: Array<{ username: string; accountId: string }>;
+  };
+  return body.usernames?.find((u) => u.username === username) ?? null;
+}
+
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
   const bytes = new Uint8Array(clean.length / 2);

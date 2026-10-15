@@ -21,6 +21,7 @@ import { resolve } from "node:path";
 import {
   fetchUsernameStatus,
   generateAttestationParams,
+  searchUsername,
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
@@ -192,28 +193,40 @@ async function assetHubNowSecs(ws: string): Promise<bigint> {
  * up as the IB-health signal.
  */
 async function waitForAssigned(backendUrl: string, username: string, address: string): Promise<void> {
-  // IBv2 exposes no status field. Like hosts, wait for the username on chain:
-  // the backend's search can list it before the registration is finalized.
+  // IBv2 exposes no status field. Done means on chain, as hosts check, and
+  // in the backend's search, which can list it before finalization.
   if (getNetworkConfig().identityBackendAuth === "challenge") {
     const { client, api } = createPeopleClient(getNetworkConfig().people.ws);
     const start = Date.now();
     let polls = 0;
+    let onChain = false;
+    let searchable = false;
     try {
       while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
         polls++;
-        const found = await lookupUsername({ individuality: api }, { account: address });
-        if (found.ok && found.value?.liteUsername === username) {
-          console.log(`[attested-fixture] on chain in ${Date.now() - start}ms (${polls} polls)`);
-          return;
+        if (!onChain) {
+          const found = await lookupUsername({ individuality: api }, { account: address });
+          if (!found.ok) console.log(`[attested-fixture] chain poll error: ${found.error.message}`);
+          onChain = found.ok && found.value?.liteUsername === username;
+          if (onChain) console.log(`[attested-fixture] on chain in ${Date.now() - start}ms`);
         }
-        if (!found.ok) console.log(`[attested-fixture] poll error: ${found.error.message}`);
+        if (!searchable) {
+          try {
+            searchable = (await searchUsername(backendUrl, username)) !== null;
+            if (searchable) console.log(`[attested-fixture] searchable in ${Date.now() - start}ms`);
+          } catch (e: any) {
+            console.log(`[attested-fixture] search poll error: ${e.message}`);
+          }
+        }
+        if (onChain && searchable) return;
         await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
       }
     } finally {
       client.destroy();
     }
+    const missing = [!onChain && "Resources.Consumers", !searchable && "the backend's search"].filter(Boolean);
     throw new Error(
-      `[attested-fixture] ${username} never reached Resources.Consumers within ` +
+      `[attested-fixture] ${username} never reached ${missing.join(" or ")} within ` +
         `${V2_INDEXED_TIMEOUT_MS / 1000}s (${polls} polls) — check identity-chain-writer's log`,
     );
   }
