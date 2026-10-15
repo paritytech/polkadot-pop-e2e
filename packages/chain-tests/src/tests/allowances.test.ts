@@ -109,9 +109,16 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         console.log(`[pgas] truapi-host pgas-check (${claim + 1}/${slotsToClaim}):\n${output.trim()}`);
       }
 
-      const balanceAfter =
-        (await assetHubApi.query.Assets.Account.getValue(PGAS_ASSET_ID, address))?.balance ??
-        0n;
+      // truapi-host returns once the claims are in a block; the balance is read
+      // at finalized, so wait for it to catch up.
+      const pgasBalance = async () =>
+        (await assetHubApi.query.Assets.Account.getValue(PGAS_ASSET_ID, address))?.balance ?? 0n;
+      let balanceAfter = await pgasBalance();
+      for (const deadline = Date.now() + 120_000; Date.now() < deadline; ) {
+        if (balanceAfter - balanceBefore >= expectedMinMinted) break;
+        await new Promise((r) => setTimeout(r, 6_000));
+        balanceAfter = await pgasBalance();
+      }
       const minted = balanceAfter - balanceBefore;
       console.log(
         `[pgas] balance: ${balanceBefore} → ${balanceAfter} (+${minted}, expected ≥${expectedMinMinted})`,
@@ -120,13 +127,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // run shouldn't fail health. We just need enough to spend.
       expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // Setup ≈ 90–180 s (waitForInclusion + ring stability + AH ring sync).
-    // Per claim attempt ≈ 30 s for finalization. With up to 3 retries to
-    // absorb the AH-window eviction race (see waitForAssetHubRing doc),
-    // worst case = 180 s setup + 3 × (snapshot ~10 s + claim ~30 s) ≈ 300 s.
-    // chain-health and ring-builder probes upstream of this test will have
-    // already shed runs against a chain that's actually broken; a hang past
-    // 300 s here is a real signal, not just slow XCM.
+    // Each truapi-host claim waits for Asset Hub to import the ring revision
+    // (up to ~2 min), then the finalized balance wait adds up to 2 min.
     300_000,
   );
 
