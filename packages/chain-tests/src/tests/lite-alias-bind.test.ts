@@ -22,7 +22,13 @@ import { createPeopleClient, type PeopleApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
-import { encodeMembers, fetchRingMembers, LITE_PEOPLE_IDENTIFIER, waitForInclusion } from "../lib/ring.js";
+import {
+  encodeMembers,
+  fetchRingMembers,
+  LITE_PEOPLE_IDENTIFIER,
+  ringExponent,
+  waitForInclusion,
+} from "../lib/ring.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
 import { getNetworkConfig } from "../config/networks.js";
 
@@ -50,6 +56,7 @@ describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
       const { ringIndex } =
         getCachedRingLocation() ??
         (await waitForInclusion(peopleApi, "LitePeople", entropy, { peopleClient }));
+      const exponent = await ringExponent(peopleApi, "LitePeople");
       return async (message) => {
         const at = (await peopleClient.getFinalizedBlock()).hash;
         const root = await peopleApi.query.Members.Root.getValue(
@@ -58,7 +65,7 @@ describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
           { at },
         );
         const members = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-        const { proof, alias } = verifiableFor().one_shot(entropy, encodeMembers(members), context, message);
+        const { proof, alias } = verifiableFor().one_shot(exponent, entropy, encodeMembers(members), context, message);
         return {
           proof,
           contextualAlias: { context, alias },

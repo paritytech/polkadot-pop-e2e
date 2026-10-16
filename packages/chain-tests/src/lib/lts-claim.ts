@@ -25,25 +25,17 @@
  * documented on `pallets/alias-accounts/src/lib.rs:is_revision_in_grace`.
  *
  * Fix: take a fresh People-finalized snapshot for every attempt, and
- * retry on any `InvalidTransaction::*` that mortality drift or ring
- * eviction can produce (BadProof, AncientBirthBlock, Future, Stale).
+ * retry on the `InvalidTransaction::*` variants ring eviction or replay
+ * checks can produce (BadProof, Future, Stale).
  */
-import { Binary, type PolkadotClient } from "polkadot-api";
+import { type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import {
-  createClaimSigner,
-  encodeClaimLongTermStorage,
-} from "./claim-signer.js";
+import { asResources, createClaimSigner } from "./claim-signer.js";
+import { isRetryableInvalidTx, submitPeopleClaim } from "./people-claim.js";
 import type { PeopleApi } from "./client.js";
-import {
-  encodeMembers,
-  fetchRingMembers,
-  LITE_PEOPLE_IDENTIFIER,
-  waitForInclusion,
-} from "./ring.js";
+import { ringExponent, takeRingSnapshot, waitForInclusion } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
-import { longTermStorageContextV012, usesProductContexts } from "./individuality-compat.js";
-import { getNetworkConfig } from "../config/networks.js";
+import { longTermStorageContextV012, productContextSuffix } from "./individuality-compat.js";
 import {
   longTermStorageContext,
   longTermStoragePeriodFromTimestamp,
@@ -60,52 +52,12 @@ export interface LtsClaimResult {
 const MAX_PROOF_ATTEMPTS = 3;
 
 /**
- * Match the Invalid-tx variants that *we know* can be transient on this
- * chain shape — anything else escapes the retry loop so a real bug
- * surfaces loud instead of being papered over.
- *
- *   - `BadProof` — AsResources extension's ring-proof validate failed,
- *     almost always because our snapshot's revision is past grace.
- *   - `AncientBirthBlock` / `Future` — mortality era anchor is no
- *     longer valid (re-org, slow tx propagation, big clock skew).
- *   - `Stale` — nonce / replay defence; refreshing the snapshot picks
- *     up the new nonce.
- */
-function isRetryableInvalidTx(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /BadProof|AncientBirthBlock|Future|Stale/i.test(msg);
-}
-
-interface Snapshot {
-  at: `0x${string}`;
-  ringIndex: number;
-  revisionIndex: number;
-  encodedMembers: Uint8Array;
-  memberCount: number;
-}
-
-async function takeSnapshot(
-  peopleApi: PeopleApi,
-  peopleClient: PolkadotClient,
-  ringIndex: number,
-): Promise<Snapshot> {
-  const fin = await peopleClient.getFinalizedBlock();
-  const at = fin.hash as `0x${string}`;
-  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
-  const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
-  const revisionIndex = root?.revision ?? 0;
-  const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-  const encodedMembers = encodeMembers(memberKeys);
-  return { at, ringIndex, revisionIndex, encodedMembers, memberCount: memberKeys.length };
-}
-
-/**
  * Submit a long-term-storage allowance claim for `creds.address`.
  *
  * Uses the cached ring-index from Ring Inclusion (stable for the
  * account's lifetime), but takes a FRESH People-finalized snapshot of
- * (members, revision) on every attempt. Retries on `BadProof` and the
- * mortality-related Invalid-tx variants up to 3 times.
+ * (members, revision) on every attempt. Retries on the Invalid-tx variants
+ * `isRetryableInvalidTx` accepts, up to 3 times.
  */
 export async function claimLongTermStorage(
   peopleApi: PeopleApi,
@@ -131,13 +83,15 @@ export async function claimLongTermStorage(
     Math.floor(Date.now() / 1000),
     periodDurationSecs,
   );
-  const context = (await usesProductContexts(peopleClient))
-    ? longTermStorageContextV012(getNetworkConfig().networkSuffix ?? "paseo", period, counter)
+  const suffix = await productContextSuffix(peopleClient);
+  const context = suffix
+    ? longTermStorageContextV012(suffix, period, counter)
     : longTermStorageContext(period, counter);
 
+  const exponent = await ringExponent(peopleApi, "LitePeople");
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
-    const snap = await takeSnapshot(peopleApi, peopleClient, ringIndex);
+    const snap = await takeRingSnapshot(peopleApi, peopleClient, ringIndex);
     console.log(
       `[lts-claim] attempt=${attempt} period=${period} counter=${counter} ` +
         `ring=${snap.ringIndex} rev=${snap.revisionIndex} members=${snap.memberCount} ` +
@@ -149,13 +103,12 @@ export async function claimLongTermStorage(
       context,
       verifiableEntropy,
       encodedMembers: snap.encodedMembers,
-      encodeExtensionValue: (proof) =>
-        encodeClaimLongTermStorage({
-          proof,
-          ringIndex: snap.ringIndex,
-          revisionIndex: snap.revisionIndex,
-          litePeople: true,
-        }),
+      ringExponent: exponent,
+      extensionValue: asResources("ClaimLongTermStorage", {
+        ringIndex: snap.ringIndex,
+        revision: snap.revisionIndex,
+        collection: "LitePeople",
+      }),
     });
 
     const tx = peopleApi.tx.Resources.claim_long_term_storage({
@@ -164,35 +117,8 @@ export async function claimLongTermStorage(
       account_id: creds.address,
     });
 
-    // Passthrough values for the People chain's metadata-visible extensions;
-    // the signer overrides AsResources with the proof-bearing payload.
-    const customSignedExtensions = {
-      VerifyMultiSignature: { value: { type: "Disabled" as const, value: undefined } },
-      AsPerson: { value: undefined },
-      AsProofOfInkParticipant: { value: undefined },
-      ScoreAsParticipant: { value: undefined },
-      GameAsInvited: { value: undefined },
-      PeopleLiteAuth: { value: undefined },
-      AsMember: { value: undefined },
-      AsCoinage: { value: undefined },
-      AsResources: { value: undefined },
-      RestrictOrigins: { value: false },
-    };
-
     try {
-      const result = await tx.createSubmitAndWatch(signer, { customSignedExtensions });
-      const finalized = await new Promise<{ ok: boolean; block?: number }>((resolve, reject) => {
-        let lastBlock: number | undefined;
-        result.subscribe({
-          next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
-            if (e.block) lastBlock = e.block.number;
-            if (e.type === "finalized") {
-              resolve({ ok: !!e.ok, block: lastBlock });
-            }
-          },
-          error: reject,
-        });
-      });
+      const finalized = await submitPeopleClaim(tx, signer);
       console.log(
         `[lts-claim] attempt=${attempt} ok=${finalized.ok} block=#${finalized.block ?? "?"} ` +
           `rev=${snap.revisionIndex}`,

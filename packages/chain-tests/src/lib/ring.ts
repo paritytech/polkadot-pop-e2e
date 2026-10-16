@@ -1,7 +1,6 @@
 /**
- * Fetch ring members for a given collection from the People chain
- * (`Members.Members` storage) and generate a ring-VRF proof bound to a
- * context and a message hash via `verifiablejs.one_shot`.
+ * Ring reads from the People chain: members, the ring size and inclusion,
+ * which callers feed to `verifiablejs.one_shot` for ring-VRF proofs.
  *
  * Ring-VRF proofs are anonymous within the ring: the proof reveals only
  * an alias, derived deterministically from `(verifiable_entropy, context)`.
@@ -9,7 +8,6 @@
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { verifiableFor } from "./verifiable-loader.js";
-import { toHex } from "@polkadot-api/utils";
 import type { PeopleApi } from "./client.js";
 
 // SCALE-Vec of u8 prefix length (compact) — we encode members manually as
@@ -101,60 +99,45 @@ export function encodeMembers(members: Uint8Array[]): Uint8Array {
   return total;
 }
 
-export interface RingVrfProof {
-  /** 788-byte ring-VRF proof. */
-  proof: Uint8Array;
-  /** 32-byte alias derived deterministically from `(verifiable_entropy, context)`. */
-  alias: Uint8Array;
+/**
+ * The collection's ring size exponent from `Members.Collections[id].ring_size`
+ * (`R2e9` -> 9), which ring-VRF proofs must be built for.
+ */
+export async function ringExponent(peopleApi: PeopleApi, collection: Collection): Promise<number> {
+  const info = await peopleApi.query.Members.Collections.getValue(Binary.toHex(identifierFor(collection)));
+  const exponent = Number(/^R2e(\d+)$/.exec(String(info?.ring_size.type))?.[1]);
+  if (!exponent) throw new Error(`No ring size for ${collection}: ${JSON.stringify(info?.ring_size)}`);
+  return exponent;
+}
+
+export interface RingSnapshot {
+  at: `0x${string}`;
+  ringIndex: number;
+  revisionIndex: number;
+  encodedMembers: Uint8Array;
+  memberCount: number;
 }
 
 /**
- * Generate a ring-VRF proof bound to `context` and `message` for the given
- * collection. Fetches ring members from `peopleApi` (the proof-generation
- * algorithm needs the full ring; verification on chain uses the stored root).
+ * The LitePeople ring's revision and included members, both read at the
+ * latest finalized block so a proof built from them matches one root.
  */
-export async function generateRingVrfProof(
+export async function takeRingSnapshot(
   peopleApi: PeopleApi,
-  collection: Collection,
-  verifiableEntropy: Uint8Array,
-  context: Uint8Array,
-  message: Uint8Array,
-): Promise<RingVrfProof> {
-  if (context.length !== 32) {
-    throw new Error(`context must be 32 bytes, got ${context.length}`);
-  }
-  if (message.length !== 32) {
-    throw new Error(`message must be 32 bytes (blake2_256), got ${message.length}`);
-  }
-  const { member_from_entropy, one_shot } = verifiableFor();
-  const memberKeys = await fetchRingMembers(peopleApi, collection, 0);
-  if (memberKeys.length === 0) {
-    throw new Error(
-      `No ${collection} members found in Members.Members — ring not built yet`,
-    );
-  }
-  // Sanity-check: our own member key must be in the Included set, otherwise
-  // the proof cannot verify against the ring root.
-  const ownKey = member_from_entropy(verifiableEntropy);
-  const ownHex = toHex(ownKey);
-  const found = memberKeys.some((m) => toHex(m) === ownHex);
-  if (!found) {
-    throw new Error(
-      `Lite-person member key ${ownHex.slice(0, 18)}… not in Included ring (${memberKeys.length} included). ` +
-        `Attestation is likely still in Onboarding state — wait for the ring rebuild.`,
-    );
-  }
-  const encodedMembers = encodeMembers(memberKeys);
-  const result = one_shot(verifiableEntropy, encodedMembers, context, message);
-  // Proof length: 788 pre-ThinVRF (v0.6.5), 787 post-ThinVRF (v0.7.0+).
-  // Keeping the assertion as a regression guard against silent verifiablejs
-  // misalignment — drop the alternation once every network is on v0.7.0+.
-  if (result.proof.length !== 788 && result.proof.length !== 787) {
-    throw new Error(
-      `Unexpected proof length: ${result.proof.length} (expected 787 or 788)`,
-    );
-  }
-  return { proof: result.proof, alias: result.alias };
+  peopleClient: PolkadotClient,
+  ringIndex: number,
+): Promise<RingSnapshot> {
+  const at = (await peopleClient.getFinalizedBlock()).hash as `0x${string}`;
+  const idHex = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
+  const root = await peopleApi.query.Members.Root.getValue(idHex, ringIndex, { at });
+  const memberKeys = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
+  return {
+    at,
+    ringIndex,
+    revisionIndex: root?.revision ?? 0,
+    encodedMembers: encodeMembers(memberKeys),
+    memberCount: memberKeys.length,
+  };
 }
 
 /**
