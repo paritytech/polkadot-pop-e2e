@@ -2,7 +2,7 @@
 # Checks every chain node really got CPU cores of its own.
 #
 # Usage: check-cores.sh
-# Needs: NAMESPACE (set in the workflow), and the network already running
+# Needs: NAMESPACE, and the network started by start-network.sh
 #
 # K3s does not complain when it cannot give a pod its own cores: it quietly
 # puts the pod on the shared CPUs, and the network still runs. This script
@@ -14,7 +14,7 @@
 # fails.
 set -euo pipefail
 
-here=$(dirname "$0")
+work=${RUNNER_TEMP:-/tmp}/k3s-network
 
 # K3s writes down which cores it gave to which pod in this file. It is only
 # readable by root, hence sudo. Shape:
@@ -31,8 +31,9 @@ expand() {
   done | tr '\n' ' '
 }
 
-# The node names, read from network.toml so the two never disagree.
-nodes=$(sed -n 's/^name = "\(.*\)"$/\1/p' "$here/network.toml")
+# The node names, read from the network.toml start-network.sh used, so the two
+# never disagree.
+nodes=$(sed -n 's/^name = "\(.*\)"$/\1/p' "$work/network.toml")
 
 shared=" $(expand "$(jq -r .defaultCpuSet <<<"$state")") "
 declare -A owner   # core -> the node that has it
@@ -52,6 +53,11 @@ for node in $nodes; do
   cores=$(expand "$given")
 
   echo "| $node | $asked | ${given:-none} |" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  if [ -z "$asked" ]; then
+    errors+=("$node sets no CPU limit in network.toml, so it cannot get cores of its own")
+    continue
+  fi
 
   if [ -z "$given" ]; then
     errors+=("$node has no cores of its own")

@@ -1,0 +1,18 @@
+name: Collect K3s network logs
+description: >-
+  Gathers every pod's log, the pod list and zombie-cli's output from a network
+  started by ../ (k3s-network) into a directory, for upload as an artifact.
+  Run it with `if: always()`; it never fails the job.
+
+inputs:
+  path:
+    description: Directory to write the logs to
+    default: logs
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        LOG_DIR: ${{ inputs.path }}
+      run: ${{ github.action_path }}/../collect-logs.sh "$LOG_DIR"

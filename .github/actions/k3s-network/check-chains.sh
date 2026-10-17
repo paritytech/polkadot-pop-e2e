@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Checks the relay and every parachain keep finalizing blocks.
 #
-# Usage: check-chains.sh [minutes]   (how long to watch, default 10)
-# Needs: NAMESPACE (set in the workflow)
+# Usage: check-chains.sh <minutes> <pod>...
+#   minutes  how long to watch once every chain has finalized a block;
+#            0 only waits for that first block
+#   pod      one node per chain to ask, e.g. alice asset-hub-collator
+# Needs: NAMESPACE
 #
 # Fails if any chain never finalizes a block, or stops finalizing while we
 # watch. Writes a "blocks finalized" table to the GitHub run summary.
 set -euo pipefail
 
-minutes=${1:-10}
-
-# One pod per chain we ask: the relay validator alice, and each collator.
-chains="alice asset-hub-collator people-collator coretime-collator"
+minutes=$1
+shift
+chains="$*"
 
 # rpc POD METHOD PARAMS
 # Calls a JSON-RPC method on a node. K3s pod IPs can be reached straight from
@@ -51,6 +53,11 @@ for chain in $chains; do
     exit 1
   fi
 done
+
+if [ "$minutes" -eq 0 ]; then
+  echo "every chain is finalizing"
+  exit 0
+fi
 
 # 2. Note where each chain is now, watch for a while, then compare.
 declare -A start
