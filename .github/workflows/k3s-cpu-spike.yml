@@ -1,0 +1,57 @@
+name: K3s CPU isolation spike
+
+# Runs a relay + collator network on parity-large with each node on its own CPU
+# cores, using the k3s-network action. Sizing per node lives in
+# .github/k3s/network.toml; the action itself in .github/actions/k3s-network.
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: "How long to watch the chains once they finalize"
+        default: "10"
+  pull_request:
+    paths:
+      - .github/workflows/k3s-cpu-spike.yml
+      - .github/actions/k3s-network/**
+      - .github/k3s/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    # Self-hosted runner, so never for a PR from a fork.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: parity-large
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the network on dedicated cores
+        uses: ./.github/actions/k3s-network
+        env:
+          POLKADOT_IMAGE: docker.io/parity/polkadot:latest
+          CUMULUS_IMAGE: docker.io/parity/polkadot-parachain:latest
+        with:
+          network: .github/k3s/network.toml
+          namespace: zombie-pop-spike
+          chains: alice asset-hub-collator people-collator coretime-collator
+          soak-minutes: ${{ inputs.soak_minutes || '10' }}
+
+      - name: Collect logs
+        if: always()
+        uses: ./.github/actions/k3s-network/collect-logs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k3s-cpu-spike-logs
+          path: logs
+          retention-days: 7
