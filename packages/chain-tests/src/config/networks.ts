@@ -1,5 +1,3 @@
-import type { Address } from "viem";
-
 /** Per-network capability flags — drives test gating. */
 export interface NetworkFeatures {
   /** `pallet-resources` allowance flow (StmtStore + LongTermStorage claims). */
@@ -14,6 +12,8 @@ export interface NetworkFeatures {
    * Check with `hop_poolStatus` over WS before flipping this on.
    */
   hop: boolean;
+  /** DotNS is deployed at the addresses product-sdk pins. */
+  dotns: boolean;
 }
 
 export interface NetworkConfig {
@@ -31,10 +31,6 @@ export interface NetworkConfig {
      */
     hopWs?: string;
   };
-  contracts: {
-    dotnsRegistry: Address;
-    dotnsContentResolver: Address;
-  } | null;
   identityBackend: string | null;
   /**
    * How identity-backend writes authenticate. Absent = legacy IBv1: HS256 over the
@@ -43,17 +39,10 @@ export interface NetworkConfig {
    * challenge→token flow, signed with the person's own key — no shared secret.
    */
   identityBackendAuth?: "challenge";
-  /**
-   * The runtime's NetworkSuffix param — the network half of individuality
-   * v0.12's hashed product contexts ("product/peopl.<suffix>/…"). "test" on
-   * previewnet, "paseo" on pnv2. Irrelevant on pre-v0.12 runtimes.
-   */
-  networkSuffix?: string;
   ipfsGateway: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
-  // the `TEST_MNEMONIC` env. Useful on dev testnets like previewnet
-  // where `//Alice` is pre-funded.
+  // the `TEST_MNEMONIC` env. Used on local forks, where `//Alice` is funded.
   testAccountUri?: string;
 }
 
@@ -73,29 +62,22 @@ export const NETWORKS: Record<string, NetworkConfig> = {
       ws: "wss://paseo-bulletin-next-rpc.polkadot.io",
       hopWs: "wss://paseo-hop-next-0.polkadot.io",
     },
-    contracts: null,
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://identity.dotspark.app",
     identityBackendAuth: "challenge",
-    networkSuffix: "paseo",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, hop: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true },
   },
   previewnet: {
     name: "Previewnet",
     assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },
     people: { ws: "wss://previewnet.substrate.dev/people" },
     bulletin: { ws: "wss://previewnet.substrate.dev/bulletin" },
-    contracts: null,
     // device-uniqueness-backend (the new IB) — challenge→token auth.
-    identityBackend: "https://identity-previewnet.dotspark.app",
+    identityBackend: "https://previewnet.substrate.dev/dub",
     identityBackendAuth: "challenge",
-    networkSuffix: "testnet",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
-    features: { resources: true, pgas: true, hop: true },
-    // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
-    // need a TEST_MNEMONIC secret to drive funded ops.
-    testAccountUri: "//Alice",
+    features: { resources: true, pgas: true, hop: true, dotns: true },
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
@@ -108,10 +90,9 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
     people: { ws: "wss://people-paseo.rotko.net" },
     bulletin: { ws: "wss://bulletin-paseo.tservices.es:8443" },
-    contracts: null,
     identityBackend: null,
     ipfsGateway: "https://devnet-ipfs.api.polkadotcommunity.foundation/ipfs",
-    features: { resources: false, pgas: false, hop: false },
+    features: { resources: false, pgas: false, hop: false, dotns: false },
   },
 };
 
@@ -144,8 +125,7 @@ function localForkConfig(baseName: string): NetworkConfig {
     bulletin: { ws: process.env.FORK_BULLETIN_WS ?? "ws://127.0.0.1:10030" },
     // The engine runs identity-backend-rust (IBv2) locally — even when the base
     // network's deployment is IBv1. FORK_IDENTITY_BACKEND=none says this network's
-    // fork spawns NO identity backend at all (pnv2/devnet forks run only eth-rpc
-    // beside the chains) — attestation-dependent tests then skip.
+    // fork spawns NO identity backend at all — attestation-dependent tests then skip.
     identityBackend:
       base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
         ? (process.env.FORK_IDENTITY_BACKEND ?? "http://127.0.0.1:8092")

@@ -1,64 +1,31 @@
 /**
- * Custom PolkadotSigners that submit v5 general transactions whose target
- * extension binds to the live. The signer:
- *
- *   1. Picks the extension version whose pipeline carries the target
- *      extension (0 on legacy runtimes, 1 on runtimes with a separate
- *      Individuality pipeline).
- *   2. Computes `inherited_implication = [extVer] || callData ||
- *      concat(trailing values) || concat(trailing implicits)`.
- *   3. Hashes it via blake2_256 to get the message.
- *   4. Encodes the target extension value from the message (proof or
- *      signature) and replaces the placeholder value.
- *   5. Builds the v5 general blob.
- *
- * Workaround tracked at https://github.com/polkadot-api/polkadot-api/issues/760.
+ * Transaction creators for v5 general transactions authorized by one
+ * extension: a ring-VRF proof (`AsPgas`, `AsResources`) or an sr25519
+ * signature (`VerifyMultiSignature`) over the inherited implication.
  */
-import { type PolkadotSigner } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
 import {
-  AccountId,
-  compact,
-  decAnyMetadata,
-  extrinsicFormat,
-  unifyMetadata,
-} from "@polkadot-api/substrate-bindings";
+  getTxCreator,
+  signatureExtensionTxCreator,
+  type TxCreator,
+} from "polkadot-api/tx-creator";
+import {
+  withCommonExtensions,
+  withNonce,
+  type CommonEnhancersSpecs,
+  type CommonSignerTxCreator,
+} from "@polkadot-api/signers-common";
+import { AccountId, decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import {
   getDynamicBuilder,
   getLookupFn,
   type LookupEntry,
 } from "@polkadot-api/metadata-builders";
-import { mergeUint8, toHex } from "polkadot-api/utils";
+import { toHex } from "polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { verifiableFor } from "./verifiable-loader.js";
+import type { Collection } from "./ring.js";
 
-/**
- * Prepend a SCALE compact-length prefix to a proof byte array. The
- * `proof: ProofOf<T>` field in AsPgas / AsResources extensions decodes
- * via the verifiable crate as a `BoundedVec<u8, _>`, which SCALE-encodes
- * as `compact_len(N) || N raw bytes`. verifiablejs >= 1.3.0-beta.4
- * returns the raw canonical proof bytes only — we add the prefix here.
- * (verifiablejs <= beta.3 baked the prefix into the returned bytes,
- * which masked the issue; see commit `70f996c` in paritytech/verifiable-js.)
- */
-function withCompactLen(proof: Uint8Array): Uint8Array {
-  const prefix = compact.enc(proof.length);
-  const out = new Uint8Array(prefix.length + proof.length);
-  out.set(prefix, 0);
-  out.set(proof, prefix.length);
-  return out;
-}
-
-type SignTx = PolkadotSigner["signTx"];
-type Metadata = ReturnType<typeof unifyMetadata>;
-
-/** Returns the highest extension version whose pipeline carries `identifier`. */
-function extensionVersion(meta: Metadata, identifier: string): number | undefined {
-  const versions = Object.entries(meta.extrinsic.signedExtensions)
-    .filter(([, list]) => list.some((e) => e.identifier === identifier))
-    .map(([version]) => Number(version));
-  return versions.length ? Math.max(...versions) : undefined;
-}
+const decodeMetadata = (metadata: string) => unifyMetadata(decAnyMetadata(metadata));
 
 /**
  * Returns the "do nothing" value of a metadata type: `None`, `false`, zero, or
@@ -90,71 +57,55 @@ function defaultValue(entry: LookupEntry): unknown {
       if (unit) return { type: unit[0] };
     }
   }
-  throw new Error(`generalSigner: no default value for type ${entry.id} (${entry.type})`);
+  throw new Error(`claimSigner: no default value for type ${entry.id} (${entry.type})`);
 }
 
 /**
- * Creates a `signTx` that builds a v5 general transaction in the pipeline
- * carrying `extensionName`, filling that extension with the value returned by
- * `encodeTarget` for the implication message.
+ * Fills every extension the payload still lacks with its "do nothing" value,
+ * so the pipeline carrying `target` can be selected and encoded.
  */
-function generalSignTx(
+const withDefaultExtensions =
+  (target: string) =>
+  (inner: TxCreator): TxCreator =>
+  (payload, opts, bindings, mocked) => {
+    const meta = decodeMetadata(payload.context.metadata);
+    const lookup = getLookupFn(meta);
+    const builder = getDynamicBuilder(lookup);
+    const encodeDefault = (type: number) =>
+      toHex(builder.buildDefinition(type).enc(defaultValue(lookup(type))));
+    const present = new Set(payload.extensions.map((e) => e.id));
+    const missing = Object.values(meta.extrinsic.extensions)
+      .filter(({ identifier }) => identifier !== target && !present.has(identifier))
+      .map(({ identifier, type, additionalSigned }) => ({
+        id: identifier,
+        extra: encodeDefault(type),
+        additionalSigned: encodeDefault(additionalSigned),
+      }));
+    return inner(
+      { ...payload, extensions: [...payload.extensions, ...missing] },
+      opts,
+      bindings,
+      mocked,
+    );
+  };
+
+/** A creator for a general transaction whose `extensionName` carries `encodeTarget(message)`. */
+function generalTxCreator(
+  publicKey: Uint8Array,
   extensionName: string,
   encodeTarget: (
     message: Uint8Array,
     codec: { enc: (value: any) => Uint8Array },
   ) => Uint8Array | Promise<Uint8Array>,
-): SignTx {
-  return async (callData, signedExtensions, metadata) => {
-    const decMeta = unifyMetadata(decAnyMetadata(metadata));
-    const version = extensionVersion(decMeta, extensionName);
-    if (version === undefined) {
-      throw new Error(`generalSigner: extension '${extensionName}' not found in chain metadata`);
-    }
-    const extList = decMeta.extrinsic.signedExtensions[version];
-    const targetIdx = extList.findIndex((e) => e.identifier === extensionName);
-    const lookup = getLookupFn(decMeta);
-    const builder = getDynamicBuilder(lookup);
-    const encodeDefault = (type: number) =>
-      builder.buildDefinition(type).enc(defaultValue(lookup(type)));
-
-    // Resolving every extension's bytes
-    const resolved = extList.map(({ identifier, type, additionalSigned }) => {
-      const ext = signedExtensions[identifier];
-      return ext
-        ? { value: ext.value, implicit: ext.additionalSigned }
-        : { value: encodeDefault(type), implicit: encodeDefault(additionalSigned) };
-    });
-
-    // Build inherited_implication for the target extension. Following the
-    // for_tuples loop in substrate's TransactionExtension impl for tuples,
-    // the encoding flattens to:
-    //   TxBaseImplication((extVer, call)) || trailing_explicit || trailing_implicit
-    // where "trailing" = positions strictly after the target extension.
-    const trailing = resolved.slice(targetIdx + 1);
-    const message = blake2b256(
-      mergeUint8([
-        new Uint8Array([version]),
-        callData,
-        ...trailing.map((r) => r.value),
-        ...trailing.map((r) => r.implicit),
-      ]),
-    );
-
-    resolved[targetIdx].value = await encodeTarget(
-      message,
-      builder.buildDefinition(extList[targetIdx].type),
-    );
-
-    // Assemble the v5 general blob.
-    const preResult = mergeUint8([
-      extrinsicFormat.enc({ version: 5, type: "general" }),
-      new Uint8Array([version]),
-      ...resolved.map((r) => r.value),
-      callData,
-    ]);
-    return mergeUint8([compact.enc(preResult.length), preResult]);
-  };
+) {
+  const creator = signatureExtensionTxCreator(extensionName, (implication, _mocked, _bindings, meta) => {
+    const lookup = getLookupFn(meta);
+    const ext = Object.values(meta.extrinsic.extensions).find((e) => e.identifier === extensionName)!;
+    return encodeTarget(blake2b256(implication), getDynamicBuilder(lookup).buildDefinition(ext.type));
+  });
+  return withNonce(publicKey)(
+    withCommonExtensions(withDefaultExtensions(extensionName)(creator as TxCreator) as TxCreator<[]>),
+  );
 }
 
 /**
@@ -166,9 +117,9 @@ function generalSignTx(
 export function createPgasPayerSigner(keyPair: {
   publicKey: Uint8Array;
   sign: (message: Uint8Array) => Uint8Array;
-}): PolkadotSigner {
-  const legacy = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
-  const general = generalSignTx("VerifyMultiSignature", (message, codec) =>
+}): CommonSignerTxCreator {
+  const legacy = getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
+  const general = generalTxCreator(keyPair.publicKey, "VerifyMultiSignature", (message, codec) =>
     codec.enc({
       type: "Signed",
       value: {
@@ -177,15 +128,17 @@ export function createPgasPayerSigner(keyPair: {
       },
     }),
   );
-  return {
-    ...legacy,
-    signTx(callData, signedExtensions, metadata, ...rest) {
-      const decMeta = unifyMetadata(decAnyMetadata(metadata));
-      return extensionVersion(decMeta, "VerifyMultiSignature")
-        ? general(callData, signedExtensions, metadata, ...rest)
-        : legacy.signTx(callData, signedExtensions, metadata, ...rest);
-    },
+  const create: TxCreator = (payload, opts, bindings, mocked) => {
+    const meta = decodeMetadata(payload.context.metadata);
+    const isGeneral = Object.values(meta.extrinsic.extensions).some(
+      (e) => e.identifier === "VerifyMultiSignature",
+    );
+    return (isGeneral ? general : legacy)(payload, opts as never, bindings, mocked);
   };
+  return Object.assign(create, {
+    publicKey: legacy.publicKey,
+    signBytes: legacy.signBytes,
+  }) as unknown as CommonSignerTxCreator;
 }
 
 export interface ClaimSignerOpts {
@@ -197,159 +150,58 @@ export interface ClaimSignerOpts {
   verifiableEntropy: Uint8Array;
   /** SCALE-encoded `Vec<MemberKey>` for the active ring (insertion-ordered). */
   encodedMembers: Uint8Array;
-  /**
-   * Build the SCALE-encoded extension value from the proof bytes. The chain
-   * decodes this into `Option<ExtensionVariant>`; return the full encoded
-   * blob (including the leading `0x01` Option::Some byte and any variant
-   * tag).
-   */
-  encodeExtensionValue: (proof: Uint8Array) => Uint8Array;
-}
-
-export function createClaimSigner(opts: ClaimSignerOpts): PolkadotSigner {
-  return {
-    publicKey: new Uint8Array(32),
-    signBytes() {
-      throw new Error("claimSigner: signBytes is unsupported");
-    },
-    // Generating the ring-VRF proof bound to (context, message). The
-    // verifiablejs build is network-aware — ThinVRF (v0.7.0+) vs
-    // pre-ThinVRF (v0.6.5).
-    signTx: generalSignTx(opts.extensionName, (message) => {
-      const { one_shot } = verifiableFor();
-      const result = one_shot(
-        opts.verifiableEntropy,
-        opts.encodedMembers,
-        opts.context,
-        message,
-      );
-      return opts.encodeExtensionValue(result.proof);
-    }),
-  };
+  /** The collection's ring size exponent, from `ringExponent`. */
+  ringExponent: number;
+  /** The extension's value for `proof`, encoded with the live metadata's codec. */
+  extensionValue: (proof: Uint8Array) => unknown;
 }
 
 /**
- * AsResources Option<Enum> variant tags (defined in pallet-resources):
- *   0: RegisterFriendRequestWithProof
- *   1: RegisterFriendRequestForCollection
- *   2: RegisterStatementStoreAllowance
- *   3: ClaimLongTermStorage
- *
- * MembershipCollection enum: 0=People, 1=LitePeople.
+ * Creates the unsigned general transaction a host submits for an allowance
+ * claim: immortal, like truapi's, with the ring-VRF proof in `extensionName`.
  */
+export function createClaimSigner(opts: ClaimSignerOpts): TxCreator<CommonEnhancersSpecs> {
+  const inner = generalTxCreator(new Uint8Array(32), opts.extensionName, (message, codec) => {
+    const { one_shot } = verifiableFor();
+    const { proof } = one_shot(opts.ringExponent, opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
+    assertProof(proof);
+    return codec.enc(opts.extensionValue(proof));
+  });
+  return (payload, txOpts, bindings, mocked) =>
+    inner(payload, { ...txOpts, mortality: { mortal: false } }, bindings, mocked);
+}
 
-/**
- * Hand-encode the `RegisterStatementStoreAllowance` variant.
- * Layout: `0x01 0x02 || compact_len(proof) || proof(N) || ringIndex u32 LE
- *          || collectionTag u8`.
- *
- * The chain decodes the proof field as `BoundedVec<u8, _>`, so the
- * compact length prefix is required — see `withCompactLen` rationale.
- */
-export function encodeRegisterStmtStore({
-  proof,
-  ringIndex,
-  litePeople,
-}: {
-  proof: Uint8Array;
+export interface RingRef {
   ringIndex: number;
-  litePeople: boolean;
-}): Uint8Array {
-  assertProof(proof);
-  const prefixed = withCompactLen(proof);
-  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 1);
-  out[0] = 0x01; // Option::Some
-  out[1] = 0x02; // variant: RegisterStatementStoreAllowance
-  out.set(prefixed, 2);
-  new DataView(out.buffer).setUint32(2 + prefixed.length, ringIndex, true); // u32 LE
-  out[2 + prefixed.length + 4] = litePeople ? 1 : 0;
-  return out;
+  revision: number;
+  collection: Collection;
 }
 
-/**
- * Hand-encode the AsPgas extension's only variant, `Claim` (named struct).
- * Layout: `0x01 0x00 || compact_len(proof) || proof(N) || ringIndex u32 LE
- *          || revision u32 LE || collectionTag u8 || day u32 LE`.
- *
- * Note the asymmetry vs AsResources: PGAS keeps `day` in the extension data
- * (so the runtime can derive the proof context on-chain) while the dispatch
- * call only carries `slot_index` + `target`.
- */
-export function encodePgasClaim({
-  proof,
-  ringIndex,
-  revisionIndex,
-  litePeople,
-  day,
-}: {
-  proof: Uint8Array;
-  ringIndex: number;
-  revisionIndex: number;
-  litePeople: boolean;
-  day: number;
-}): Uint8Array {
-  assertProof(proof);
-  const prefixed = withCompactLen(proof);
-  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 4 + 1 + 4);
-  out[0] = 0x01; // Option::Some
-  out[1] = 0x00; // variant: Claim (only variant)
-  out.set(prefixed, 2);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(2 + prefixed.length, ringIndex, true);
-  dv.setUint32(2 + prefixed.length + 4, revisionIndex, true);
-  out[2 + prefixed.length + 4 + 4] = litePeople ? 1 : 0;
-  dv.setUint32(2 + prefixed.length + 4 + 4 + 1, day, true);
-  return out;
-}
+/** `AsPgas::Claim`; the runtime derives the proof context from `day`. */
+export const pgasClaim =
+  ({ ringIndex, revision, collection }: RingRef, day: number) =>
+  (proof: Uint8Array) => ({
+    type: "Claim",
+    value: { proof, ring_index: ringIndex, revision, collection: { type: collection }, day },
+  });
+
+/** An `AsResources` variant carrying `(proof, ring_index, revision, collection)`. */
+export const asResources =
+  (
+    variant: "RegisterStatementStoreAllowance" | "ClaimLongTermStorage",
+    { ringIndex, revision, collection }: RingRef,
+  ) =>
+  (proof: Uint8Array) => ({
+    type: variant,
+    value: [proof, ringIndex, revision, { type: collection }],
+  });
 
 /**
- * Hand-encode the `ClaimLongTermStorage` variant of AsResources.
- * Layout: `0x01 0x03 || compact_len(proof) || proof(N) || ringIndex u32 LE
- *          || revisionIndex u32 LE || collectionTag u8`.
- *
- * The runtime uses `verify_membership_at_rev` for this flow, so the proof can
- * be valid against an older ring revision as long as the chain still retains
- * its old root. `revisionIndex` selects which revision to verify against; the
- * current revision is read from `Members.Root[(id, ring_index)].revision`.
- */
-export function encodeClaimLongTermStorage({
-  proof,
-  ringIndex,
-  revisionIndex,
-  litePeople,
-}: {
-  proof: Uint8Array;
-  ringIndex: number;
-  revisionIndex: number;
-  litePeople: boolean;
-}): Uint8Array {
-  assertProof(proof);
-  const prefixed = withCompactLen(proof);
-  const out = new Uint8Array(1 + 1 + prefixed.length + 4 + 4 + 1);
-  out[0] = 0x01; // Option::Some
-  out[1] = 0x03; // variant: ClaimLongTermStorage
-  out.set(prefixed, 2);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(2 + prefixed.length, ringIndex, true); // u32 LE
-  dv.setUint32(2 + prefixed.length + 4, revisionIndex, true); // u32 LE
-  out[2 + prefixed.length + 4 + 4] = litePeople ? 1 : 0;
-  return out;
-}
-
-/**
- * Sanity check ring-VRF proof length. The canonical post-fix ThinVRF
- * size is 785 bytes (verifiablejs >= 1.3.0-beta.4). Older builds
- * appended a 2-byte SCALE compact-length prefix (787) or used the
- * pre-ThinVRF 96-byte signature scheme (788). We now only ship
- * beta.4+ via `verifiable-loader.ts`, so anything other than 785
- * means a misaligned dep — fail loud instead of producing a
- * malformed extrinsic that surfaces later as an opaque chain
- * decode error.
+ * Sanity check ring-VRF proof length. The canonical ThinVRF size is 785
+ * bytes (verifiablejs >= 1.3.0-beta.4); anything else means a misaligned dep.
  */
 function assertProof(proof: Uint8Array): void {
   if (proof.length !== 785) {
-    throw new Error(
-      `ring-VRF proof length out of expected range: got ${proof.length}, expected 785 (ThinVRF raw, verifiablejs >= 1.3.0-beta.4)`,
-    );
+    throw new Error(`ring-VRF proof is ${proof.length} bytes, expected 785`);
   }
 }

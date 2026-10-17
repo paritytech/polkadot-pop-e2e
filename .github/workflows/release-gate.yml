@@ -19,10 +19,8 @@ name: Release Gate
 # this workflow only composes it. See environments/README.md.
 
 on:
+  # Every PR, so the required `gate (<network> · target)` checks always report.
   pull_request:
-    paths:
-      - "environments/**"
-      - ".github/workflows/release-gate.yml"
   # The machine-facing door: another repo's CI calls this when it cuts a release.
   # Same per-field overrides as the dispatch form below, because a caller reading
   # this file should see what it can set without decoding a JSON schema. Both
@@ -342,10 +340,12 @@ jobs:
           if [ -n "$base_ref" ]; then
             git fetch --depth=1 origin "$base_ref"
             changed=$(git diff --name-only "origin/$base_ref" HEAD -- 'environments/networks/*.json')
-            # A PR that touches no manifest still gates the default set.
-            if [ -z "$changed" ]; then
-              for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do changed="$changed environments/networks/$net.json"; done
-            fi
+            # Every default network is gated too, unchanged ones steady-state, so
+            # each required `gate (<network> · target)` check reports.
+            for net in $(echo "$ENVIRONMENTS" | tr ',' ' '); do
+              m="environments/networks/$net.json"
+              echo "$changed" | grep -qxF "$m" || changed="$changed"$'\n'"$m"
+            done
             for c in $changed; do
               [ -f "$c" ] || continue  # manifest deleted in this PR
               # Engine-blocked networks stay out of PR runs; dispatch/issue can
@@ -420,6 +420,7 @@ jobs:
     continue-on-error: ${{ inputs.advisory == true || !matrix.candidate.gating }}
     env:
       MANIFEST: candidate-manifest.json
+      STEADY: ${{ matrix.candidate.steady }}
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -643,6 +644,7 @@ jobs:
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
       # thing (caught live: a v0.0.21 bulletin pin downgraded a fork running v0.0.22).
+      # A steady-state run asks for nothing, so it skips this and tests the fork as is.
       #
       # Called directly, not through `make runtime-upgrade`: that target exports
       # ALLOW_SAME_SPEC unconditionally, and a defined env var is a set flag to

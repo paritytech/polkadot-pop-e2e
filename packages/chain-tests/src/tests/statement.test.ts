@@ -1,28 +1,28 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws";
-import { fromHex } from "@polkadot-api/utils";
+import { AccountId } from "@polkadot-api/substrate-bindings";
 import {
-  createLazyClient,
-  createPapiStatementStoreAdapter,
-  createSr25519Prover,
   createSr25519Secret,
+  deriveSr25519PublicKey,
   NoAllowanceError,
-  type StatementStoreAdapter,
-  type StatementProver,
 } from "@novasamatech/statement-store";
-import { stringToTopic, createExpiryFromDuration } from "@novasamatech/sdk-statement";
-import { createPeopleClient } from "../lib/client.js";
+import { StatementStoreClient, StatementSubmitError } from "@parity/product-sdk-statement-store";
+import { createPeopleClient, type PeopleApi } from "../lib/client.js";
+import type { AttestedCredentials } from "../lib/credentials.js";
+import { claimStatementAllowance } from "../lib/statement-allowance.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
+import { createNodeStatementTransport } from "../lib/statement-transport.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
 describe("Statement: People Chain + Identity Backend", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let adapter: StatementStoreAdapter;
-  let prover: StatementProver;
-  let lazyClient: ReturnType<typeof createLazyClient>;
+  let peopleApi: PeopleApi;
+  let creds: AttestedCredentials;
+  // Hosts sign statements with a per-product allowance key, not the person's key.
+  let statementSecret: Uint8Array;
+  const clients: StatementStoreClient[] = [];
 
   beforeAll(async () => {
     assertChainHealthy("people");
@@ -34,19 +34,17 @@ describe("Statement: People Chain + Identity Backend", () => {
 
     const conn = createPeopleClient(network.people.ws);
     client = conn.client;
+    peopleApi = conn.api;
 
     if (network.identityBackend) {
-      lazyClient = createLazyClient(getWsProvider(network.people.ws));
-      adapter = createPapiStatementStoreAdapter(lazyClient);
-
-      const creds = await ensureAttested();
-      prover = createSr25519Prover(creds.statementStoreSecret);
+      creds = await ensureAttested();
+      statementSecret = createSr25519Secret(creds.entropy, "//allowance//statement-store//pop-e2e.dot");
       console.log(`[statement] Attested account: ${creds.address} (${creds.username})`);
     }
   });
 
   afterAll(() => {
-    lazyClient?.disconnect();
+    clients.forEach((c) => c.destroy());
     client?.destroy();
   });
 
@@ -81,95 +79,48 @@ describe("Statement: People Chain + Identity Backend", () => {
     }
   });
 
+  /** A product-sdk client publishing as `secret`, with the transport a host would provide. */
+  async function connectClient(secret: Uint8Array): Promise<StatementStoreClient> {
+    const { transport, signer } = createNodeStatementTransport(network.people.ws, secret);
+    const client = new StatementStoreClient({ appName: `pop-e2e-${Date.now()}`, transport });
+    await client.connect({ mode: "local", signer });
+    clients.push(client);
+    return client;
+  }
+
   it.skipIf(!needsAttestation())(
-    "Statement Store write succeeds (after attestation)",
+    "claims a statement allowance for the product key",
     async () => {
-      // Wait for daemon to process attestation from global setup
-      console.log(`[statement] Waiting for attestation daemon to process...`);
-      const maxWait = 90_000;
-      const pollInterval = 5_000;
-      const startWait = Date.now();
-      let writeOk = false;
-
-      while (Date.now() - startWait < maxWait) {
-        const topicHex = stringToTopic(`triangle-e2e-probe-${Date.now()}`);
-        const data = new TextEncoder().encode("probe");
-        const expiry = createExpiryFromDuration(300);
-
-        const signed = await prover.generateMessageProof({
-          topics: [topicHex],
-          data,
-          expiry,
-        });
-        if (signed.isErr()) {
-          throw new Error(`Proof generation failed: ${signed.error.message}`);
-        }
-
-        const result = await adapter.submitStatement(signed._unsafeUnwrap());
-        if (result.isOk()) {
-          writeOk = true;
-          const elapsed = Date.now() - startWait;
-          console.log(`[statement] Statement write succeeded after ${elapsed}ms wait`);
-          break;
-        }
-
-        const elapsed = Date.now() - startWait;
-        console.log(`[statement] Waiting... (${elapsed}ms) - ${result.error.message}`);
-        await new Promise((r) => setTimeout(r, pollInterval));
-      }
-
-      expect(writeOk).toBe(true);
+      const target = AccountId().dec(deriveSr25519PublicKey(statementSecret));
+      const allowance = await claimStatementAllowance(peopleApi, client, creds, target);
+      console.log(
+        `[statement] Allowance for ${target}: period=${allowance.period} seq=${allowance.seq} ` +
+          (allowance.claimed ? "claimed" : "already held"),
+      );
     },
-    120_000,
+    240_000,
   );
+
+  it.skipIf(!needsAttestation())("Statement Store write succeeds with the product key", async () => {
+    const statements = await connectClient(statementSecret);
+    const result = await statements.publish({ probe: Date.now() });
+    if (!result.ok) throw result.error;
+  });
 
   it.skipIf(!needsAttestation())(
     "Statement Store write + read roundtrip",
     async () => {
-      const uniqueId = `triangle-e2e-roundtrip-${Date.now()}`;
-      const topicHex = stringToTopic(uniqueId);
-      const topicBytes = fromHex(topicHex);
-      const payload = new TextEncoder().encode(uniqueId);
-      const expiry = createExpiryFromDuration(300);
-
-      // Write
-      const signed = await prover.generateMessageProof({
-        topics: [topicHex],
-        data: payload,
-        expiry,
+      const statements = await connectClient(statementSecret);
+      const marker = `pop-e2e-roundtrip-${Date.now()}`;
+      const received = new Promise<void>((resolve) => {
+        statements.subscribe<{ marker: string }>((s) => {
+          if (s.data?.marker === marker) resolve();
+        });
       });
-      expect(signed.isOk()).toBe(true);
 
-      const writeStart = Date.now();
-      const writeResult = await adapter.submitStatement(signed._unsafeUnwrap());
-      if (writeResult.isErr()) {
-        throw new Error(`Statement Store write failed: ${writeResult.error.message}`);
-      }
-      console.log(`[statement] Roundtrip: wrote (${Date.now() - writeStart}ms)`);
-
-      // Read back
-      const readStart = Date.now();
-      const readResult = await adapter.queryStatements({ matchAll: [topicBytes] });
-      if (readResult.isErr()) {
-        throw new Error(`Statement Store read failed: ${readResult.error.message}`);
-      }
-
-      const statements = readResult._unsafeUnwrap();
-      console.log(`[statement] Roundtrip: read ${statements.length} statement(s) (${Date.now() - readStart}ms)`);
-      expect(statements.length).toBeGreaterThan(0);
-
-      const found = statements.find((s) => {
-        if (!s.data) return false;
-        try {
-          const decoded = new TextDecoder().decode(
-            s.data instanceof Uint8Array ? s.data : fromHex(s.data as string),
-          );
-          return decoded === uniqueId;
-        } catch {
-          return false;
-        }
-      });
-      expect(found).toBeDefined();
+      const result = await statements.publish({ marker });
+      if (!result.ok) throw result.error;
+      await received;
       console.log(`[statement] Roundtrip: data verified`);
     },
     60_000,
@@ -180,24 +131,14 @@ describe("Statement: People Chain + Identity Backend", () => {
     async () => {
       const entropy = new Uint8Array(32);
       crypto.getRandomValues(entropy);
-      const secret = createSr25519Secret(entropy);
-      const nonPopProver = createSr25519Prover(secret);
+      const statements = await connectClient(createSr25519Secret(entropy));
 
-      const topicHex = stringToTopic(`triangle-e2e-nonpop-${Date.now()}`);
-      const data = new TextEncoder().encode("should-be-rejected");
-      const expiry = createExpiryFromDuration(300);
-
-      const signed = await nonPopProver.generateMessageProof({
-        topics: [topicHex],
-        data,
-        expiry,
-      });
-      expect(signed.isOk()).toBe(true);
-
-      const result = await adapter.submitStatement(signed._unsafeUnwrap());
-
-      expect(result.isErr()).toBe(true);
-      expect(result._unsafeUnwrapErr()).toBeInstanceOf(NoAllowanceError);
+      const result = await statements.publish({ shouldBe: "rejected" });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBeInstanceOf(StatementSubmitError);
+        expect((result.error as StatementSubmitError).detail).toBeInstanceOf(NoAllowanceError);
+      }
       console.log(`[statement] Non-PoP account correctly rejected with NoAllowanceError`);
     },
   );

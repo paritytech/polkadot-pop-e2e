@@ -1,12 +1,13 @@
 import { Keyring } from "@polkadot/keyring";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
-import { getPolkadotSigner, type PolkadotSigner } from "polkadot-api/signer";
+import { getTxCreator } from "polkadot-api/tx-creator";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { getNetworkConfig } from "../config/networks.js";
 
 let ready = false;
 
 export interface TestAccount {
-  signer: PolkadotSigner;
+  signer: CommonSignerTxCreator;
   address: string;
 }
 
@@ -28,7 +29,7 @@ async function ensureReady(): Promise<void> {
 }
 
 function buildSigner(account: ReturnType<Keyring["addFromMnemonic"]>): TestAccount {
-  const signer = getPolkadotSigner(
+  const signer = getTxCreator(
     account.publicKey,
     "Sr25519",
     async (input) => account.sign(input),
@@ -38,7 +39,7 @@ function buildSigner(account: ReturnType<Keyring["addFromMnemonic"]>): TestAccou
 
 /**
  * Funded test account. If the network config sets `testAccountUri`
- * (e.g. `//Alice` on dev testnets), uses that; otherwise falls back to
+ * (`//Alice` on local forks), uses that; otherwise falls back to
  * `TEST_MNEMONIC` env.
  */
 export async function createTestAccount(): Promise<TestAccount> {

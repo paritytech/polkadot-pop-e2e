@@ -43,7 +43,11 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
 
+      # A chain no release matches must not hold back the bumps the scan did
+      # attribute: open the PR first, fail the job after.
       - name: Scan production and rewrite drifted pins
+        id: scan
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
@@ -73,3 +77,9 @@ jobs:
               --title "baseline: sync manifests to what production runs" \
               --body-file scan.out
           fi
+
+      - name: Fail when a chain needs a human
+        if: steps.scan.outcome == 'failure'
+        run: |
+          echo "::error::the scan could not attribute every chain, see the scan step log"
+          exit 1

@@ -1,15 +1,9 @@
 name: CI
 
-# `check` is offline — no chain, no RPC, no secrets. `live` runs the suite
-# against previewnet, which also needs no secrets: that network's config signs
-# with `//Alice` via `testAccountUri`, and its IB uses challenge auth, so
-# `IB_JWT_SECRET` stays unset and no header is sent. Both therefore run on any
-# PR, fork included.
-#
-# Until now a change to `packages/chain-tests/**` was typechecked and nothing
-# more: the release gate only fires on `environments/**`, and the health cron in
-# triangle-e2e runs this suite from `main`, so a regression was only visible
-# after merge.
+# `check` is offline: no chain, no RPC, no secrets. `live` runs the suite
+# against live previewnet, signing with the funded `TEST_MNEMONIC` account, so
+# PRs from forks fail it for lack of the secret. The forked runs are the
+# Release Gate's, which runs on every PR.
 #
 # `check` exists because the environments tests previously ran in no workflow at
 # all, which is how three of them sat red on main for two days after the
@@ -65,19 +59,14 @@ jobs:
           done
 
   live:
-    # The suite against a real chain, so a chain-tests change is exercised
-    # before merge rather than by the health cron afterwards. previewnet is
-    # the target because it needs no secrets and is Alice-funded.
-    #
-    # Gating, not advisory: previewnet health has been green on its own
-    # schedule, so a red here means this PR. If it turns out to red on
-    # previewnet outages instead, add retries before reaching for
-    # continue-on-error.
+    # The suite against the real chain. Outages on previewnet show up here,
+    # not in the gate.
     name: live suite (previewnet)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       NETWORK: previewnet
+      TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
     steps:
       - uses: actions/checkout@v4
 
@@ -94,8 +83,7 @@ jobs:
       - name: Deploy counter contract
         run: pnpm --filter @pop-e2e/chain-tests deploy-counter
 
-      # Excludes ring-health.test.ts — those SLA verdicts belong to the
-      # dedicated ring-health probe, not to a PR gate.
+      # ring-health verdicts belong to the ring-health probe, not a PR check.
       - name: Network health suite
         run: pnpm --filter @pop-e2e/chain-tests test:network-health
 

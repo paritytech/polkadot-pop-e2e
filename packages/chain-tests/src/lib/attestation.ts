@@ -11,6 +11,7 @@ import {
 } from "@polkadot-labs/hdkd-helpers";
 import { toHex, mergeUint8 } from "@polkadot-api/utils";
 import { AccountId } from "polkadot-api";
+import { Bytes, Option, Tuple, u64 } from "@polkadot-api/substrate-bindings";
 import { createSr25519Secret, deriveSr25519PublicKey } from "@novasamatech/statement-store";
 import { verifiableFor } from "./verifiable-loader.js";
 import { ibAuthHeader, ibV2AuthHeader } from "./ib-auth.js";
@@ -19,6 +20,14 @@ import { getNetworkConfig } from "../config/networks.js";
 const READ_SUB = "triangle-e2e-chain-tests";
 
 const MSG_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
+const RESERVE_MSG_PREFIX = new TextEncoder().encode("pop:dotns-gateway:reserve");
+
+/**
+ * What the candidate signs to let the dotNS gateway reserve its lite name:
+ * SCALE `(prefix, candidate, attester, username_base, chat_key, reserved, signed_at)`,
+ * matching the gateway pallet's `construct_reservation_message`.
+ */
+export const reservationMessage = Tuple(Bytes(), Bytes(32), Bytes(32), Bytes(), Bytes(), Option(Bytes()), u64);
 const accountId = AccountId();
 
 function randomEntropy(): Uint8Array {
@@ -44,7 +53,6 @@ export function deriveKeyPair(entropy: Uint8Array) {
 export interface AttestationCredentials {
   address: string;
   publicKey: Uint8Array;
-  statementStoreSecret: Uint8Array;
   entropy: Uint8Array;
 }
 
@@ -88,9 +96,7 @@ export function generateAttestationParams(): {
   // Identifier key (65 bytes), RFC-0004 format: first byte 0x00, matching what the
   // host SDK emits today. NOT the legacy 0x04 SEC1-style prefix — IBv2's
   // username-indexer registers, attests and indexes those fine but excludes them
-  // from search results (`get_byte(identifier_key, 0) = 0` is the visibility
-  // filter), which fails the assigned-signal poll with a maximally confusing
-  // "on-chain but never searchable" symptom. Caught live by the release gate.
+  // from search results (`get_byte(identifier_key, 0) = 0` is the visibility filter).
   const identifierKeyEntropy = blake2b256(new Uint8Array([...entropy, 0x01]));
   const identifierSecret = createSr25519Secret(identifierKeyEntropy);
   const identifierPub = deriveSr25519PublicKey(identifierSecret);
@@ -107,14 +113,8 @@ export function generateAttestationParams(): {
   }
   const username = `etest${suffix}`;
 
-  // Must use the same derivation as the keyPair so the prover's signatures
-  // match what the chain has registered for this attested account. Host SDK
-  // stores `account.secret = createSr25519Secret(entropy, '//wallet//sso')`
-  // and passes it to `createSr25519Prover(ssSecret)`.
-  const statementStoreSecret = createSr25519Secret(entropy, LITE_PERSON_DERIVATION);
-
   return {
-    credentials: { address, publicKey, statementStoreSecret, entropy },
+    credentials: { address, publicKey, entropy },
     params: {
       candidateAccountId: address,
       username,
@@ -134,6 +134,8 @@ export async function signAndRegister(
   backendUrl: string,
   entropy: Uint8Array,
   params: RegisterParams,
+  /** Asset Hub's `Timestamp.Now` in seconds; the gateway rejects times ahead of it. */
+  dotnsSignedAt?: bigint,
 ): Promise<{ username: string }> {
   // IBv2 issues its own token via the challenge flow, bound to the person's key;
   // IBv1 wants an HS256 token minted from the shared IB_JWT_SECRET.
@@ -175,6 +177,27 @@ export async function signAndRegister(
   const consumerRegistrationSignature = keyPair.sign(consumerPayload);
   params.consumerRegistrationSignature = toHex(consumerRegistrationSignature);
 
+  // Hosts also sign the dotNS lite-name reservation, which the backend forwards.
+  const dotns =
+    dotnsSignedAt === undefined
+      ? undefined
+      : {
+          signature: toHex(
+            keyPair.sign(
+              reservationMessage.enc([
+                RESERVE_MSG_PREFIX,
+                keyPair.publicKey,
+                attesterBytes,
+                usernameBytes,
+                identifierKeyBytes,
+                undefined,
+                dotnsSignedAt,
+              ]),
+            ),
+          ),
+          signedAt: Number(dotnsSignedAt),
+        };
+
   // POST to register
   const registerRes = await fetch(`${backendUrl}/api/v1/usernames`, {
     method: "POST",
@@ -182,7 +205,7 @@ export async function signAndRegister(
       "Content-Type": "application/json",
       ...auth,
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(dotns ? { ...params, dotns } : params),
     signal: AbortSignal.timeout(30_000),
   });
 
@@ -232,11 +255,8 @@ export async function fetchUsernameStatus(
 }
 
 /**
- * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection. A hit proves the
- * whole asynchronous registration pipeline: writer lease, attestation allowance,
- * signing, submission, finalization and indexing — the same signal the engine's
- * own registration e2e uses. IBv2 exposes no RESERVED/ASSIGNED status field, so this
- * replaces the status poll there.
+ * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection, which hosts
+ * use to find people by username.
  */
 export async function searchUsername(
   backendUrl: string,

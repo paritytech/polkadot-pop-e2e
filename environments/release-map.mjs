@@ -218,13 +218,18 @@ export const SERVICES = {
     'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
   },
-  // pnv2/devnet forks run only eth-rpc beside the chains — no identity backend, no
-  // storage stack (their engine descriptors declare exactly that). The workflow
-  // derives FORK_IDENTITY_BACKEND=none from the absence of the service here.
+  // The engine runs the identity backend on any fork carrying People; pnv2 and devnet
+  // forks have no storage stack. The workflow derives FORK_IDENTITY_BACKEND=none from
+  // the absence of the identity-backend service here.
   'paseo-next-v2': {
     'eth-rpc': {
       override: 'eth-rpc',
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    },
+    // Same wiring as previewnet's: unpinned, the engine's default DUB_TAG governs.
+    'identity-backend': {
+      envTag: 'DUB_TAG',
+      repos: ['paritytech/device-uniqueness-backend'],
     },
   },
   devnet: {
@@ -608,7 +613,13 @@ export function candidateMatrix(base, head) {
   const runtimeDim = (m) =>
     JSON.stringify(Object.fromEntries(Object.entries(m.chains ?? {}).map(([k, v]) => [k, v.runtime])));
 
-  const finish = (arr) => arr.map((c) => ({ ...c, transitions: transitions(base ?? head, c.manifest) }));
+  const pinsOf = (m) => binaryDim(m) + runtimeDim(m);
+  const finish = (arr) =>
+    arr.map((c) => ({
+      ...c,
+      steady: pinsOf(base ?? head) === pinsOf(c.manifest),
+      transitions: transitions(base ?? head, c.manifest),
+    }));
   const target = {
     id: 'target',
     gating: true,
@@ -636,9 +647,8 @@ export function candidateMatrix(base, head) {
       manifest: { ...head, binaries: base.binaries, services: base.services },
     },
   ];
-  const pins = (m) => binaryDim(m) + runtimeDim(m);
   for (const c of cross) {
-    if (pins(c.manifest) !== pins(head) && pins(c.manifest) !== pins(base)) {
+    if (pinsOf(c.manifest) !== pinsOf(head) && pinsOf(c.manifest) !== pinsOf(base)) {
       candidates.push({ ...c, gating: false });
     }
   }

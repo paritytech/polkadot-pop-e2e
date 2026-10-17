@@ -44,6 +44,7 @@ import { verifiableFor } from "./verifiable-loader.js";
 import {
   encodeMembers,
   fetchRingMembers,
+  ringExponent,
   LITE_PEOPLE_IDENTIFIER,
   waitForInclusion,
 } from "./ring.js";
@@ -202,6 +203,7 @@ export async function setAliasAccount(args: {
   const signer = createPgasPayerSigner(keyPair);
 
   const { one_shot } = verifiableFor();
+  const exponent = await ringExponent(args.peopleApi, "LitePeople");
   const ctxPreview = Binary.toHex(args.context).slice(0, 14);
 
   let lastErr: unknown;
@@ -221,6 +223,7 @@ export async function setAliasAccount(args: {
 
     const message = proofMessage(args.creds.publicKey, proofValidAt);
     const { proof, alias } = one_shot(
+      exponent,
       verifiableEntropy,
       snap.encodedMembers,
       args.context,
@@ -237,7 +240,7 @@ export async function setAliasAccount(args: {
     });
 
     try {
-      const result = await tx.signAndSubmit(signer);
+      const result = await tx.createAndSubmit(signer);
       if (!result.ok) {
         throw new Error(
           `[alias-claim] set_alias_account failed: ${JSON.stringify(result.dispatchError)}`,

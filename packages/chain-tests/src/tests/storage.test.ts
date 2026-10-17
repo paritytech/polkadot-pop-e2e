@@ -1,58 +1,47 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { type PolkadotClient } from "polkadot-api";
-import { getPolkadotSigner } from "polkadot-api/signer";
-import { AccountId } from "polkadot-api";
-import { createHash } from "node:crypto";
-import { CID } from "multiformats/cid";
-import { create as createMultihashDigest } from "multiformats/hashes/digest";
-import {
-  createBulletinClient,
-  createPeopleClient,
-  type BulletinApi,
-} from "../lib/client.js";
-import { type TestAccount } from "../lib/signer.js";
-import { submitAndWatchBestBlock } from "../lib/tx.js";
-import type { AttestedCredentials } from "../lib/credentials.js";
+import type { PolkadotClient } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import { getTxCreator } from "polkadot-api/tx-creator";
+import { AsyncBulletinClient, type BulletinTypedApi, type SubmitFn } from "@parity/bulletin-sdk";
+import { CloudStorageClient, type CloudStorageApi } from "@parity/product-sdk-cloud-storage";
+import { createBulletinClient, createPeopleClient, type BulletinApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
-
-const accountId = AccountId();
-const CODEC_RAW = 0x55;
-const HASH_SHA2_256 = 0x12;
+/** A product-sdk storage client over our own connection, as a BYOD product would build it. */
+function cloudStorage(client: PolkadotClient, api: BulletinApi, signer: CommonSignerTxCreator) {
+  const inner = new AsyncBulletinClient(
+    api as unknown as BulletinTypedApi,
+    signer,
+    client.submit as unknown as SubmitFn,
+  );
+  return CloudStorageClient.from(inner, api as unknown as CloudStorageApi);
+}
 
 /**
- * Poll `TransactionStorage.Authorizations[{ Account: addr }]` until an
- * unexpired entry shows up, or `timeoutMs` elapses. The LTS claim above
- * dispatches an XCM `TransactionStorage.AuthorizeAccount` to Bulletin —
- * landing usually takes 30s–2min depending on relay/queues.
+ * Poll the account's Bulletin authorization until it appears, or `timeoutMs`
+ * elapses. The LTS claim dispatches an XCM `TransactionStorage.AuthorizeAccount`
+ * to Bulletin, which usually lands within 30s-2min.
  */
 async function waitForBulletinAuthorization(
-  api: BulletinApi,
+  storage: CloudStorageClient,
   address: string,
-  opts?: { timeoutMs?: number; pollMs?: number },
-): Promise<{ transactions: number; bytes: bigint }> {
-  const timeoutMs = opts?.timeoutMs ?? 240_000;
-  const pollMs = opts?.pollMs ?? 5_000;
+  timeoutMs = 240_000,
+): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const auth = await api.query.TransactionStorage.Authorizations.getValue({
-      type: "Account",
-      value: address,
-    });
-    if (auth?.extent) {
+    const status = await storage.checkAuthorization(address);
+    if (!status.ok) throw status.error;
+    if (status.value.authorized) {
       console.log(
         `[storage] Bulletin auth ready after ${Math.round((Date.now() - startedAt) / 1000)}s — ` +
-          `${auth.extent.transactions_allowance} txns, ${auth.extent.bytes_allowance} bytes`,
+          `${status.value.remainingTransactions} txns, ${status.value.remainingBytes} bytes`,
       );
-      return {
-        transactions: auth.extent.transactions_allowance,
-        bytes: auth.extent.bytes_allowance,
-      };
+      return;
     }
-    await new Promise((r) => setTimeout(r, pollMs));
+    await new Promise((r) => setTimeout(r, 5_000));
   }
   throw new Error(
     `Bulletin authorization for ${address} did not appear within ${timeoutMs / 1000}s — ` +
@@ -60,24 +49,9 @@ async function waitForBulletinAuthorization(
   );
 }
 
-function createAccountFromCredentials(creds: AttestedCredentials): TestAccount {
-  const keyPair = deriveKeyPair(creds.entropy);
-  const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
-  return { signer, address: creds.address };
-}
-
-function createRandomAccount(): TestAccount {
-  const entropy = new Uint8Array(32);
-  crypto.getRandomValues(entropy);
-  const keyPair = deriveKeyPair(entropy);
-  const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign);
-  return { signer, address: accountId.dec(keyPair.publicKey) };
-}
-
-function computeCid(data: Uint8Array): string {
-  const hash = createHash("sha256").update(data).digest();
-  const multihash = createMultihashDigest(HASH_SHA2_256, hash);
-  return CID.createV1(CODEC_RAW, multihash).toString();
+function randomSigner(): CommonSignerTxCreator {
+  const keyPair = deriveKeyPair(crypto.getRandomValues(new Uint8Array(32)));
+  return getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
 }
 
 describe("Storage: Bulletin Chain", () => {
@@ -85,9 +59,9 @@ describe("Storage: Bulletin Chain", () => {
   let client: PolkadotClient;
   let api: BulletinApi;
   let peopleClient: PolkadotClient | undefined;
-  let testAccount: TestAccount;
-  let uploadedCid: string;
-  let uploadedPayload: Uint8Array;
+  let storage: CloudStorageClient;
+  let address: string;
+  let uploaded: { cid: string; block: number; payload: Uint8Array };
 
   beforeAll(async () => {
     assertChainHealthy("bulletin");
@@ -99,9 +73,7 @@ describe("Storage: Bulletin Chain", () => {
     console.log(`[storage] Network: ${network.name}`);
     console.log(`[storage] Bulletin: ${network.bulletin.ws}`);
 
-    const conn = createBulletinClient(network.bulletin.ws);
-    client = conn.client;
-    api = conn.api;
+    ({ client, api } = createBulletinClient(network.bulletin.ws));
 
     if (!network.features.resources) {
       throw new Error(
@@ -111,28 +83,22 @@ describe("Storage: Bulletin Chain", () => {
       );
     }
     if (!needsAttestation()) {
-      // No IB deployed for this network — leave testAccount unset. The
-      // attestation-dependent it()s below all `skipIf(!needsAttestation)`
-      // so they never reach for it; only the chain-liveness check runs.
+      // No IB deployed for this network: only the chain-liveness check runs.
       console.log(`[storage] No Identity Backend configured — skipping attested-account setup`);
       return;
     }
     const creds = await ensureAttested();
-    testAccount = createAccountFromCredentials(creds);
-    console.log(`[storage] Test account (attested): ${testAccount.address} (${creds.username})`);
+    const keyPair = deriveKeyPair(creds.entropy);
+    address = creds.address;
+    storage = cloudStorage(client, api, getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign));
+    console.log(`[storage] Test account (attested): ${address} (${creds.username})`);
 
-    // Idempotent LTS allowance claim on People chain → XCM to Bulletin →
-    // testAccount becomes authorised. If Bulletin already has an unexpired
-    // entry (e.g. local re-run with REUSE_CREDS=1), skip the claim — the
-    // chain rejects same-period re-claims with `Custom(231)`.
-    const existing = await api.query.TransactionStorage.Authorizations.getValue({
-      type: "Account",
-      value: testAccount.address,
-    });
-    if (existing?.extent) {
-      console.log(
-        `[storage] Bulletin auth already in place — ${existing.extent.transactions_allowance} txns, ${existing.extent.bytes_allowance} bytes. Skipping LTS claim.`,
-      );
+    // Bulletin rejects a second LTS claim in the same period with
+    // `Custom(231)`, so skip it when an authorization is already in place.
+    const existing = await storage.checkAuthorization(address);
+    if (!existing.ok) throw existing.error;
+    if (existing.value.authorized) {
+      console.log(`[storage] Bulletin auth already in place. Skipping LTS claim.`);
     } else {
       const peopleConn = createPeopleClient(network.people.ws);
       peopleClient = peopleConn.client;
@@ -143,8 +109,7 @@ describe("Storage: Bulletin Chain", () => {
             `Cannot test the XCM-driven authorisation path.`,
         );
       }
-      // XCM to Bulletin lands shortly after — wait for it before any upload.
-      await waitForBulletinAuthorization(api, testAccount.address);
+      await waitForBulletinAuthorization(storage, address);
     }
   }, 300_000);
 
@@ -165,87 +130,56 @@ describe("Storage: Bulletin Chain", () => {
     "authorized account uploads data and gets CID",
     async () => {
       // Nondeterministic payload — different CID every run
-      const payloadStr = `triangle-e2e-health-${network.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      uploadedPayload = new TextEncoder().encode(payloadStr);
-      uploadedCid = computeCid(uploadedPayload);
-
-      console.log(`[storage] Payload: "${payloadStr}" (${uploadedPayload.length} bytes)`);
-      console.log(`[storage] Expected CID: ${uploadedCid}`);
-
-      const start = Date.now();
-      const result = await submitAndWatchBestBlock(
-        api.tx.TransactionStorage.store_with_cid_config({
-          cid: {
-            codec: BigInt(CODEC_RAW),
-            hashing: { type: "Sha2_256", value: undefined },
-          },
-          data: uploadedPayload,
-        }),
-        testAccount.signer,
+      const payload = new TextEncoder().encode(
+        `pop-e2e-health-${network.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       );
-      const elapsed = Date.now() - start;
-
-      console.log(`[storage] store ok=${result.ok} block=#${result.block?.number} (${elapsed}ms)`);
-      expect(result.ok).toBe(true);
+      const start = Date.now();
+      const result = await storage.store(payload).send();
+      if (!result.cid || result.blockNumber === undefined) {
+        throw new Error(`[storage] store returned no CID or block: ${JSON.stringify(result)}`);
+      }
+      uploaded = { cid: result.cid.toString(), block: result.blockNumber, payload };
+      console.log(`[storage] stored ${uploaded.cid} at #${uploaded.block} (${Date.now() - start}ms)`);
     },
     120_000,
   );
 
   it.skipIf(!needsAttestation())(
-    "uploaded CID is retrievable from IPFS gateway",
+    "uploaded CID is recorded on chain",
     async () => {
-      const url = `${network.ipfsGateway}/${uploadedCid}`;
-      console.log(`[storage] Fetching: ${url}`);
-
-      const start = Date.now();
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      const elapsed = Date.now() - start;
-
-      console.log(`[storage] IPFS gateway status=${response.status} (${elapsed}ms)`);
-      expect(response.ok).toBe(true);
-
-      const body = new Uint8Array(await response.arrayBuffer());
-      const bodyStr = new TextDecoder().decode(body);
-      const uploadedStr = new TextDecoder().decode(uploadedPayload);
-
-      console.log(`[storage] Retrieved: "${bodyStr.slice(0, 60)}..." (${body.length} bytes)`);
-      expect(bodyStr).toBe(uploadedStr);
+      // verifyStored reads finalized state; the store receipt is from best block.
+      for (const deadline = Date.now() + 60_000; Date.now() < deadline; ) {
+        const entry = await storage.verifyStored(uploaded.cid, { block: uploaded.block });
+        if (!entry.ok) throw entry.error;
+        if (entry.value) {
+          expect(entry.value.size).toBe(uploaded.payload.length);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
+      throw new Error(`[storage] ${uploaded.cid} not found at #${uploaded.block} once finalized`);
     },
     60_000,
   );
 
-  // The earlier upload test (`authorized account uploads data and gets
-  // CID`) implicitly verifies the authorization was consumed — it would
-  // fail if the runtime didn't credit our allowance. Querying the consumed
-  // counters here would race the upload's finalization (state queries hit
-  // the finalized block; the upload is in best). Not worth the wait.
+  it.skipIf(!needsAttestation())(
+    "uploaded CID is retrievable from IPFS gateway",
+    async () => {
+      const url = `${network.ipfsGateway}/${uploaded.cid}`;
+      console.log(`[storage] Fetching: ${url}`);
+      const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      console.log(`[storage] IPFS gateway status=${response.status}`);
+      expect(response.ok).toBe(true);
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(uploaded.payload);
+    },
+    60_000,
+  );
 
   it.skipIf(!needsAttestation())(
     "unauthorized account is rejected",
     async () => {
-      const fresh = createRandomAccount();
-      console.log(`[storage] Unauthorized account: ${fresh.address}`);
-
-      try {
-        await submitAndWatchBestBlock(
-          api.tx.TransactionStorage.store_with_cid_config({
-            cid: {
-              codec: BigInt(CODEC_RAW),
-              hashing: { type: "Sha2_256", value: undefined },
-            },
-            data: new TextEncoder().encode("should-fail"),
-          }),
-          fresh.signer,
-        );
-
-        expect.unreachable("Unauthorized account should be rejected");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.log(`[storage] Unauthorized correctly rejected: ${message.slice(0, 80)}`);
-        expect(error).toBeDefined();
-      }
+      const fresh = cloudStorage(client, api, randomSigner());
+      await expect(fresh.store(new TextEncoder().encode("should-fail")).send()).rejects.toThrow();
     },
     60_000,
   );

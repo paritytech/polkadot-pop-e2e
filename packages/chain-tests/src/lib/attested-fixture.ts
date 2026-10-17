@@ -25,6 +25,8 @@ import {
   signAndRegister,
 } from "./attestation.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { lookupUsername } from "@parity/product-sdk-individuality";
+import { createAssetHubClient, createPeopleClient } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
@@ -58,7 +60,6 @@ function parseAttested(path: string): AttestedCredentials | null {
       attested: true,
       address: raw.address,
       publicKey: Uint8Array.from(raw.publicKey),
-      statementStoreSecret: Uint8Array.from(raw.statementStoreSecret),
       entropy: Uint8Array.from(raw.entropy),
       username: raw.username,
     };
@@ -148,18 +149,18 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     network.identityBackend,
     credentials.entropy,
     params,
+    network.identityBackendAuth === "challenge" ? await assetHubNowSecs(network.assetHub.ws) : undefined,
   );
   console.log(
     `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,
   );
 
-  await waitForAssigned(network.identityBackend, result.username);
+  await waitForAssigned(network.identityBackend, result.username, credentials.address);
 
   const persisted: AttestedCredentials = {
     attested: true,
     address: credentials.address,
     publicKey: credentials.publicKey,
-    statementStoreSecret: credentials.statementStoreSecret,
     entropy: credentials.entropy,
     username: result.username,
   };
@@ -169,7 +170,6 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     JSON.stringify({
       ...persisted,
       publicKey: Array.from(persisted.publicKey),
-      statementStoreSecret: Array.from(persisted.statementStoreSecret),
       entropy: Array.from(persisted.entropy),
     }),
   );
@@ -177,34 +177,56 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   return persisted;
 }
 
+/** Asset Hub's `Timestamp.Now` in seconds. */
+async function assetHubNowSecs(ws: string): Promise<bigint> {
+  const { client, api } = createAssetHubClient(ws);
+  try {
+    return (await api.query.Timestamp.Now.getValue()) / 1000n;
+  } finally {
+    client.destroy();
+  }
+}
+
 /**
  * Poll the IB for `username` until its status flips to `ASSIGNED`. Throws
  * with a precise message if the budget elapses — health-check picks this
  * up as the IB-health signal.
  */
-async function waitForAssigned(backendUrl: string, username: string): Promise<void> {
-  // IBv2 exposes no status field; landing in the indexer's search projection IS the
-  // assigned signal, and it proves the full pipeline (see searchUsername).
+async function waitForAssigned(backendUrl: string, username: string, address: string): Promise<void> {
+  // IBv2 exposes no status field. Done means on chain, as hosts check, and
+  // in the backend's search, which can list it before finalization.
   if (getNetworkConfig().identityBackendAuth === "challenge") {
+    const { client, api } = createPeopleClient(getNetworkConfig().people.ws);
     const start = Date.now();
     let polls = 0;
-    while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
-      polls++;
-      try {
-        const hit = await searchUsername(backendUrl, username);
-        if (hit) {
-          console.log(
-            `[attested-fixture] indexed in ${Date.now() - start}ms (${polls} polls)`,
-          );
-          return;
+    let onChain = false;
+    let searchable = false;
+    try {
+      while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
+        polls++;
+        if (!onChain) {
+          const found = await lookupUsername({ individuality: api }, { account: address });
+          if (!found.ok) console.log(`[attested-fixture] chain poll error: ${found.error.message}`);
+          onChain = found.ok && found.value?.liteUsername === username;
+          if (onChain) console.log(`[attested-fixture] on chain in ${Date.now() - start}ms`);
         }
-      } catch (e: any) {
-        console.log(`[attested-fixture] poll error: ${e.message}`);
+        if (!searchable) {
+          try {
+            searchable = (await searchUsername(backendUrl, username)) !== null;
+            if (searchable) console.log(`[attested-fixture] searchable in ${Date.now() - start}ms`);
+          } catch (e: any) {
+            console.log(`[attested-fixture] search poll error: ${e.message}`);
+          }
+        }
+        if (onChain && searchable) return;
+        await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
       }
-      await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
+    } finally {
+      client.destroy();
     }
+    const missing = [!onChain && "Resources.Consumers", !searchable && "the backend's search"].filter(Boolean);
     throw new Error(
-      `[attested-fixture] ${username} never reached the search projection within ` +
+      `[attested-fixture] ${username} never reached ${missing.join(" or ")} within ` +
         `${V2_INDEXED_TIMEOUT_MS / 1000}s (${polls} polls) — check identity-chain-writer's log`,
     );
   }

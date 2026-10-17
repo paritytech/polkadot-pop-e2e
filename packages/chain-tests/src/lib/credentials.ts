@@ -9,7 +9,6 @@ export interface AttestedCredentials {
   attested: true;
   address: string;
   publicKey: Uint8Array;
-  statementStoreSecret: Uint8Array;
   entropy: Uint8Array;
   username: string;
 }

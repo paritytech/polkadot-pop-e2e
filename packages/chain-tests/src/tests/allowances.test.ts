@@ -8,7 +8,7 @@
  *
  * NOTE: The Statement Store and LongTermStorage allowance claims used
  * to live here too. They are now exercised implicitly by:
- *   - statement.test.ts (StmtStore — daemon-granted on attestation)
+ *   - statement.test.ts (StmtStore — claimed for the product key that then publishes)
  *   - storage.test.ts (LTS — claimed in beforeAll, then upload tests it)
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -23,17 +23,18 @@ import {
   type AssetHubApi,
 } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
-import { pgasContextV012, ringRootsWindow, usesProductContexts } from "../lib/individuality-compat.js";
+import { pgasContextV012, productContextSuffix, ringRootsWindow } from "../lib/individuality-compat.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { deriveKeyPair } from "../lib/attestation.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import {
   createClaimSigner,
   createPgasPayerSigner,
-  encodePgasClaim,
+  pgasClaim,
 } from "../lib/claim-signer.js";
-import { encodeMembers, fetchRingMembers } from "../lib/ring.js";
+import { encodeMembers, fetchRingMembers, ringExponent } from "../lib/ring.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
+import { submitUntilFinalized } from "../lib/people-claim.js";
 import { dayFromTimestamp, pgasContext } from "../lib/allowances.js";
 import { findCounterContract } from "../lib/counter-contract.js";
 
@@ -205,7 +206,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
       const PGAS_ASSET_ID = 2_000_000_000;
       const ringIndex = location.ringIndex;
-      const nowSecs = Math.floor(Date.now() / 1000);
+      // Hosts take the day from Asset Hub's clock, which the claim is checked against.
+      const nowSecs = Number((await assetHubApi.query.Timestamp.Now.getValue()) / 1000n);
       const day = dayFromTimestamp(nowSecs);
 
       const ring = await import("../lib/ring.js");
@@ -218,6 +220,8 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // yet → BadProof. The same snapshot is reused for all claims so every
       // proof verifies against one stable (members, revision) pair.
       let snapshot = await refreshSnapshot();
+      const exponent = await ringExponent(peopleApi, "LitePeople");
+      const suffix = await productContextSuffix(assetHubClient);
 
       async function refreshSnapshot() {
         const synced = await waitForAssetHubRing(
@@ -291,41 +295,26 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
             snapshot = await refreshSnapshot();
           }
 
-          const context = (await usesProductContexts(assetHubClient))
-            ? pgasContextV012(network.networkSuffix ?? "paseo", day, slotIndex)
+          const context = suffix
+            ? pgasContextV012(suffix, day, slotIndex)
             : pgasContext(day, slotIndex);
           const signer = createClaimSigner({
             extensionName: "AsPgas",
             context,
             verifiableEntropy,
             encodedMembers: snapshot.encodedMembers,
-            encodeExtensionValue: (proof) =>
-              encodePgasClaim({
-                proof,
-                ringIndex,
-                revisionIndex: snapshot.revisionIndex,
-                litePeople: true,
-                day,
-              }),
+            ringExponent: exponent,
+            extensionValue: pgasClaim(
+              { ringIndex, revision: snapshot.revisionIndex, collection: "LitePeople" },
+              day,
+            ),
           });
           const tx = assetHubApi.tx.Pgas.claim_pgas({
             slot_index: slotIndex,
             target: address,
           });
           try {
-            const result = await tx.signSubmitAndWatch(signer, { customSignedExtensions });
-            const final = await new Promise<{ ok: boolean; block?: number }>(
-              (resolve, reject) => {
-                let last: { block?: number } = {};
-                result.subscribe({
-                  next: (e: { type: string; ok?: boolean; block?: { number: number } }) => {
-                    if (e.block) last.block = e.block.number;
-                    if (e.type === "finalized") resolve({ ok: !!e.ok, block: last.block });
-                  },
-                  error: reject,
-                });
-              },
-            );
+            const final = await submitUntilFinalized(tx, signer, customSignedExtensions);
             console.log(
               `[pgas] slot=${slotIndex} attempt=${attempt} ok=${final.ok} block=#${final.block ?? "?"} rev=${snapshot.revisionIndex}`,
             );
@@ -374,7 +363,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
   // claimed PGAS. The contract is deployed out-of-band by
-  // `scripts/deploy-counter.ts` (idempotent — runs in CI with //Alice).
+  // `scripts/deploy-counter.ts` (idempotent — runs in CI before the suite).
   //
   // Fee charging: `ChargePGAS<ChargeAssetTxPayment>` is a runtime-wide
   // tx extension on Asset Hub. For `RuntimeCall::Revive(..)` it auto-
@@ -460,7 +449,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         storage_deposit_limit: storageDeposit > 0n ? storageDeposit : 1n,
         data: Binary.fromHex("0x"),
       });
-      const callResult = await callTx.signAndSubmit(signer);
+      const callResult = await callTx.createAndSubmit(signer);
       if (!callResult.ok) {
         throw new Error(
           `[pgas] revive call failed: dispatchError=${JSON.stringify(callResult.dispatchError)}`,
