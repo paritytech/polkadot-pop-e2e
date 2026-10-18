@@ -22,7 +22,7 @@ jobs:
         # from another repo:
         # uses: paritytech/polkadot-pop-e2e/.github/actions/k3s-network@main
         env:
-          POLKADOT_IMAGE: docker.io/parity/polkadot:latest   # fills {{POLKADOT_IMAGE}}
+          POLKADOT_IMAGE: docker.io/parity/polkadot:v1.25.0   # fills {{POLKADOT_IMAGE}}; pin it
         with:
           network: path/to/network.toml
           chains: alice my-collator    # wait until these finalize a block

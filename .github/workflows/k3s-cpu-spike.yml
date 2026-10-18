@@ -36,9 +36,11 @@ jobs:
 
       - name: Start the network on dedicated cores
         uses: ./.github/actions/k3s-network
+        # Pinned by digest so a new release cannot change the result. To update,
+        # take the new tag's digest from Docker Hub.
         env:
-          POLKADOT_IMAGE: docker.io/parity/polkadot:latest
-          CUMULUS_IMAGE: docker.io/parity/polkadot-parachain:latest
+          POLKADOT_IMAGE: docker.io/parity/polkadot:v1.25.0@sha256:d81d252c4226edb31d49b33252686f46119de79dffc6d6c56a1600075808bd62
+          CUMULUS_IMAGE: docker.io/parity/polkadot-parachain:v1.25.0@sha256:bcf61ca72bcc79346cf68dffcec015b95e11b02b1aaf704893079a42d4afc70f
         with:
           network: .github/k3s/network.toml
           namespace: zombie-pop-spike
