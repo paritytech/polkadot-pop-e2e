@@ -63,8 +63,9 @@ A node only gets its own cores if, in the TOML:
 
 All nodes together must fit in what is left after `reserved-cores`: on
 `parity-large` with the default, 28 vCPU. If they do not, a pod will not start
-and the spawn times out. `.github/k3s/network.toml` is a worked example with
-the sizing written out.
+and the spawn times out. [`example/network.toml`](example/network.toml) is a
+worked example with the sizing written out; the spike workflow
+(`.github/workflows/k3s-cpu-spike.yml`) runs it.
 
 `check-cores.sh` finds the nodes by their `name = "..."` lines, so give every
 node an explicit name (no `collator_groups` with a count).

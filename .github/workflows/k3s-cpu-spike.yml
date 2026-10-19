@@ -1,8 +1,9 @@
 name: K3s CPU isolation spike
 
 # Runs a relay + collator network on parity-large with each node on its own CPU
-# cores, using the k3s-network action. Sizing per node lives in
-# .github/k3s/network.toml; the action itself in .github/actions/k3s-network.
+# cores, using the k3s-network action in .github/actions/k3s-network. The
+# network is that action's example, example/network.toml, which has the sizing
+# per node.
 
 on:
   workflow_dispatch:
@@ -14,7 +15,6 @@ on:
     paths:
       - .github/workflows/k3s-cpu-spike.yml
       - .github/actions/k3s-network/**
-      - .github/k3s/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,7 +42,7 @@ jobs:
           POLKADOT_IMAGE: docker.io/parity/polkadot:v1.25.0@sha256:d81d252c4226edb31d49b33252686f46119de79dffc6d6c56a1600075808bd62
           CUMULUS_IMAGE: docker.io/parity/polkadot-parachain:v1.25.0@sha256:bcf61ca72bcc79346cf68dffcec015b95e11b02b1aaf704893079a42d4afc70f
         with:
-          network: .github/k3s/network.toml
+          network: .github/actions/k3s-network/example/network.toml
           namespace: zombie-pop-spike
           chains: alice asset-hub-collator people-collator coretime-collator
           soak-minutes: ${{ inputs.soak_minutes || '10' }}
