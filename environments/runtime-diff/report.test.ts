@@ -1,26 +1,19 @@
 // The report on a gate run, and the test results it reads. No chain is needed: the
-// diff is a fixture, and the test scripts are a stand-in pnpm.
-import { describe, it } from "node:test";
+// diff is a fixture, and the test scripts run against a stand-in pnpm.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Diff } from "./runtime-diff.ts";
-import {
-  explainFailures,
-  failuresFromJunit,
-  issueUrl,
-  junitFiles,
-  linksFor,
-  readFailures,
-  renderReport,
-} from "./runtime-report.ts";
-import { knownBreaks } from "./runtime-watch/diagnosis.ts";
+import { describe, it } from "node:test";
+import type { ChainDiff, Diff } from "./diff.ts";
+import { readJson } from "./json.ts";
+import { failuresFromJunit, readFailures, type Failure } from "./junit.ts";
+import { explainFailures, linksFor } from "./links.ts";
+import { issueUrl, renderReport } from "./markdown.ts";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const TESTS_DIR = path.join(HERE, "..", "packages", "chain-tests");
+const HERE = import.meta.dirname;
+const TESTS_DIR = path.join(HERE, "..", "..", "packages", "chain-tests");
 const tmp = (prefix: string): string => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
 const JUNIT = `<?xml version="1.0" encoding="UTF-8" ?>
@@ -38,99 +31,81 @@ const JUNIT = `<?xml version="1.0" encoding="UTF-8" ?>
   </testsuite>
 </testsuites>`;
 
-const noExtensionChange = {
-  versions: [
-    {
-      version: 0,
-      status: "same" as const,
-      severity: "none" as const,
-      before: ["CheckNonce"],
-      after: ["CheckNonce"],
-      added: [],
-      removed: [],
-      reordered: false,
-      retyped: [],
-    },
-  ],
-  moved: [],
-  summary: "No change.",
-  watch: null,
-  extrinsicVersions: { live: [4, 5], candidate: [4, 5], removed: [], added: [] },
-};
-
 const side = (specVersion: number, transactionVersion: number, codeHash: string) => ({
   specName: "people",
   specVersion,
   transactionVersion,
-  metadataVersion: 16,
   codeHash,
 });
+
+const people: ChainDiff = {
+  chain: "people",
+  pin: "paritytech/individuality-community@v0.4.0",
+  wasm: "people.wasm",
+  descriptor: "previewnet-individuality",
+  live: side(3004000, 6, "0xaaaaaaaaaaaa"),
+  candidate: side(3005000, 7, "0xbbbbbbbbbbbb"),
+  entries: [
+    {
+      selector: "tx:PeopleLite.set_alias_account",
+      change: "changed",
+      severity: "breaking",
+      sdk: { live: "Identical", candidate: "Incompatible" },
+      paths: [{ side: "args", path: "alias" }],
+      sdkRef: true,
+    },
+    {
+      selector: "event:Game.NewGame",
+      change: "changed",
+      severity: "additive",
+      sdk: { live: "Identical", candidate: "BackwardsCompatible" },
+      paths: [],
+      sdkRef: false,
+    },
+  ],
+  extensions: {
+    versions: [
+      {
+        version: 0,
+        status: "same",
+        breaking: false,
+        before: ["CheckNonce"],
+        after: ["CheckNonce"],
+        added: [],
+        removed: [],
+        reordered: false,
+        retyped: [],
+      },
+    ],
+    moved: [],
+    summary: "No change.",
+    extrinsicVersions: { removed: [], added: [] },
+  },
+  missingSurfaces: [],
+};
 
 const diff: Diff = {
   network: "previewnet",
   descriptors: "@parity/product-sdk-descriptors@0.14.0",
   sdk: [{ name: "@parity/product-sdk-individuality", version: "0.9.0", from: "@pop-e2e/chain-tests", deps: [] }],
   sdkSelectors: { "@parity/product-sdk-individuality": ["tx:PeopleLite.set_alias_account"] },
-  chains: [
-    {
-      chain: "people",
-      pin: "paritytech/individuality-community@v0.4.0",
-      wasm: "people.wasm",
-      descriptor: "previewnet-individuality",
-      live: side(3004000, 6, "0xaaaaaaaaaaaa"),
-      candidate: side(3005000, 7, "0xbbbbbbbbbbbb"),
-      entries: [
-        {
-          selector: "tx:PeopleLite.set_alias_account",
-          kind: "tx",
-          change: "changed",
-          severity: "breaking",
-          sdk: { live: "Identical", candidate: "Incompatible" },
-          paths: [{ side: "args", path: "alias", level: "Incompatible" }],
-          sdkRef: true,
-        },
-        {
-          selector: "event:Game.Reported",
-          kind: "events",
-          change: "changed",
-          severity: "partial",
-          sdk: { live: "Identical", candidate: "Partial" },
-          paths: [{ side: "value", path: "reason", level: "Partial" }],
-          sdkRef: false,
-        },
-        {
-          selector: "event:Game.NewGame",
-          kind: "events",
-          change: "changed",
-          severity: "additive",
-          sdk: { live: "Identical", candidate: "BackwardsCompatible" },
-          paths: [],
-          sdkRef: false,
-        },
-      ],
-      extensions: noExtensionChange,
-      missingSurfaces: [],
-    },
-  ],
+  chains: [people],
 };
 
-const people = diff.chains[0]!;
-const withChain = (base: Diff, chain: Partial<Diff["chains"][number]>): Diff => ({
-  ...base,
-  chains: [{ ...people, ...chain }],
-});
+const failures = (): Failure[] => failuresFromJunit(JUNIT);
 
 describe("test results", () => {
   it("reads failing cases out of junit, entities decoded", () => {
-    const failures = failuresFromJunit(JUNIT);
+    const [first, second, ...rest] = failures();
     assert.deepEqual(
-      failures.map((f) => [f.file, f.name]),
+      [first, second].map((f) => [f?.file, f?.name]),
       [
         ["src/tests/lite-alias-bind.test.ts", "Lite sign-up > binds the alias"],
         ["src/tests/core.test.ts", "reads 'blocks'"],
       ],
     );
-    assert.match(failures[0]!.message, /Tx\(PeopleLite\.set_alias_account\)/);
+    assert.deepEqual(rest, []);
+    assert.match(first?.message ?? "", /Tx\(PeopleLite\.set_alias_account\)/);
   });
 
   it("reads every junit file in a results directory", () => {
@@ -138,7 +113,6 @@ describe("test results", () => {
     fs.writeFileSync(path.join(dir, "junit-test_a.xml"), JUNIT);
     fs.writeFileSync(path.join(dir, "junit-test_b.xml"), JUNIT.replaceAll("core.test.ts", "other.test.ts"));
     fs.writeFileSync(path.join(dir, "report.xml"), JUNIT);
-    assert.deepEqual(junitFiles([dir]).map((f) => path.basename(f)), ["junit-test_a.xml", "junit-test_b.xml"]);
     assert.equal(readFailures([dir]).length, 4);
     assert.deepEqual(readFailures([path.join(dir, "missing")]), []);
   });
@@ -146,15 +120,13 @@ describe("test results", () => {
   // vitest writes junit.xml again on every run. The gate runs one test script after
   // another, so without run-chain-tests.sh only the last script's results are left.
   describe("run-chain-tests.sh", () => {
-    const SCRIPT = path.join(HERE, "run-chain-tests.sh");
-
     // A stand-in pnpm: each script writes junit.xml with one case named after itself,
     // and a script whose name has "fail" in it fails that case and exits 1.
-    function fakePnpm(results: string): string {
+    function run(scripts: string[]) {
+      const results = tmp("results-");
       const bin = tmp("fake-pnpm-");
-      const pnpm = path.join(bin, "pnpm");
       fs.writeFileSync(
-        pnpm,
+        path.join(bin, "pnpm"),
         `#!/usr/bin/env bash
 script=$3
 echo "$script" >> "${results}/ran.txt"
@@ -167,22 +139,16 @@ cat > "${results}/junit.xml" <<EOF
 EOF
 exit $code
 `,
+        { mode: 0o755 },
       );
-      fs.chmodSync(pnpm, 0o755);
-      return bin;
-    }
-
-    const run = (scripts: string[]) => {
-      const results = tmp("results-");
-      const bin = fakePnpm(results);
-      const out = spawnSync(SCRIPT, [results, ...scripts], {
+      const out = spawnSync(path.join(HERE, "..", "run-chain-tests.sh"), [results, ...scripts], {
         encoding: "utf8",
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
       });
       const files = fs.readdirSync(results).filter((f) => f.endsWith(".xml")).sort();
       const read = (f: string) => fs.readFileSync(path.join(results, f), "utf8");
       return { status: out.status, results, files, read };
-    };
+    }
 
     it("keeps every script's results, not only the last one's", () => {
       const { status, files, read } = run(["test:first", "test:second", "test:third"]);
@@ -213,54 +179,42 @@ exit $code
 
 describe("report", () => {
   it("links an entry named in the error above one the test merely reaches", () => {
-    const [named, other] = failuresFromJunit(JUNIT);
+    const [named, other] = failures();
+    assert.ok(named && other);
     const nothing = { own: new Set<string>(), viaSdk: new Set<string>() };
     assert.deepEqual(
-      linksFor(named!, nothing, diff).map((l) => [l.what, l.why]),
+      linksFor(named, nothing, diff).map((l) => [l.what, l.why]),
       [["tx:PeopleLite.set_alias_account", "named in the error"]],
     );
     // An additive change cannot explain a failure, even when the test reads it.
-    assert.deepEqual(linksFor(other!, { own: new Set(["event:Game.NewGame"]), viaSdk: new Set() }, diff), []);
-  });
-
-  it("links a partial change only when the error names it", () => {
-    const reads = { own: new Set(["event:Game.Reported"]), viaSdk: new Set<string>() };
-    const quiet = { file: null, name: "t", message: "timeout" };
-    const loud = { file: null, name: "t", message: "could not decode Game.Reported" };
-    assert.deepEqual(linksFor(quiet, reads, diff), []);
-    assert.deepEqual(
-      linksFor(loud, reads, diff).map((l) => [l.what, l.severity]),
-      [["event:Game.Reported", "partial"]],
-    );
+    assert.deepEqual(linksFor(other, { own: new Set(["event:Game.NewGame"]), viaSdk: new Set() }, diff), []);
   });
 
   it("puts the cause next to the failure and offers the product-sdk issue", () => {
-    const explained = explainFailures(diff, failuresFromJunit(JUNIT), TESTS_DIR);
+    const explained = explainFailures(diff, failures(), TESTS_DIR);
     const md = renderReport(diff, explained, { outcome: "failure", title: "previewnet · target", run: "https://example/run/1" });
     assert.match(md, /lite-alias-bind › Lite sign-up > binds the alias: likely `tx:PeopleLite.set_alias_account` on people \(breaking, named in the error\)/);
     assert.match(md, /core › reads 'blocks': nothing in this diff reaches it/);
     assert.match(md, /\[Open a `runtime-break` issue on paritytech\/product-sdk\]\(https:\/\/github\.com\/paritytech\/product-sdk\/issues\/new\?/);
     assert.match(md, /\| 🔴 \| `tx:PeopleLite.set_alias_account` ★ \| changed at `args.alias` \| Identical → Incompatible \| lite-alias-bind › Lite sign-up > binds the alias \|/);
-    assert.match(md, /1 breaking, 1 partial, 1 additive/);
-    assert.match(md, /<summary>Partial changes \(may break, depending on the values\)<\/summary>[\s\S]*\| 🟠 \| `event:Game.Reported`/);
+    assert.match(md, /1 breaking, 1 additive/);
   });
 
   it("prefills the issue with the breaking changes and the run", () => {
-    const explained = explainFailures(diff, failuresFromJunit(JUNIT), TESTS_DIR);
+    const explained = explainFailures(diff, failures(), TESTS_DIR);
     const url = new URL(issueUrl(diff, explained, { run: "https://example/run/1" }));
     assert.equal(url.searchParams.get("labels"), "runtime-break");
     assert.equal(url.searchParams.get("title"), "runtime-break: previewnet people 3004000 → 3005000");
-    const body = url.searchParams.get("body")!;
+    const body = url.searchParams.get("body") ?? "";
     assert.match(body, /Run: https:\/\/example\/run\/1/);
     assert.match(body, /`tx:PeopleLite.set_alias_account` changed at args.alias \(Identical → Incompatible\)/);
-    assert.doesNotMatch(body, /Game.Reported/);
-    assert.match(body, /1 partial changes/);
+    assert.doesNotMatch(body, /Game.NewGame/);
     assert.match(body, /@parity\/product-sdk-individuality@0\.9\.0/);
   });
 
-  it("does not blame the runtime when only partial and additive changes are left", () => {
-    const calm = withChain(diff, { entries: people.entries!.slice(1) });
-    const md = renderReport(calm, explainFailures(calm, failuresFromJunit(JUNIT), TESTS_DIR), { outcome: "failure" });
+  it("does not blame the runtime when nothing in the diff breaks the SDK", () => {
+    const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }] };
+    const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
     assert.doesNotMatch(md, /Open a `runtime-break` issue/);
     assert.match(md, /probably not a runtime break/);
   });
@@ -269,66 +223,19 @@ describe("report", () => {
     assert.match(renderReport({ ...diff, chains: [] }, []), /No runtime was upgraded in this run/);
   });
 
-  describe("Runtime Watch known breaks", () => {
-    const known = knownBreaks[0]!;
-    const split = withChain(diff, {
-      entries: [],
-      extensions: {
-        ...noExtensionChange,
-        watch: {
-          summary: "split",
-          beforeVersions: ["0"],
-          afterVersions: ["0", "1"],
-          moved: known.scope.pipelineChange.moved,
-          before: [],
-          after: {},
-        },
-      },
-    });
-    const failure = [{ file: null, name: "signs as a person", message: `Error: ${known.canaryError}\n at x` }];
-    const onSdk = (version: string): Diff => ({
-      ...split,
-      sdk: [{ ...split.sdk[0]!, version }],
-    });
-
-    it("explains a failure that matches a catalogued break, with the fix and the tracking issues", () => {
-      const d = onSdk("0.8.0");
-      const md = renderReport(d, explainFailures(d, failure, TESTS_DIR), { outcome: "failure" });
-      assert.match(md, new RegExp(`Known break on people\\*\\* \\(Runtime Watch \`${known.id}\`\\)`));
-      assert.match(md, /1\. Product SDK must read the highest declared pipeline/);
-      assert.match(md, /\[platform-bugs#110\]\(https:\/\/github\.com\/paritytech\/platform-bugs\/issues\/110\)/);
-    });
-
-    it("does not match once the SDK carries the fix, or when no test shows the error", () => {
-      const fixed = onSdk(known.scope.sdkVersion.maxExclusive);
-      assert.doesNotMatch(renderReport(fixed, explainFailures(fixed, failure, TESTS_DIR)), /Known break/);
-      const old = onSdk("0.8.0");
-      const other = [{ ...failure[0]!, message: "timeout" }];
-      assert.doesNotMatch(renderReport(old, explainFailures(old, other, TESTS_DIR)), /Known break/);
-    });
-  });
-
   it("writes report.md and report.json next to the diff from the CLI", () => {
     const dir = tmp("runtime-report-");
     fs.writeFileSync(path.join(dir, "diff.json"), JSON.stringify(diff));
     fs.mkdirSync(path.join(dir, "results"));
     fs.writeFileSync(path.join(dir, "results", "junit-test_a.xml"), JUNIT);
-    const out = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        path.join(HERE, "runtime-report.ts"),
-        path.join(dir, "diff.json"),
-        "--junit",
-        path.join(dir, "results"),
-        "--tests-dir",
-        TESTS_DIR,
-      ],
-      { encoding: "utf8" },
-    );
+    const args = ["--import", "tsx", path.join(HERE, "report.ts"), path.join(dir, "diff.json")];
+    const out = execFileSync(process.execPath, [...args, "--junit", path.join(dir, "results"), "--tests-dir", TESTS_DIR], {
+      encoding: "utf8",
+    });
     assert.match(out, /### Runtime diff/);
     assert.equal(fs.readFileSync(path.join(dir, "report.md"), "utf8").trim(), out.trim());
-    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "report.json"), "utf8")).failingTests.length, 2);
+    const report = readJson(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
+    assert.ok(report && typeof report === "object" && "failingTests" in report && Array.isArray(report.failingTests));
+    assert.equal(report.failingTests.length, 2);
   });
 });

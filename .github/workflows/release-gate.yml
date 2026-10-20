@@ -669,7 +669,7 @@ jobs:
       - name: Capture the runtime diff
         continue-on-error: true
         run: |
-          pnpm exec tsx environments/runtime-diff.ts capture "$MANIFEST" upgrades.env \
+          pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" upgrades.env \
             --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
 
       - name: Upgrade each chain's runtime
@@ -753,7 +753,7 @@ jobs:
           OUTCOME: ${{ job.status }}
           TITLE: ${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }}
         run: |
-          pnpm exec tsx environments/runtime-report.ts runtime-diff/diff.json \
+          pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json \
             --junit packages/chain-tests/test-results --tests-dir packages/chain-tests \
             --outcome "$OUTCOME" --title "$TITLE" >> "$GITHUB_STEP_SUMMARY"
 

@@ -10,7 +10,11 @@
     "allowImportingTsExtensions": true,
     "allowJs": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["*.ts", "runtime-watch/*.ts"]
+  "include": [
+    "runtime-diff/*.ts"
+  ]
 }
