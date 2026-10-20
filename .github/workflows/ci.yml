@@ -44,6 +44,9 @@ jobs:
       - name: Unit tests (release map, resolver, gate form)
         run: pnpm test:environments
 
+      - name: Typecheck the environment scripts
+        run: pnpm typecheck:environments
+
       - name: Typecheck the suite
         run: pnpm --filter @pop-e2e/chain-tests exec tsc --noEmit -p .
 

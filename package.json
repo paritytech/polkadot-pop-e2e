@@ -1,12 +1,14 @@
 {
   "private": true,
   "license": "Apache-2.0",
+  "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "postinstall": "pnpm --filter @pop-e2e/papi generate",
-    "test:environments": "node --test environments/*.test.mjs",
+    "test:environments": "node --test environments/*.test.mjs && node --import tsx --test environments/*.test.ts",
     "resolve:environment": "node environments/resolve.mjs",
-    "scan:baseline": "node environments/baseline-scan.mjs"
+    "scan:baseline": "node environments/baseline-scan.mjs",
+    "typecheck:environments": "tsc -p environments"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -17,6 +19,13 @@
     }
   },
   "devDependencies": {
-    "fzstd": "^0.1.1"
+    "@polkadot-api/metadata-builders": "^0.15.2",
+    "@polkadot-api/metadata-compatibility": "^0.7.2",
+    "@polkadot-api/substrate-bindings": "^0.21.2",
+    "@polkadot-api/wasm-executor": "^0.2.3",
+    "@types/node": "^22.19.20",
+    "fzstd": "^0.1.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

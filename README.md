@@ -85,8 +85,12 @@ Three ways to start one:
   A pin a named network does not carry fails that network's run, naming the chain,
   rather than silently skipping it.
 
+When a run fails, its summary also says which runtime change most likely caused
+it. That is a diff of the forked runtime against the candidate, limited to what
+product-sdk uses, with each failing test placed next to the entries it touches.
+
 See [`environments/README.md`](environments/README.md) for how manifests, the
-release map and the candidate matrix work.
+release map, the candidate matrix and the runtime diff work.
 
 ## Repository layout
 

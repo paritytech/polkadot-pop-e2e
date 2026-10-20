@@ -11,9 +11,30 @@ importers:
 
   .:
     devDependencies:
+      '@polkadot-api/metadata-builders':
+        specifier: ^0.15.2
+        version: 0.15.2
+      '@polkadot-api/metadata-compatibility':
+        specifier: ^0.7.2
+        version: 0.7.2
+      '@polkadot-api/substrate-bindings':
+        specifier: ^0.21.2
+        version: 0.21.2
+      '@polkadot-api/wasm-executor':
+        specifier: ^0.2.3
+        version: 0.2.3
+      '@types/node':
+        specifier: ^22.19.20
+        version: 22.19.20
       fzstd:
         specifier: ^0.1.1
         version: 0.1.1
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/chain-tests:
     dependencies:

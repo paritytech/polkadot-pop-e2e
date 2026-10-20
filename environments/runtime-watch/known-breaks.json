@@ -1,0 +1,32 @@
+[
+  {
+    "id": "people-multiple-extension-pipelines",
+    "canaryError": "chain declares a transaction-extension pipeline version this package cannot encode",
+    "scope": {
+      "sdkVersion": {
+        "maxExclusive": "0.9.0"
+      },
+      "pipelineChange": {
+        "beforeVersions": ["0"],
+        "afterVersions": ["0", "1"],
+        "moved": ["AsPerson", "PeopleLiteAuth", "ScoreAsParticipant"]
+      }
+    },
+    "explanation": "The People runtime split plain transactions and person-origin transactions into separate extension pipelines. The tested Product SDK accepts only a single pipeline, version 0, so it refuses before encoding a person-origin transaction.",
+    "fix": [
+      "Product SDK must read the highest declared pipeline and fill PAPI's missing defaults.",
+      "The host must submit a V5 envelope with txExtVersion=1.",
+      "Then publish updated individuality and descriptor packages, and products must upgrade."
+    ],
+    "tracking": [
+      {
+        "label": "platform-bugs#110",
+        "url": "https://github.com/paritytech/platform-bugs/issues/110"
+      },
+      {
+        "label": "product-sdk#455",
+        "url": "https://github.com/paritytech/product-sdk/pull/455"
+      }
+    ]
+  }
+]
