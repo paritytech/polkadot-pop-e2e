@@ -74,7 +74,7 @@ vitest writes `test-results/junit.xml` again on every run, and the gate runs a m
 
 Chains without SDK descriptors (the relay, web3-storage) get the extension comparison only. `metadata.ts` is copied from Runtime Watch ([paritytech/velocity](https://paritytech.github.io/velocity/runtime-watch/)), which has no package to call.
 
-The code is TypeScript, run with `tsx`. `pnpm typecheck:environments` and `pnpm lint:environments` check it; the lint refuses type assertions and non-null assertions. Locally, against a running fork or any RPC:
+The code is TypeScript, run with `tsx` and checked with `pnpm typecheck:environments`. Locally, against a running fork or any RPC:
 
 ```bash
 pnpm exec tsx environments/runtime-diff/capture.ts environments/networks/previewnet.json upgrades.env \

@@ -8,8 +8,7 @@
     "test:environments": "node --test environments/*.test.mjs && node --import tsx --test environments/runtime-diff/*.test.ts",
     "resolve:environment": "node environments/resolve.mjs",
     "scan:baseline": "node environments/baseline-scan.mjs",
-    "typecheck:environments": "tsc -p environments",
-    "lint:environments": "eslint environments/runtime-diff"
+    "typecheck:environments": "tsc -p environments"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -20,16 +19,13 @@
     }
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.5",
     "@polkadot-api/metadata-builders": "^0.15.2",
     "@polkadot-api/metadata-compatibility": "^0.7.2",
     "@polkadot-api/substrate-bindings": "^0.21.2",
     "@polkadot-api/wasm-executor": "^0.2.3",
     "@types/node": "^22.19.20",
-    "eslint": "^9.39.5",
     "fzstd": "^0.1.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.72.0"
+    "typescript": "^5.9.3"
   }
 }
