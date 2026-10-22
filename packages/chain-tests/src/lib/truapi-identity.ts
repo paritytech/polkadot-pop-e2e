@@ -7,25 +7,14 @@
 import { blake2b } from "@noble/hashes/blake2.js";
 import { HDKD, getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
 import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
-import { AccountId, compact } from "@polkadot-api/substrate-bindings";
+import { AccountId, str } from "@polkadot-api/substrate-bindings";
 
 const blake2b256 = (message: Uint8Array, key?: Uint8Array) =>
   blake2b(message, { dkLen: 32, ...(key ? { key } : {}) });
 
-const concat = (...parts: Uint8Array[]) => {
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
-};
-
 /** A Substrate junction's 32-byte chain code: its SCALE string, padded or hashed. */
 function chainCode(junction: string): Uint8Array {
-  const bytes = new TextEncoder().encode(junction);
-  const encoded = concat(compact.enc(bytes.length), bytes);
+  const encoded = str.enc(junction);
   if (encoded.length > 32) return blake2b256(encoded);
   const code = new Uint8Array(32);
   code.set(encoded);

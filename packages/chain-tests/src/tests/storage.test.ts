@@ -9,7 +9,8 @@ import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
-import { identityKey, personKey } from "../lib/truapi-identity.js";
+import { getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
+import { personKey } from "../lib/truapi-identity.js";
 /** A product-sdk storage client over our own connection, as a BYOD product would build it. */
 function cloudStorage(client: PolkadotClient, api: BulletinApi, signer: CommonSignerTxCreator) {
   const inner = new AsyncBulletinClient(
@@ -50,8 +51,8 @@ async function waitForBulletinAuthorization(
 }
 
 function randomSigner(): CommonSignerTxCreator {
-  const keyPair = identityKey(crypto.getRandomValues(new Uint8Array(16)), "testnet");
-  return getTxCreator(keyPair.publicKey, "Sr25519", keyPair.sign);
+  const secret = secretFromSeed(crypto.getRandomValues(new Uint8Array(32)));
+  return getTxCreator(getPublicKey(secret), "Sr25519", (message) => sign(secret, message));
 }
 
 describe("Storage: Bulletin Chain", () => {
