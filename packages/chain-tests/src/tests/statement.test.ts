@@ -91,7 +91,8 @@ describe("Statement: People Chain + Identity Backend", () => {
       const output = await claimStatementAllowance(creds.mnemonic, deriveSr25519PublicKey(statementSecret));
       console.log(`[statement] truapi-host alloc-check:\n${output.trim()}`);
     },
-    240_000,
+    // Outlasts alloc-check's own 240 s timeout, so its error surfaces instead of vitest's.
+    300_000,
   );
 
   it.skipIf(!needsAttestation())("Statement Store write succeeds with the product key", async () => {

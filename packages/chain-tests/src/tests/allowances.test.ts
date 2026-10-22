@@ -127,9 +127,9 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // run shouldn't fail health. We just need enough to spend.
       expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // Each truapi-host claim waits for Asset Hub to import the ring revision
-    // (up to ~2 min), then the finalized balance wait adds up to 2 min.
-    300_000,
+    // Outlasts one pgas-check's own 240 s timeout plus the 120 s finalized
+    // balance wait, so the CLI's error surfaces instead of vitest's.
+    420_000,
   );
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
