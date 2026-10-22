@@ -55,7 +55,8 @@ async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): 
     return stdout;
   } catch (err: any) {
     const output = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`[truapi-host] ${args[0]} failed: ${output || err.message}`);
+    const killed = err.killed ? ` (killed after ${timeoutMs / 1000}s)` : "";
+    throw new Error(`[truapi-host] ${args[0]} failed${killed}: ${output || err.message}`);
   }
 }
 
@@ -68,8 +69,14 @@ export interface AttestedIdentity {
 /** Attests `mnemonic`'s identity and waits until it is a ring member. */
 export async function attest(mnemonic: string, usernameBase: string): Promise<AttestedIdentity> {
   const stdout = await truapiHost(mnemonic, ["attest", "--username", usernameBase], 300_000);
-  const line = stdout.trim().split("\n").at(-1) ?? "";
-  return JSON.parse(line) as AttestedIdentity;
+  let identity: Partial<AttestedIdentity> = {};
+  try {
+    identity = JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
+  } catch {}
+  if (!identity.address || !identity.publicKey || !identity.liteUsername) {
+    throw new Error(`[truapi-host] attest printed no identity: ${stdout.trim()}`);
+  }
+  return identity as AttestedIdentity;
 }
 
 /** Registers `target` for a statement-store allowance from the person's ring membership. */
