@@ -21,6 +21,7 @@ import { resolve } from "node:path";
 import { generateMnemonic, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { getNetworkConfig } from "../config/networks.js";
 import { attest, networkSuffix } from "./truapi-host.js";
+import { personKey } from "./truapi-identity.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
@@ -34,8 +35,8 @@ function parseAttested(path: string): AttestedCredentials | null {
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
-    // Credentials from another network, or from before truapi-host attested them, are not reused.
-    if (!raw.attested || !raw.mnemonic || raw.networkSuffix !== networkSuffix()) return null;
+    // Credentials from another network (a fork included), or from before truapi-host attested them, are not reused.
+    if (!raw.attested || !raw.mnemonic || raw.network !== getNetworkConfig().name) return null;
     return {
       attested: true,
       mnemonic: raw.mnemonic,
@@ -133,15 +134,26 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
       `(${Date.now() - start}ms)`,
   );
 
+  const entropy = mnemonicToEntropy(mnemonic);
+  const suffix = networkSuffix();
+  // The tests sign and prove with keys derived locally; they must own the attested account.
+  const key = personKey({ entropy, networkSuffix: suffix });
+  if (key.address !== identity.address) {
+    throw new Error(
+      `[attested-fixture] truapi-host attested ${identity.address} but truapi-identity.ts derives ` +
+        `${key.address}: the derivation is out of step with the pinned truapi-host`,
+    );
+  }
+
   await waitForSearchable(network.identityBackend, identity.liteUsername);
 
   const persisted: AttestedCredentials = {
     attested: true,
     mnemonic,
-    networkSuffix: networkSuffix(),
+    networkSuffix: suffix,
     address: identity.address,
-    publicKey: Uint8Array.from(Buffer.from(identity.publicKey.slice(2), "hex")),
-    entropy: mnemonicToEntropy(mnemonic),
+    publicKey: key.publicKey,
+    entropy,
     username: identity.liteUsername,
   };
 
@@ -149,6 +161,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
     CREDENTIALS_PATH,
     JSON.stringify({
       ...persisted,
+      network: network.name,
       publicKey: Array.from(persisted.publicKey),
       entropy: Array.from(persisted.entropy),
     }),
