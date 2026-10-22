@@ -738,8 +738,9 @@ jobs:
           TRUAPI_HOST_INSTALL_DIR: ${{ runner.temp }}/truapi-host
           TRUAPI_HOST_BIN_DIR: ${{ runner.temp }}/truapi-host/bin
         run: |
-          TRUAPI_HOST_VERSION="$(cat packages/chain-tests/truapi-host.version)" \
-            bash <(curl -fsSL https://raw.githubusercontent.com/paritytech/trinity-user-agents/main/scripts/truapi-host-installer.sh)
+          TRUAPI_HOST_VERSION="$(cat packages/chain-tests/truapi-host.version)"
+          export TRUAPI_HOST_VERSION
+          bash <(curl -fsSL "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@${TRUAPI_HOST_VERSION}/scripts/truapi-host-installer.sh")
           echo "$TRUAPI_HOST_BIN_DIR" >> "$GITHUB_PATH"
           "$TRUAPI_HOST_BIN_DIR/truapi-host" --version
 
