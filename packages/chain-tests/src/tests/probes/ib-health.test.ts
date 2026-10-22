@@ -1,10 +1,9 @@
 /**
  * Identity Backend health probe — runs FIRST and gates the rest of the suite.
  *
- * Registers a fresh lite-person via the network's identity-backend and
- * waits for the status to flip from REGISTERED → ASSIGNED, within the
- * `ASSIGNED_TIMEOUT_MS` budget (100 s, defined in attested-fixture.ts).
- * Pass → the generated account is cached in module state for every
+ * Attests a fresh lite-person through truapi-host against the network's
+ * identity-backend, then waits for its username in the backend's search
+ * (budgets in attested-fixture.ts). Pass → the generated account is cached in module state for every
  * downstream suite that calls `ensureAttested()`; fail → the cached
  * failure short-circuits each downstream `beforeAll` in milliseconds
  * with an `[ib-cascade]` marker that the matrix-failures renderer
@@ -36,8 +35,8 @@ import { getNetworkConfig } from "../../config/networks.js";
 describe("Identity Backend Health", () => {
   beforeAll(() => {
     // IB writes attestation results to People — if People is dead the
-    // ASSIGNED transition will never land. Cascade out instead of
-    // burning the 100s poll budget.
+    // registration will never land. Cascade out instead of burning the
+    // attestation budget.
     assertChainHealthy("people");
 
     const network = getNetworkConfig();

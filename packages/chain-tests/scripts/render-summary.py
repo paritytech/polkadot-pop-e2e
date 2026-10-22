@@ -287,13 +287,6 @@ _CHAIN_FAILURE_MARKERS = (
     "[chain-cascade]",
 )
 
-# Mirrors `ASSIGNED_TIMEOUT_MS` in attested-fixture.ts. Duplicated rather
-# than parsed out of TS because this renderer runs in the workflow's
-# Python step where importing TS isn't an option; the number changes
-# rarely and a stale value here only affects the human-readable budget
-# in the Matrix line, not the actual test behavior.
-_IB_ASSIGNED_BUDGET_SECONDS = 100
-
 
 def _is_ib_attributed(body: str) -> bool:
     return any(m in body for m in _IB_FAILURE_MARKERS)
@@ -389,11 +382,11 @@ def matrix_failures(dirs: list[str]) -> None:
             # Networks without IB deployed are gated via `needsAttestation()`
             # `describe.skipIf` / `it.skipIf` upstream — those tests skip
             # cleanly and never reach this branch. So reaching here means
-            # the IB exists but failed: a genuine reconciler issue.
+            # the IB exists but attesting a fresh account failed.
             line = (
                 "  - **Identity Backend attestation degraded** — "
-                f"reconciler did not flip a fresh account to ASSIGNED within "
-                f"the {_IB_ASSIGNED_BUDGET_SECONDS} s poll budget. "
+                "truapi-host could not attest a fresh account, or its username "
+                "never reached the backend's search. "
                 "Identity Backend Health runs first and gates the suite: "
                 "downstream features below were never exercised."
             )
