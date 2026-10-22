@@ -30,13 +30,13 @@
 
 import { describe, it, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { createPeopleClient, type PeopleApi } from "../../lib/client.js";
 import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js";
 import { assertChainHealthy } from "../../lib/chain-cascade.js";
 import { setCachedRingLocation } from "../../lib/ring-cascade.js";
 import { waitForInclusion } from "../../lib/ring.js";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
+import { personRingEntropy } from "../../lib/truapi-identity.js";
 
 // Outer test budget. Must exceed `waitForInclusion`'s internal default
 // (300 s) by enough headroom that vitest doesn't kill the test mid-poll
@@ -71,7 +71,7 @@ describe.skipIf(!needsAttestation())(
       peopleApi = conn.api;
 
       const creds = await ensureAttested();
-      verifiableEntropy = blake2b256(creds.entropy);
+      verifiableEntropy = personRingEntropy(creds);
       address = creds.address;
       username = creds.username;
       console.log(`[ring-inclusion] Lite-person: ${address} (${username})`);

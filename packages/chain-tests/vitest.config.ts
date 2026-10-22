@@ -1,14 +1,11 @@
 import { defineConfig } from "vitest/config";
 import OrderedSequencer from "./src/tests/test-sequencer.ts";
 
-// Must exceed the attested-fixture poll budget plus headroom for
-// signAndRegister + chain client setup, or vitest aborts the test/hook before
-// our attributed "IB reconciler lagging" message can throw and the operator
-// sees a generic timeout instead. Every network now runs the IBv2
-// (device-uniqueness-backend) — its assigned signal is the username in
-// Resources.Consumers, with a 240 s poll budget (V2_INDEXED_TIMEOUT_MS) — so forks and live
-// networks share the same 300 s ceiling.
-const IB_TIMEOUT_MS = 300_000;
+// Must exceed the attested-fixture's budget: truapi-host attest (300 s, until
+// the username is on chain and the person is in a ring) plus the backend search
+// wait (240 s). Otherwise vitest aborts the hook before the fixture's attributed
+// error can throw and the operator sees a generic timeout instead.
+const IB_TIMEOUT_MS = 600_000;
 
 export default defineConfig({
   test: {

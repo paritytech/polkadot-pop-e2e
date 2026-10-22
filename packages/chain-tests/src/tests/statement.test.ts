@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
-import { AccountId } from "@polkadot-api/substrate-bindings";
 import {
   createSr25519Secret,
   deriveSr25519PublicKey,
   NoAllowanceError,
 } from "@novasamatech/statement-store";
 import { StatementStoreClient, StatementSubmitError } from "@parity/product-sdk-statement-store";
-import { createPeopleClient, type PeopleApi } from "../lib/client.js";
+import { createPeopleClient } from "../lib/client.js";
 import type { AttestedCredentials } from "../lib/credentials.js";
-import { claimStatementAllowance } from "../lib/statement-allowance.js";
+import { claimStatementAllowance } from "../lib/truapi-host.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { createNodeStatementTransport } from "../lib/statement-transport.js";
@@ -18,7 +17,6 @@ import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 describe("Statement: People Chain + Identity Backend", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
-  let peopleApi: PeopleApi;
   let creds: AttestedCredentials;
   // Hosts sign statements with a per-product allowance key, not the person's key.
   let statementSecret: Uint8Array;
@@ -34,7 +32,6 @@ describe("Statement: People Chain + Identity Backend", () => {
 
     const conn = createPeopleClient(network.people.ws);
     client = conn.client;
-    peopleApi = conn.api;
 
     if (network.identityBackend) {
       creds = await ensureAttested();
@@ -91,14 +88,11 @@ describe("Statement: People Chain + Identity Backend", () => {
   it.skipIf(!needsAttestation())(
     "claims a statement allowance for the product key",
     async () => {
-      const target = AccountId().dec(deriveSr25519PublicKey(statementSecret));
-      const allowance = await claimStatementAllowance(peopleApi, client, creds, target);
-      console.log(
-        `[statement] Allowance for ${target}: period=${allowance.period} seq=${allowance.seq} ` +
-          (allowance.claimed ? "claimed" : "already held"),
-      );
+      const output = await claimStatementAllowance(creds.mnemonic, deriveSr25519PublicKey(statementSecret));
+      console.log(`[statement] truapi-host alloc-check:\n${output.trim()}`);
     },
-    240_000,
+    // Outlasts alloc-check's own 240 s timeout, so its error surfaces instead of vitest's.
+    300_000,
   );
 
   it.skipIf(!needsAttestation())("Statement Store write succeeds with the product key", async () => {

@@ -20,10 +20,10 @@ import { AccountId, type PolkadotClient } from "polkadot-api";
 import { createAssetHubClient, assertRichAssetHub, type AssetHubApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { createPgasPayerSigner } from "../lib/claim-signer.js";
 import { getNetworkConfig } from "../config/networks.js";
 import { connectPopCounter, revertName } from "../lib/pop-counter-contract.js";
+import { personKey } from "../lib/truapi-identity.js";
 
 describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
   "PoP-gated counter",
@@ -75,7 +75,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         expect(revertName(query)).toBeUndefined();
 
         const result = await counter.bump.tx({
-          signer: createPgasPayerSigner(deriveKeyPair(creds.entropy)),
+          signer: createPgasPayerSigner(personKey(creds)),
           origin: creds.address,
         });
         if (!result.ok) throw result.error;

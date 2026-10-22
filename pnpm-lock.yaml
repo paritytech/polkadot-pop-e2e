@@ -18,8 +18,8 @@ importers:
   packages/chain-tests:
     dependencies:
       '@noble/hashes':
-        specifier: ^2.0.1
-        version: 2.0.1
+        specifier: ^2.4.0
+        version: 2.4.0
       '@novasamatech/statement-store':
         specifier: ^0.7.7
         version: 0.7.7(esbuild@0.27.4)(rxjs@7.8.2)
@@ -56,9 +56,6 @@ importers:
       '@polkadot-api/utils':
         specifier: ^0.4.0
         version: 0.4.0
-      '@polkadot-labs/hdkd':
-        specifier: ^0.0.27
-        version: 0.0.27
       '@polkadot-labs/hdkd-helpers':
         specifier: ^0.0.30
         version: 0.0.30
@@ -74,6 +71,9 @@ importers:
       '@pop-e2e/papi':
         specifier: workspace:*
         version: link:../papi
+      '@scure/sr25519':
+        specifier: ^2.4.0
+        version: 2.4.0
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
@@ -619,9 +619,6 @@ packages:
 
   '@polkadot-labs/hdkd-helpers@0.0.34':
     resolution: {integrity: sha512-F9FW/w8uwnduqgZjGD1DVo/4+bXX3N8mUHc5Ayi/gVZ7cb6RPCwM9yDHcSU088yVbLcU54dbVV/FCcXhew2/NQ==}
-
-  '@polkadot-labs/hdkd@0.0.27':
-    resolution: {integrity: sha512-S+cQErugqWhDy9K9uceDmnRiIezVfu/yLLFlBSk6vHQ8/RjtUDS7aTnYWpZlbwR99dNuh077ptd0P8M1tx1DHA==}
 
   '@polkadot-labs/hdkd@0.0.28':
     resolution: {integrity: sha512-LpdqtQRpcgZQ5Mr8J0ddMA5ZufsbI4W3KuJkVdoYMnSmWs4179LigDb1rTYAOtyCg2jWUjf7rWP0mGxQQvNrHw==}
@@ -2260,7 +2257,7 @@ snapshots:
       '@polkadot-api/substrate-bindings': 0.21.2
       '@polkadot-api/tx-creator': 0.2.0(rxjs@7.8.2)
       '@polkadot-api/utils': 0.4.0
-      '@scure/sr25519': 2.2.0
+      '@scure/sr25519': 2.4.0
       polkadot-api: 3.2.1(esbuild@0.27.4)(rxjs@7.8.2)
     transitivePeerDependencies:
       - bufferutil
@@ -2678,7 +2675,7 @@ snapshots:
 
   '@polkadot-api/substrate-bindings@0.20.3':
     dependencies:
-      '@noble/hashes': 2.2.0
+      '@noble/hashes': 2.4.0
       '@polkadot-api/utils': 0.4.0
       '@scure/base': 2.2.0
       scale-ts: 1.6.1
@@ -2756,7 +2753,7 @@ snapshots:
   '@polkadot-labs/hdkd-helpers@0.0.30':
     dependencies:
       '@noble/curves': 2.2.0
-      '@noble/hashes': 2.2.0
+      '@noble/hashes': 2.4.0
       '@scure/base': 2.2.0
       '@scure/sr25519': 1.0.0
       scale-ts: 1.6.1
@@ -2768,10 +2765,6 @@ snapshots:
       '@scure/base': 2.4.0
       '@scure/sr25519': 2.4.0
       scale-ts: 1.6.1
-
-  '@polkadot-labs/hdkd@0.0.27':
-    dependencies:
-      '@polkadot-labs/hdkd-helpers': 0.0.30
 
   '@polkadot-labs/hdkd@0.0.28':
     dependencies:
