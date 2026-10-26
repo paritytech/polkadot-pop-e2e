@@ -141,12 +141,6 @@ export async function takeRingSnapshot(
 }
 
 /**
- * Helper used by the chain side to convert a raw timestamp (seconds) into
- * the daily period number used by stmt-store and PGAS contexts.
- */
-export const SECONDS_PER_DAY = 86_400;
-
-/**
  * Member's location in a multi-ring chain. The runtime no longer keeps
  * everyone in `ring 0` — once a ring fills up, new members go to ring 1, 2…
  * Allowance proofs must be generated against the specific ring the member

@@ -54,15 +54,12 @@ function ringEntropyAt(entropy: Uint8Array, networkSuffix: string, index: number
   return blake2b256(domain, indexBytes(index));
 }
 
-/** The LitePeople ring member's VRF entropy. */
 export const liteRingEntropy = (entropy: Uint8Array, networkSuffix: string) =>
   ringEntropyAt(entropy, networkSuffix, 1);
 
 type PersonCreds = { entropy: Uint8Array; networkSuffix: string };
 
-/** The attested person's identity account key. */
 export const personKey = (creds: PersonCreds) => identityKey(creds.entropy, creds.networkSuffix);
 
-/** The attested person's LitePeople ring-VRF entropy. */
 export const personRingEntropy = (creds: PersonCreds) =>
   liteRingEntropy(creds.entropy, creds.networkSuffix);
