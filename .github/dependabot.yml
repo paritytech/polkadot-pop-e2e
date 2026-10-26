@@ -5,6 +5,9 @@ updates:
     directory: /
     schedule:
       interval: daily
+    # npm gets @parity/truapi minutes before the GitHub release carrying the CLI it pins.
+    cooldown:
+      default-days: 1
     versioning-strategy: increase
     groups:
       dependencies:
