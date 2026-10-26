@@ -93,6 +93,9 @@ importers:
         specifier: ^2.43.1
         version: 2.47.6(typescript@5.9.3)
     devDependencies:
+      '@parity/truapi':
+        specifier: 0.26.0
+        version: 0.26.0
       solc:
         specifier: ^0.8.35
         version: 0.8.35

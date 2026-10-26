@@ -10,7 +10,7 @@ pnpm --filter @pop-e2e/chain-tests test            # full network-health on pase
 NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests test    # switch network
 ```
 
-Attestation and the statement-store and PGAS claims run through the `truapi-host` CLI at the version in `truapi-host.version`. Put that release on `PATH`, or point `TRUAPI_HOST_BIN` at it.
+Attestation and the statement-store and PGAS claims run through the `truapi-host` CLI at the version `package.json` pins for `@parity/truapi`, which is released with it. Put that release on `PATH`, or point `TRUAPI_HOST_BIN` at it.
 
 ## Scripts
 
