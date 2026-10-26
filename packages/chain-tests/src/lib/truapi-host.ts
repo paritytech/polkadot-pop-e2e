@@ -106,7 +106,23 @@ export async function claimStatementAllowance(mnemonic: string, target: Uint8Arr
   return truapiHost(mnemonic, ["alloc-check", "--target", toHex(target), "--submit"], 240_000);
 }
 
-/** Claims the day's PGAS allowance, credited to `target`. */
-export async function claimPgas(mnemonic: string, target: Uint8Array): Promise<string> {
-  return truapiHost(mnemonic, ["pgas-check", "--target", toHex(target), "--submit"], 240_000);
+// Asset Hub imports People's ring revisions over XCM, which can outlast pgas-check's own wait.
+const RING_REVISION_LAG = /Asset Hub (pruned|has not imported) ring/;
+const PGAS_ATTEMPTS = 3;
+
+/**
+ * Claims the day's PGAS allowance, credited to `target`. Retries while Asset Hub
+ * lags People's ring, and fails with the CLI's error once `deadline` passes.
+ */
+export async function claimPgas(mnemonic: string, target: Uint8Array, deadline: number): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("[truapi-host] pgas-check: no time left before the deadline");
+    try {
+      return await truapiHost(mnemonic, ["pgas-check", "--target", toHex(target), "--submit"], remaining);
+    } catch (err) {
+      if (attempt === PGAS_ATTEMPTS || !RING_REVISION_LAG.test((err as Error).message)) throw err;
+      console.log(`[truapi-host] pgas-check: Asset Hub behind People's ring, retrying (${attempt}/${PGAS_ATTEMPTS})`);
+    }
+  }
 }

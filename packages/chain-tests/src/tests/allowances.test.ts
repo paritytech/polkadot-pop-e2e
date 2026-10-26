@@ -22,6 +22,11 @@ import { findCounterContract } from "../lib/counter-contract.js";
 import { personKey } from "../lib/truapi-identity.js";
 import { claimPgas } from "../lib/truapi-host.js";
 
+// Every claim shares the budget left after the finalized balance wait, so
+// a slow claim fails with the CLI's error rather than vitest's timeout.
+const PGAS_TEST_TIMEOUT_MS = 420_000;
+const BALANCE_WAIT_MS = 120_000;
+
 describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
   "PGAS: claim + spend on revive",
 () => {
@@ -104,8 +109,9 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         0n;
 
       // truapi-host claims the day's first free slot on each call, as hosts do.
+      const claimDeadline = Date.now() + PGAS_TEST_TIMEOUT_MS - BALANCE_WAIT_MS - 30_000;
       for (let claim = 0; claim < slotsToClaim; claim++) {
-        const output = await claimPgas(mnemonic, publicKey);
+        const output = await claimPgas(mnemonic, publicKey, claimDeadline);
         console.log(`[pgas] truapi-host pgas-check (${claim + 1}/${slotsToClaim}):\n${output.trim()}`);
       }
 
@@ -114,7 +120,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       const pgasBalance = async () =>
         (await assetHubApi.query.Assets.Account.getValue(PGAS_ASSET_ID, address))?.balance ?? 0n;
       let balanceAfter = await pgasBalance();
-      for (const deadline = Date.now() + 120_000; Date.now() < deadline; ) {
+      for (const deadline = Date.now() + BALANCE_WAIT_MS; Date.now() < deadline; ) {
         if (balanceAfter - balanceBefore >= expectedMinMinted) break;
         await new Promise((r) => setTimeout(r, 6_000));
         balanceAfter = await pgasBalance();
@@ -127,9 +133,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       // run shouldn't fail health. We just need enough to spend.
       expect(minted).toBeGreaterThanOrEqual(expectedMinMinted);
     },
-    // Outlasts one pgas-check's own 240 s timeout plus the 120 s finalized
-    // balance wait, so the CLI's error surfaces instead of vitest's.
-    420_000,
+    PGAS_TEST_TIMEOUT_MS,
   );
 
   // Phase B: call a pre-deployed counter contract via revive, paying with
