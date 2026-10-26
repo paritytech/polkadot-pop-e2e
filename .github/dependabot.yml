@@ -5,10 +5,13 @@ updates:
     directory: /
     schedule:
       interval: daily
-    allow:
-      - dependency-name: "@parity/*"
     versioning-strategy: increase
     groups:
-      parity:
+      dependencies:
+        applies-to: version-updates
         patterns:
-          - "@parity/*"
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
