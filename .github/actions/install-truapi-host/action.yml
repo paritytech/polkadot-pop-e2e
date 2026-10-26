@@ -1,0 +1,15 @@
+name: Install truapi-host
+description: Puts the truapi-host CLI released with the @parity/truapi that packages/chain-tests pins on PATH.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TRUAPI_HOST_INSTALL_DIR: ${{ runner.temp }}/truapi-host
+        TRUAPI_HOST_BIN_DIR: ${{ runner.temp }}/truapi-host/bin
+      run: |
+        TRUAPI_HOST_VERSION="$(jq -r '.devDependencies["@parity/truapi"]' packages/chain-tests/package.json)"
+        export TRUAPI_HOST_VERSION
+        bash <(curl -fsSL "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@${TRUAPI_HOST_VERSION}/scripts/truapi-host-installer.sh")
+        echo "$TRUAPI_HOST_BIN_DIR" >> "$GITHUB_PATH"
+        "$TRUAPI_HOST_BIN_DIR/truapi-host" --version
