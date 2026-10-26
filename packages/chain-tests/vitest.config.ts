@@ -1,12 +1,6 @@
 import { defineConfig } from "vitest/config";
 import OrderedSequencer from "./src/tests/test-sequencer.ts";
 
-// Must exceed the attested-fixture's budget: truapi-host attest (300 s, until
-// the username is on chain and the person is in a ring) plus the backend search
-// wait (240 s). Otherwise vitest aborts the hook before the fixture's attributed
-// error can throw and the operator sees a generic timeout instead.
-const IB_TIMEOUT_MS = 600_000;
-
 export default defineConfig({
   test: {
     // Broad include lets vitest discover both the main functional
@@ -14,8 +8,8 @@ export default defineConfig({
     // exactly which files to run so probes and suite stay separate.
     include: ["src/tests/**/*.test.ts"],
     setupFiles: ["src/tests/setup.ts"],
-    testTimeout: IB_TIMEOUT_MS,
-    hookTimeout: IB_TIMEOUT_MS,
+    testTimeout: 300_000,
+    hookTimeout: 300_000,
     reporters: ["default", "junit", "./src/tests/reporter.ts"],
     outputFile: { junit: "./test-results/junit.xml" },
     pool: "forks",
