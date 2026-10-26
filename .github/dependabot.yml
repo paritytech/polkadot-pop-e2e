@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # @parity/truapi also pins the truapi-host CLI the workflows install.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: "@parity/*"
+    versioning-strategy: increase
+    groups:
+      parity:
+        patterns:
+          - "@parity/*"
