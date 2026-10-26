@@ -31,21 +31,21 @@ const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.j
 const SEARCH_TIMEOUT_MS = 240_000;
 const SEARCH_POLL_INTERVAL_MS = 5_000;
 
+function credentialsFor(mnemonic: string, suffix: string, username: string): AttestedCredentials {
+  const entropy = mnemonicToEntropy(mnemonic);
+  const key = personKey({ entropy, networkSuffix: suffix });
+  return { attested: true, mnemonic, networkSuffix: suffix, address: key.address, publicKey: key.publicKey, entropy, username };
+}
+
 function parseAttested(path: string): AttestedCredentials | null {
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
-    // Credentials from another network (a fork included), or from before truapi-host attested them, are not reused.
-    if (!raw.attested || !raw.mnemonic || raw.network !== getNetworkConfig().name) return null;
-    return {
-      attested: true,
-      mnemonic: raw.mnemonic,
-      networkSuffix: raw.networkSuffix,
-      address: raw.address,
-      publicKey: Uint8Array.from(raw.publicKey),
-      entropy: Uint8Array.from(raw.entropy),
-      username: raw.username,
-    };
+    // Credentials from another network (a fork included), or under another TLD, are not reused.
+    if (!raw.mnemonic || raw.network !== getNetworkConfig().name || raw.networkSuffix !== networkSuffix()) {
+      return null;
+    }
+    return credentialsFor(raw.mnemonic, raw.networkSuffix, raw.username);
   } catch {
     return null;
   }
@@ -140,36 +140,24 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
       `(${Date.now() - start}ms)`,
   );
 
-  const entropy = mnemonicToEntropy(mnemonic);
-  const suffix = networkSuffix();
+  const persisted = credentialsFor(mnemonic, networkSuffix(), identity.liteUsername);
   // The tests sign and prove with keys derived locally; they must own the attested account.
-  const key = personKey({ entropy, networkSuffix: suffix });
-  if (key.address !== identity.address) {
+  if (persisted.address !== identity.address) {
     throw new Error(
       `[truapi-identity] truapi-host attested ${identity.address} but truapi-identity.ts derives ` +
-        `${key.address}: the derivation is out of step with the pinned truapi-host`,
+        `${persisted.address}: the derivation is out of step with the pinned truapi-host`,
     );
   }
 
   await waitForSearchable(network.identityBackend, identity.liteUsername);
 
-  const persisted: AttestedCredentials = {
-    attested: true,
-    mnemonic,
-    networkSuffix: suffix,
-    address: identity.address,
-    publicKey: key.publicKey,
-    entropy,
-    username: identity.liteUsername,
-  };
-
   writeFileSync(
     CREDENTIALS_PATH,
     JSON.stringify({
-      ...persisted,
       network: network.name,
-      publicKey: Array.from(persisted.publicKey),
-      entropy: Array.from(persisted.entropy),
+      networkSuffix: persisted.networkSuffix,
+      mnemonic,
+      username: persisted.username,
     }),
   );
 
@@ -196,8 +184,8 @@ async function searchUsername(backendUrl: string, username: string): Promise<boo
 }
 
 /**
- * truapi-host returns once the username is on chain and the person is in a
- * ring; the backend's search is checked separately because hosts read it too.
+ * Returns once the backend's username search lists `username`, which hosts read
+ * apart from the chain. Throws after `SEARCH_TIMEOUT_MS`.
  */
 async function waitForSearchable(backendUrl: string, username: string): Promise<void> {
   const start = Date.now();
