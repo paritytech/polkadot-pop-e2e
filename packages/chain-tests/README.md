@@ -13,8 +13,9 @@ NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests test    # switch network
 Attestation and the statement-store and PGAS claims run through the `truapi-host` CLI at the version `package.json` pins for `@parity/truapi`, which is released with it; the suite fails at once on any other version. Put that release on `PATH`, or point `TRUAPI_HOST_BIN` at it:
 
 ```bash
-export TRUAPI_HOST_VERSION=$(node -p "require('./package.json').devDependencies['@parity/truapi']")
-bash <(curl -fsSL "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@$TRUAPI_HOST_VERSION/scripts/truapi-host-installer.sh")
+export TRUAPI_HOST_VERSION=$(node -p "require('./packages/chain-tests/package.json').devDependencies['@parity/truapi']")
+curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@$TRUAPI_HOST_VERSION/scripts/truapi-host-installer.sh" \
+  && bash /tmp/truapi-host-installer.sh
 ```
 
 ## Scripts
