@@ -2,8 +2,8 @@
  * On-demand fixture for tests that need an attested lite-person.
  *
  * Tests opt in by calling `await ensureAttested()` from their `beforeAll`.
- * The first call within a vitest run registers a fresh account via the
- * network's identity-backend and caches it to `.test-credentials.json`;
+ * The first call within a vitest run attests a fresh account with truapi-host
+ * and caches it to `.test-credentials.json`;
  * subsequent calls — from this test file OR any other in the same run —
  * read that file and return the cached account. Tests that don't need
  * an attested account never touch the IB at all by simply not importing
@@ -20,7 +20,7 @@ import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { generateMnemonic, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { getNetworkConfig } from "../config/networks.js";
-import { attest, networkSuffix } from "./truapi-host.js";
+import { assertPinnedVersion, attest, networkSuffix } from "./truapi-host.js";
 import { personKey } from "./truapi-identity.js";
 import type { AttestedCredentials } from "./credentials.js";
 
@@ -56,7 +56,7 @@ let inflight: Promise<AttestedCredentials> | null = null;
 // state across test files within one run, so once the first ensureAttested
 // call has determined IB is broken, every subsequent caller (in any later
 // test file's beforeAll) can fail-fast off this rather than re-paying the
-// 100s poll budget AND surfacing as a misleading "PGAS/Statement/Storage
+// attestation AND surfacing as a misleading "PGAS/Statement/Storage
 // failed" signal. The cascaded failure carries an explicit prefix so the
 // matrix-message renderer can group it under the IB-health line instead of
 // listing it as an independent failure.
@@ -123,10 +123,16 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   console.log(`[attested-fixture] Network: ${network.name}`);
   console.log(`[attested-fixture] Identity backend: ${network.identityBackend}`);
 
+  await assertPinnedVersion();
+
   const mnemonic = generateMnemonic(128);
   const usernameBase = `etest${randomLetters(8)}`;
   const start = Date.now();
   const identity = await attest(mnemonic, usernameBase).catch((err: Error) => {
+    // attest's last step waits for the People ring builder, which is not the backend's fault.
+    if (err.message.includes("did not appear in any personhood ring")) {
+      throw new Error(`Ring inclusion timed out: ${err.message}`);
+    }
     throw new Error(`[attested-fixture] ${err.message}`);
   });
   console.log(
@@ -140,7 +146,7 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   const key = personKey({ entropy, networkSuffix: suffix });
   if (key.address !== identity.address) {
     throw new Error(
-      `[attested-fixture] truapi-host attested ${identity.address} but truapi-identity.ts derives ` +
+      `[truapi-identity] truapi-host attested ${identity.address} but truapi-identity.ts derives ` +
         `${key.address}: the derivation is out of step with the pinned truapi-host`,
     );
   }

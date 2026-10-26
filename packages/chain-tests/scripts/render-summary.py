@@ -263,7 +263,6 @@ def _failure_body(tc: ET.Element) -> str:
 _IB_FAILURE_MARKERS = (
     "[ib-cascade]",
     "[attested-fixture]",
-    "ASSIGNED timeout",
     "Identity Backend",
 )
 
@@ -397,7 +396,7 @@ def matrix_failures(dirs: list[str]) -> None:
             blocked_suites = sorted({n.split(" > ")[0] for n in ring_blocked})
             line = (
                 "  - **Ring builder stuck** — the People-chain ring builder "
-                "did not include a new attested account within 300 s. "
+                "did not include a new attested account in time. "
                 "Ring-VRF proofs can't be generated, so any test that "
                 "depends on attestation (PGAS, Statement, Storage, Bulletin) "
                 "fails-fast off a shared cascade marker after the first "
