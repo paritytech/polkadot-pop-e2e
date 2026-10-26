@@ -51,22 +51,31 @@ function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Fails unless the truapi-host the tests run is the release package.json pins as `@parity/truapi`. */
-export async function assertPinnedVersion(): Promise<void> {
-  const bin = binary();
-  let version: string;
-  try {
-    const { stdout } = await run(bin, ["--version"], { env: { ...process.env, TRUAPI_HOST_NO_UPDATE: "1" } });
-    version = stdout.trim();
-  } catch (err: any) {
-    throw new Error(`[truapi-host] cannot run ${bin}: ${err.message}`);
-  }
-  if (version !== `truapi-host ${PINNED_VERSION}`) {
-    throw new Error(`[truapi-host] ${bin} is ${version}, but package.json pins @parity/truapi ${PINNED_VERSION}`);
-  }
+let pinnedCheck: Promise<void> | undefined;
+
+/**
+ * Fails, with the `[truapi-host-setup]` marker, unless the truapi-host the tests
+ * run is the release package.json pins as `@parity/truapi`. Checked once per run.
+ */
+export function assertPinnedVersion(): Promise<void> {
+  pinnedCheck ??= (async () => {
+    const bin = binary();
+    let version: string;
+    try {
+      const { stdout } = await run(bin, ["--version"], { env: { ...process.env, TRUAPI_HOST_NO_UPDATE: "1" } });
+      version = stdout.trim();
+    } catch (err: any) {
+      throw new Error(`[truapi-host-setup] cannot run ${bin}: ${err.message}`);
+    }
+    if (version !== `truapi-host ${PINNED_VERSION}`) {
+      throw new Error(`[truapi-host-setup] ${bin} is ${version}, but package.json pins @parity/truapi ${PINNED_VERSION}`);
+    }
+  })();
+  return pinnedCheck;
 }
 
 async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): Promise<string> {
+  await assertPinnedVersion();
   const bin = binary();
   try {
     const { stdout } = await run(bin, [...args, "--network", preset()], {
@@ -84,18 +93,19 @@ async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): 
 
 export interface AttestedIdentity {
   address: string;
-  publicKey: string;
   liteUsername: string;
 }
 
 /** Attests `mnemonic`'s identity and waits until it is a ring member. */
 export async function attest(mnemonic: string, usernameBase: string): Promise<AttestedIdentity> {
-  const stdout = await truapiHost(mnemonic, ["attest", "--username", usernameBase], 300_000);
+  // Above attest's own worst case (backend calls, then ~2 min each for the dotNS
+  // name and the ring), so its error arrives before the kill does.
+  const stdout = await truapiHost(mnemonic, ["attest", "--username", usernameBase], 480_000);
   let identity: Partial<AttestedIdentity> = {};
   try {
     identity = JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
   } catch {}
-  if (!identity.address || !identity.publicKey || !identity.liteUsername) {
+  if (!identity.address || !identity.liteUsername) {
     throw new Error(`[truapi-host] attest printed no identity: ${stdout.trim()}`);
   }
   return identity as AttestedIdentity;

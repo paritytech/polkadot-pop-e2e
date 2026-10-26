@@ -32,9 +32,9 @@ import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js"
 import { assertChainHealthy } from "../../lib/chain-cascade.js";
 import { getNetworkConfig } from "../../config/networks.js";
 
-// truapi-host attest (300 s) plus the backend search wait (240 s), so the
+// truapi-host attest (480 s) plus the backend search wait (240 s), so the
 // fixture's attributed error throws before vitest's generic timeout.
-const ATTESTATION_TIMEOUT_MS = 600_000;
+const ATTESTATION_TIMEOUT_MS = 780_000;
 
 describe("Identity Backend Health", () => {
   beforeAll(() => {
