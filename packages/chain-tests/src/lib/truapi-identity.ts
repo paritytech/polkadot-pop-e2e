@@ -8,6 +8,7 @@ import { blake2b } from "@noble/hashes/blake2.js";
 import { HDKD, getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
 import { entropyToMiniSecret } from "@polkadot-labs/hdkd-helpers";
 import { AccountId, str } from "@polkadot-api/substrate-bindings";
+import { contextSuffixBytes } from "@parity/product-sdk-individuality";
 
 const blake2b256 = (message: Uint8Array, key?: Uint8Array) =>
   blake2b(message, { dkLen: 32, ...(key ? { key } : {}) });
@@ -21,13 +22,7 @@ function chainCode(junction: string): Uint8Array {
   return code;
 }
 
-/** `index` little-endian, then `blake2b256("product-account-index")[..28]`. */
-export function indexBytes(index: number): Uint8Array {
-  const out = new Uint8Array(32);
-  new DataView(out.buffer).setUint32(0, index, true);
-  out.set(blake2b256(new TextEncoder().encode("product-account-index")).subarray(0, 28), 4);
-  return out;
-}
+const indexBytes = (value: number) => contextSuffixBytes({ tag: "Index", value });
 
 export interface IdentityKey {
   secretKey: Uint8Array;

@@ -1,15 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { toHex } from "polkadot-api/utils";
-import { identityKey, indexBytes, liteRingEntropy } from "../../lib/truapi-identity.js";
+import { identityKey, liteRingEntropy } from "../../lib/truapi-identity.js";
 
 // Vectors from truapi's host_logic/product_account.rs tests.
 describe("truapi identity derivation", () => {
-  it("index_bytes matches the mobile vector", () => {
-    expect(toHex(indexBytes(0))).toBe(
-      "0x0000000012e86013736c5498f050b03cdc16957dff0e422fb92ca77ec3ab168f",
-    );
-  });
-
   it("identity account follows the network suffix", () => {
     const entropy = new Uint8Array(16).fill(0xab);
     expect(identityKey(entropy, "paseo").address).toBe(
