@@ -5,11 +5,18 @@
  * the fork's endpoints and its identity backend.
  */
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
 import { getNetworkConfig } from "../config/networks.js";
 
 const run = promisify(execFile);
+
+const PINNED_VERSION: string = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf-8"),
+).devDependencies["@parity/truapi"];
+
+const binary = () => process.env.TRUAPI_HOST_BIN ?? "truapi-host";
 
 /** CLI presets, with the dotNS TLD each derives identities under. */
 const PRESETS = {
@@ -44,8 +51,23 @@ function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Fails unless the truapi-host the tests run is the release package.json pins as `@parity/truapi`. */
+export async function assertPinnedVersion(): Promise<void> {
+  const bin = binary();
+  let version: string;
+  try {
+    const { stdout } = await run(bin, ["--version"], { env: { ...process.env, TRUAPI_HOST_NO_UPDATE: "1" } });
+    version = stdout.trim();
+  } catch (err: any) {
+    throw new Error(`[truapi-host] cannot run ${bin}: ${err.message}`);
+  }
+  if (version !== `truapi-host ${PINNED_VERSION}`) {
+    throw new Error(`[truapi-host] ${bin} is ${version}, but package.json pins @parity/truapi ${PINNED_VERSION}`);
+  }
+}
+
 async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): Promise<string> {
-  const bin = process.env.TRUAPI_HOST_BIN ?? "truapi-host";
+  const bin = binary();
   try {
     const { stdout } = await run(bin, [...args, "--network", preset()], {
       env: hostEnv(mnemonic),
