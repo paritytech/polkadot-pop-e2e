@@ -4,7 +4,7 @@
  * `getCachedRingLocation()` instead of each waiting for inclusion.
  *
  * truapi-host attest has already seen the account in a ring, so a miss here
- * means the locally derived ring key no longer matches truapi's.
+ * on a finalizing chain means the locally derived ring key no longer matches truapi's.
  */
 
 import { describe, it, beforeAll, afterAll } from "vitest";
@@ -33,9 +33,6 @@ describe.skipIf(!needsAttestation())(
     let username: string;
 
     beforeAll(async () => {
-      // Chain-health probe verdict short-circuits us if People is dead —
-      // no point waiting 5 min for a ring rebuild on a chain that isn't
-      // producing finalized blocks at all.
       assertChainHealthy("people");
 
       network = getNetworkConfig();
@@ -65,11 +62,10 @@ describe.skipIf(!needsAttestation())(
           timeoutMs: INCLUSION_WAIT_MS,
         }).catch((err: Error) => {
           if (!err.message.includes("Ring inclusion timed out")) throw err;
-          throw new Error(
-            `[truapi-identity] truapi-host attest saw ${address} in a personhood ring, but the ` +
-              "LitePeople key truapi-identity.ts derives is not in one: the ring derivation is out " +
-              "of step with the pinned truapi-host",
-          );
+          err.message +=
+            `\n\ntruapi-host attest already saw ${address} in a personhood ring. If People ` +
+            "finality is moving, the LitePeople key truapi-identity.ts derives is out of step with truapi.";
+          throw err;
         });
         setCachedRingLocation(location);
         console.log(
