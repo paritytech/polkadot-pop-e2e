@@ -4,13 +4,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { before, describe, it } from "node:test";
 import { CompatibilityLevel } from "@polkadot-api/metadata-compatibility";
 import { capture, diffMetadata, forkPorts, readPlan } from "./diff.ts";
 import { isBreaking, type Descriptor } from "./entries.ts";
 import { diffPipelines } from "./extensions.ts";
-import { readJson } from "./json.ts";
+import { isRecord, readJson } from "./json.ts";
 import { decodeMetadata, type UnifiedMetadata } from "./metadata.ts";
 import { descriptorChainFor, installedSdk, loadDescriptor, releaseEndpoint, selectorsIn } from "./sdk.ts";
 
@@ -37,6 +38,23 @@ before(async () => {
   descriptor = await loadDescriptor(descriptorsDir(), name);
   metadata = decodeMetadata(await descriptor.getMetadata());
 });
+
+// The package `name` resolves to from `from`, or null. Package exports hide
+// package.json, so resolve the entry point and walk up to the package's own manifest.
+function packageFrom(from: string, name: string): { dir: string; version: unknown } | null {
+  let entry: string;
+  try {
+    entry = createRequire(from).resolve(name);
+  } catch {
+    return null;
+  }
+  for (let dir = path.dirname(entry); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    const file = path.join(dir, "package.json");
+    const pkg = fs.existsSync(file) ? readJson(fs.readFileSync(file, "utf8")) : null;
+    if (isRecord(pkg) && pkg.name === name) return { dir, version: pkg.version };
+  }
+  return null;
+}
 
 describe("SDK selectors", () => {
   it("reads typed, unsafe and optional-chained access", () => {
@@ -77,6 +95,24 @@ describe("SDK selectors", () => {
     const wsUrl = `${releaseEndpoint("previewnet", "people") ?? ""}/`;
     fs.writeFileSync(path.join(papi, "polkadot-api.json"), JSON.stringify({ entries: { people: { wsUrl } } }));
     assert.equal(descriptorChainFor(dir, "previewnet", "people"), "people-slash");
+  });
+
+  it("grades with the metadata-compatibility the SDK's polkadot-api uses", () => {
+    const ours = packageFrom(import.meta.filename, "@polkadot-api/metadata-compatibility");
+    assert.ok(ours);
+    const users = installedSdk(TESTS_DIR).flatMap((p) => {
+      const papi = packageFrom(path.join(p.dir, "package.json"), "polkadot-api");
+      return papi ? [{ name: p.name, papi }] : [];
+    });
+    assert.ok(users.length > 0, "some SDK package pulls polkadot-api in");
+    for (const { name, papi } of users) {
+      const theirs = packageFrom(path.join(papi.dir, "package.json"), "@polkadot-api/metadata-compatibility");
+      assert.equal(
+        theirs?.version,
+        ours.version,
+        `${name} uses polkadot-api ${String(papi.version)}: bump the root @polkadot-api/metadata-compatibility devDependency to match`,
+      );
+    }
   });
 });
 
