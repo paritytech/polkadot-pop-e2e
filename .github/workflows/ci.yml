@@ -79,6 +79,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - uses: ./.github/actions/install-truapi-host
+
       # Idempotent: skips when the counters are already on chain.
       - name: Deploy counter contract
         run: pnpm --filter @pop-e2e/chain-tests deploy-counter

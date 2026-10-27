@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # @parity/truapi also pins the truapi-host CLI the workflows install.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    # npm gets @parity/truapi minutes before the GitHub release carrying the CLI it pins.
+    cooldown:
+      default-days: 1
+    versioning-strategy: increase
+    groups:
+      dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"

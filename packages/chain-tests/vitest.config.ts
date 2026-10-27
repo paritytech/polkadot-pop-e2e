@@ -1,15 +1,6 @@
 import { defineConfig } from "vitest/config";
 import OrderedSequencer from "./src/tests/test-sequencer.ts";
 
-// Must exceed the attested-fixture poll budget plus headroom for
-// signAndRegister + chain client setup, or vitest aborts the test/hook before
-// our attributed "IB reconciler lagging" message can throw and the operator
-// sees a generic timeout instead. Every network now runs the IBv2
-// (device-uniqueness-backend) — its assigned signal is the username in
-// Resources.Consumers, with a 240 s poll budget (V2_INDEXED_TIMEOUT_MS) — so forks and live
-// networks share the same 300 s ceiling.
-const IB_TIMEOUT_MS = 300_000;
-
 export default defineConfig({
   test: {
     // Broad include lets vitest discover both the main functional
@@ -17,8 +8,8 @@ export default defineConfig({
     // exactly which files to run so probes and suite stay separate.
     include: ["src/tests/**/*.test.ts"],
     setupFiles: ["src/tests/setup.ts"],
-    testTimeout: IB_TIMEOUT_MS,
-    hookTimeout: IB_TIMEOUT_MS,
+    testTimeout: 300_000,
+    hookTimeout: 300_000,
     reporters: ["default", "junit", "./src/tests/reporter.ts"],
     outputFile: { junit: "./test-results/junit.xml" },
     pool: "forks",
@@ -26,18 +17,10 @@ export default defineConfig({
       forks: { singleFork: true },
     },
     // The IB-Health probe seeds an attested account via `ensureAttested()`
-    // in attested-fixture.ts; subsequent test files that import the same
-    // fixture are supposed to reuse the cached success — OR fast-fail off
-    // the cached `[ib-cascade]` rejection when IB is down. With vitest's
-    // default `isolate: true`, every test file gets its own VM context
-    // and the module's `inflight` / `cachedFailure` state is per-file,
-    // not shared. Result: when IB is degraded, every dependent file
-    // re-registers a fresh username and burns 100 s polling — observed
-    // 4 × 100 s on run 26398574954/previewnet against ONE outage.
-    // Setting `isolate: false` shares one VM context across files in the
-    // single fork, so module state actually persists. Safe because none
-    // of our test files mutate shared module exports — they only read
-    // from `getNetworkConfig`, `createPeopleClient`, etc.
+    // in attested-fixture.ts; later files reuse its cached account, or
+    // fail fast off its cached `[ib-cascade]` rejection. That module state
+    // only survives across files when they share one VM context. Safe
+    // because no test file mutates shared module exports.
     isolate: false,
     // Also pin to sequential file execution. With `singleFork: true` we
     // get one process; without this option vitest can still parallelise

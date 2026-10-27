@@ -32,12 +32,7 @@ export interface NetworkConfig {
     hopWs?: string;
   };
   identityBackend: string | null;
-  /**
-   * How identity-backend writes authenticate. Absent = legacy IBv1: HS256 over the
-   * shared `IB_JWT_SECRET` env (no header when unset). "challenge" = IBv2
-   * (identity-backend-rust): the backend issues the JWT itself via its
-   * challenge→token flow, signed with the person's own key — no shared secret.
-   */
+  /** "challenge" marks an IBv2 (identity-backend-rust) backend; absent means IBv1. */
   identityBackendAuth?: "challenge";
   ipfsGateway: string;
   features: NetworkFeatures;

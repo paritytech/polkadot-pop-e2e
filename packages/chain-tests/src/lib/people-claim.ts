@@ -44,7 +44,7 @@ export async function submitPeopleClaim(
 }
 
 /** Submits `tx` with `customSignedExtensions` and resolves once it is finalized. */
-export async function submitUntilFinalized(
+async function submitUntilFinalized(
   tx: Pick<Transaction<any>, "createSubmitAndWatch">,
   signer: TxCreator<CommonEnhancersSpecs>,
   customSignedExtensions: Record<string, { value: unknown }>,

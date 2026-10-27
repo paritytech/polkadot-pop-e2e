@@ -10,13 +10,21 @@ pnpm --filter @pop-e2e/chain-tests test            # full network-health on pase
 NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests test    # switch network
 ```
 
+Attestation and the statement-store and PGAS claims run through the `truapi-host` CLI at the version `package.json` pins for `@parity/truapi`, which is released with it; the suite fails at once on any other version. Put that release on `PATH`, or point `TRUAPI_HOST_BIN` at it:
+
+```bash
+export TRUAPI_HOST_VERSION=$(node -p "require('./packages/chain-tests/package.json').devDependencies['@parity/truapi']")
+curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@$TRUAPI_HOST_VERSION/scripts/truapi-host-installer.sh" \
+  && bash /tmp/truapi-host-installer.sh
+```
+
 ## Scripts
 
 | Script | What it does |
 |---|---|
 | `test` | Full network functional health suite (core, allowances, statement, storage, dotns, IB-health probe) |
 | `test:ring-health` | People-chain ring-builder rebuild-latency probe only |
-| `test:ib-health` | Identity Backend ASSIGNED-within-budget probe only |
+| `test:ib-health` | Identity Backend attestation probe only |
 | `deploy-counter` | Idempotently deploy the counter contract used by the PGAS-paid Revive test |
 | `papi` | Re-generate PAPI descriptors from committed `.scale` metadata |
 
@@ -36,7 +44,7 @@ NETWORK=previewnet pnpm --filter @pop-e2e/chain-tests test    # switch network
 | `statement.test.ts` | Statement Store write + read against People chain after IB attestation |
 | `storage.test.ts` | LTS allowance claim on People → XCM to Bulletin → upload + IPFS retrieve |
 | `dotns.test.ts` | DotNS resolution on Asset Hub |
-| `probes/ib-health.test.ts` | IB attestation reaches `ASSIGNED` within poll budget (gates everything else) |
+| `probes/ib-health.test.ts` | truapi-host attests a fresh account and the backend's search lists it (gates everything else) |
 | `probes/ring-health.test.ts` | People-chain ring-builder produced rebuilds in last 200 blocks |
 
 The IB-health probe runs first; if it fails, dependent suites short-circuit via the cascade marker in `src/lib/attested-fixture.ts`. Same shape for ring failures in `src/lib/ring.ts`.

@@ -29,7 +29,6 @@
  * checks can produce (BadProof, Future, Stale).
  */
 import { type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { asResources, createClaimSigner } from "./claim-signer.js";
 import { isRetryableInvalidTx, submitPeopleClaim } from "./people-claim.js";
 import type { PeopleApi } from "./client.js";
@@ -41,6 +40,7 @@ import {
   longTermStoragePeriodFromTimestamp,
 } from "./allowances.js";
 import type { AttestedCredentials } from "./credentials.js";
+import { personRingEntropy } from "./truapi-identity.js";
 
 export interface LtsClaimResult {
   ok: boolean;
@@ -62,10 +62,10 @@ const MAX_PROOF_ATTEMPTS = 3;
 export async function claimLongTermStorage(
   peopleApi: PeopleApi,
   peopleClient: PolkadotClient,
-  creds: Pick<AttestedCredentials, "address" | "entropy">,
+  creds: Pick<AttestedCredentials, "address" | "entropy" | "networkSuffix">,
   counter = 0,
 ): Promise<LtsClaimResult> {
-  const verifiableEntropy = blake2b256(creds.entropy);
+  const verifiableEntropy = personRingEntropy(creds);
 
   // Use the cached ring assignment for the ring index only — that part is
   // stable. The cached `at` is deliberately ignored: see file header.
