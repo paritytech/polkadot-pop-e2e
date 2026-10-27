@@ -468,6 +468,7 @@ jobs:
         run: |
           set -euo pipefail
           unreachable=""
+          rejected=""
           while read -r repo; do
             [ -n "$repo" ] || continue
             code=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -476,12 +477,20 @@ jobs:
               "https://api.github.com/repos/$repo")
             if [ "$code" = "200" ]; then
               echo "  ok        $repo"
+            elif [ "$code" = "401" ]; then
+              echo "  HTTP $code  $repo"
+              rejected=1
             else
               echo "  HTTP $code  $repo"
               unreachable="$unreachable $repo"
             fi
           done < <(node environments/resolve.mjs repos "$MANIFEST")
 
+          # GitHub answers 401 to a bad token even on a public repo.
+          if [ -n "$rejected" ]; then
+            echo "::error::GH_PAT was rejected (HTTP 401): it is expired or revoked. Rotate it, or stop passing it - every public repo reads without it."
+            exit 1
+          fi
           if [ -n "$unreachable" ]; then
             echo "::error::GH_PAT cannot read:$unreachable — grant contents:read on each. A fine-grained PAT must select them explicitly; a classic PAT needs SSO authorised for the paritytech org. Public repos need no token at all, so anything listed here is either private or misspelt in the manifest."
             exit 1
