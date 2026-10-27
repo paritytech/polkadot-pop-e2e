@@ -668,6 +668,7 @@ jobs:
       # gate.
       - name: Capture the runtime diff
         continue-on-error: true
+        timeout-minutes: 10
         run: |
           pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" upgrades.env \
             --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
