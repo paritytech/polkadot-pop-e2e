@@ -660,12 +660,8 @@ jobs:
             upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" > upgrades.env
           echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
 
-      # What each upgrade changes on the surface the pinned product-sdk descriptors
-      # use: entries graded the way polkadot-api grades them, extension pipelines per
-      # version, SDK selectors the candidate drops. Captured here because this is the
-      # last point the fork still runs the code it took from live. The report step at
-      # the end joins it with the test results. Diagnosis only, so it never fails the
-      # gate.
+      # Before the upgrade: the last point the fork still runs live's code. Diagnosis only,
+      # never fails the gate; environments/README.md explains the diff.
       - name: Capture the runtime diff
         continue-on-error: true
         timeout-minutes: 10
