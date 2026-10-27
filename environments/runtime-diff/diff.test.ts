@@ -2,12 +2,15 @@
 // edited the way a runtime release would edit it, so the tests need no chain, no wasm
 // and no network.
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { before, describe, it } from "node:test";
 import { CompatibilityLevel } from "@polkadot-api/metadata-compatibility";
-import { diffMetadata, forkPorts, readPlan } from "./diff.ts";
+import { capture, diffMetadata, forkPorts, readPlan } from "./diff.ts";
 import { isBreaking, type Descriptor } from "./entries.ts";
 import { diffPipelines } from "./extensions.ts";
+import { readJson } from "./json.ts";
 import { decodeMetadata, type UnifiedMetadata } from "./metadata.ts";
 import { descriptorChainFor, installedSdk, loadDescriptor, selectorsIn } from "./sdk.ts";
 
@@ -186,6 +189,23 @@ describe("gate inputs", () => {
       ["relay", "people", "asset-hub", "web3-storage", "bulletin"].map(portOf),
       ["10000", "10010", "10020", "10040", undefined],
     );
+  });
+
+  it("records an SDK it cannot read and still writes the diff", async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-diff-"));
+    const result = await capture({
+      manifest: { network: "previewnet", chains: {} },
+      plan: [["people", "/w/people.wasm"]],
+      liveSource: () => undefined,
+      out,
+      testsDir: path.join(out, "missing"),
+    });
+    assert.match(result.sdkError ?? "", /ENOENT/);
+    assert.deepEqual([result.sdk, result.descriptors, result.sdkSelectors], [[], null, {}]);
+    assert.deepEqual(result.chains, [
+      { chain: "people", pin: null, wasm: "people.wasm", descriptor: null, error: "no RPC port known for people" },
+    ]);
+    assert.deepEqual(readJson(fs.readFileSync(path.join(out, "diff.json"), "utf8")), result);
   });
 
   it("reads the upgrade plan", () => {

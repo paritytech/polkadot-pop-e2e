@@ -32,7 +32,15 @@ if (!diffFile) {
   process.exit(2);
 }
 if (!fs.existsSync(diffFile)) {
+  // capture.ts stopped before it wrote the diff; the job summary still says so.
   console.error(`${diffFile} does not exist: the diff was not captured in this run.`);
+  console.log(
+    [
+      `### Runtime diff${values.title ? ` (${values.title})` : ""}`,
+      "",
+      'The diff was not captured in this run. The "Capture the runtime diff" step\'s log says why.',
+    ].join("\n"),
+  );
   process.exit(0);
 }
 

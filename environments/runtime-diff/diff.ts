@@ -44,6 +44,8 @@ export type ChainDiff = (ChainHead & MetadataDiff) | (ChainHead & { error: strin
 export interface Diff {
   network: string;
   sdk: Omit<SdkPackage, "dir">[];
+  /** Why the installed SDK could not be read; only extensions are compared then. */
+  sdkError: string | null;
   /** `@parity/product-sdk-descriptors@<version>`, when installed. */
   descriptors: string | null;
   sdkSelectors: Record<string, string[]>;
@@ -97,6 +99,8 @@ async function fetchCode(url: string): Promise<Uint8Array> {
   return Buffer.from(result.slice(2), "hex");
 }
 
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 /** `<chain>=<wasm>` lines, as plan-upgrades.mjs writes them. */
 export const readPlan = (text: string): [string, string][] =>
   text.split("\n").flatMap((line) => {
@@ -116,7 +120,8 @@ export interface CaptureOptions {
 /**
  * Diff every chain in the plan and write `<out>/diff.json`, plus each side's metadata
  * as `<chain>.live.scale` and `<chain>.candidate.scale`. A chain that cannot be
- * diffed records its error; the others still run.
+ * diffed records its error; the others still run. If the installed SDK cannot be
+ * read, that error is recorded too and only the extensions are compared.
  */
 export async function capture({ manifest, plan, liveSource, out, testsDir }: CaptureOptions): Promise<Diff> {
   if (!isRecord(manifest) || typeof manifest.network !== "string") throw new Error("the manifest has no network");
@@ -126,15 +131,24 @@ export async function capture({ manifest, plan, liveSource, out, testsDir }: Cap
     return isRecord(chains) ? stringOr(chains.runtime, null) : null;
   };
   fs.mkdirSync(out, { recursive: true });
-  const sdk = installedSdk(testsDir);
+  let sdk: SdkPackage[] = [];
+  let bySdk: Record<string, string[]> = {};
+  let sdkError: string | null = null;
+  try {
+    sdk = installedSdk(testsDir);
+    bySdk = sdkSelectors(sdk);
+  } catch (error) {
+    sdk = [];
+    sdkError = errorText(error);
+  }
   const descriptors = sdk.find((p) => p.name === "@parity/product-sdk-descriptors");
-  const bySdk = sdkSelectors(sdk);
 
   const chains: ChainDiff[] = [];
   for (const [chain, wasm] of plan) {
-    const descriptor = descriptors ? descriptorChainFor(descriptors.dir, network, chain) : null;
-    const head = { chain, pin: pinOf(chain), wasm: path.basename(wasm), descriptor };
+    const head = { chain, pin: pinOf(chain), wasm: path.basename(wasm) };
+    let descriptor: string | null = null;
     try {
+      descriptor = descriptors ? descriptorChainFor(descriptors.dir, network, chain) : null;
       const source = liveSource(chain);
       if (!source) throw new Error(`no RPC port known for ${chain}`);
       const liveCode = source.startsWith("http") ? await fetchCode(source) : fs.readFileSync(source);
@@ -151,15 +165,16 @@ export async function capture({ manifest, plan, liveSource, out, testsDir }: Cap
       );
       diff.live.codeHash = blake2Hex(liveCode);
       diff.candidate.codeHash = blake2Hex(candidateCode);
-      chains.push({ ...head, ...diff });
+      chains.push({ ...head, descriptor, ...diff });
     } catch (error) {
-      chains.push({ ...head, error: error instanceof Error ? error.message : String(error) });
+      chains.push({ ...head, descriptor, error: errorText(error) });
     }
   }
 
   const result: Diff = {
     network,
     sdk: sdk.map(({ name, version, from, deps }) => ({ name, version, from, deps })),
+    sdkError,
     descriptors: descriptors ? `${descriptors.name}@${descriptors.version}` : null,
     sdkSelectors: bySdk,
     chains,

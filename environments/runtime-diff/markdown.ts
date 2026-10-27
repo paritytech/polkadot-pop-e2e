@@ -229,6 +229,9 @@ function failureLines(explained: Explained[]): string[] {
 
 export function renderReport(diff: Diff, explained: Explained[], options: ReportOptions = {}): string {
   const lines = [`### Runtime diff${options.title ? ` (${options.title})` : ""}`, ""];
+  if (diff.sdkError) {
+    lines.push(`Could not read the installed SDK: ${cell(diff.sdkError)}. Only transaction extensions are compared.`, "");
+  }
   if (!diff.chains.length) {
     lines.push("No runtime was upgraded in this run, so there is nothing to compare.", "");
     return lines.join("\n");

@@ -87,6 +87,7 @@ const people: ChainDiff = {
 const diff: Diff = {
   network: "previewnet",
   descriptors: "@parity/product-sdk-descriptors@0.14.0",
+  sdkError: null,
   sdk: [{ name: "@parity/product-sdk-individuality", version: "0.9.0", from: "@pop-e2e/chain-tests", deps: [] }],
   sdkSelectors: { "@parity/product-sdk-individuality": ["tx:PeopleLite.set_alias_account"] },
   chains: [people],
@@ -219,6 +220,11 @@ describe("report", () => {
     assert.match(md, /probably not a runtime break/);
   });
 
+  it("says when the installed SDK could not be read", () => {
+    const md = renderReport({ ...diff, sdkError: "ENOENT: no such file" }, []);
+    assert.match(md, /Could not read the installed SDK: ENOENT: no such file\. Only transaction extensions are compared\./);
+  });
+
   it("says so when no runtime was upgraded", () => {
     assert.match(renderReport({ ...diff, chains: [] }, []), /No runtime was upgraded in this run/);
   });
@@ -237,5 +243,13 @@ describe("report", () => {
     const report = readJson(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
     assert.ok(report && typeof report === "object" && "failingTests" in report && Array.isArray(report.failingTests));
     assert.equal(report.failingTests.length, 2);
+  });
+
+  it("puts a note in the job summary when the diff was not captured", () => {
+    const missing = path.join(tmp("runtime-report-"), "diff.json");
+    const args = ["--import", "tsx", path.join(HERE, "report.ts"), missing, "--title", "previewnet · target"];
+    const out = execFileSync(process.execPath, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    assert.match(out, /### Runtime diff \(previewnet · target\)/);
+    assert.match(out, /The diff was not captured in this run\./);
   });
 });
