@@ -221,6 +221,21 @@ describe("report", () => {
     assert.match(md, /probably not a runtime break/);
   });
 
+  it("does not count extension changes on a chain without a descriptor", () => {
+    const [v0] = people.extensions.versions;
+    assert.ok(v0);
+    const relay: ChainDiff = {
+      ...people,
+      chain: "relay",
+      descriptor: null,
+      entries: [],
+      extensions: { ...people.extensions, versions: [{ ...v0, status: "changed", breaking: true }], summary: "v0 changed." },
+    };
+    const md = renderReport({ ...diff, chains: [{ ...people, entries: [] }, relay] }, [], { outcome: "failure" });
+    assert.doesNotMatch(md, /Open a `runtime-break` issue/);
+    assert.match(md, /\*\*Transaction extensions\*\* \(no matching SDK descriptor\): v0 changed\./);
+  });
+
   it("says when the installed SDK could not be read", () => {
     const md = renderReport({ ...diff, sdkError: "ENOENT: no such file" }, []);
     assert.match(md, /Could not read the installed SDK: ENOENT: no such file\. Only transaction extensions are compared\./);

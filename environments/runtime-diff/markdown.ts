@@ -29,10 +29,14 @@ function changeText(e: EntryDiff): string {
   return at.length ? `changed at ${at.join(", ")}` : "changed";
 }
 
+const pipelineBreaks = (ext: PipelineDiff): boolean =>
+  ext.versions.some((v) => v.breaking) || ext.extrinsicVersions.removed.length > 0;
+
 function breakingOf(chain: Diffed) {
   return {
     entries: chain.entries.filter((e) => e.severity === "breaking"),
-    extensions: chain.extensions.versions.some((v) => v.breaking) || chain.extensions.extrinsicVersions.removed.length > 0,
+    // The SDK only signs on chains it has a descriptor for.
+    extensions: chain.descriptor !== null && pipelineBreaks(chain.extensions),
     missing: chain.missingSurfaces.filter((m) => !m.alsoMissingOnLive),
   };
 }
@@ -105,11 +109,17 @@ function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explaine
     "",
   ];
 
-  const extBreaking = breakingOf(chain).extensions;
   const extTests = byLink.get(`${chain.chain}|transaction extensions`) ?? [];
   const { removed, added } = ext.extrinsicVersions;
+  const marker = pipelineBreaks(ext)
+    ? chain.descriptor !== null
+      ? " 🔴 breaking"
+      : " (no matching SDK descriptor)"
+    : ext.summary === "No change."
+      ? ""
+      : " 🟢 additive";
   lines.push(
-    `**Transaction extensions**${extBreaking ? " 🔴 breaking" : ext.summary === "No change." ? "" : " 🟢 additive"}: ${ext.summary}` +
+    `**Transaction extensions**${marker}: ${ext.summary}` +
       (removed.length ? ` Extrinsic version ${removed.join(", ")} removed.` : "") +
       (added.length ? ` Extrinsic version ${added.join(", ")} added.` : "") +
       (extTests.length ? ` Failing tests that sign transactions: ${testsText(extTests)}.` : ""),
