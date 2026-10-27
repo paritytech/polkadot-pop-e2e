@@ -224,7 +224,9 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         storage_deposit_limit: storageDeposit > 0n ? storageDeposit : 1n,
         data: Binary.fromHex("0x"),
       });
-      const callResult = await callTx.createAndSubmit(signer);
+      const callResult = await callTx.createAndSubmit(signer, {
+        customSignedExtensions: { RestrictOrigins: { value: false } },
+      });
       if (!callResult.ok) {
         throw new Error(
           `[pgas] revive call failed: dispatchError=${JSON.stringify(callResult.dispatchError)}`,
