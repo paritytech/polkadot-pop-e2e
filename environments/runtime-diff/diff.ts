@@ -18,6 +18,7 @@ import {
   installedSdk,
   loadDescriptor,
   missingSurfaces,
+  releaseEndpoint,
   sdkSelectors,
   type MissingSurface,
   type SdkPackage,
@@ -36,6 +37,8 @@ interface ChainHead {
   /** The manifest's pin for the candidate runtime. */
   pin: string | null;
   wasm: string;
+  /** The endpoint the release map gives for the chain; descriptors are matched on it. */
+  endpoint: string | null;
   descriptor: string | null;
 }
 
@@ -145,7 +148,7 @@ export async function capture({ manifest, plan, liveSource, out, testsDir }: Cap
 
   const chains: ChainDiff[] = [];
   for (const [chain, wasm] of plan) {
-    const head = { chain, pin: pinOf(chain), wasm: path.basename(wasm) };
+    const head = { chain, pin: pinOf(chain), wasm: path.basename(wasm), endpoint: releaseEndpoint(network, chain) };
     let descriptor: string | null = null;
     try {
       descriptor = descriptors ? descriptorChainFor(descriptors.dir, network, chain) : null;

@@ -98,12 +98,17 @@ export function sdkSelectors(packages: SdkPackage[]): Record<string, string[]> {
 
 const chains: Record<string, Record<string, { ws?: string }>> = CHAINS;
 
+/** The public endpoint the release map records for a manifest chain. */
+export const releaseEndpoint = (network: string, chain: string): string | null => chains[network]?.[chain]?.ws ?? null;
+
+const withoutSlash = (url: string): string => url.replace(/\/+$/, "");
+
 /**
  * The descriptor chain the SDK uses for a manifest chain: the one whose papi entry
  * points at the same public endpoint the release map records for it.
  */
 export function descriptorChainFor(descriptorsDir: string, network: string, chain: string): string | null {
-  const ws = chains[network]?.[chain]?.ws;
+  const ws = releaseEndpoint(network, chain);
   const chainsDir = path.join(descriptorsDir, "chains");
   if (!ws || !fs.existsSync(chainsDir)) return null;
   const pointsAtWs = (name: string): boolean => {
@@ -111,7 +116,7 @@ export function descriptorChainFor(descriptorsDir: string, network: string, chai
     if (!fs.existsSync(config)) return false;
     const parsed = readJson(fs.readFileSync(config, "utf8"));
     const entries = isRecord(parsed) && isRecord(parsed.entries) ? Object.values(parsed.entries) : [];
-    return entries.some((e) => isRecord(e) && e.wsUrl === ws);
+    return entries.some((e) => isRecord(e) && typeof e.wsUrl === "string" && withoutSlash(e.wsUrl) === withoutSlash(ws));
   };
   return fs.readdirSync(chainsDir).find(pointsAtWs) ?? null;
 }

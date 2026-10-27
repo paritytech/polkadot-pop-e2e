@@ -42,6 +42,7 @@ const people: ChainDiff = {
   chain: "people",
   pin: "paritytech/individuality-community@v0.4.0",
   wasm: "people.wasm",
+  endpoint: "wss://previewnet.substrate.dev/people",
   descriptor: "previewnet-individuality",
   live: side(3004000, 6, "0xaaaaaaaaaaaa"),
   candidate: side(3005000, 7, "0xbbbbbbbbbbbb"),
@@ -223,6 +224,11 @@ describe("report", () => {
   it("says when the installed SDK could not be read", () => {
     const md = renderReport({ ...diff, sdkError: "ENOENT: no such file" }, []);
     assert.match(md, /Could not read the installed SDK: ENOENT: no such file\. Only transaction extensions are compared\./);
+  });
+
+  it("names the endpoint no SDK descriptor points at", () => {
+    const md = renderReport({ ...diff, chains: [{ ...people, descriptor: null }] }, []);
+    assert.match(md, /No SDK descriptor points at `wss:\/\/previewnet\.substrate\.dev\/people`, so only its extensions are compared\./);
   });
 
   it("says so when no runtime was upgraded", () => {

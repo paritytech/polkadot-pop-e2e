@@ -12,7 +12,7 @@ import { isBreaking, type Descriptor } from "./entries.ts";
 import { diffPipelines } from "./extensions.ts";
 import { readJson } from "./json.ts";
 import { decodeMetadata, type UnifiedMetadata } from "./metadata.ts";
-import { descriptorChainFor, installedSdk, loadDescriptor, selectorsIn } from "./sdk.ts";
+import { descriptorChainFor, installedSdk, loadDescriptor, releaseEndpoint, selectorsIn } from "./sdk.ts";
 
 const TESTS_DIR = path.join(import.meta.dirname, "..", "..", "packages", "chain-tests");
 
@@ -68,6 +68,15 @@ describe("SDK selectors", () => {
     assert.equal(descriptorChainFor(descriptorsDir(), "previewnet", "asset-hub"), "previewnet-asset-hub");
     assert.equal(descriptorChainFor(descriptorsDir(), "paseo-next-v2", "people"), "paseo-individuality");
     assert.equal(descriptorChainFor(descriptorsDir(), "previewnet", "relay"), null);
+  });
+
+  it("matches an endpoint that differs only by a trailing slash", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "descriptors-"));
+    const papi = path.join(dir, "chains", "people-slash", ".papi");
+    fs.mkdirSync(papi, { recursive: true });
+    const wsUrl = `${releaseEndpoint("previewnet", "people") ?? ""}/`;
+    fs.writeFileSync(path.join(papi, "polkadot-api.json"), JSON.stringify({ entries: { people: { wsUrl } } }));
+    assert.equal(descriptorChainFor(dir, "previewnet", "people"), "people-slash");
   });
 });
 
@@ -203,7 +212,14 @@ describe("gate inputs", () => {
     assert.match(result.sdkError ?? "", /ENOENT/);
     assert.deepEqual([result.sdk, result.descriptors, result.sdkSelectors], [[], null, {}]);
     assert.deepEqual(result.chains, [
-      { chain: "people", pin: null, wasm: "people.wasm", descriptor: null, error: "no RPC port known for people" },
+      {
+        chain: "people",
+        pin: null,
+        wasm: "people.wasm",
+        endpoint: "wss://previewnet.substrate.dev/people",
+        descriptor: null,
+        error: "no RPC port known for people",
+      },
     ]);
     assert.deepEqual(readJson(fs.readFileSync(path.join(out, "diff.json"), "utf8")), result);
   });

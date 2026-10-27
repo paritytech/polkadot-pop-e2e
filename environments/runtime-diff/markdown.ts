@@ -81,6 +81,17 @@ function entryTable(entries: EntryDiff[], chain: string, byLink: Map<string, Exp
   return ["| | entry | change | SDK fit, live → candidate | failing tests |", "|---|---|---|---|---|", ...rows, ...more];
 }
 
+// Names the endpoint when no descriptor matched it, so a moved endpoint shows up
+// here instead of reading as a chain the SDK does not cover.
+function descriptorText(chain: Diffed, diff: Diff): string {
+  if (chain.descriptor) return `Checked against ${code(diff.descriptors ?? "?")} ${code(chain.descriptor)}.`;
+  if (diff.sdkError) return "Only its extensions are compared.";
+  if (diff.descriptors && chain.endpoint) {
+    return `No SDK descriptor points at ${code(chain.endpoint)}, so only its extensions are compared.`;
+  }
+  return "The SDK has no descriptors for this chain, so only its extensions are compared.";
+}
+
 function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explained[]>): string[] {
   if ("error" in chain) return [`#### ${chain.chain}`, "", `Could not diff this chain: ${chain.error}`, ""];
   const { live, candidate, extensions: ext } = chain;
@@ -90,9 +101,7 @@ function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explaine
     "",
     `Live ${short(live.codeHash)} → candidate ${short(candidate.codeHash)}${chain.pin ? ` (${code(chain.pin)})` : ""}, ` +
       `transaction_version ${spec(live.transactionVersion)} → ${spec(candidate.transactionVersion)}. ` +
-      (chain.descriptor
-        ? `Checked against ${code(diff.descriptors ?? "?")} ${code(chain.descriptor)}.`
-        : "The SDK has no descriptors for this chain, so only its extensions are compared."),
+      descriptorText(chain, diff),
     "",
   ];
 
