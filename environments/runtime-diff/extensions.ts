@@ -1,7 +1,7 @@
 // Transaction extension pipelines, per extension version.
 
 import { CompatibilityLevel, entryPointsAreCompatible, type EntryPoint } from "@polkadot-api/metadata-compatibility";
-import { runtimeCtx } from "./entries.ts";
+import { isBreaking, runtimeCtx } from "./entries.ts";
 import type { UnifiedMetadata } from "./metadata.ts";
 
 type Extension = UnifiedMetadata["extrinsic"]["extensionsByVersion"][number][number];
@@ -29,8 +29,10 @@ const ids = (list: Extension[] | undefined): string[] => (list ?? []).map((e) =>
 
 /**
  * What was added, removed or reordered in each version, and which extensions kept
- * their name but changed type. A changed or removed pipeline is breaking: a signer
- * built for it produces transactions the candidate rejects. A new version is not.
+ * their name but changed type. A removed pipeline, or an added, removed, reordered or
+ * incompatibly retyped extension, is breaking: a signer built for live produces
+ * transactions the candidate rejects. A new version, or a type change polkadot-api
+ * still accepts (BackwardsCompatible), is not.
  * `moved` names extensions that left one version for another, which is how "the
  * person extensions moved from v0 to a new v1" reads.
  */
@@ -40,14 +42,14 @@ export function diffPipelines(liveMeta: UnifiedMetadata, candidateMeta: UnifiedM
   const liveCtx = runtimeCtx(liveMeta);
   const candidateCtx = runtimeCtx(candidateMeta);
 
-  const typeChanged = (a: Extension, b: Extension | undefined): boolean => {
-    if (!b) return false;
+  const typeLevel = (a: Extension, b: Extension | undefined): CompatibilityLevel => {
+    if (!b) return CompatibilityLevel.Identical;
     const node = (e: Extension): EntryPoint => ({
       args: { type: "lookup", value: e.type },
       values: { type: "lookup", value: e.additionalSigned },
     });
     const r = entryPointsAreCompatible(node(a), liveCtx.node, node(b), candidateCtx.node, new Map());
-    return r.args.level !== CompatibilityLevel.Identical || r.values.level !== CompatibilityLevel.Identical;
+    return r.args.level < r.values.level ? r.args.level : r.values.level;
   };
 
   const versions = [...new Set([...Object.keys(live), ...Object.keys(candidate)].map(Number))].sort((a, b) => a - b);
@@ -61,12 +63,18 @@ export function diffPipelines(liveMeta: UnifiedMetadata, candidateMeta: UnifiedM
     const removed = row.before.filter((id) => !row.after.includes(id));
     const common = row.before.filter((id) => row.after.includes(id));
     const reordered = common.join() !== row.after.filter((id) => row.before.includes(id)).join();
-    const retyped = before
+    const levels = before
       .filter((e) => common.includes(e.identifier))
-      .filter((e) => typeChanged(e, after.find((x) => x.identifier === e.identifier)))
-      .map((e) => e.identifier);
-    const changed = added.length > 0 || removed.length > 0 || reordered || retyped.length > 0;
-    return { ...row, status: changed ? "changed" : "same", breaking: changed, added, removed, reordered, retyped };
+      .map((e) => ({ id: e.identifier, level: typeLevel(e, after.find((x) => x.identifier === e.identifier)) }))
+      .filter((e) => e.level !== CompatibilityLevel.Identical);
+    const retyped = levels.map((e) => e.id);
+    const breaking =
+      added.length > 0 ||
+      removed.length > 0 ||
+      reordered ||
+      levels.some((e) => isBreaking(CompatibilityLevel.Identical, e.level));
+    const changed = breaking || retyped.length > 0;
+    return { ...row, status: changed ? "changed" : "same", breaking, added, removed, reordered, retyped };
   });
 
   const versionsOf = (pipelines: Record<number, Extension[]>, id: string): number[] =>

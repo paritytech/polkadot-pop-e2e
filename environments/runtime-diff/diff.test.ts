@@ -188,6 +188,22 @@ describe("extension pipelines", () => {
     );
     assert.deepEqual([ext.versions[0]?.retyped, ext.versions[0]?.breaking], [[first.identifier], true]);
   });
+
+  it("lists a compatible type change without calling it breaking", () => {
+    const candidate = withPipelines({ 0: v0() });
+    const hash = v0().find((x) => x.identifier === "CheckMetadataHash");
+    const mode = hash && candidate.lookup[hash.type]?.def;
+    assert.ok(hash && mode?.tag === "composite");
+    const modeType = candidate.lookup[mode.value[0]?.type ?? -1]?.def;
+    assert.ok(modeType?.tag === "variant");
+    // One more mode: every value a signer built for live still encodes.
+    modeType.value.push({ name: "Extra", fields: [], index: modeType.value.length, docs: [] });
+    const ext = diffPipelines(withPipelines({ 0: v0() }), candidate);
+    assert.deepEqual(
+      [ext.versions[0]?.status, ext.versions[0]?.retyped, ext.versions[0]?.breaking],
+      ["changed", ["CheckMetadataHash"], false],
+    );
+  });
 });
 
 describe("gate inputs", () => {
