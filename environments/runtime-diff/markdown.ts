@@ -263,7 +263,8 @@ export function renderReport(diff: Diff, explained: Explained[], options: Report
       `This run failed and the candidate breaks the SDK surface above. [Open a \`${ISSUE_LABEL}\` issue on paritytech/product-sdk](${url}), prefilled from this run.`,
       "",
     );
-  } else if (failed) {
+  } else if (explained.length && !diff.sdkError && diffed(diff).length === diff.chains.length) {
+    // Only tests that failed against a full diff clear the runtime; a refused or stopped upgrade says so on its own.
     lines.push(
       "The candidate changes nothing the SDK depends on in a breaking way, so this failure is probably not a runtime break.",
       "",

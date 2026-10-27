@@ -221,6 +221,17 @@ describe("report", () => {
     assert.match(md, /probably not a runtime break/);
   });
 
+  it("does not clear the runtime when no test ran, as when the upgrade was refused", () => {
+    const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }] };
+    assert.doesNotMatch(renderReport(calm, [], { outcome: "failure" }), /probably not a runtime break/);
+  });
+
+  it("does not clear the runtime when a chain could not be diffed", () => {
+    const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }, { ...people, chain: "relay", error: "timeout" }] };
+    const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
+    assert.doesNotMatch(md, /probably not a runtime break/);
+  });
+
   it("does not count extension changes on a chain without a descriptor", () => {
     const [v0] = people.extensions.versions;
     assert.ok(v0);
