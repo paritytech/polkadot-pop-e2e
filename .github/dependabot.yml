@@ -9,11 +9,20 @@ updates:
     cooldown:
       default-days: 1
     versioning-strategy: increase
+    # Groups take a dependency in the order listed. Majors outside @parity/*
+    # get a PR each, so one breaking bump can't hold back the rest.
     groups:
+      parity:
+        applies-to: version-updates
+        patterns:
+          - "@parity/*"
       dependencies:
         applies-to: version-updates
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
       security:
         applies-to: security-updates
         patterns:
