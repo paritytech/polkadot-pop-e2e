@@ -13,16 +13,14 @@ export default defineConfig({
     reporters: ["default", "junit", "./src/tests/reporter.ts"],
     outputFile: { junit: "./test-results/junit.xml" },
     pool: "forks",
-    poolOptions: {
-      forks: { singleFork: true },
-    },
+    maxWorkers: 1,
     // The IB-Health probe seeds an attested account via `ensureAttested()`
     // in attested-fixture.ts; later files reuse its cached account, or
     // fail fast off its cached `[ib-cascade]` rejection. That module state
     // only survives across files when they share one VM context. Safe
     // because no test file mutates shared module exports.
     isolate: false,
-    // Also pin to sequential file execution. With `singleFork: true` we
+    // Also pin to sequential file execution. With `maxWorkers: 1` we
     // get one process; without this option vitest can still parallelise
     // files inside that process via tinypool. JUnit timestamps on the
     // 2026-05-25 run show all six files reporting the same suite-start
