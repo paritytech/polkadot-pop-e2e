@@ -83,6 +83,7 @@ const people: ChainDiff = {
     extrinsicVersions: { removed: [], added: [] },
   },
   missingSurfaces: [],
+  pallets: ["Game", "PeopleLite", "System"],
 };
 
 const diff: Diff = {
@@ -190,6 +191,39 @@ describe("report", () => {
     );
     // An additive change cannot explain a failure, even when the test reads it.
     assert.deepEqual(linksFor(other, { own: new Set(["event:Game.NewGame"]), viaSdk: new Set() }, diff), []);
+  });
+
+  it("links extension changes only on chains the test signs on", () => {
+    const [, other] = failures();
+    assert.ok(other);
+    const [v0] = people.extensions.versions;
+    assert.ok(v0);
+    const signed: ChainDiff = {
+      ...people,
+      entries: [],
+      extensions: { ...people.extensions, versions: [{ ...v0, status: "changed", breaking: true }] },
+    };
+    const hub: ChainDiff = { ...signed, chain: "asset-hub", pallets: ["Assets", "System"] };
+    const surface = { own: new Set(["tx:PeopleLite.set_alias_account"]), viaSdk: new Set<string>() };
+    assert.deepEqual(
+      linksFor(other, surface, { ...diff, chains: [signed, hub] }).map((l) => [l.chain, l.why]),
+      [["people", "the test signs transactions"]],
+    );
+  });
+
+  it("does not take a pallet on every diffed chain as the chain the test signs on", () => {
+    const [, other] = failures();
+    assert.ok(other);
+    const [v0] = people.extensions.versions;
+    assert.ok(v0);
+    const signed: ChainDiff = {
+      ...people,
+      entries: [],
+      extensions: { ...people.extensions, versions: [{ ...v0, status: "changed", breaking: true }] },
+    };
+    const hub: ChainDiff = { ...people, chain: "asset-hub", entries: [], pallets: ["Assets", "System"] };
+    const surface = { own: new Set(["tx:System.remark"]), viaSdk: new Set<string>() };
+    assert.deepEqual(linksFor(other, surface, { ...diff, chains: [signed, hub] }), []);
   });
 
   it("puts the cause next to the failure and offers the product-sdk issue", () => {

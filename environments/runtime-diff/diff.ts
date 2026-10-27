@@ -30,6 +30,8 @@ export interface MetadataDiff {
   entries: EntryDiff[];
   extensions: PipelineDiff;
   missingSurfaces: MissingSurface[];
+  /** Pallets on either side, sorted. */
+  pallets: string[];
 }
 
 interface ChainHead {
@@ -73,6 +75,7 @@ export async function diffMetadata(
     entries: descriptor ? diffEntries(await descriptorCtx(descriptor), live, candidate, sdkRefs) : [],
     extensions: diffPipelines(liveMeta, candidateMeta),
     missingSurfaces: missingSurfaces(bySdk, live, candidate),
+    pallets: [...new Set([...liveMeta.pallets, ...candidateMeta.pallets].map((p) => p.name))].sort(),
   };
 }
 

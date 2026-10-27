@@ -96,13 +96,16 @@ const REJECTED_TX =
 /**
  * What in the diff most likely broke one failing test, best first. An entry the error
  * names always links. One the test merely reaches links only when the change is
- * breaking: an additive change cannot explain a failure. A test builds a transaction
- * only through something with a `tx:` selector, so only those link to an extension
- * change, unless the error says the transaction was rejected.
+ * breaking: an additive change cannot explain a failure. Extension changes link only
+ * on chains the SDK has a descriptor for. A test builds a transaction only through
+ * something with a `tx:` selector, so it links to an extension change only on a chain
+ * that has that selector's pallet and no other diffed chain does (`System` is on every
+ * chain), unless the error says the transaction was rejected.
  */
 export function linksFor(test: Failure, surface: Surface, diff: Diff): Link[] {
   const links: Link[] = [];
   const reaches = (selector: string) => surface.own.has(selector) || surface.viaSdk.has(selector);
+  const diffed = diff.chains.flatMap((c) => ("error" in c ? [] : [c]));
   for (const chain of diff.chains) {
     if ("error" in chain) continue;
     const link = (what: string, why: string, score: number, breaking = true) =>
@@ -123,10 +126,14 @@ export function linksFor(test: Failure, surface: Surface, diff: Diff): Link[] {
       }
     }
     const ext = chain.extensions;
-    if (ext.versions.some((v) => v.breaking) || ext.extrinsicVersions.removed.length) {
+    if (chain.descriptor !== null && (ext.versions.some((v) => v.breaking) || ext.extrinsicVersions.removed.length)) {
       const namedExt = ext.versions.flatMap((v) => v.before).find((id) => test.message.includes(id));
       const rejected = REJECTED_TX.test(test.message);
-      const signs = [...surface.own, ...surface.viaSdk].some((s) => s.startsWith("tx:"));
+      const others = diffed.filter((c) => c.chain !== chain.chain);
+      const signs = [...surface.own, ...surface.viaSdk].some((s) => {
+        const [, pallet = ""] = /^tx:(\w+)\./.exec(s) ?? [];
+        return chain.pallets.includes(pallet) && !others.some((c) => c.pallets.includes(pallet));
+      });
       if (namedExt) link("transaction extensions", `the error names ${namedExt}`, 6);
       else if (rejected) link("transaction extensions", "the error is a rejected transaction", 6);
       else if (signs) link("transaction extensions", "the test signs transactions", 2);

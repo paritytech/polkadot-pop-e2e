@@ -94,6 +94,7 @@ describe("entries", () => {
     const diff = await diffMetadata(metadata, structuredClone(metadata), descriptor);
     assert.deepEqual(diff.entries, []);
     assert.equal(diff.extensions.summary, "No change.");
+    assert.ok(diff.pallets.includes("PeopleLite"));
   });
 
   it("grades a removal as breaking and a new entry as additive", async () => {
