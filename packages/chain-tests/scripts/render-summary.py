@@ -263,7 +263,6 @@ def _failure_body(tc: ET.Element) -> str:
 _IB_FAILURE_MARKERS = (
     "[ib-cascade]",
     "[attested-fixture]",
-    "ASSIGNED timeout",
     "Identity Backend",
 )
 
@@ -287,12 +286,13 @@ _CHAIN_FAILURE_MARKERS = (
     "[chain-cascade]",
 )
 
-# Mirrors `ASSIGNED_TIMEOUT_MS` in attested-fixture.ts. Duplicated rather
-# than parsed out of TS because this renderer runs in the workflow's
-# Python step where importing TS isn't an option; the number changes
-# rarely and a stale value here only affects the human-readable budget
-# in the Matrix line, not the actual test behavior.
-_IB_ASSIGNED_BUDGET_SECONDS = 100
+# The suite's own setup: a truapi-host that is missing or not the pinned
+# release, or keys derived out of step with it. Every attesting suite fails
+# with the same cached error, so they collapse to one line too.
+_SETUP_FAILURE_MARKERS = (
+    "[truapi-host-setup]",
+    "[truapi-identity]",
+)
 
 
 def _is_ib_attributed(body: str) -> bool:
@@ -301,6 +301,10 @@ def _is_ib_attributed(body: str) -> bool:
 
 def _is_ring_attributed(body: str) -> bool:
     return any(m in body for m in _RING_FAILURE_MARKERS)
+
+
+def _is_setup_attributed(body: str) -> bool:
+    return any(m in body for m in _SETUP_FAILURE_MARKERS)
 
 
 def _is_chain_attributed(body: str) -> bool:
@@ -332,6 +336,8 @@ def matrix_failures(dirs: list[str]) -> None:
       "Identity Backend attestation degraded" line.
     - **Ring**: when the People-chain ring builder is stuck, downstream
       ring-dependent tests collapse to one "Ring builder stuck" line.
+    - **Setup**: a wrong truapi-host or drifted key derivation collapses to
+      one "Suite setup broken" line.
 
     Real, unrelated failures still surface individually so a coincidental
     product bug during an IB or ring outage isn't hidden by the grouping.
@@ -339,6 +345,7 @@ def matrix_failures(dirs: list[str]) -> None:
     for network, tree in parse_dirs(dirs):
         ib_blocked: list[str] = []
         ring_blocked: list[str] = []
+        setup_blocked: list[str] = []
         chain_blocked: list[str] = []
         chain_unhealthy_names: set[str] = set()
         other_failures: list[str] = []
@@ -352,6 +359,8 @@ def matrix_failures(dirs: list[str]) -> None:
             if _is_chain_attributed(body):
                 chain_blocked.append(name)
                 chain_unhealthy_names.update(_chains_in_body(body))
+            elif _is_setup_attributed(body):
+                setup_blocked.append(name)
             elif _is_ib_attributed(body):
                 ib_blocked.append(name)
             elif _is_ring_attributed(body):
@@ -359,7 +368,7 @@ def matrix_failures(dirs: list[str]) -> None:
             else:
                 other_failures.append(name)
 
-        if not ib_blocked and not ring_blocked and not chain_blocked and not other_failures:
+        if not ib_blocked and not ring_blocked and not setup_blocked and not chain_blocked and not other_failures:
             continue
 
         print(f"- **{network}**")
@@ -389,11 +398,11 @@ def matrix_failures(dirs: list[str]) -> None:
             # Networks without IB deployed are gated via `needsAttestation()`
             # `describe.skipIf` / `it.skipIf` upstream — those tests skip
             # cleanly and never reach this branch. So reaching here means
-            # the IB exists but failed: a genuine reconciler issue.
+            # the IB exists but attesting a fresh account failed.
             line = (
                 "  - **Identity Backend attestation degraded** — "
-                f"reconciler did not flip a fresh account to ASSIGNED within "
-                f"the {_IB_ASSIGNED_BUDGET_SECONDS} s poll budget. "
+                "truapi-host could not attest a fresh account, or its username "
+                "never reached the backend's search. "
                 "Identity Backend Health runs first and gates the suite: "
                 "downstream features below were never exercised."
             )
@@ -404,7 +413,7 @@ def matrix_failures(dirs: list[str]) -> None:
             blocked_suites = sorted({n.split(" > ")[0] for n in ring_blocked})
             line = (
                 "  - **Ring builder stuck** — the People-chain ring builder "
-                "did not include a new attested account within 300 s. "
+                "did not include a new attested account in time. "
                 "Ring-VRF proofs can't be generated, so any test that "
                 "depends on attestation (PGAS, Statement, Storage, Bulletin) "
                 "fails-fast off a shared cascade marker after the first "
@@ -413,6 +422,14 @@ def matrix_failures(dirs: list[str]) -> None:
             if blocked_suites:
                 line += f" Blocked: {', '.join(blocked_suites)}."
             print(line)
+        if setup_blocked:
+            blocked_suites = sorted({n.split(" > ")[0] for n in setup_blocked})
+            print(
+                "  - **Suite setup broken** — truapi-host is missing or not the "
+                "pinned release, or the suite's key derivation no longer matches "
+                "it. A test bug, not a chain or backend fault. "
+                f"Blocked: {', '.join(blocked_suites)}."
+            )
         for n in other_failures:
             print(f"  - {n}")
 

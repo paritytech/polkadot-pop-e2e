@@ -74,8 +74,6 @@ Three ways to start one:
       {"chains":{"asset-hub":{"runtime":"OWNER/REPO@TAG"},
                  "people":{"runtime":"OWNER/REPO@TAG"}}}
     runs_on: parity-large       # your own label; a fork needs real capacity
-  secrets:
-    GH_PAT: ${{ secrets.YOUR_READ_TOKEN }}
   ```
 
   A reusable workflow runs on the **caller's** runners, so `runs_on` is a label

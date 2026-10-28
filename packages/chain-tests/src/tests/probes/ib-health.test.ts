@@ -1,10 +1,9 @@
 /**
  * Identity Backend health probe — runs FIRST and gates the rest of the suite.
  *
- * Registers a fresh lite-person via the network's identity-backend and
- * waits for the status to flip from REGISTERED → ASSIGNED, within the
- * `ASSIGNED_TIMEOUT_MS` budget (100 s, defined in attested-fixture.ts).
- * Pass → the generated account is cached in module state for every
+ * Attests a fresh lite-person through truapi-host against the network's
+ * identity-backend, then waits for its username in the backend's search
+ * (budgets in attested-fixture.ts). Pass → the generated account is cached in module state for every
  * downstream suite that calls `ensureAttested()`; fail → the cached
  * failure short-circuits each downstream `beforeAll` in milliseconds
  * with an `[ib-cascade]` marker that the matrix-failures renderer
@@ -33,11 +32,15 @@ import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js"
 import { assertChainHealthy } from "../../lib/chain-cascade.js";
 import { getNetworkConfig } from "../../config/networks.js";
 
+// truapi-host attest (480 s) plus the backend search wait (240 s), so the
+// fixture's attributed error throws before vitest's generic timeout.
+const ATTESTATION_TIMEOUT_MS = 780_000;
+
 describe("Identity Backend Health", () => {
   beforeAll(() => {
     // IB writes attestation results to People — if People is dead the
-    // ASSIGNED transition will never land. Cascade out instead of
-    // burning the 100s poll budget.
+    // registration will never land. Cascade out instead of burning the
+    // attestation budget.
     assertChainHealthy("people");
 
     const network = getNetworkConfig();
@@ -46,12 +49,13 @@ describe("Identity Backend Health", () => {
   });
 
   it.skipIf(!needsAttestation())(
-    "registration reaches ASSIGNED within poll budget",
+    "attests a fresh account and finds its username in the backend's search",
     async () => {
       const creds = await ensureAttested();
       expect(creds.attested).toBe(true);
       expect(creds.username).toMatch(/.+/);
-      console.log(`[ib-health] OK — ${creds.username} reached ASSIGNED`);
+      console.log(`[ib-health] OK — ${creds.username} attested and searchable`);
     },
+    ATTESTATION_TIMEOUT_MS,
   );
 });

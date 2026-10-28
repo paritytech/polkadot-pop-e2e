@@ -31,10 +31,8 @@ export function setCachedRingLocation(location: MemberLocation): void {
 }
 
 /**
- * Read the cached `MemberLocation` produced by the `Ring Inclusion` probe.
- * Returns `null` if the probe hasn't run (test order wrong) or its inclusion
- * wait failed. Callers handle null — either fail with a clear message
- * (allowances) or fall back to their own `waitForInclusion` (lts/alias claim).
+ * The `MemberLocation` the `Ring Inclusion` probe found, or `null` if the probe
+ * hasn't run or failed; callers then run `waitForInclusion` themselves.
  */
 export function getCachedRingLocation(): MemberLocation | null {
   return cachedRingLocation;

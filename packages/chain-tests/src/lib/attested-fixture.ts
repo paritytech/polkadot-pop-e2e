@@ -2,8 +2,8 @@
  * On-demand fixture for tests that need an attested lite-person.
  *
  * Tests opt in by calling `await ensureAttested()` from their `beforeAll`.
- * The first call within a vitest run registers a fresh account via the
- * network's identity-backend and caches it to `.test-credentials.json`;
+ * The first call within a vitest run attests a fresh account with truapi-host
+ * and caches it to `.test-credentials.json`;
  * subsequent calls — from this test file OR any other in the same run —
  * read that file and return the cached account. Tests that don't need
  * an attested account never touch the IB at all by simply not importing
@@ -18,51 +18,34 @@
  */
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  fetchUsernameStatus,
-  generateAttestationParams,
-  searchUsername,
-  signAndRegister,
-} from "./attestation.js";
+import { generateMnemonic, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { getNetworkConfig } from "../config/networks.js";
-import { lookupUsername } from "@parity/product-sdk-individuality";
-import { createAssetHubClient, createPeopleClient } from "./client.js";
+import { assertPinnedVersion, attest, networkSuffix } from "./truapi-host.js";
+import { personKey } from "./truapi-identity.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
 
-// Health-check runs every 30 min. The IB-health probe (tests/probes/ib-
-// health.test.ts) runs FIRST via npm `test`-script ordering and calls
-// `ensureAttested()` — its verdict gates every downstream suite that
-// imports this module. 100 s gives ~50 polls of headroom over the ~30 s
-// product expectation while staying well inside the per-attempt retry
-// timeout (7 min).
-//
-// If you change this number, also update `_IB_ASSIGNED_BUDGET_SECONDS`
-// in scripts/render-summary.py — the renderer cites this budget in the
-// Matrix message so operators can correlate "IB took >N s" to the
-// pollers' tolerance.
-const ASSIGNED_TIMEOUT_MS = 100_000;
-const ASSIGNED_POLL_INTERVAL_MS = 2_000;
+// The backend's search projection lags the chain; on a freshly spawned fork its
+// indexer starts cold, so the budget matches the engine's own registration e2e.
+const SEARCH_TIMEOUT_MS = 240_000;
+const SEARCH_POLL_INTERVAL_MS = 5_000;
 
-// IBv2 registration is asynchronous end to end (outbox → chain-writer → attest →
-// finalize → index) and on a freshly spawned fork the writer starts cold, so the
-// budget matches the engine's own registration e2e rather than IBv1's SLA probe.
-const V2_INDEXED_TIMEOUT_MS = 240_000;
-const V2_POLL_INTERVAL_MS = 5_000;
+function credentialsFor(mnemonic: string, suffix: string, username: string): AttestedCredentials {
+  const entropy = mnemonicToEntropy(mnemonic);
+  const key = personKey({ entropy, networkSuffix: suffix });
+  return { attested: true, mnemonic, networkSuffix: suffix, address: key.address, publicKey: key.publicKey, entropy, username };
+}
 
 function parseAttested(path: string): AttestedCredentials | null {
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
-    if (!raw.attested) return null;
-    return {
-      attested: true,
-      address: raw.address,
-      publicKey: Uint8Array.from(raw.publicKey),
-      entropy: Uint8Array.from(raw.entropy),
-      username: raw.username,
-    };
+    // Credentials from another network (a fork included), or under another TLD, are not reused.
+    if (!raw.mnemonic || raw.network !== getNetworkConfig().name || raw.networkSuffix !== networkSuffix()) {
+      return null;
+    }
+    return credentialsFor(raw.mnemonic, raw.networkSuffix, raw.username);
   } catch {
     return null;
   }
@@ -73,7 +56,7 @@ let inflight: Promise<AttestedCredentials> | null = null;
 // state across test files within one run, so once the first ensureAttested
 // call has determined IB is broken, every subsequent caller (in any later
 // test file's beforeAll) can fail-fast off this rather than re-paying the
-// 100s poll budget AND surfacing as a misleading "PGAS/Statement/Storage
+// attestation AND surfacing as a misleading "PGAS/Statement/Storage
 // failed" signal. The cascaded failure carries an explicit prefix so the
 // matrix-message renderer can group it under the IB-health line instead of
 // listing it as an independent failure.
@@ -140,143 +123,87 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   console.log(`[attested-fixture] Network: ${network.name}`);
   console.log(`[attested-fixture] Identity backend: ${network.identityBackend}`);
 
-  const { credentials, params } = generateAttestationParams();
-  console.log(`[attested-fixture] Fresh account: ${credentials.address}`);
-  console.log(`[attested-fixture] Username: ${params.username}`);
+  await assertPinnedVersion();
 
-  const registerStart = Date.now();
-  const result = await signAndRegister(
-    network.identityBackend,
-    credentials.entropy,
-    params,
-    network.identityBackendAuth === "challenge" ? await assetHubNowSecs(network.assetHub.ws) : undefined,
-  );
+  const mnemonic = generateMnemonic(128);
+  const usernameBase = `etest${randomLetters(8)}`;
+  const start = Date.now();
+  const identity = await attest(mnemonic, usernameBase).catch((err: Error) => {
+    // attest's last step waits for the People ring builder, which is not the backend's fault.
+    if (err.message.includes("did not appear in any personhood ring")) {
+      throw new Error(`Ring inclusion timed out: ${err.message}`);
+    }
+    throw new Error(`[attested-fixture] ${err.message}`);
+  });
   console.log(
-    `[attested-fixture] Registered: ${result.username} (${Date.now() - registerStart}ms)`,
+    `[attested-fixture] truapi-host attested ${identity.address} as ${identity.liteUsername} ` +
+      `(${Date.now() - start}ms)`,
   );
 
-  await waitForAssigned(network.identityBackend, result.username, credentials.address);
+  const persisted = credentialsFor(mnemonic, networkSuffix(), identity.liteUsername);
+  // The tests sign and prove with keys derived locally; they must own the attested account.
+  if (persisted.address !== identity.address) {
+    throw new Error(
+      `[truapi-identity] truapi-host attested ${identity.address} but truapi-identity.ts derives ` +
+        `${persisted.address}: the derivation is out of step with the pinned truapi-host`,
+    );
+  }
 
-  const persisted: AttestedCredentials = {
-    attested: true,
-    address: credentials.address,
-    publicKey: credentials.publicKey,
-    entropy: credentials.entropy,
-    username: result.username,
-  };
+  await waitForSearchable(network.identityBackend, identity.liteUsername);
 
   writeFileSync(
     CREDENTIALS_PATH,
     JSON.stringify({
-      ...persisted,
-      publicKey: Array.from(persisted.publicKey),
-      entropy: Array.from(persisted.entropy),
+      network: network.name,
+      networkSuffix: persisted.networkSuffix,
+      mnemonic,
+      username: persisted.username,
     }),
   );
 
   return persisted;
 }
 
-/** Asset Hub's `Timestamp.Now` in seconds. */
-async function assetHubNowSecs(ws: string): Promise<bigint> {
-  const { client, api } = createAssetHubClient(ws);
-  try {
-    return (await api.query.Timestamp.Now.getValue()) / 1000n;
-  } finally {
-    client.destroy();
-  }
+function randomLetters(n: number): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(n));
+  return Array.from(bytes, (b) => String.fromCharCode(97 + (b % 26))).join("");
 }
 
 /**
- * Poll the IB for `username` until its status flips to `ASSIGNED`. Throws
- * with a precise message if the budget elapses — health-check picks this
- * up as the IB-health signal.
+ * GET /api/v1/usernames/search?prefix= — IBv2's indexer projection, which hosts
+ * use to find people by username.
  */
-async function waitForAssigned(backendUrl: string, username: string, address: string): Promise<void> {
-  // IBv2 exposes no status field. Done means on chain, as hosts check, and
-  // in the backend's search, which can list it before finalization.
-  if (getNetworkConfig().identityBackendAuth === "challenge") {
-    const { client, api } = createPeopleClient(getNetworkConfig().people.ws);
-    const start = Date.now();
-    let polls = 0;
-    let onChain = false;
-    let searchable = false;
-    try {
-      while (Date.now() - start < V2_INDEXED_TIMEOUT_MS) {
-        polls++;
-        if (!onChain) {
-          const found = await lookupUsername({ individuality: api }, { account: address });
-          if (!found.ok) console.log(`[attested-fixture] chain poll error: ${found.error.message}`);
-          onChain = found.ok && found.value?.liteUsername === username;
-          if (onChain) console.log(`[attested-fixture] on chain in ${Date.now() - start}ms`);
-        }
-        if (!searchable) {
-          try {
-            searchable = (await searchUsername(backendUrl, username)) !== null;
-            if (searchable) console.log(`[attested-fixture] searchable in ${Date.now() - start}ms`);
-          } catch (e: any) {
-            console.log(`[attested-fixture] search poll error: ${e.message}`);
-          }
-        }
-        if (onChain && searchable) return;
-        await new Promise((r) => setTimeout(r, V2_POLL_INTERVAL_MS));
-      }
-    } finally {
-      client.destroy();
-    }
-    const missing = [!onChain && "Resources.Consumers", !searchable && "the backend's search"].filter(Boolean);
-    throw new Error(
-      `[attested-fixture] ${username} never reached ${missing.join(" or ")} within ` +
-        `${V2_INDEXED_TIMEOUT_MS / 1000}s (${polls} polls) — check identity-chain-writer's log`,
-    );
-  }
+async function searchUsername(backendUrl: string, username: string): Promise<boolean> {
+  const res = await fetch(
+    `${backendUrl}/api/v1/usernames/search?prefix=${encodeURIComponent(username)}`,
+    { signal: AbortSignal.timeout(8_000) },
+  );
+  if (!res.ok) return false;
+  const body = (await res.json()) as { usernames?: Array<{ username: string }> };
+  return !!body.usernames?.some((u) => u.username === username);
+}
 
+/**
+ * Returns once the backend's username search lists `username`, which hosts read
+ * apart from the chain. Throws after `SEARCH_TIMEOUT_MS`.
+ */
+async function waitForSearchable(backendUrl: string, username: string): Promise<void> {
   const start = Date.now();
   let polls = 0;
-  let lastStatus: string | undefined;
-
-  while (Date.now() - start < ASSIGNED_TIMEOUT_MS) {
+  while (Date.now() - start < SEARCH_TIMEOUT_MS) {
     polls++;
-    const iterationStart = Date.now();
     try {
-      const entry = await fetchUsernameStatus(backendUrl, username);
-      if (entry) {
-        lastStatus = entry.status;
-        if (entry.status === "ASSIGNED") {
-          console.log(
-            `[attested-fixture] ASSIGNED in ${Date.now() - start}ms (${polls} polls)`,
-          );
-          return;
-        }
-        // FAILED is terminal: the IB reconciler tried to submit the
-        // registration extrinsic and the People chain rejected it. Bail
-        // immediately rather than burn the rest of the poll budget — and
-        // include the full entry so a future debugger has the on-chain
-        // pointers (or lack thereof) without having to add probe logs.
-        if (entry.status === "FAILED") {
-          throw new Error(
-            `[attested-fixture] IB reconciler returned FAILED for ${username} after ${
-              Date.now() - start
-            }ms (${polls} polls). Entry: ${JSON.stringify(entry)}`,
-          );
-        }
+      if (await searchUsername(backendUrl, username)) {
+        console.log(`[attested-fixture] searchable in ${Date.now() - start}ms`);
+        return;
       }
     } catch (e: any) {
-      console.log(`[attested-fixture] poll error: ${e.message}`);
+      console.log(`[attested-fixture] search poll error: ${e.message}`);
     }
-    const remaining = ASSIGNED_TIMEOUT_MS - (Date.now() - start);
-    if (remaining <= 0) break;
-    const sleepMs = Math.min(
-      remaining,
-      Math.max(0, ASSIGNED_POLL_INTERVAL_MS - (Date.now() - iterationStart)),
-    );
-    if (sleepMs > 0) await new Promise((r) => setTimeout(r, sleepMs));
+    await new Promise((r) => setTimeout(r, SEARCH_POLL_INTERVAL_MS));
   }
-
   throw new Error(
-    `[attested-fixture] ASSIGNED timeout — ${username} stuck at ${
-      lastStatus ?? "unknown"
-    } after ${Math.round((Date.now() - start) / 1000)}s (${polls} polls). ` +
-      `IB reconciler is likely lagging; see Network Functional Health workflow history.`,
+    `[attested-fixture] ${username} never reached the backend's search within ` +
+      `${SEARCH_TIMEOUT_MS / 1000}s (${polls} polls) — check the backend's indexer log`,
   );
 }

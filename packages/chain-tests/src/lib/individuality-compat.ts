@@ -45,12 +45,8 @@ function productContext(
   return blake2b256(preimage);
 }
 
-export const pgasContextV012 = (networkSuffix: string, day: number, slot: number) =>
-  productContext(networkSuffix, 4, day, slot, "u32");
 export const longTermStorageContextV012 = (networkSuffix: string, period: number, counter: number) =>
   productContext(networkSuffix, 3, period, counter, "u8");
-export const stmtStoreContextV012 = (networkSuffix: string, period: number, seq: number) =>
-  productContext(networkSuffix, 2, period, seq, "u32");
 
 /**
  * The runtime's `NetworkSuffix`, read from chain as hosts do. Undefined on
