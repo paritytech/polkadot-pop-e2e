@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import OrderedSequencer from "./src/tests/test-sequencer.ts";
+import { ATTESTATION_TIMEOUT_MS } from "./src/lib/attestation-budget.ts";
 
 export default defineConfig({
   test: {
@@ -9,7 +10,8 @@ export default defineConfig({
     include: ["src/tests/**/*.test.ts"],
     setupFiles: ["src/tests/setup.ts"],
     testTimeout: 300_000,
-    hookTimeout: 300_000,
+    // Whichever beforeAll calls ensureAttested() first pays a fresh attestation.
+    hookTimeout: ATTESTATION_TIMEOUT_MS,
     reporters: ["default", "junit", "./src/tests/reporter.ts"],
     outputFile: { junit: "./test-results/junit.xml" },
     pool: "forks",

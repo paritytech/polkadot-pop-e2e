@@ -9,6 +9,7 @@ import {
 } from "hop-sdk";
 import { createBulletinClient, createPeopleClient } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { ATTESTATION_TIMEOUT_MS } from "../lib/attestation-budget.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import { personKey } from "../lib/truapi-identity.js";
@@ -165,7 +166,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
       }
       await waitForHopAuthorization(senderHop, address);
     }
-  }, 300_000);
+  }, ATTESTATION_TIMEOUT_MS + 300_000);
 
   afterAll(() => {
     senderHop?.destroy();

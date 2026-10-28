@@ -3,8 +3,10 @@
  * it in `ring-cascade`, so the feature suites (PGAS, LTS, alias) read it via
  * `getCachedRingLocation()` instead of each waiting for inclusion.
  *
- * truapi-host attest has already seen the account in a ring, so a miss here
- * on a finalizing chain means the locally derived ring key no longer matches truapi's.
+ * truapi-host attest returns only once the account is in a ring root at a
+ * finalized block, so People having no member for our key at all means the
+ * locally derived ring key no longer matches truapi's. That verdict is cached
+ * in `ring-cascade` too, so the feature suites fail at once instead of waiting.
  */
 
 import { describe, it, beforeAll, afterAll } from "vitest";
@@ -12,8 +14,8 @@ import { Binary, type PolkadotClient } from "polkadot-api";
 import { createPeopleClient, type PeopleApi } from "../../lib/client.js";
 import { ensureAttested, needsAttestation } from "../../lib/attested-fixture.js";
 import { assertChainHealthy } from "../../lib/chain-cascade.js";
-import { setCachedRingLocation } from "../../lib/ring-cascade.js";
-import { waitForInclusion } from "../../lib/ring.js";
+import { setCachedRingLocation, setRingKeyDrift } from "../../lib/ring-cascade.js";
+import { RingInclusionTimeout, waitForInclusion } from "../../lib/ring.js";
 import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
 import { personRingEntropy } from "../../lib/truapi-identity.js";
 
@@ -60,11 +62,14 @@ describe.skipIf(!needsAttestation())(
         const location = await waitForInclusion(peopleApi, "LitePeople", verifiableEntropy, {
           peopleClient,
           timeoutMs: INCLUSION_WAIT_MS,
-        }).catch((err: Error) => {
-          if (!err.message.includes("Ring inclusion timed out")) throw err;
-          err.message +=
-            `\n\ntruapi-host attest already saw ${address} in a personhood ring. If People ` +
-            "finality is moving, the LitePeople key truapi-identity.ts derives is out of step with truapi.";
+        }).catch((err: unknown) => {
+          // Any other status means People knows the key and the builder is just slow.
+          const isDrift = err instanceof RingInclusionTimeout && err.lastStatus === "missing";
+          if (!isDrift) throw err;
+          err.message =
+            `[truapi-identity] ${err.message}\n\ntruapi-host attest already saw ${address} in a personhood ring, ` +
+            "but People has no LitePeople member for the key truapi-identity.ts derives: the derivation is out of step with truapi.";
+          setRingKeyDrift(err);
           throw err;
         });
         setCachedRingLocation(location);
