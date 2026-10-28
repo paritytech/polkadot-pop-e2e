@@ -182,6 +182,17 @@ async function isInRoot(
 }
 
 /**
+ * Thrown by `waitForInclusion` on timeout. `lastStatus` is the member's last
+ * finalized status; "missing" means People never saw the key at all, rather
+ * than a builder that is just slow.
+ */
+export class RingInclusionTimeout extends Error {
+  constructor(message: string, readonly lastStatus: string | undefined) {
+    super(message);
+  }
+}
+
+/**
  * Wait until the lite-person derived from `verifiableEntropy` is `Included`
  * in the on-chain ring AND its key is baked into the ring root at the latest
  * finalized block. `Members.Members` flips to `Included` and the key is
@@ -331,15 +342,17 @@ export async function waitForInclusion(
   const endSnap = peopleClient
     ? await captureRingDiagnostic(peopleApi, peopleClient, collectionId)
     : null;
-  const err = new Error(formatInclusionTimeout({
-    timeoutMs,
+  throw new RingInclusionTimeout(
+    formatInclusionTimeout({
+      timeoutMs,
+      lastTag,
+      statusLog,
+      startSnap,
+      endSnap,
+      collection,
+    }),
     lastTag,
-    statusLog,
-    startSnap,
-    endSnap,
-    collection,
-  }));
-  throw err;
+  );
 }
 
 interface RingDiagnostic {
