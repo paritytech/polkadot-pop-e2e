@@ -1,0 +1,92 @@
+name: K3s network with dedicated cores
+description: >-
+  Installs K3s on the runner and starts a zombienet network on it, one pod per
+  node, each node on CPU cores of its own. Fails if any node did not get its
+  own cores. See README.md next to this file.
+
+inputs:
+  network:
+    description: >-
+      Path to the zombienet TOML. Every node in it must set CPU and memory
+      requests equal to its limits, in whole physical cores (an even number of
+      vCPU on parity-large). `{{NAME}}` is replaced with the env var NAME.
+    required: true
+  namespace:
+    description: Kubernetes namespace the network runs in
+    default: zombienet
+  reserved-cores:
+    description: >-
+      Physical cores kept for the OS, K3s and zombie-cli; no node runs on them.
+      Counted from core 0. Both threads of each core are reserved.
+    default: "2"
+  zombie-cli-version:
+    description: zombienet-sdk release to download zombie-cli from
+    default: v0.4.15
+  spawn-timeout-minutes:
+    description: How long to wait for every node to be running
+    default: "15"
+  chains:
+    description: >-
+      Pods to check finalize blocks, space-separated (one node per chain, e.g.
+      "alice asset-hub-collator"). Empty skips the check.
+    default: ""
+  soak-minutes:
+    description: >-
+      Once every chain in `chains` has finalized a block, how long to keep
+      watching them and fail if one stalls. 0 only waits for the first block.
+    default: "0"
+
+outputs:
+  namespace:
+    description: The namespace the network runs in
+    value: ${{ inputs.namespace }}
+  kubeconfig:
+    description: Path to the kubeconfig kubectl needs
+    value: /etc/rancher/k3s/k3s.yaml
+
+runs:
+  using: composite
+  steps:
+    # The rest of the job (the caller's tests, collect-logs) needs these too.
+    - name: Export KUBECONFIG and NAMESPACE
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      run: |
+        echo "KUBECONFIG=/etc/rancher/k3s/k3s.yaml" >> "$GITHUB_ENV"
+        echo "NAMESPACE=$NAMESPACE" >> "$GITHUB_ENV"
+
+    - name: Install K3s
+      shell: bash
+      env:
+        RESERVED_CORES: ${{ inputs.reserved-cores }}
+      run: ${{ github.action_path }}/install-k3s.sh "$RESERVED_CORES"
+
+    - name: Install zombie-cli
+      shell: bash
+      env:
+        VERSION: ${{ inputs.zombie-cli-version }}
+      run: |
+        curl -sfL -o zombie-cli "https://github.com/paritytech/zombienet-sdk/releases/download/$VERSION/zombie-cli-x86_64-unknown-linux-gnu"
+        sudo install -m 0755 zombie-cli /usr/local/bin/
+        rm zombie-cli
+
+    - name: Start the network
+      shell: bash
+      env:
+        NETWORK: ${{ inputs.network }}
+        TIMEOUT_MINUTES: ${{ inputs.spawn-timeout-minutes }}
+      run: ${{ github.action_path }}/start-network.sh "$NETWORK" "$TIMEOUT_MINUTES"
+
+    - name: Check every node got its own cores
+      shell: bash
+      run: ${{ github.action_path }}/check-cores.sh
+
+    - name: Check every chain finalizes
+      if: inputs.chains != ''
+      shell: bash
+      env:
+        CHAINS: ${{ inputs.chains }}
+        SOAK_MINUTES: ${{ inputs.soak-minutes }}
+      # $CHAINS unquoted on purpose: one argument per pod.
+      run: ${{ github.action_path }}/check-chains.sh "$SOAK_MINUTES" $CHAINS

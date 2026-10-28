@@ -32,24 +32,12 @@ export interface NetworkConfig {
     hopWs?: string;
   };
   identityBackend: string | null;
-  /**
-   * How identity-backend writes authenticate. Absent = legacy IBv1: HS256 over the
-   * shared `IB_JWT_SECRET` env (no header when unset). "challenge" = IBv2
-   * (identity-backend-rust): the backend issues the JWT itself via its
-   * challenge→token flow, signed with the person's own key — no shared secret.
-   */
+  /** "challenge" marks an IBv2 (identity-backend-rust) backend; absent means IBv1. */
   identityBackendAuth?: "challenge";
-  /**
-   * The runtime's NetworkSuffix param — the network half of individuality
-   * v0.12's hashed product contexts ("product/peopl.<suffix>/…"). "test" on
-   * previewnet, "paseo" on pnv2. Irrelevant on pre-v0.12 runtimes.
-   */
-  networkSuffix?: string;
   ipfsGateway: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
-  // the `TEST_MNEMONIC` env. Useful on dev testnets like previewnet
-  // where `//Alice` is pre-funded.
+  // the `TEST_MNEMONIC` env. Used on local forks, where `//Alice` is funded.
   testAccountUri?: string;
 }
 
@@ -72,7 +60,6 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://identity.dotspark.app",
     identityBackendAuth: "challenge",
-    networkSuffix: "paseo",
     ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
   },
@@ -84,12 +71,8 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // device-uniqueness-backend (the new IB) — challenge→token auth.
     identityBackend: "https://previewnet.substrate.dev/dub",
     identityBackendAuth: "challenge",
-    networkSuffix: "testnet",
     ipfsGateway: "https://previewnet.substrate.dev/ipfs",
     features: { resources: true, pgas: true, hop: true, dotns: true },
-    // previewnet is a dev testnet — `//Alice` is pre-funded, so we don't
-    // need a TEST_MNEMONIC secret to drive funded ops.
-    testAccountUri: "//Alice",
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —

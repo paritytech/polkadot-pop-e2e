@@ -22,8 +22,7 @@ import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
  * contexts": blake2_256("product/peopl.<networkSuffix>/" ++ suffix32), where
  * suffix32 = "sys/" ++ u32le(family) ++ u32le(a) ++ (u32le(b) | u8(b)).
  * Families: 1 resources-notification, 2 statement-store slot, 3 long-term
- * storage, 4 PGAS claim. The network suffix is a per-network runtime param —
- * "test" on previewnet, "paseo" on pnv2 once it takes v0.12.
+ * storage, 4 PGAS claim. The network suffix comes from `productContextSuffix`.
  */
 function productContext(
   networkSuffix: string,
@@ -39,68 +38,34 @@ function productContext(
   new DataView(suffix.buffer).setUint32(8, a, true);
   if (tail === "u32") new DataView(suffix.buffer).setUint32(12, b, true);
   else suffix[12] = b & 0xff;
-  return personhoodContext(networkSuffix, suffix);
-}
-
-/** blake2_256("product/peopl.<networkSuffix>/" ++ suffix32). */
-function personhoodContext(networkSuffix: string, suffix32: Uint8Array): Uint8Array {
-  const head = new TextEncoder().encode(`product/peopl.${networkSuffix}/`);
+  const head = enc.encode(`product/peopl.${networkSuffix}/`);
   const preimage = new Uint8Array(head.length + 32);
   preimage.set(head, 0);
-  preimage.set(suffix32, head.length);
+  preimage.set(suffix, head.length);
   return blake2b256(preimage);
 }
 
-/**
- * The personhood signing context: the product context with the raw suffix
- * "sig/" ++ 28 zero bytes. An account signs it followed by the message when it
- * signs a non-transaction message for personhood (paritytech/individuality-community#105).
- */
-export function signingContext(networkSuffix: string): Uint8Array {
-  const suffix = new Uint8Array(32);
-  suffix.set(new TextEncoder().encode("sig/"), 0);
-  return personhoodContext(networkSuffix, suffix);
-}
-
-export const pgasContextV012 = (networkSuffix: string, day: number, slot: number) =>
-  productContext(networkSuffix, 4, day, slot, "u32");
 export const longTermStorageContextV012 = (networkSuffix: string, period: number, counter: number) =>
   productContext(networkSuffix, 3, period, counter, "u8");
-export const stmtStoreContextV012 = (networkSuffix: string, period: number, seq: number) =>
-  productContext(networkSuffix, 2, period, seq, "u32");
 
 /**
- * Whether this chain's runtime uses the v0.12 product-context format (and the
- * generation-keyed RingRoots). Version-gated per spec name; unknown chains
- * report false (legacy).
+ * The runtime's `NetworkSuffix`, read from chain as hosts do. Undefined on
+ * runtimes that predate product contexts, which use the legacy raw contexts.
  */
-export async function usesProductContexts(client: PolkadotClient): Promise<boolean> {
-  const v = (await client.getUnsafeApi().apis.Core.version()) as {
-    spec_name: string;
-    spec_version: number;
-  };
-  const name = String(v.spec_name);
-  const spec = Number(v.spec_version);
-  if (name === "next-asset-hub-paseo") return spec >= 2_000_038;
-  if (name === "next-people-paseo") return spec >= 1_000_035;
-  return false;
-}
-
-/**
- * Whether this People runtime accepts only account signatures over the
- * personhood signing context followed by the message, for non-transaction
- * messages (paritytech/individuality-community#105): the people-lite candidate
- * and consumer registration signatures among them. Version-gated: live
- * previewnet and paseo-next-v2 run 3004000 without the change, and every build
- * stamped above it carries it once paritytech/individuality-community#196
- * merges. Delete once the live networks run a release with the change.
- */
-export async function usesSigningContext(client: PolkadotClient): Promise<boolean> {
-  const v = (await client.getUnsafeApi().apis.Core.version()) as {
-    spec_name: string;
-    spec_version: number;
-  };
-  return String(v.spec_name) === "next-people-paseo" && Number(v.spec_version) > 3_004_000;
+export async function productContextSuffix(client: PolkadotClient): Promise<string | undefined> {
+  try {
+    const suffix = (await client.getUnsafeApi().query.NetworkSuffix.NetworkSuffix.getValue()) as
+      | Uint8Array
+      | undefined;
+    return suffix?.length ? new TextDecoder().decode(suffix) : undefined;
+  } catch (err) {
+    // Only a runtime without the pallet means legacy contexts; an RPC failure
+    // here would otherwise silently pick the wrong context and surface as BadProof.
+    if (err instanceof Error && /Runtime entry Storage\(.+\) not found/.test(err.message)) {
+      return undefined;
+    }
+    throw err;
+  }
 }
 
 export interface RingCommitmentRecord {

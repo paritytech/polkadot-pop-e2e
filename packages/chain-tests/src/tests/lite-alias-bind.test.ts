@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, Binary, type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import {
   buildLiteAliasBindTx,
   fromPapi,
@@ -22,9 +21,16 @@ import { createPeopleClient, type PeopleApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { getCachedRingLocation } from "../lib/ring-cascade.js";
-import { encodeMembers, fetchRingMembers, LITE_PEOPLE_IDENTIFIER, waitForInclusion } from "../lib/ring.js";
+import {
+  encodeMembers,
+  fetchRingMembers,
+  LITE_PEOPLE_IDENTIFIER,
+  ringExponent,
+  waitForInclusion,
+} from "../lib/ring.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
 import { getNetworkConfig } from "../config/networks.js";
+import { personRingEntropy } from "../lib/truapi-identity.js";
 
 describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
   "Lite sign-up: bind alias to a product account",
@@ -46,10 +52,11 @@ describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
     /** What a host's `createRingVRFProof` returns, minted locally for `context`. */
     async function liteProver(context: Uint8Array): Promise<CreateRingVRFProof> {
       const creds = await ensureAttested();
-      const entropy = blake2b256(creds.entropy);
+      const entropy = personRingEntropy(creds);
       const { ringIndex } =
         getCachedRingLocation() ??
         (await waitForInclusion(peopleApi, "LitePeople", entropy, { peopleClient }));
+      const exponent = await ringExponent(peopleApi, "LitePeople");
       return async (message) => {
         const at = (await peopleClient.getFinalizedBlock()).hash;
         const root = await peopleApi.query.Members.Root.getValue(
@@ -58,7 +65,7 @@ describe.skipIf(!getNetworkConfig().features.resources || !needsAttestation())(
           { at },
         );
         const members = await fetchRingMembers(peopleApi, "LitePeople", ringIndex, at);
-        const { proof, alias } = verifiableFor().one_shot(entropy, encodeMembers(members), context, message);
+        const { proof, alias } = verifiableFor().one_shot(exponent, entropy, encodeMembers(members), context, message);
         return {
           proof,
           contextualAlias: { context, alias },

@@ -50,18 +50,6 @@ describe('overrides', () => {
   });
 });
 
-describe('repos', () => {
-  it('preflights the engine checkout, which is no manifest pin', () => {
-    assert.match(run('repos', 'previewnet'), /^paritytech\/previewnet-engine$/m);
-  });
-
-  it('preflights each repo the manifest actually pulls from', () => {
-    const repos = run('repos', 'previewnet').split('\n').filter(Boolean);
-    assert.ok(repos.includes('paseo-network/runtimes'), repos.join(' '));
-    assert.ok(!repos.includes('paritytech/preview-net-v1'), repos.join(' '));
-  });
-});
-
 describe('candidates', () => {
   const PREVIEWNET = path.join(HERE, 'networks', 'previewnet.json');
   const head = JSON.parse(fs.readFileSync(PREVIEWNET, 'utf8'));

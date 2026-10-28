@@ -50,7 +50,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.9.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.11.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
@@ -109,7 +109,6 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 - Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
 - Non-chain components beyond the pinned services (dotli, the host apps) are not gateable yet; the map's shape is where they will go.
-- `secrets.GH_PAT` is optional: every source the canonical manifests pin is public, and so is the engine. Pass a token to lift the unauthenticated API rate limit, or to gate a pin from a private repo.
 
 ## How the gate drives the engine
 

@@ -19,18 +19,17 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import { compact } from "@polkadot-api/substrate-bindings";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { ringRootsWindow } from "../lib/individuality-compat.js";
 import { createPeopleClient, createAssetHubClient, type PeopleApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
-import { deriveKeyPair } from "../lib/attestation.js";
 import { createPgasPayerSigner } from "../lib/claim-signer.js";
 import { getNetworkConfig } from "../config/networks.js";
 import {
   fetchRingMembers,
+  ringExponent,
   encodeMembers,
   waitForInclusion,
   LITE_PEOPLE_IDENTIFIER,
@@ -39,6 +38,7 @@ import { getCachedRingLocation } from "../lib/ring-cascade.js";
 import { customAliasContext } from "../lib/alias-claim.js";
 import { verifiableFor } from "../lib/verifiable-loader.js";
 import { connectPopCounter, revertName } from "../lib/pop-counter-contract.js";
+import { personKey, personRingEntropy } from "../lib/truapi-identity.js";
 
 const CTX_LABEL = "triangle-e2e:pop-counter"; // == PopCounter.CTX
 const COLLECTION_HEX = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
@@ -70,7 +70,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
       const creds = await ensureAttested();
       caller = creds.address;
-      signer = createPgasPayerSigner(deriveKeyPair(creds.entropy));
+      signer = createPgasPayerSigner(personKey(creds));
       console.log(`[pop-by-proof] caller (lite-person, no alias registered): ${caller}`);
     });
 
@@ -104,7 +104,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
      */
     async function buildBumpByProofArgs(): Promise<BumpArgs> {
       const creds = await ensureAttested();
-      const verifiableEntropy = blake2b256(creds.entropy);
+      const verifiableEntropy = personRingEntropy(creds);
       const context = customAliasContext(CTX_LABEL);
 
       const location =
@@ -118,6 +118,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
       const message = Binary.fromHex(expected.value as Hex);
 
       const { one_shot } = verifiableFor();
+      const exponent = await ringExponent(peopleApi, "LitePeople");
       let lastErr: unknown;
       for (let attempt = 1; attempt <= MAX_PROOF_ATTEMPTS; attempt++) {
         const fin = await peopleClient.getFinalizedBlock();
@@ -131,7 +132,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
 
         await waitForAhRingRevision(ringIndex, revision);
 
-        const { proof, alias } = one_shot(verifiableEntropy, encodeMembers(memberKeys), context, message);
+        const { proof, alias } = one_shot(exponent, verifiableEntropy, encodeMembers(memberKeys), context, message);
         // The precompile decodes `T::Proof` (a `BoundedVec<u8, …>`) from the raw
         // `bytes proof`, so it needs SCALE's `compact(len)` prefix.
         const proofScale = mergeUint8([compact.enc(proof.length), proof]);
