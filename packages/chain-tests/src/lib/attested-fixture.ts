@@ -22,13 +22,11 @@ import { generateMnemonic, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers
 import { getNetworkConfig } from "../config/networks.js";
 import { assertPinnedVersion, attest, networkSuffix } from "./truapi-host.js";
 import { personKey } from "./truapi-identity.js";
+import { SEARCH_TIMEOUT_MS } from "./attestation-budget.js";
 import type { AttestedCredentials } from "./credentials.js";
 
 const CREDENTIALS_PATH = resolve(import.meta.dirname, "../../.test-credentials.json");
 
-// The backend's search projection lags the chain; on a freshly spawned fork its
-// indexer starts cold, so the budget matches the engine's own registration e2e.
-const SEARCH_TIMEOUT_MS = 240_000;
 const SEARCH_POLL_INTERVAL_MS = 5_000;
 
 function credentialsFor(mnemonic: string, suffix: string, username: string): AttestedCredentials {
@@ -129,6 +127,8 @@ async function doEnsureAttested(): Promise<AttestedCredentials> {
   const usernameBase = `etest${randomLetters(8)}`;
   const start = Date.now();
   const identity = await attest(mnemonic, usernameBase).catch((err: Error) => {
+    // A missing preset or unreadable CLI output is the suite's fault, not the backend's.
+    if (err.message.includes("[truapi-host-setup]")) throw err;
     // attest's last step waits for the People ring builder, which is not the backend's fault.
     if (err.message.includes("did not appear in any personhood ring")) {
       throw new Error(`Ring inclusion timed out: ${err.message}`);

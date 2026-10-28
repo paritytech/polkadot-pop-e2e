@@ -6,6 +6,7 @@ import { AsyncBulletinClient, type BulletinTypedApi, type SubmitFn } from "@pari
 import { CloudStorageClient, type CloudStorageApi } from "@parity/product-sdk-cloud-storage";
 import { createBulletinClient, createPeopleClient, type BulletinApi } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
+import { ATTESTATION_TIMEOUT_MS } from "../lib/attestation-budget.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
@@ -112,7 +113,7 @@ describe("Storage: Bulletin Chain", () => {
       }
       await waitForBulletinAuthorization(storage, address);
     }
-  }, 300_000);
+  }, ATTESTATION_TIMEOUT_MS + 300_000);
 
   afterAll(() => {
     client?.destroy();
