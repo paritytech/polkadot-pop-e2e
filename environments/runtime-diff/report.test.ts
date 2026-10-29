@@ -230,7 +230,7 @@ describe("report", () => {
     const explained = explainFailures(diff, failures(), TESTS_DIR);
     const md = renderReport(diff, explained, { outcome: "failure", title: "previewnet · target", run: "https://example/run/1" });
     assert.match(md, /lite-alias-bind › Lite sign-up > binds the alias: likely `tx:PeopleLite.set_alias_account` on people \(breaking, named in the error\)/);
-    assert.match(md, /core › reads 'blocks': nothing in this diff reaches it/);
+    assert.match(md, /core › reads 'blocks': no link to this diff found in the code, so the cause is not known/);
     assert.match(md, /\[Open a `runtime-break` issue on paritytech\/product-sdk\]\(https:\/\/github\.com\/paritytech\/product-sdk\/issues\/new\?/);
     assert.match(md, /\| 🔴 \| `tx:PeopleLite.set_alias_account` ★ \| changed at `args.alias` \| Identical → Incompatible \| lite-alias-bind › Lite sign-up > binds the alias \|/);
     assert.match(md, /1 breaking, 1 additive/);
@@ -252,18 +252,18 @@ describe("report", () => {
     const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }] };
     const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
     assert.doesNotMatch(md, /Open a `runtime-break` issue/);
-    assert.match(md, /probably not a runtime break/);
+    assert.match(md, /probably does not come from a metadata change/);
   });
 
   it("does not clear the runtime when no test ran, as when the upgrade was refused", () => {
     const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }] };
-    assert.doesNotMatch(renderReport(calm, [], { outcome: "failure" }), /probably not a runtime break/);
+    assert.doesNotMatch(renderReport(calm, [], { outcome: "failure" }), /probably does not come from a metadata change/);
   });
 
   it("does not clear the runtime when a chain could not be diffed", () => {
     const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }, { ...people, chain: "relay", error: "timeout" }] };
     const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
-    assert.doesNotMatch(md, /probably not a runtime break/);
+    assert.doesNotMatch(md, /probably does not come from a metadata change/);
   });
 
   it("does not count extension changes on a chain without a descriptor", () => {

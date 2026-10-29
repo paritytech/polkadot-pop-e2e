@@ -240,7 +240,7 @@ function failureLines(explained: Explained[]): string[] {
       ? `likely ${own.map(linkText).join("; ")}`
       : shared.length
         ? "only the shared changes above reach it"
-        : "nothing in this diff reaches it, so look outside the runtime";
+        : "no link to this diff found in the code, so the cause is not known";
     lines.push(`- ✗ ${testLabel(t)}: ${verdict}.${error ? ` Error: ${code(error)}` : ""}`);
   }
   return lines;
@@ -264,9 +264,9 @@ export function renderReport(diff: Diff, explained: Explained[], options: Report
       "",
     );
   } else if (explained.length && !diff.sdkError && diffed(diff).length === diff.chains.length) {
-    // Only tests that failed against a full diff clear the runtime; a refused or stopped upgrade says so on its own.
+    // Only tests that failed against a full diff clear the metadata; a refused or stopped upgrade says so on its own.
     lines.push(
-      "The candidate changes nothing the SDK depends on in a breaking way, so this failure is probably not a runtime break.",
+      "The candidate changes nothing the SDK depends on in a breaking way, so this failure probably does not come from a metadata change. A change in runtime behaviour can still cause it.",
       "",
     );
   }
