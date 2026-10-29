@@ -1,0 +1,46 @@
+name: Engine Bump
+
+# Opens a PR moving PPN_REF_DEFAULT to previewnet-engine's latest release, so the
+# gate runs the same engine and backend the networks run.
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point the gate at the latest engine release
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$(gh release view -R paritytech/previewnet-engine --json tagName --jq .tagName)"
+          current="$(sed -nE 's/^  PPN_REF_DEFAULT: (.+)$/\1/p' .github/workflows/release-gate.yml)"
+          echo "current=$current latest=$latest"
+          if [ "$latest" != "$current" ]; then
+            sed -i "s/^  PPN_REF_DEFAULT: .*/  PPN_REF_DEFAULT: $latest/" .github/workflows/release-gate.yml
+            sed -i "s/previewnet-engine \`$current\`/previewnet-engine \`$latest\`/" environments/README.md
+          fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          # PRs opened with the default token trigger no workflows, so the gate would not run.
+          token: ${{ secrets.GH_PAT_REFRESH || github.token }}
+          commit-message: "Run the gate on previewnet-engine ${{ steps.bump.outputs.latest }}"
+          branch: automated/engine-bump
+          delete-branch: true
+          title: "Run the gate on previewnet-engine ${{ steps.bump.outputs.latest }}"
+          body: |
+            The release gate now forks the networks with previewnet-engine ${{ steps.bump.outputs.latest }}: https://github.com/paritytech/previewnet-engine/releases/tag/${{ steps.bump.outputs.latest }}
+          labels: automation
