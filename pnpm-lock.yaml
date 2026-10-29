@@ -115,8 +115,8 @@ importers:
         version: 2.57.11(typescript@7.0.2)
     devDependencies:
       '@parity/truapi':
-        specifier: 0.26.0
-        version: 0.26.0
+        specifier: 0.27.0
+        version: 0.27.0
       solc:
         specifier: ^0.8.38
         version: 0.8.38
@@ -460,6 +460,9 @@ packages:
 
   '@parity/truapi@0.26.0':
     resolution: {integrity: sha512-KhKxfXtvo0wKj6LyRGbAN5coBi6AUbn3dhHO9ZEDv0zvzYU+KbpxzjNeM94op83NoBEwB9W0Uocc1dU0WE4j6Q==}
+
+  '@parity/truapi@0.27.0':
+    resolution: {integrity: sha512-qZYvR6CrmfMOhbDxLIvcWoDOlP488VR8MMsqFMDA0a5GTB8UhpdU3LZRUpyNDE1DvOiD5Ut5bmYrqGJiT1S2CA==}
 
   '@polkadot-api/cli@0.21.10':
     resolution: {integrity: sha512-i2Z1Xv6BJOAhdzRKfTGao4WMo+Zv2UsHiKz9CDcaYL290ueYM6T9k32l043opBDQT1EdcUQH7I7hDiwP125neA==}
@@ -2295,6 +2298,12 @@ snapshots:
   '@parity/result@0.2.0': {}
 
   '@parity/truapi@0.26.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+      neverthrow: 8.2.0
+      scale-ts: 1.6.1
+
+  '@parity/truapi@0.27.0':
     dependencies:
       '@noble/hashes': 2.4.0
       neverthrow: 8.2.0

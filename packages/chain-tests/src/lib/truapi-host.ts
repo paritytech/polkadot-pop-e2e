@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
 import { getNetworkConfig } from "../config/networks.js";
+import { ATTEST_TIMEOUT_MS } from "./attestation-budget.js";
 
 const run = promisify(execFile);
 
@@ -28,7 +29,7 @@ type Preset = keyof typeof PRESETS;
 function preset(): Preset {
   const name = process.env.NETWORK === "local-fork" ? (process.env.FORK_OF ?? "previewnet") : process.env.NETWORK;
   const network = name ?? "paseo-next-v2";
-  if (!(network in PRESETS)) throw new Error(`[truapi-host] no CLI preset for network ${network}`);
+  if (!(network in PRESETS)) throw new Error(`[truapi-host-setup] no CLI preset for network ${network}`);
   return network as Preset;
 }
 
@@ -98,15 +99,14 @@ export interface AttestedIdentity {
 
 /** Attests `mnemonic`'s identity and waits until it is a ring member. */
 export async function attest(mnemonic: string, usernameBase: string): Promise<AttestedIdentity> {
-  // Above attest's own worst case (backend calls, then ~2 min each for the dotNS
-  // name and the ring), so its error arrives before the kill does.
-  const stdout = await truapiHost(mnemonic, ["attest", "--username", usernameBase], 480_000);
+  // Above attest's own worst case, so its error arrives before the kill does.
+  const stdout = await truapiHost(mnemonic, ["attest", "--username", usernameBase], ATTEST_TIMEOUT_MS);
   let identity: Partial<AttestedIdentity> = {};
   try {
     identity = JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
   } catch {}
   if (!identity.address || !identity.liteUsername) {
-    throw new Error(`[truapi-host] attest printed no identity: ${stdout.trim()}`);
+    throw new Error(`[truapi-host-setup] attest printed no identity: ${stdout.trim()}`);
   }
   return identity as AttestedIdentity;
 }
