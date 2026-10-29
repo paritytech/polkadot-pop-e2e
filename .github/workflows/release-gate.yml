@@ -277,9 +277,10 @@ jobs:
         with:
           repository: paritytech/polkadot-pop-e2e
           # Use the PR commit: a fork's branch name does not exist in this repo.
+          # A dispatch here runs the commit of the branch it was started on.
           # External callers use gate_ref or main because their event describes
           # the caller's PR, not a change to the gate.
-          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || inputs.gate_ref || 'main' }}
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && github.repository == 'paritytech/polkadot-pop-e2e') && github.sha || inputs.gate_ref || 'main' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -429,9 +430,10 @@ jobs:
         with:
           repository: paritytech/polkadot-pop-e2e
           # Use the PR commit: a fork's branch name does not exist in this repo.
+          # A dispatch here runs the commit of the branch it was started on.
           # External callers use gate_ref or main because their event describes
           # the caller's PR, not a change to the gate.
-          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || inputs.gate_ref || 'main' }}
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && github.repository == 'paritytech/polkadot-pop-e2e') && github.sha || inputs.gate_ref || 'main' }}
 
       - name: Materialize the candidate manifest
         run: |
