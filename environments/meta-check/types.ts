@@ -9,6 +9,7 @@
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type SdkDescriptor from "./descriptor/index.ts";
+import type Runtime from "./runtime/index.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
@@ -19,17 +20,13 @@ export type Kind = "tx" | "query" | "event" | "constant" | "api" | "view";
 /** An entry on a chain, as the SDK names it: `tx:Game.sign_up`, `query:Score.Participants`. */
 export type Selector = `${Kind}:${string}.${string}`;
 
+/** What identifies a runtime (A or A') in the report: `System.Version`, and the hash of its code. */
 export interface RuntimeVersion {
   specName: string;
   specVersion: number;
   transactionVersion: number;
+  /** blake2-256 of the code, as polkadot-api.json records it for D. */
   codeHash: string;
-}
-
-/** A or A': one runtime's metadata, and its version for the report. */
-export interface Runtime {
-  version: RuntimeVersion;
-  metadata: Metadata;
 }
 
 /**

@@ -6,8 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { metadataFromRuntime } from "../../runtime-diff/metadata.ts";
-import MetadataView from "../metadata-view/index.ts";
+import Runtime from "../runtime/index.ts";
 import SdkDescriptor from "./index.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
@@ -81,7 +80,7 @@ describe("SdkDescriptor", { skip }, () => {
 
   it("is the same metadata as the runtime it was generated from", () => {
     const wasm = fs.readFileSync(path.join(FIXTURES, "runtime-0.3.4", "next_people_paseo_runtime.compact.compressed.wasm"));
-    const runtime = new MetadataView(metadataFromRuntime(wasm));
+    const runtime = new Runtime(wasm);
     const d = load("0.42.0");
     assert.deepEqual(
       d.entries().map((e) => e.selector),
