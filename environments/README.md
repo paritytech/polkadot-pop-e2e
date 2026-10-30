@@ -60,6 +60,28 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
   NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
+## The runtime diff
+
+A failing run names the tests that failed; the runtime diff says which runtime change most likely did it. The code is in [`runtime-diff/`](./runtime-diff). Before the upgrade, while the fork still runs the code it took from live, `capture.ts` reads each chain's `:code` from the fork and the candidate blob, takes both metadata with the wasm executor, and compares them on the surface the SDK depends on:
+
+- **Entries** (`entries.ts`): calls, storage, constants, events, runtime APIs and view functions in the pinned `@parity/product-sdk-descriptors`, for the descriptor chain whose endpoint matches the release map's. Each is graded by polkadot-api's own compatibility check, descriptor against live and then against the candidate. It is **breaking** when the candidate fits the SDK worse than live did and polkadot-api now refuses some or all values (below `BackwardsCompatible`); otherwise **additive**. ★ marks entries the SDK's shipped code reads.
+- **Transaction extensions** (`extensions.ts`), per extension version: added, removed, reordered or retyped extensions, and extensions that moved between versions (`AsPerson, … moved from v0 to v1`). A removed pipeline, or an added, removed or reordered extension, is breaking. A retyped extension is breaking by the same rule as an entry: below `BackwardsCompatible`.
+- **SDK surfaces the candidate no longer has** (`sdk.ts`): selectors such as `query:NetworkSuffix.NetworkSuffix`, found by scanning the installed product-sdk packages, on chains that have that pallet at all.
+
+After the tests, `report.ts` reads the junit results and puts each failing test next to what it touches (`links.ts`). An entry the error names (`Incompatible runtime entry Tx(Game.sign_up)`) ranks first. A breaking entry the test or the SDK it imports reads comes next, and an extension change goes with tests that sign transactions. A link every failing test shares is listed once instead of on each test. When the run failed and something breaks the SDK, the summary links a prefilled `runtime-break` issue on [paritytech/product-sdk](https://github.com/paritytech/product-sdk), which is the issue the Runtime Release Contract asks for. Nothing is filed automatically: a person opens the link. The report goes to the job summary, and `diff.json`, `report.json`, `report.md` and both sides' metadata go to the `release-gate-runtime-diff-<network>-<candidate>` artifact. Neither step can fail the gate.
+
+vitest writes `test-results/junit.xml` again on every run, and the gate runs a manifest's test scripts one after another. [`run-chain-tests.sh`](./run-chain-tests.sh) renames it to `junit-<script>.xml` after each script, so no script's results replace another's.
+
+Chains without SDK descriptors (the relay, web3-storage) get the extension comparison only. `metadata.ts` is copied from Runtime Watch ([paritytech/velocity](https://paritytech.github.io/velocity/runtime-watch/)), which has no package to call.
+
+The code is TypeScript, run with `tsx` and checked with `pnpm typecheck:environments`. Locally, against a running fork or any RPC:
+
+```bash
+pnpm exec tsx environments/runtime-diff/capture.ts environments/networks/previewnet.json upgrades.env \
+  --ports ppn/config/ports.env --out runtime-diff        # or --rpc people=https://…,asset-hub=./live.wasm
+pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json --junit packages/chain-tests/test-results
+```
+
 ## Advisory workflow calls
 
 Callers of `release-gate.yml` can set `with.advisory: true` to keep their workflow passing when planning or a candidate job fails. The default is `false`, so existing callers and release gates retain their blocking behavior. A failed plan skips candidate jobs when no matrix was produced.
