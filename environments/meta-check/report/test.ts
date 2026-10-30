@@ -65,10 +65,10 @@ const report = (overrides: Partial<Report>): Report => ({
   ...overrides,
 });
 
-const run = (...reports: Report[]): Run => ({ reports, unplaced: [] });
+const run = (...reports: Report[]): Run => ({ reports, unplaced: [], failed: [] });
 
 describe("renderMarkdown", () => {
-  it("leads with the number of breaking changes and counts every verdict per chain", () => {
+  it("leads with the number of breaking changes and counts every verdict per chain", async () => {
     const markdown = renderMarkdown(
       run(
         report({
@@ -91,13 +91,13 @@ describe("renderMarkdown", () => {
     assert.ok(!lines.some((line) => line.startsWith("#### Asset Hub")));
   });
 
-  it("says so when nothing breaks", () => {
+  it("says so when nothing breaks", async () => {
     const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "ok", "Identical", "Identical")] })));
     assert.ok(markdown.startsWith("### 🟢 Metadata check: no breaking change for the product-sdk\n"));
     assert.ok(!markdown.includes("####"));
   });
 
-  it("shows where an entry changed, where it is read, and its markers", () => {
+  it("shows where an entry changed, where it is read, and its markers", async () => {
     const markdown = renderMarkdown(
       run(
         report({
@@ -116,13 +116,13 @@ describe("renderMarkdown", () => {
     assert.ok(markdown.includes("| `query:Game.Seats` ? | Identical → **Incompatible** | `app/src/a.ts:1` |"));
   });
 
-  it("caps the places an entry is read at", () => {
+  it("caps the places an entry is read at", async () => {
     const uses = Array.from({ length: 9 }, (_, i) => use(`f${i}.ts`, i));
     const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "breaking", "Identical", "Missing", { uses })] })));
     assert.ok(markdown.includes("`f5.ts:5`, +3 more |"));
   });
 
-  it("collapses the pre-existing findings", () => {
+  it("collapses the pre-existing findings", async () => {
     const markdown = renderMarkdown(
       run(
         report({
@@ -137,7 +137,7 @@ describe("renderMarkdown", () => {
     assert.ok(markdown.includes("| transaction extensions v0 | Incompatible → Incompatible | — |"));
   });
 
-  it("summarises a breaking pipeline against what the SDK signs with", () => {
+  it("summarises a breaking pipeline against what the SDK signs with", async () => {
     const markdown = renderMarkdown(
       run(
         report({
@@ -159,17 +159,32 @@ describe("renderMarkdown", () => {
     assert.ok(markdown.includes("| 3 | C | C | **D** |"));
   });
 
-  it("says when the candidate has no such pipeline", () => {
+  it("says when the candidate has no such pipeline", async () => {
     const markdown = renderMarkdown(
       run(report({ pipelines: [pipeline({ candidate: null, after: "Missing", verdict: "breaking" })] })),
     );
     assert.ok(markdown.includes("The candidate has no v0."));
   });
 
-  it("lists the reads on chains the run does not check", () => {
+  it("says when no runtime was upgraded", () => {
+    assert.equal(renderMarkdown({ reports: [], unplaced: [], failed: [] }), "### ⚪ Metadata check: no runtime upgraded in this run");
+  });
+
+  it("names the chains it could not check, under the headline", () => {
+    const markdown = renderMarkdown({ reports: [report({})], unplaced: [], failed: [{ chain: "people", error: "no live runtime" }] });
+    assert.deepEqual(markdown.split("\n").slice(0, 4), [
+      "### 🟢 Metadata check: no breaking change for the product-sdk",
+      "",
+      "> ⚠️ `people` was not checked: no live runtime",
+      "",
+    ]);
+  });
+
+  it("lists the reads on chains the run does not check", async () => {
     const markdown = renderMarkdown({
       reports: [report({})],
       unplaced: [use("cloud-storage/src/verify.ts", 100, "query:TransactionStorage.Transactions")],
+      failed: [],
     });
     assert.ok(markdown.includes("<details><summary>Reads on a chain this run does not check (1)</summary>"));
     assert.ok(markdown.includes("- `query:TransactionStorage.Transactions` at `cloud-storage/src/verify.ts:100`"));
@@ -177,7 +192,7 @@ describe("renderMarkdown", () => {
 });
 
 describe("toJson", () => {
-  it("writes a stable shape, without the internal objects", () => {
+  it("writes a stable shape, without the internal objects", async () => {
     const json = toJson({
       reports: [
         report({
@@ -186,6 +201,7 @@ describe("toJson", () => {
         }),
       ],
       unplaced: [],
+      failed: [],
     });
     assert.equal(json.schemaVersion, 1);
     assert.deepEqual(json.chains[0]?.entries, [
@@ -213,9 +229,9 @@ const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
 
 describe("renderMarkdown on demo 1", { skip }, () => {
-  it("renders the current SDK breaking on the nightly", () => {
+  it("renders the current SDK breaking on the nightly", async () => {
     const packages = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages");
-    const descriptor = SdkDescriptor.load(path.join(packages, "descriptors", "chains", "paseo-individuality"));
+    const descriptor = await SdkDescriptor.load(path.join(packages, "descriptors", "chains", "paseo-individuality"));
     const set = buildRequirements({ individuality: descriptor }, SdkUsage.scan(packages));
     const wasm = (release: string) =>
       new Runtime(fs.readFileSync(path.join(FIXTURES, `runtime-${release}`, "next_people_paseo_runtime.compact.compressed.wasm")));
@@ -224,6 +240,7 @@ describe("renderMarkdown on demo 1", { skip }, () => {
     const markdown = renderMarkdown({
       reports: [check(requirements, wasm("0.3.4"), wasm("nightly-3004007"))],
       unplaced: [],
+      failed: [],
     });
     assert.equal(
       markdown,

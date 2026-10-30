@@ -14,7 +14,7 @@ describe("Runtime", { skip }, () => {
   const load = (release: string, chain: "people" | "asset_hub") =>
     new Runtime(fs.readFileSync(path.join(FIXTURES, `runtime-${release}`, `next_${chain}_paseo_runtime.compact.compressed.wasm`)));
 
-  it("reads the version and the code hash", () => {
+  it("reads the version and the code hash", async () => {
     assert.deepEqual(load("0.3.4", "people").version, {
       specName: "next-people-paseo",
       specVersion: 3004000,
@@ -27,14 +27,14 @@ describe("Runtime", { skip }, () => {
     );
   });
 
-  it("has the code hash D records for the runtime it was generated from", () => {
-    const descriptor = SdkDescriptor.load(
+  it("has the code hash D records for the runtime it was generated from", async () => {
+    const descriptor = await SdkDescriptor.load(
       path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages", "descriptors", "chains", "paseo-asset-hub"),
     );
     assert.equal(load("0.3.4", "asset_hub").version.codeHash, descriptor.codeHash);
   });
 
-  it("lists entries and pipelines like any metadata: the person extensions moved to a new v1 in 0.3.4", () => {
+  it("lists entries and pipelines like any metadata: the person extensions moved to a new v1 in 0.3.4", async () => {
     const live = load("0.3.1", "people");
     const candidate = load("0.3.4", "people");
     assert.ok(candidate.entry("tx:Game.report"));
@@ -44,7 +44,7 @@ describe("Runtime", { skip }, () => {
     assert.ok(candidate.pipelines[1]?.includes("AsPerson"));
   });
 
-  it("refuses bytes that are not a runtime", () => {
+  it("refuses bytes that are not a runtime", async () => {
     assert.throws(() => new Runtime(new Uint8Array([1, 2, 3])));
   });
 });

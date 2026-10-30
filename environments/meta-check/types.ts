@@ -175,4 +175,6 @@ export interface Report {
 export interface Run {
   reports: Report[];
   unplaced: Use[];
+  /** Upgraded chains that could not be checked, and why. */
+  failed: { chain: string; error: string }[];
 }

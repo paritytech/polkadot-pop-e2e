@@ -18,25 +18,25 @@ describe("SdkDescriptor", { skip }, () => {
   // Loaded lazily: describe bodies run even when the suite is skipped.
   const load = (sdk: string) => SdkDescriptor.load(chainDir(sdk, "paseo-individuality"));
 
-  it("reads the chain and the code hash the descriptors were generated from", () => {
-    const old = load("0.28.0");
+  it("reads the chain and the code hash the descriptors were generated from", async () => {
+    const old = await load("0.28.0");
     assert.equal(old.chain, "paseo-individuality");
     assert.equal(old.codeHash, "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696");
-    assert.equal(load("0.42.0").codeHash, "0x69e7126f098bdf708302e52b892fd76c5d2477627bce47cbfcee7fcd5db17871");
+    assert.equal((await load("0.42.0")).codeHash, "0x69e7126f098bdf708302e52b892fd76c5d2477627bce47cbfcee7fcd5db17871");
   });
 
-  it("lists every entry of every kind", () => {
+  it("lists every entry of every kind", async () => {
     const count = (d: SdkDescriptor) => {
       const byKind: Record<string, number> = {};
       for (const e of d.entries()) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
       return byKind;
     };
-    assert.deepEqual(count(load("0.28.0")), { query: 287, tx: 352, event: 401, constant: 170, view: 53, api: 47 });
-    assert.deepEqual(count(load("0.42.0")), { query: 291, tx: 356, event: 405, constant: 171, view: 57, api: 51 });
+    assert.deepEqual(count(await load("0.28.0")), { query: 287, tx: 352, event: 401, constant: 170, view: 53, api: 47 });
+    assert.deepEqual(count(await load("0.42.0")), { query: 291, tx: 356, event: 405, constant: 171, view: 57, api: 51 });
   });
 
-  it("finds an entry by its selector", () => {
-    const d = load("0.42.0");
+  it("finds an entry by its selector", async () => {
+    const d = await load("0.42.0");
     const account = d.entry("query:System.Account");
     assert.ok(account);
     assert.deepEqual(
@@ -50,16 +50,16 @@ describe("SdkDescriptor", { skip }, () => {
     assert.equal(d.entry("tx:NoSuchPallet.no_such_call"), undefined);
   });
 
-  it("resolves the types behind an entry's shape", () => {
-    const d = load("0.42.0");
+  it("resolves the types behind an entry's shape", async () => {
+    const d = await load("0.42.0");
     const { values } = d.entry("query:System.Account")?.shape ?? assert.fail("no System.Account");
     assert.equal(values.type, "lookup");
     if (values.type === "lookup") assert.equal(d.node(values.value).type, "struct"); // AccountInfo
   });
 
-  it("tells the two SDK versions apart", () => {
-    const old = load("0.28.0");
-    const current = load("0.42.0");
+  it("tells the two SDK versions apart", async () => {
+    const old = await load("0.28.0");
+    const current = await load("0.42.0");
     // Gone from the runtime since 0.28.0's descriptors were generated.
     assert.ok(old.entry("constant:NftCredits.MaxCreditsPerBlock"));
     assert.equal(current.entry("constant:NftCredits.MaxCreditsPerBlock"), undefined);
@@ -68,9 +68,9 @@ describe("SdkDescriptor", { skip }, () => {
     assert.ok(current.entry("tx:Score.force_set_attendance"));
   });
 
-  it("reads the extension pipelines: the person extensions moved from v0 to a new v1", () => {
-    const old = load("0.28.0");
-    const current = load("0.42.0");
+  it("reads the extension pipelines: the person extensions moved from v0 to a new v1", async () => {
+    const old = await load("0.28.0");
+    const current = await load("0.42.0");
     assert.deepEqual(Object.keys(old.pipelines), ["0"]);
     assert.ok(old.pipelines[0]?.includes("AsPerson"));
     assert.deepEqual(Object.keys(current.pipelines), ["0", "1"]);
@@ -78,10 +78,10 @@ describe("SdkDescriptor", { skip }, () => {
     assert.ok(current.pipelines[1]?.includes("AsPerson"));
   });
 
-  it("is the same metadata as the runtime it was generated from", () => {
+  it("is the same metadata as the runtime it was generated from", async () => {
     const wasm = fs.readFileSync(path.join(FIXTURES, "runtime-0.3.4", "next_people_paseo_runtime.compact.compressed.wasm"));
     const runtime = new Runtime(wasm);
-    const d = load("0.42.0");
+    const d = await load("0.42.0");
     assert.deepEqual(
       d.entries().map((e) => e.selector),
       runtime.entries().map((e) => e.selector),
@@ -99,11 +99,11 @@ describe("SdkDescriptor.load", () => {
   };
   const entry = { metadata: "x.scale", codeHash: `0x${"ab".repeat(32)}` };
 
-  it("refuses a config with more than one entry", () => {
-    assert.throws(() => SdkDescriptor.load(chainWith({ entries: { a: entry, b: entry } })), /polkadot-api\.json/);
+  it("refuses a config with more than one entry", async () => {
+    await assert.rejects(SdkDescriptor.load(chainWith({ entries: { a: entry, b: entry } })), /polkadot-api\.json/);
   });
 
-  it("refuses an entry without a code hash", () => {
-    assert.throws(() => SdkDescriptor.load(chainWith({ entries: { a: { metadata: "x.scale" } } })), /codeHash/);
+  it("refuses an entry without a code hash", async () => {
+    await assert.rejects(SdkDescriptor.load(chainWith({ entries: { a: { metadata: "x.scale" } } })), /codeHash/);
   });
 });

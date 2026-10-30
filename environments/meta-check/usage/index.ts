@@ -32,6 +32,8 @@ const PackageJson = z.object({
 
 interface Package {
   name: string;
+  /** The folder holding its package.json. */
+  dir: string;
   dependsOnDescriptors: boolean;
 }
 
@@ -52,6 +54,7 @@ function readPackage(manifest: string): Package | null {
   if (name === undefined) return null;
   return {
     name,
+    dir: path.dirname(manifest),
     dependsOnDescriptors: [dependencies, devDependencies, peerDependencies].some((deps) => deps?.[DESCRIPTORS] !== undefined),
   };
 }
@@ -80,39 +83,49 @@ export default class SdkUsage {
   }
 
   /**
-   * Every scanned file under `dir`, except the descriptors package's own. A package
-   * that depends on the descriptors but reads nothing (and is not in READS_NOTHING)
-   * means the scan missed something, such as a build change or a new access pattern,
-   * so it throws instead of reporting no usage.
+   * Every scanned file under each of `dirs`, except the descriptors package's own. A
+   * use's `file` is relative to its folder; when there are several, as for the packages
+   * npm installs, it is the package name and the path in the package instead
+   * (`@parity/product-sdk-tx/dist/index.js`).
+   *
+   * A package that depends on the descriptors but reads nothing (and is not in
+   * READS_NOTHING) means the scan missed something, such as a build change or a new
+   * access pattern, so it throws instead of reporting no usage.
    */
-  static scan(dir: string): SdkUsage {
-    const root = path.resolve(dir);
+  static scan(...dirs: string[]): SdkUsage {
     const packageOf = packageFinder();
-    const files = fs
-      .readdirSync(root, { recursive: true, encoding: "utf8" })
-      .filter(isScanned)
-      .sort()
-      .map((file) => path.join(root, file));
-
     const uses: Use[] = [];
     const readsPerPackage = new Map<string, { pkg: Package; count: number }>();
-    for (const file of files) {
-      const pkg = packageOf(path.dirname(file));
-      if (!pkg) throw new Error(`${file}: no package.json above it`);
-      if (pkg.name === DESCRIPTORS) continue;
+    for (const dir of dirs) {
+      const root = path.resolve(dir);
+      const files = fs
+        .readdirSync(root, { recursive: true, encoding: "utf8" })
+        .filter(isScanned)
+        .sort()
+        .map((file) => path.join(root, file));
 
-      const found = readsIn(file, fs.readFileSync(file, "utf8")).map(
-        (read): Use => ({ ...read, package: pkg.name, file: path.relative(root, file) }),
-      );
-      const tally = readsPerPackage.get(pkg.name) ?? { pkg, count: 0 };
-      tally.count += found.length;
-      readsPerPackage.set(pkg.name, tally);
-      uses.push(...found);
+      for (const file of files) {
+        const pkg = packageOf(path.dirname(file));
+        if (!pkg) throw new Error(`${file}: no package.json above it`);
+        if (pkg.name === DESCRIPTORS) continue;
+
+        const found = readsIn(file, fs.readFileSync(file, "utf8")).map(
+          (read): Use => ({
+            ...read,
+            package: pkg.name,
+            file: dirs.length > 1 ? path.join(pkg.name, path.relative(pkg.dir, file)) : path.relative(root, file),
+          }),
+        );
+        const tally = readsPerPackage.get(pkg.name) ?? { pkg, count: 0 };
+        tally.count += found.length;
+        readsPerPackage.set(pkg.name, tally);
+        uses.push(...found);
+      }
     }
 
     for (const { pkg, count } of readsPerPackage.values()) {
       if (pkg.dependsOnDescriptors && !READS_NOTHING.has(pkg.name) && count === 0) {
-        throw new Error(`${pkg.name} depends on ${DESCRIPTORS} but no chain read was found in its files under ${root}`);
+        throw new Error(`${pkg.name} depends on ${DESCRIPTORS} but no chain read was found in its files`);
       }
     }
     return new SdkUsage(uses);

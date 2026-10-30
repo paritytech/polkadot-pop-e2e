@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { capture, forkRpc, main, readChainFile } from "./capture.ts";
+import { main as reportMain, report } from "./report.ts";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "capture-"));
 
@@ -145,5 +146,87 @@ describe("capture's command line", () => {
     fs.writeFileSync(path.join(out, "upgrades.env"), "");
     assert.equal(await quietly(["candidate", "--out", out, "--plan", path.join(out, "upgrades.env")]), 0);
     assert.equal(fs.readFileSync(path.join(out, "candidate.env"), "utf8"), "");
+  });
+});
+
+describe("report", { skip }, () => {
+  const PACKAGES = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages");
+  const WASM = { people: "next_people_paseo_runtime.compact.compressed.wasm", "asset-hub": "next_asset_hub_paseo_runtime.compact.compressed.wasm" };
+
+  /** An --in folder as capture writes it, from fixture releases. */
+  const captured = (live: Record<string, string>, candidate: Record<string, string>): string => {
+    const dir = tmp();
+    const index = (side: string, runtimes: Record<string, string>) =>
+      fs.writeFileSync(
+        path.join(dir, `${side}.env`),
+        Object.entries(runtimes)
+          .map(([chain, release]) => `${chain}=${path.join(FIXTURES, `runtime-${release}`, WASM[chain as keyof typeof WASM] ?? `${chain}.wasm`)}\n`)
+          .join(""),
+      );
+    index("live", live);
+    index("candidate", candidate);
+    return dir;
+  };
+
+  it("checks every upgraded chain: demo 1, the nightly breaking the current SDK", async () => {
+    const dir = captured({ people: "0.3.4", "asset-hub": "0.3.4" }, { people: "nightly-3004007", "asset-hub": "nightly-3004007" });
+    const { run, warnings } = await report({ in: dir, sdk: PACKAGES, network: "paseo-next-v2" });
+    assert.deepEqual(warnings, []);
+    assert.deepEqual(run.failed, []);
+    assert.deepEqual(
+      run.reports.map((r) => `${r.chain} ${r.descriptor.chain} ${r.entries.filter((e) => e.verdict === "breaking").length}`),
+      ["individuality paseo-individuality 1", "assetHub paseo-asset-hub 0"],
+    );
+  });
+
+  it("takes a descriptor by name instead of by endpoint", async () => {
+    const dir = captured({ people: "0.3.4" }, { people: "nightly-3004007" });
+    const { run } = await report({
+      in: dir,
+      sdk: PACKAGES,
+      network: "previewnet",
+      descriptors: new Map([["people", "paseo-individuality"]]),
+    });
+    assert.equal(run.reports[0]?.descriptor.chain, "paseo-individuality");
+  });
+
+  it("records a chain it cannot check, and skips one the SDK does not read", async () => {
+    const dir = captured({}, { people: "nightly-3004007", relay: "0.3.4" });
+    const { run, warnings } = await report({ in: dir, sdk: PACKAGES, network: "paseo-next-v2" });
+    assert.deepEqual(run.reports, []);
+    assert.deepEqual(run.failed.map((f) => f.chain), ["people"]);
+    assert.match(run.failed[0]?.error ?? "", /no live runtime/);
+    assert.deepEqual(warnings, ["relay: the SDK does not read this chain; not checked"]);
+  });
+
+  it("names a network without the chain's endpoint", async () => {
+    const dir = captured({ people: "0.3.4" }, { people: "nightly-3004007" });
+    const { run } = await report({ in: dir, sdk: PACKAGES, network: "nowhere" });
+    assert.match(run.failed[0]?.error ?? "", /no endpoint for people on nowhere; pick one with --descriptor/);
+  });
+
+  it("writes report.md and report.json, exits 0 on a breaking change and 1 on an unchecked chain", async () => {
+    const quietly = async (args: string[]) => {
+      const [log, error] = [console.log, console.error];
+      console.log = console.error = () => {};
+      try {
+        return await reportMain(args);
+      } finally {
+        [console.log, console.error] = [log, error];
+      }
+    };
+    const breaking = captured({ people: "0.3.4" }, { people: "nightly-3004007" });
+    assert.equal(await quietly(["--in", breaking, "--sdk", PACKAGES, "--network", "paseo-next-v2"]), 0);
+    assert.match(fs.readFileSync(path.join(breaking, "report.md"), "utf8"), /^### 🔴 Metadata check: 1 breaking change/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(breaking, "report.json"), "utf8")).schemaVersion, 1);
+
+    const unchecked = captured({}, { people: "nightly-3004007" });
+    assert.equal(await quietly(["--in", unchecked, "--sdk", PACKAGES, "--network", "paseo-next-v2"]), 1);
+    assert.equal(await quietly(["--in", unchecked]), 2);
+  });
+
+  it("says no runtime was upgraded when candidate.env is empty", async () => {
+    const { run } = await report({ in: captured({}, {}), sdk: PACKAGES, network: "paseo-next-v2" });
+    assert.deepEqual(run, { reports: [], unplaced: [], failed: [] });
   });
 });

@@ -139,15 +139,20 @@ function unplaced(uses: Use[]): string[] {
 }
 
 export default function renderMarkdown(run: Run): string {
+  if (run.reports.length === 0 && run.failed.length === 0) {
+    return "### ⚪ Metadata check: no runtime upgraded in this run";
+  }
   const breaking = run.reports.reduce((sum, report) => sum + count(report, "breaking"), 0);
   const headline =
     breaking > 0
       ? `### 🔴 Metadata check: ${breaking} breaking change${breaking === 1 ? "" : "s"} for the product-sdk`
       : "### 🟢 Metadata check: no breaking change for the product-sdk";
+  const failed = run.failed.map(({ chain, error }) => `> ⚠️ ${code(chain)} was not checked: ${error}`);
   const descriptors = run.reports.map((r) => `${code(r.descriptor.chain)} from ${code(shortHash(r.descriptor.codeHash))}`);
   return [
     headline,
     "",
+    ...(failed.length > 0 ? [...failed, ""] : []),
     "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🟡 Pre-existing | 🟢 OK |",
     "|---|---|---|---|---|",
     ...run.reports.map(

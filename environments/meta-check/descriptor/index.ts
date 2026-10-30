@@ -1,11 +1,13 @@
-// D: the metadata a product-sdk's descriptors were generated from, read from the
-// descriptors package's source, `product-sdk/packages/descriptors/chains/<chain>`.
+// D: the metadata a product-sdk's descriptors were generated from, read from one chain
+// of the descriptors package, `descriptors/chains/<chain>`.
 //
 // polkadot-api.json names the `.scale` file the descriptors were generated from and
-// the code hash of the runtime it came from.
+// the code hash of the runtime it came from. The source repo has that file; the npm
+// package does not, and carries the same bytes in its generated code instead.
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import MetadataView from "../metadata-view/index.ts";
 
@@ -25,6 +27,19 @@ const PapiConfig = z.object({
     .pipe(z.tuple([PapiEntry])),
 });
 
+const hasGetMetadata = (value: unknown): value is { getMetadata: () => Promise<Uint8Array> } =>
+  typeof value === "object" && value !== null && "getMetadata" in value && typeof value.getMetadata === "function";
+
+/** The metadata the npm package's generated descriptors carry, from their `getMetadata()`. */
+async function generatedMetadata(chainDir: string): Promise<Uint8Array> {
+  const file = path.join(chainDir, "generated", "dist", "index.js");
+  if (!fs.existsSync(file)) throw new Error(`${chainDir}: neither the .scale file nor ${file}`);
+  const module: Record<string, unknown> = await import(pathToFileURL(file).href);
+  const descriptor = Object.values(module).find(hasGetMetadata);
+  if (!descriptor) throw new Error(`${file}: no descriptor with getMetadata()`);
+  return descriptor.getMetadata();
+}
+
 export default class SdkDescriptor extends MetadataView {
   readonly chain: string;
   readonly codeHash: string;
@@ -35,14 +50,15 @@ export default class SdkDescriptor extends MetadataView {
     this.codeHash = codeHash;
   }
 
-  /** `chainDir` is `.../descriptors/chains/<chain>`. */
-  static load(chainDir: string): SdkDescriptor {
+  /** `chainDir` is `.../descriptors/chains/<chain>`, in the source repo or as npm installs it. */
+  static async load(chainDir: string): Promise<SdkDescriptor> {
     const configFile = path.join(chainDir, CONFIG);
     const parsed = PapiConfig.safeParse(JSON.parse(fs.readFileSync(configFile, "utf8")));
     if (!parsed.success) throw new Error(`${configFile}:\n${z.prettifyError(parsed.error)}`);
     const [{ metadata, codeHash }] = parsed.data.entries;
     // papi runs from the chain's directory, so the metadata path is relative to it.
-    const bytes = fs.readFileSync(path.resolve(chainDir, metadata));
+    const scale = path.resolve(chainDir, metadata);
+    const bytes = fs.existsSync(scale) ? fs.readFileSync(scale) : await generatedMetadata(chainDir);
     return new SdkDescriptor(path.basename(chainDir), codeHash, bytes);
   }
 }

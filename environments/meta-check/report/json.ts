@@ -45,5 +45,6 @@ export default function toJson(run: Run) {
       })),
     })),
     unplaced: run.unplaced.map(use),
+    failed: run.failed,
   };
 }
