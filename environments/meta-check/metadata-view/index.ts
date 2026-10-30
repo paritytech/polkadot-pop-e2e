@@ -13,17 +13,8 @@ import {
   type TypedefNode,
 } from "@polkadot-api/metadata-compatibility";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
-import type { Direction, Entry, Kind, Metadata, Pipelines, Selector, Shape } from "../types.ts";
-
-/** Who encodes and who decodes, per kind: see `Direction`. */
-const DIRECTION: Record<Kind, Direction> = {
-  tx: "encode",
-  event: "decode",
-  constant: "decode",
-  query: "both",
-  api: "both",
-  view: "both",
-};
+import { DIRECTION } from "../selector.ts";
+import type { Entry, Kind, Metadata, Pipelines, Selector, Shape } from "../types.ts";
 
 export default class MetadataView {
   readonly metadata: Metadata;
@@ -31,12 +22,16 @@ export default class MetadataView {
   readonly #lookup: ReturnType<typeof getLookupFn>;
   readonly #entries = new Map<Selector, Entry>();
   readonly #nodes = new Map<number, TypedefNode>();
+  readonly #pallets: ReadonlySet<string>;
+  readonly #apis: ReadonlySet<string>;
 
   /** `bytes`: SCALE-encoded metadata, as a `.scale` file or `Metadata_metadata_at_version` holds it. */
   constructor(bytes: Uint8Array) {
     const metadata = unifyMetadata(decAnyMetadata(bytes));
     this.metadata = metadata;
     this.#lookup = getLookupFn(metadata);
+    this.#pallets = new Set(metadata.pallets.map((pallet) => pallet.name));
+    this.#apis = new Set(metadata.apis.map((api) => api.name));
     this.pipelines = Object.fromEntries(
       Object.entries(metadata.extrinsic.extensionsByVersion).map(([version, list]) => [
         Number(version),
@@ -52,6 +47,11 @@ export default class MetadataView {
 
   entry(selector: Selector): Entry | undefined {
     return this.#entries.get(selector);
+  }
+
+  /** Whether the metadata has the group at all: the runtime API for `api`, the pallet for any other kind. */
+  hasGroup(kind: Kind, group: string): boolean {
+    return (kind === "api" ? this.#apis : this.#pallets).has(group);
   }
 
   /** The type behind a type id in an entry's shape. Resolved on first use. */

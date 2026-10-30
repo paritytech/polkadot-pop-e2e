@@ -99,6 +99,28 @@ describe("readsIn", () => {
     );
   });
 
+  it("marks a read optional when the pallet or the entry is reached with ?.", () => {
+    const optional = (source: string) => readsIn("snippet.ts", source).map((r) => `${r.selector} ${r.optional}`);
+    assert.deepEqual(
+      optional(`
+        chain.individuality.query.Game.Players;
+        chain.individuality.query?.NetworkSuffix?.NetworkSuffix;
+        chain.individuality.query.Score?.Participants;
+        chain?.individuality?.query.Game.Rounds;
+        const stored = chain.individuality.query?.NetworkSuffix;
+        stored.NetworkSuffix.getValue();
+      `),
+      [
+        "query:Game.Players false",
+        "query:NetworkSuffix.NetworkSuffix true",
+        "query:Score.Participants true",
+        // `?.` before the API word guards the client, not the entry.
+        "query:Game.Rounds false",
+        "query:NetworkSuffix.NetworkSuffix true",
+      ],
+    );
+  });
+
   it("reads through casts and parentheses", () => {
     assert.deepEqual(reads(`(chain as GameChain).individuality.query.Game.Players;`), [
       "query:Game.Players individuality 1",
@@ -149,7 +171,7 @@ describe("SdkUsage.scan", () => {
       "descriptors/src/x.ts": "api.query.System.Account;",
     });
     assert.deepEqual(SdkUsage.scan(dir).uses, [
-      { selector: "query:Game.Players", chain: "individuality", line: 2, package: "@x/game", file: "game/src/read.ts" },
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 2, package: "@x/game", file: "game/src/read.ts" },
     ]);
   });
 
@@ -167,7 +189,7 @@ describe("SdkUsage.scan", () => {
       "game/src/read.ts": "chain.individuality.query.Game.Players;",
     });
     assert.deepEqual(SdkUsage.scan(path.join(dir, "game", "src")).uses, [
-      { selector: "query:Game.Players", chain: "individuality", line: 1, package: "@x/game", file: "read.ts" },
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, package: "@x/game", file: "read.ts" },
     ]);
   });
 

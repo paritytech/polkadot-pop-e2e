@@ -9,7 +9,6 @@
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type SdkDescriptor from "./descriptor/index.ts";
-import type SdkUsage from "./usage/index.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
@@ -66,6 +65,8 @@ export interface Use {
   selector: Selector;
   /** Null when the code reads through a local API and does not show which chain. */
   chain: ChainKey | null;
+  /** Read with `?.` on the pallet or the entry: the code copes with the entry being absent. */
+  optional: boolean;
   /** The package name, e.g. `@parity/product-sdk-individuality`. */
   package: string;
   /** Relative to the scanned packages directory. */
@@ -82,23 +83,39 @@ export interface Use {
  */
 export type Direction = "encode" | "decode" | "both";
 
-/** One entry the SDK needs from the runtime. */
+/** One entry the SDK needs from one chain's runtime. */
 export interface Requirement {
   selector: Selector;
-  /** The SDK packages that read it. */
-  usedBy: string[];
-  /** The type D expects; null when D does not have the entry, so only its name is checked. */
-  expected: Shape | null;
   direction: Direction;
+  /** D's entry: the type the SDK expects. Null when D does not have it, so only its name is checked. */
+  expected: Entry | null;
+  /** Every place in the SDK that reads it. */
+  uses: Use[];
+  /**
+   * `chain`: the code named the chain (`chain.individuality...`). `pallet`: it did not, and
+   * the requirement is on this chain because D has the pallet (or runtime API).
+   */
+  placedBy: "chain" | "pallet";
+  /** Every use reads it with `?.`: the SDK copes with the entry being absent. */
+  optional: boolean;
 }
 
-/** R: everything the SDK needs from one chain. */
+/** R for one chain: Rules 1 and 2 from `entries`, Rule 3 from the descriptor's pipelines. */
 export interface Requirements {
-  chain: string;
-  /** Rules 1 (names) and 2 (types). */
+  chain: ChainKey;
+  /** D for this chain; grading resolves `expected`'s type ids through it. */
+  descriptor: SdkDescriptor;
+  /** Sorted by selector. */
   entries: Requirement[];
-  /** Rule 3 (transaction extensions), from D. */
-  pipelines: Pipelines;
+  /** The SDK builds transactions here (a `tx:` requirement), so the extension pipelines matter. */
+  signs: boolean;
+}
+
+/** R: the requirements for each chain the caller gave a descriptor for. */
+export interface RequirementSet {
+  chains: Requirements[];
+  /** Reads no chain took: their chain has no descriptor, or no descriptor has their pallet. */
+  unplaced: Use[];
 }
 
 // ── Result ───────────────────────────────────────────────
@@ -145,8 +162,6 @@ export interface Report {
 }
 
 // ── Functions ────────────────────────────────────────────
-
-export type BuildRequirements = (descriptor: SdkDescriptor, usage: SdkUsage) => Requirements;
 
 /** Without a live runtime, pass D's own metadata as `live`: then nothing is pre-existing. */
 export type Check = (requirements: Requirements, live: Runtime, candidate: Runtime) => Report;
