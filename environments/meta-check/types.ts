@@ -9,6 +9,7 @@
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type SdkDescriptor from "./descriptor/index.ts";
+import type SdkUsage from "./usage/index.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
@@ -53,8 +54,24 @@ export interface Entry {
 /** Extension version -> the extension identifiers, in the order the signer builds them. */
 export type Pipelines = Record<number, readonly string[]>;
 
-/** U: the names the SDK's code reads, each with the packages that read it. */
-export type Usage = Map<Selector, string[]>;
+/**
+ * The chain-client key an SDK read goes through, as in `chain.individuality.query...`.
+ * Which descriptor it means (paseo-individuality, previewnet-individuality) depends on
+ * the network, so it is mapped when the requirements are built.
+ */
+export type ChainKey = "individuality" | "assetHub" | "bulletin";
+
+/** One place in the SDK's code that reads a chain entry. U is all of them. */
+export interface Use {
+  selector: Selector;
+  /** Null when the code reads through a local API and does not show which chain. */
+  chain: ChainKey | null;
+  /** The package name, e.g. `@parity/product-sdk-individuality`. */
+  package: string;
+  /** Relative to the scanned packages directory. */
+  file: string;
+  line: number;
+}
 
 // ── Requirements (R) ─────────────────────────────────────
 
@@ -129,7 +146,7 @@ export interface Report {
 
 // ── Functions ────────────────────────────────────────────
 
-export type BuildRequirements = (descriptor: SdkDescriptor, usage: Usage) => Requirements;
+export type BuildRequirements = (descriptor: SdkDescriptor, usage: SdkUsage) => Requirements;
 
 /** Without a live runtime, pass D's own metadata as `live`: then nothing is pre-existing. */
 export type Check = (requirements: Requirements, live: Runtime, candidate: Runtime) => Report;
