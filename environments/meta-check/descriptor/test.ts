@@ -19,9 +19,9 @@ describe("SdkDescriptor", { skip }, () => {
   const load = (sdk: string) => SdkDescriptor.load(chainDir(sdk, "paseo-individuality"));
 
   it("reads the chain and the code hash the descriptors were generated from", () => {
-    const old = load("0.24.0");
+    const old = load("0.28.0");
     assert.equal(old.chain, "paseo-individuality");
-    assert.equal(old.codeHash, "0x3973b0f94d593b0018753766422f4898987115b5261ba368ccda84619a8bf582");
+    assert.equal(old.codeHash, "0x97d5e78153b239f6f4ac762f4d4e1d3c56c1c2ae19484ecfa395f0d817ded696");
     assert.equal(load("0.42.0").codeHash, "0x69e7126f098bdf708302e52b892fd76c5d2477627bce47cbfcee7fcd5db17871");
   });
 
@@ -31,7 +31,7 @@ describe("SdkDescriptor", { skip }, () => {
       for (const e of d.entries()) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
       return byKind;
     };
-    assert.deepEqual(count(load("0.24.0")), { query: 272, tx: 295, event: 365, constant: 160, view: 31, api: 45 });
+    assert.deepEqual(count(load("0.28.0")), { query: 287, tx: 352, event: 401, constant: 170, view: 53, api: 47 });
     assert.deepEqual(count(load("0.42.0")), { query: 291, tx: 356, event: 405, constant: 171, view: 57, api: 51 });
   });
 
@@ -58,18 +58,18 @@ describe("SdkDescriptor", { skip }, () => {
   });
 
   it("tells the two SDK versions apart", () => {
-    const old = load("0.24.0");
+    const old = load("0.28.0");
     const current = load("0.42.0");
-    // Gone from the runtime since 0.24.0's descriptors were generated.
-    assert.ok(old.entry("constant:Resources.MaxUsernameLength"));
-    assert.equal(current.entry("constant:Resources.MaxUsernameLength"), undefined);
+    // Gone from the runtime since 0.28.0's descriptors were generated.
+    assert.ok(old.entry("constant:NftCredits.MaxCreditsPerBlock"));
+    assert.equal(current.entry("constant:NftCredits.MaxCreditsPerBlock"), undefined);
     // New since.
-    assert.equal(old.entry("query:NetworkSuffix.NetworkSuffix"), undefined);
-    assert.ok(current.entry("query:NetworkSuffix.NetworkSuffix"));
+    assert.equal(old.entry("tx:Score.force_set_attendance"), undefined);
+    assert.ok(current.entry("tx:Score.force_set_attendance"));
   });
 
   it("reads the extension pipelines: the person extensions moved from v0 to a new v1", () => {
-    const old = load("0.24.0");
+    const old = load("0.28.0");
     const current = load("0.42.0");
     assert.deepEqual(Object.keys(old.pipelines), ["0"]);
     assert.ok(old.pipelines[0]?.includes("AsPerson"));

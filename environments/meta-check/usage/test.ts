@@ -277,12 +277,12 @@ describe("SdkUsage on the fixture SDKs", { skip }, () => {
   });
 
   it("tells the two SDK versions apart", () => {
-    const old = scan("0.24.0");
+    const old = scan("0.28.0");
     const current = scan("0.42.0");
-    assert.equal(old.selectors().size, 33);
-    assert.ok(!old.selectors().has("query:NetworkSuffix.NetworkSuffix"));
-    assert.ok(current.selectors().has("query:NetworkSuffix.NetworkSuffix"));
-    // 0.42.0 reads everything 0.24.0 did, and more.
+    assert.equal(old.selectors().size, 45);
+    assert.ok(!old.selectors().has("tx:PeopleAirdrops.register"));
+    assert.ok(current.selectors().has("tx:PeopleAirdrops.register"));
+    // 0.42.0 reads everything 0.28.0 did, and more.
     assert.ok([...old.selectors()].every((s) => current.selectors().has(s)));
   });
 });

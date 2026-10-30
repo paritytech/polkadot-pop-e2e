@@ -1,6 +1,6 @@
 // The types of the metadata check: what a candidate runtime changes for the product-sdk.
 //
-//   requirements(D, U) -> R
+//   buildRequirements(D, U) -> R
 //   check(R, A, A')    -> Report
 //
 // A is the live runtime, A' the candidate, D the SDK's descriptors and U the names the
@@ -9,7 +9,6 @@
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type SdkDescriptor from "./descriptor/index.ts";
-import type Runtime from "./runtime/index.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
@@ -117,8 +116,11 @@ export interface RequirementSet {
 
 // ── Result ───────────────────────────────────────────────
 
-/** polkadot-api's compatibility levels, plus `Missing` for an entry the runtime does not have. */
-export type Level = "Identical" | "BackwardsCompatible" | "Partial" | "Incompatible" | "Missing";
+/**
+ * polkadot-api's compatibility levels, plus `Missing` for an entry the runtime does not
+ * have and `Present` for one it has whose type cannot be checked, because D lacks it.
+ */
+export type Level = "Identical" | "BackwardsCompatible" | "Partial" | "Incompatible" | "Missing" | "Present";
 
 /**
  * - `ok`: the SDK can use the entry on the candidate.
@@ -134,31 +136,37 @@ export interface EntryFinding {
   /** D against A'. */
   after: Level;
   verdict: Verdict;
-  /** The type paths where A and A' differ, deepest first. */
+  /** The type paths where A and A' differ, deepest only: `args.dest`, `value.data.free`. */
   changedAt: string[];
 }
 
+/** One extension version, Rule 3. */
 export interface PipelineFinding {
   version: number;
-  /** What D signs with; null when D has no such version. */
+  /** What D signs with; null when D has no such version, so the SDK does not use it. */
   expected: readonly string[] | null;
   /** A's pipeline; null when A has no such version. */
-  before: readonly string[] | null;
+  live: readonly string[] | null;
   /** A''s pipeline; null when A' has no such version. */
-  after: readonly string[] | null;
+  candidate: readonly string[] | null;
+  /** D against A. */
+  before: Level;
+  /** D against A'. */
+  after: Level;
   verdict: Verdict;
+  /** Extensions in both D and A' whose types are not Identical. */
+  retyped: string[];
 }
 
 /** The result for one chain. */
 export interface Report {
-  chain: string;
+  chain: ChainKey;
+  /** D: the descriptor chain and the code hash it was generated from. */
+  descriptor: { chain: string; codeHash: string };
   live: RuntimeVersion;
   candidate: RuntimeVersion;
+  /** In the requirements' order: by selector. */
   entries: EntryFinding[];
+  /** Empty when the SDK does not sign on this chain. */
   pipelines: PipelineFinding[];
 }
-
-// ── Functions ────────────────────────────────────────────
-
-/** Without a live runtime, pass D's own metadata as `live`: then nothing is pre-existing. */
-export type Check = (requirements: Requirements, live: Runtime, candidate: Runtime) => Report;
