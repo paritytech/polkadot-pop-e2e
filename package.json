@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "postinstall": "pnpm --filter @pop-e2e/papi generate",
-    "test:environments": "node --test environments/*.test.mjs && node --import tsx --test environments/runtime-diff/*.test.ts",
+    "test:environments": "node --test environments/*.test.mjs && node --import tsx --test environments/runtime-diff/*.test.ts environments/meta-check/*/test.ts",
     "resolve:environment": "node environments/resolve.mjs",
     "scan:baseline": "node environments/baseline-scan.mjs",
     "typecheck:environments": "tsc -p environments"
@@ -26,6 +26,7 @@
     "@types/node": "^22.19.20",
     "fzstd": "^0.1.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^4.6.7"
   }
 }
