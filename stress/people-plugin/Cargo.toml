@@ -1,0 +1,32 @@
+[package]
+name = "people-plugin"
+description = "Polkameter plugin for People: recognition, ring-proof claims, state checks and the Recycler observer"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+parity-scale-codec.workspace = true
+polkameter-chain.workspace = true
+polkameter-checks.workspace = true
+polkameter-files.workspace = true
+polkameter-monitors.workspace = true
+polkameter-plugin-sdk.workspace = true
+ring-proofs.workspace = true
+serde_json.workspace = true
+sp-crypto-hashing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+verifiable = { workspace = true, features = ["builder-params"] }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "polkameter-people-plugin"
+path = "src/main.rs"
