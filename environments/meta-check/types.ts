@@ -170,3 +170,9 @@ export interface Report {
   /** Empty when the SDK does not sign on this chain. */
   pipelines: PipelineFinding[];
 }
+
+/** One check run: a report per upgraded chain, and the reads no chain took. */
+export interface Run {
+  reports: Report[];
+  unplaced: Use[];
+}
