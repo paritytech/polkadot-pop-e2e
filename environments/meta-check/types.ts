@@ -1,10 +1,23 @@
-// The types of the metadata check: what a candidate runtime changes for the product-sdk.
-//
-//   buildRequirements(D, U) -> R
-//   check(R, A, A')    -> Report
-//
-// A is the live runtime, A' the candidate, D the SDK's descriptors and U the names the
-// SDK's code reads. docs/design/runtime-diff.md explains the rules.
+/**
+ * Shared types for checking a candidate runtime against product-sdk's expectations.
+ *
+ * - D: the metadata used to generate the SDK's descriptors.
+ * - U: chain-entry reads found by scanning the SDK's code.
+ * - R: the SDK's requirements for each target chain: which entries it uses
+ * and what types it expects, derived from U and that chain's D.
+ * - A / A': the live / candidate runtime.
+ *
+ * `buildRequirements(D, U) -> R`, then for each upgraded chain:
+ *
+ * - `check(R, A)`: how well one runtime fits R. Live and candidate are each checked.
+ * - `regression(onLive, onCandidate)`: comparing those two checks distinguishes new
+ * regressions from existing mismatches.
+ * - `diff(R, A, A')`: where the entries R uses changed between the two runtimes.
+ *
+ * This is a static metadata check, not a guarantee of runtime behaviour.
+ * See `docs/design/runtime-diff.md` for the design; implementation details below
+ * describe the current checker.
+ */
 
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
@@ -114,7 +127,7 @@ export interface RequirementSet {
   unplaced: Use[];
 }
 
-// ── Result ───────────────────────────────────────────────
+// ── Grades ───────────────────────────────────────────────
 
 /**
  * polkadot-api's compatibility levels, plus `Missing` for an entry the runtime does not
@@ -129,36 +142,105 @@ export type Level = "Identical" | "BackwardsCompatible" | "Partial" | "Incompati
  */
 export type Verdict = "ok" | "breaking" | "pre-existing";
 
-export interface EntryFinding {
+// ── One runtime: check(R, A) ─────────────────────────────
+
+/** One requirement graded against one runtime. */
+export interface EntryCheck {
+  requirement: Requirement;
+  /** D against the runtime. */
+  level: Level;
+}
+
+/** One extension version graded against one runtime, Rule 3. */
+export interface PipelineCheck {
+  version: number;
+  /** What D signs with; null when D has no such version, so the SDK does not use it. */
+  expected: readonly string[] | null;
+  /** The runtime's pipeline; null when it has no such version. */
+  actual: readonly string[] | null;
+  /** D against the runtime. */
+  level: Level;
+  /** Extensions in both D and the runtime whose types are not Identical. */
+  retyped: string[];
+}
+
+/** One chain's requirements against one runtime, live (A) or the candidate (A'). */
+export interface RuntimeCheck {
+  chain: ChainKey;
+  /** D: the descriptor chain and the code hash it was generated from. */
+  descriptor: { chain: string; codeHash: string };
+  runtime: RuntimeVersion;
+  /** In the requirements' order: by selector. */
+  entries: EntryCheck[];
+  /** Every version D or the runtime has, ascending. Empty when the SDK does not sign on this chain. */
+  pipelines: PipelineCheck[];
+}
+
+// ── Live against candidate: regression and diff ──────────
+
+/** One requirement on live and on the candidate, and what the upgrade did to it. */
+export interface EntryVerdict {
   requirement: Requirement;
   /** D against A. */
   before: Level;
   /** D against A'. */
   after: Level;
   verdict: Verdict;
+}
+
+/** One extension version on live and on the candidate, and what the upgrade did to it, Rule 3. */
+export interface PipelineVerdict {
+  version: number;
+  /** D against A. */
+  before: Level;
+  /** D against A'. */
+  after: Level;
+  verdict: Verdict;
+}
+
+/** `regression(onLive, onCandidate)`: the verdict on each requirement and extension version. */
+export interface Regression {
+  /** In the requirements' order. */
+  entries: EntryVerdict[];
+  /** Every version D, A or A' has, ascending. Empty when the SDK does not sign on this chain. */
+  pipelines: PipelineVerdict[];
+}
+
+/** One entry R uses whose type differs between A and A'. */
+export interface EntryChange {
+  selector: Selector;
   /** The type paths where A and A' differ, deepest only: `args.dest`, `value.data.free`. */
   changedAt: string[];
 }
 
-/** One extension version, Rule 3. */
-export interface PipelineFinding {
-  version: number;
+/** `diff(R, A, A')`: the entries R uses that both runtimes have, and whose types differ. */
+export interface RuntimeDiff {
+  chain: ChainKey;
+  /** In the requirements' order. */
+  entries: EntryChange[];
+}
+
+// ── Report ───────────────────────────────────────────────
+
+/** An entry's verdict, and where its type changed. */
+export interface EntryFinding extends EntryVerdict {
+  /** The type paths where A and A' differ, deepest only; empty when it did not change. */
+  changedAt: string[];
+}
+
+/** A pipeline's verdict, and the lists behind it. */
+export interface PipelineFinding extends PipelineVerdict {
   /** What D signs with; null when D has no such version, so the SDK does not use it. */
   expected: readonly string[] | null;
   /** A's pipeline; null when A has no such version. */
   live: readonly string[] | null;
   /** A''s pipeline; null when A' has no such version. */
   candidate: readonly string[] | null;
-  /** D against A. */
-  before: Level;
-  /** D against A'. */
-  after: Level;
-  verdict: Verdict;
   /** Extensions in both D and A' whose types are not Identical. */
   retyped: string[];
 }
 
-/** The result for one chain. */
+/** The result for one chain: each requirement's and extension version's verdict, and what lies behind it. */
 export interface Report {
   chain: ChainKey;
   /** D: the descriptor chain and the code hash it was generated from. */

@@ -1,50 +1,33 @@
-// check(R, A, A'): what upgrading one chain from the live runtime (A) to the candidate
-// (A') does to the SDK. Every grade is D against a runtime; A against A' only says
-// where an entry changed.
+// check(R, A): how well one runtime, live (A) or the candidate (A'), fits what the SDK
+// needs from its chain. Every grade is D against that runtime. Comparing the two checks
+// is regression's job; comparing the two runtimes is diff's.
 
 import type { CompatibilityCache } from "@polkadot-api/metadata-compatibility";
 import type Runtime from "../runtime/index.ts";
-import type { EntryFinding, PipelineFinding, Report, Requirements } from "../types.ts";
-import { changedAt, entryLevel, pipelineLevel, verdict } from "./grade.ts";
+import type { EntryCheck, PipelineCheck, Requirements, RuntimeCheck } from "../types.ts";
+import { entryLevel, pipelineLevel } from "./grade.ts";
 
-export default function check(requirements: Requirements, live: Runtime, candidate: Runtime): Report {
+export default function check(requirements: Requirements, runtime: Runtime): RuntimeCheck {
   const { descriptor } = requirements;
-  // PAPI caches by pair of type nodes; one cache per pair of sides, and a separate one
-  // for the change-tracking comparison, whose results carry more.
-  const toLive: CompatibilityCache = new Map();
-  const toCandidate: CompatibilityCache = new Map();
-  const liveToCandidate: CompatibilityCache = new Map();
+  // PAPI caches by pair of type nodes: one cache serves every grade of D against this runtime.
+  const cache: CompatibilityCache = new Map();
 
-  const entries = requirements.entries.map((requirement): EntryFinding => {
-    const before = entryLevel(requirement, descriptor, live, toLive);
-    const after = entryLevel(requirement, descriptor, candidate, toCandidate);
-    return {
-      requirement,
-      before,
-      after,
-      verdict: verdict(before, after, requirement.optional),
-      changedAt: changedAt(requirement.selector, live, candidate, liveToCandidate),
-    };
-  });
+  const entries = requirements.entries.map(
+    (requirement): EntryCheck => ({ requirement, level: entryLevel(requirement, descriptor, runtime, cache) }),
+  );
 
   const versions = [
-    ...new Set([descriptor, live, candidate].flatMap((view) => Object.keys(view.pipelines).map(Number))),
+    ...new Set([descriptor, runtime].flatMap((view) => Object.keys(view.pipelines).map(Number))),
   ].sort((a, b) => a - b);
   const pipelines = requirements.signs
-    ? versions.map((version): PipelineFinding => {
-        const before = pipelineLevel(version, descriptor, live, toLive);
-        const after = pipelineLevel(version, descriptor, candidate, toCandidate);
-        const expected = descriptor.pipelines[version] ?? null;
+    ? versions.map((version): PipelineCheck => {
+        const { level, retyped } = pipelineLevel(version, descriptor, runtime, cache);
         return {
           version,
-          expected,
-          live: live.pipelines[version] ?? null,
-          candidate: candidate.pipelines[version] ?? null,
-          before: before.level,
-          after: after.level,
-          // A version D does not have is one the SDK never signs with.
-          verdict: expected ? verdict(before.level, after.level) : "ok",
-          retyped: after.retyped,
+          expected: descriptor.pipelines[version] ?? null,
+          actual: runtime.pipelines[version] ?? null,
+          level,
+          retyped,
         };
       })
     : [];
@@ -52,8 +35,7 @@ export default function check(requirements: Requirements, live: Runtime, candida
   return {
     chain: requirements.chain,
     descriptor: { chain: descriptor.chain, codeHash: descriptor.codeHash },
-    live: live.version,
-    candidate: candidate.version,
+    runtime: runtime.version,
     entries,
     pipelines,
   };

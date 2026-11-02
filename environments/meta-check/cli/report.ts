@@ -18,8 +18,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { CHAINS } from "../../release-map.mjs";
-import check from "../check/index.ts";
 import SdkDescriptor from "../descriptor/index.ts";
+import buildReport from "../report/index.ts";
 import toJson from "../report/json.ts";
 import renderMarkdown from "../report/markdown.ts";
 import buildRequirements from "../requirements/index.ts";
@@ -103,7 +103,7 @@ export async function report(options: ReportOptions): Promise<{ run: Run; warnin
       if (!requirements) throw new Error(`no requirements were built for ${key}`);
       if (!live) throw new Error(`no live runtime in ${liveFile}`);
       if (!candidate) throw new Error("no candidate runtime");
-      reports.push(check(requirements, new Runtime(fs.readFileSync(live)), new Runtime(fs.readFileSync(candidate))));
+      reports.push(buildReport(requirements, new Runtime(fs.readFileSync(live)), new Runtime(fs.readFileSync(candidate))));
     } catch (error) {
       failed.push({ chain, error: errorText(error) });
     }

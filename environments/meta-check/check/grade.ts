@@ -8,8 +8,9 @@ import {
   type CompatibilityCache,
   type EntryPoint,
 } from "@polkadot-api/metadata-compatibility";
+import { worse } from "../level.ts";
 import type MetadataView from "../metadata-view/index.ts";
-import type { Level, Requirement, Selector, Verdict } from "../types.ts";
+import type { Level, Requirement } from "../types.ts";
 
 const LEVEL: Record<CompatibilityLevel, Level> = {
   [CompatibilityLevel.Incompatible]: "Incompatible",
@@ -18,30 +19,7 @@ const LEVEL: Record<CompatibilityLevel, Level> = {
   [CompatibilityLevel.Identical]: "Identical",
 };
 
-/** Missing and Incompatible are equally unusable; Present (name only) counts as a fit. */
-const RANK: Record<Level, number> = {
-  Missing: 0,
-  Incompatible: 0,
-  Partial: 1,
-  BackwardsCompatible: 2,
-  Present: 2,
-  Identical: 3,
-};
-
-const worse = (a: Level, b: Level): Level => (RANK[a] <= RANK[b] ? a : b);
-
 const nodes = (view: MetadataView) => (id: number) => view.node(id);
-
-/**
- * The Partial policy: the candidate breaks an entry when it fits worse than live did
- * and below BackwardsCompatible. An entry that already did not fit on live is
- * pre-existing: this upgrade did not cause it. An optional entry may be missing.
- */
-export function verdict(before: Level, after: Level, optional = false): Verdict {
-  if (optional && after === "Missing") return "ok";
-  if (RANK[after] >= RANK.BackwardsCompatible) return "ok";
-  return RANK[after] < RANK[before] ? "breaking" : "pre-existing";
-}
 
 /**
  * D's expectation for one requirement against a runtime. The side graded follows who
@@ -67,28 +45,6 @@ export function entryLevel(
   if (requirement.direction === "encode") return LEVEL[args.level];
   if (requirement.direction === "decode") return LEVEL[values.level];
   return worse(LEVEL[args.level], LEVEL[values.level]);
-}
-
-// PAPI reports a change at every level of the type tree it passes through; the deepest
-// ones say where. Past this many, the list stops helping.
-const MAX_CHANGED_PATHS = 8;
-
-/** Where the entry's type differs between live and candidate: `args.dest`, `value.data.free`. */
-export function changedAt(
-  selector: Selector,
-  live: MetadataView,
-  candidate: MetadataView,
-  cache: CompatibilityCache,
-): string[] {
-  const before = live.entry(selector);
-  const after = candidate.entry(selector);
-  if (!before || !after) return [];
-  const result = entryPointsAreCompatible(before.shape, nodes(live), after.shape, nodes(candidate), cache, true);
-  const paths = [
-    ...result.args.changes.map((change) => (change.path ? `args.${change.path}` : "args")),
-    ...result.values.changes.map((change) => (change.path ? `value.${change.path}` : "value")),
-  ];
-  return paths.filter((path) => !paths.some((other) => other.startsWith(`${path}.`))).slice(0, MAX_CHANGED_PATHS);
 }
 
 type Extension = MetadataView["metadata"]["extrinsic"]["extensionsByVersion"][number][number];
