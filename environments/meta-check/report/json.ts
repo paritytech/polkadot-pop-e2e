@@ -3,8 +3,7 @@
 
 import type { EntryChange, PipelineChange, Run, TypeChange, Use } from "../types.ts";
 
-// 2: an entry's `changedAt` became `change`; a pipeline gained `change`, a chain `extrinsicVersions`.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 1;
 
 const use = ({ selector, chain, optional, package: pkg, file, line }: Use) => ({
   selector,

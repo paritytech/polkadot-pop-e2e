@@ -360,7 +360,7 @@ describe("toJson", () => {
       unplaced: [],
       failed: [],
     });
-    assert.equal(json.schemaVersion, 2);
+    assert.equal(json.schemaVersion, 1);
     assert.equal(json.chains[0]?.extrinsicVersions, null);
     // Its own shape, not the internal object: a field added inside does not reach the artifact.
     const versions = { live: [4, 5], candidate: [5], added: [], removed: [4], internal: true };

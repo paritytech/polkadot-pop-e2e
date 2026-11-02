@@ -218,7 +218,7 @@ describe("report", { skip }, () => {
     const breaking = captured({ people: "0.3.4" }, { people: "nightly-3004007" });
     assert.equal(await quietly(["--in", breaking, "--sdk", PACKAGES, "--network", "paseo-next-v2"]), 0);
     assert.match(fs.readFileSync(path.join(breaking, "report.md"), "utf8"), /^### 🔴 Metadata check: 1 breaking change/);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(breaking, "report.json"), "utf8")).schemaVersion, 2);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(breaking, "report.json"), "utf8")).schemaVersion, 1);
 
     const unchecked = captured({}, { people: "nightly-3004007" });
     assert.equal(await quietly(["--in", unchecked, "--sdk", PACKAGES, "--network", "paseo-next-v2"]), 1);
