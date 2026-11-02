@@ -24,7 +24,19 @@ const MAX_VARIANTS = 6;
  */
 export const MAX_TYPE_CHANGES = 100;
 
-const cut = (text: string): string => (text.length > MAX_NAME ? `${text.slice(0, MAX_NAME - 1)}…` : text);
+// Kept in front of where two cut texts differ.
+const MAX_CONTEXT = 20;
+
+const cut = (text: string, max = MAX_NAME): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+/** Both texts cut to length; where that would cut off all they differ in, from just before where they do. */
+function cutApart(before: string, after: string): [string, string] {
+  if (before === after || cut(before) !== cut(after)) return [cut(before), cut(after)];
+  let at = 0;
+  while (before[at] === after[at]) at++;
+  const around = (text: string) => `…${cut(text.slice(at - MAX_CONTEXT), MAX_NAME - 1)}`;
+  return [around(before), around(after)];
+}
 
 /** `enum { Ok, Err }`; past a few, the count says the rest. */
 const variants = (names: string[]): string =>
@@ -89,34 +101,22 @@ function encodedText(view: MetadataView, type: EncodedType): string {
     case "struct":
       return `{ ${Object.entries(type.value).map(([key, child]) => `${key}: ${name(child)}`).join(", ")} }`;
     case "enum":
-      return variants(Object.keys(type.value));
+      // A module error's: how many bytes the variant takes, its pallet's index included.
+      return `${variants(Object.keys(type.value))}${type.byteLength === undefined ? "" : ` in ${type.byteLength} bytes`}`;
   }
 }
 
 /** A type by its Rust name when it has an id; inline (a call's fields) by how it encodes. */
-const describe = (view: MetadataView, type: EncodedType): string =>
-  cut("id" in type ? typeName(view, type.id as number) : encodedText(view, type));
+const fullName = (view: MetadataView, type: EncodedType): string =>
+  "id" in type ? typeName(view, type.id as number) : encodedText(view, type);
+
+const describe = (view: MetadataView, type: EncodedType): string => cut(fullName(view, type));
 
 /** What a variant carries, as a type. */
 const payload = (variant: Variant): EncodedType => (variant.type === "lookupEntry" ? variant.value : variant);
 
-// How many bare `{ id }`s in a row `shaped` follows before it gives up on the lookup.
-const MAX_HOPS = 8;
-
-/**
- * The type itself. PAPI's lookup can hand out a bare `{ id }` with no shape: a newtype
- * around a type still being built copies that type before it is filled, as XCM's
- * `Xcm(Vec<Instruction>)` does when the lookup starts at `Vec<Instruction>`. The id is the
- * wrapped type's, filled by now, so it is looked up again in the runtime it came from.
- */
-function shaped(view: MetadataView, type: EncodedType): EncodedType {
-  let current: EncodedType | { id: number } = type;
-  for (let hops = 0; !("type" in current); hops++) {
-    if (hops === MAX_HOPS) throw new Error(`type ${current.id} has no shape in the metadata lookup`);
-    current = view.lookup(current.id);
-  }
-  return current;
-}
+/** The type itself, where PAPI's lookup left a copy of it with only its id; see `MetadataView.lookup`. */
+const shaped = (view: MetadataView, type: EncodedType): EncodedType => ("type" in type ? type : view.lookup((type as { id: number }).id));
 
 /**
  * PAPI makes `(T, T)`, or a tuple struct `Pair(T, T)`, an array `[T; 2]` unless an element
@@ -193,9 +193,11 @@ function reindexed(before: EncodedType, after: EncodedType): Map<string, [number
 }
 
 /**
- * Whether two types encode alike under the same names. A recursive type is assumed equal
- * where the comparison meets a pair it is already comparing; a result that leans on such an
- * assumption is remembered only once the pair it leans on is settled.
+ * Whether two types encode alike under the same field and variant names. Where the
+ * comparison meets a pair it is already comparing, as a recursive type does, it assumes the
+ * two equal. An unequal result is remembered. An equal one is remembered only when it rests
+ * on no such assumption about a pair further up, which may yet turn out unequal; otherwise
+ * it is compared again wherever it is met.
  */
 function encodesAlike(live: MetadataView, candidate: MetadataView) {
   const settled = new Map<EncodedType, Map<EncodedType, boolean>>();
@@ -269,9 +271,10 @@ export default function compareTypes(live: MetadataView, candidate: MetadataView
       if (!to) return push({ path: at, status: "removed", before: describe(live, from), after: null });
       if (alike(from, to) || walking.get(from)?.has(to)) return;
       if (differsInItself(from, to)) {
-        let [beforeText, afterText] = [describe(live, from), describe(candidate, to)];
+        let texts: [string, string] = [fullName(live, from), fullName(candidate, to)];
         // Same name, another encoding: the encodings say what changed.
-        if (beforeText === afterText) [beforeText, afterText] = [cut(encodedText(live, from)), cut(encodedText(candidate, to))];
+        if (texts[0] === texts[1]) texts = [encodedText(live, from), encodedText(candidate, to)];
+        const [beforeText, afterText] = cutApart(...texts);
         return push({ path: at, status: "changed", before: beforeText, after: afterText });
       }
       const order = fieldOrder(from, to);

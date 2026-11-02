@@ -18,6 +18,9 @@ import type { EncodedType, Encoding, Entry, Kind, Metadata, Pipelines, Selector,
 
 type Variant = Extract<EncodedType, { type: "enum" }>["value"][string];
 
+// How many bare `{ id }`s in a row `lookup` follows before it gives up.
+const MAX_HOPS = 8;
+
 export default class MetadataView {
   readonly metadata: Metadata;
   readonly pipelines: Pipelines;
@@ -56,16 +59,28 @@ export default class MetadataView {
     return (kind === "api" ? this.#apis : this.#pallets).has(group);
   }
 
-  /** The type behind a type id as SCALE encodes it; see `EncodedType`. */
+  /**
+   * The type behind a type id as SCALE encodes it; see `EncodedType`. PAPI's lookup can
+   * hand out a bare `{ id }` with no shape: a newtype around a type still being built
+   * copies that type before it is filled, as XCM's `Xcm(Vec<Instruction>)` does when the
+   * lookup starts at `Vec<Instruction>`. The id is then the wrapped type's, filled by now,
+   * so it is looked up again. A type nested in another can be such a copy too.
+   */
   lookup(id: number): LookupEntry {
-    return this.#lookup(id);
+    let entry: LookupEntry | { id: number } = this.#lookup(id);
+    for (let hops = 0; !("type" in entry); hops++) {
+      if (hops === MAX_HOPS) throw new Error(`type ${id} has no shape in the metadata lookup`);
+      entry = this.#lookup(entry.id);
+    }
+    return entry;
   }
 
   /** The type behind a type id in an entry's shape. Resolved on first use. */
   node(id: number): TypedefNode {
     let node = this.#nodes.get(id);
     if (!node) {
-      node = mapLookupToTypedef(this.#lookup(id));
+      // From the bare `{ id }`, PAPI would build no node, and grade what reads it Identical.
+      node = mapLookupToTypedef(this.lookup(id));
       this.#nodes.set(id, node);
     }
     return node;
@@ -76,18 +91,18 @@ export default class MetadataView {
       const selector = `${kind}:${group}.${name}` as const;
       this.#entries.set(selector, { selector, kind, group, name, shape, encoding, direction: DIRECTION[kind] });
     };
-    const value = (id: number): Encoding => ({ args: null, value: this.#lookup(id) });
+    const value = (id: number): Encoding => ({ args: null, value: this.lookup(id) });
     // A runtime call's inputs are encoded one after the other, as a tuple.
     const call = (fn: { inputs: { type: number }[]; output: number }): Encoding => ({
       args:
         fn.inputs.length > 0
-          ? { type: "tuple", value: fn.inputs.map((input) => this.#lookup(input.type)), innerDocs: fn.inputs.map(() => []) }
+          ? { type: "tuple", value: fn.inputs.map((input) => this.lookup(input.type)), innerDocs: fn.inputs.map(() => []) }
           : null,
-      value: this.#lookup(fn.output),
+      value: this.lookup(fn.output),
     });
     // Calls and events are the variants of the pallet's call and event enums.
     const variants = (ref: { type: number } | undefined) => {
-      const entry = ref && this.#lookup(ref.type);
+      const entry = ref && this.lookup(ref.type);
       return entry?.type === "enum" ? Object.entries(entry.value) : [];
     };
 
@@ -99,8 +114,8 @@ export default class MetadataView {
       for (const item of pallet.storage?.items ?? []) {
         const { type } = item;
         add("query", pallet.name, item.name, storageEntryPoint(item), {
-          args: type.tag === "map" ? this.#lookup(type.value.key) : null,
-          value: this.#lookup(type.tag === "map" ? type.value.value : type.value),
+          args: type.tag === "map" ? this.lookup(type.value.key) : null,
+          value: this.lookup(type.tag === "map" ? type.value.value : type.value),
         });
       }
       for (const [name, variant] of variants(pallet.calls)) {

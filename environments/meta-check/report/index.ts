@@ -41,7 +41,7 @@ export function assembleReport(onLive: RuntimeCheck, onCandidate: RuntimeCheck, 
       before,
       after,
       verdict,
-      retyped: candidatePipeline?.retyped ?? [],
+      retypedFromSdk: candidatePipeline?.retyped ?? [],
       change: pipelineChange.get(version) ?? null,
     };
   };

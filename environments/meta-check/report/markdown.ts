@@ -2,6 +2,7 @@
 // pre-existing ones collapsed, ok ones only counted, then what the upgrade changed,
 // collapsed. The JSON has the rest, up to its own limits.
 
+import { listChange } from "../diff/index.ts";
 import type {
   ChainKey,
   EntryFinding,
@@ -78,8 +79,21 @@ const ENTRY_TABLE = ["| Entry | Live → candidate | Read at |", "|---|---|---|"
 const entryRow = (finding: EntryFinding, emphasise: boolean): string =>
   `| ${entryName(finding)} | ${levels(finding.before, finding.after, emphasise)}${changedAt(finding)} | ${readAt(finding.requirement.uses)} |`;
 
-const names = (ids: string[]): string =>
-  ids.length > MAX_NAMES ? `${ids.slice(0, MAX_NAMES).map(code).join(", ")}, … (${ids.length})` : ids.map(code).join(", ");
+const listOf = (items: string[]): string =>
+  items.length > MAX_NAMES ? `${items.slice(0, MAX_NAMES).join(", ")}, … (${items.length})` : items.join(", ");
+
+const names = (ids: string[]): string => listOf(ids.map(code));
+
+/** Extensions added or removed, each once; where a list has one more than once, how often each has it: `A` (2 → 1). */
+function counted(ids: string[], before: readonly string[], after: readonly string[]): string {
+  const times = (list: readonly string[], id: string) => list.filter((other) => other === id).length;
+  return listOf(
+    [...new Set(ids)].map((id) => {
+      const [from, to] = [times(before, id), times(after, id)];
+      return from > 1 || to > 1 ? `${code(id)} (${from} → ${to})` : code(id);
+    }),
+  );
+}
 
 /** An extension version's identifiers, or that it has none. */
 const extensions = (ids: string[]): string => (ids.length > 0 ? names(ids) : "no extensions");
@@ -89,15 +103,12 @@ function pipelineDifference(pipeline: PipelineFinding): string[] {
   const { version, candidate } = pipeline;
   const expected = pipeline.expected ?? [];
   if (!candidate) return [`The candidate has no v${version}.`];
-  const lacks = expected.filter((id) => !candidate.includes(id));
-  const adds = candidate.filter((id) => !expected.includes(id));
-  const kept = expected.filter((id) => candidate.includes(id));
-  const reordered = kept.join() !== candidate.filter((id) => expected.includes(id)).join();
+  const { added, removed, reordered } = listChange(expected, candidate);
   return [
-    ...(lacks.length > 0 ? [`Candidate lacks what the SDK signs with: ${names(lacks)}`] : []),
-    ...(adds.length > 0 ? [`Candidate adds: ${names(adds)}`] : []),
+    ...(removed.length > 0 ? [`Candidate lacks what the SDK signs with: ${counted(removed, expected, candidate)}`] : []),
+    ...(added.length > 0 ? [`Candidate adds: ${counted(added, expected, candidate)}`] : []),
     ...(reordered ? ["Candidate reorders the extensions the SDK signs with."] : []),
-    ...(pipeline.retyped.length > 0 ? [`Changed type: ${names(pipeline.retyped)}`] : []),
+    ...(pipeline.retypedFromSdk.length > 0 ? [`Changed type: ${names(pipeline.retypedFromSdk)}`] : []),
   ];
 }
 
@@ -182,14 +193,15 @@ function entryChangeRows(finding: EntryFinding): string[] {
 function pipelineChangeLine(finding: PipelineFinding): string {
   const { change } = finding;
   if (!change) return "";
+  const [live, candidate] = [change.live ?? [], change.candidate ?? []];
   const what =
     change.status === "added"
       ? [`new, with ${extensions(change.added)}`]
       : change.status === "removed"
         ? [`gone; live had ${extensions(change.removed)}`]
         : [
-            ...(change.removed.length > 0 ? [`removes ${names(change.removed)}`] : []),
-            ...(change.added.length > 0 ? [`adds ${names(change.added)}`] : []),
+            ...(change.removed.length > 0 ? [`removes ${counted(change.removed, live, candidate)}`] : []),
+            ...(change.added.length > 0 ? [`adds ${counted(change.added, live, candidate)}`] : []),
             ...(change.reordered ? ["reorders the rest"] : []),
             ...(change.retyped.length > 0 ? [`retypes ${names(change.retyped.map((extension) => extension.identifier))}`] : []),
           ];
@@ -211,9 +223,10 @@ function changes(report: Report): string[] {
   const pipelines = report.pipelines.filter((f) => f.change);
   const { extrinsicVersions } = report;
   if (entries.length + pipelines.length === 0 && !extrinsicVersions) return [];
+  // An extension has no verdict of its own: its version's is the one that covers it.
   const extensionRows = pipelines.flatMap((f) =>
     (f.change?.retyped ?? []).flatMap((extension) =>
-      typeRows(`v${f.version} ${code(extension.identifier)}`, extension.types, extension.truncated),
+      typeRows(`${MARK[f.verdict]} v${f.version} ${code(extension.identifier)}`, extension.types, extension.truncated),
     ),
   );
   const tableRows = [...entries.flatMap(entryChangeRows), ...extensionRows];
@@ -228,7 +241,7 @@ function changes(report: Report): string[] {
     "",
     ...lines,
     ...(lines.length > 0 ? [""] : []),
-    ...(tableRows.length > 0 ? ["| Entry | Where | Live | Candidate |", "|---|---|---|---|", ...tableRows] : []),
+    ...(tableRows.length > 0 ? ["| Entry / extension | Where | Live | Candidate |", "|---|---|---|---|", ...tableRows] : []),
     "</details>",
     "",
   ];
@@ -270,11 +283,19 @@ export default function renderMarkdown(run: Run): string {
       ? `### 🔴 Metadata check: ${breaking} breaking change${breaking === 1 ? "" : "s"} for the product-sdk`
       : "### 🟢 Metadata check: no breaking change for the product-sdk";
   const failed = run.failed.map(({ chain, error }) => `> ⚠️ ${code(chain)} was not checked: ${error}`);
+  // Not graded, so the headline stays as it is; but the SDK may build one of these versions.
+  const stopsAccepting = run.reports.flatMap(({ chain, extrinsicVersions }) => {
+    const removed = extrinsicVersions?.removed ?? [];
+    if (removed.length === 0) return [];
+    const versions = `extrinsic version${removed.length === 1 ? "" : "s"} ${names(removed.map(String))}`;
+    return [`> ⚪ ${CHAIN[chain]}: the candidate stops accepting ${versions} (not graded)`];
+  });
+  const notes = [...failed, ...stopsAccepting];
   const descriptors = run.reports.map((r) => `${code(r.descriptor.chain)} from ${code(shortHash(r.descriptor.codeHash))}`);
   return [
     headline,
     "",
-    ...(failed.length > 0 ? [...failed, ""] : []),
+    ...(notes.length > 0 ? [...notes, ""] : []),
     "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🟡 Pre-existing | 🟢 OK |",
     "|---|---|---|---|---|",
     ...run.reports.map(

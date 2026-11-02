@@ -59,6 +59,38 @@ function entryChange(selector: Selector, live: Runtime, candidate: Runtime, chan
 
 type Extension = MetadataView["metadata"]["extrinsic"]["extensionsByVersion"][number][number];
 
+/** What `list` has more of than `other`: each identifier as many times more as it has it. */
+function beyond(list: readonly string[], other: readonly string[]): string[] {
+  const left = [...other];
+  return list.filter((id) => {
+    const at = left.indexOf(id);
+    if (at >= 0) left.splice(at, 1);
+    return at < 0;
+  });
+}
+
+/** How many of `a`'s identifiers `b` has in the same order, others between: their longest common subsequence. */
+function inOrder(a: readonly string[], b: readonly string[]): number {
+  let row = Array<number>(b.length + 1).fill(0);
+  for (const id of a) {
+    const next = [0];
+    b.forEach((other, j) => next.push(id === other ? (row[j] ?? 0) + 1 : Math.max(row[j + 1] ?? 0, next[j] ?? 0)));
+    row = next;
+  }
+  return row[b.length] ?? 0;
+}
+
+/**
+ * From one extension list to another: the identifiers added and removed, each as often as
+ * one list has it more than the other (nothing stops a version listing one twice), and
+ * whether those both keep are in another order.
+ */
+export function listChange(before: readonly string[], after: readonly string[]) {
+  const added = beyond(after, before);
+  const removed = beyond(before, after);
+  return { added, removed, reordered: inOrder(before, after) < before.length - removed.length };
+}
+
 /**
  * Each extension version A or A' has, where it differs: the extensions added, removed or
  * reordered, and those both keep whose types differ.
@@ -70,14 +102,13 @@ function pipelineChanges(live: Runtime, candidate: Runtime, changes: Changes): P
     .flatMap((version): PipelineChange[] => {
       const before = live.pipelines[version] ?? null;
       const after = candidate.pipelines[version] ?? null;
-      const added = (after ?? []).filter((id) => !before?.includes(id));
-      const removed = (before ?? []).filter((id) => !after?.includes(id));
-      const kept = (before ?? []).filter((id) => after?.includes(id));
-      const reordered = kept.join() !== (after ?? []).filter((id) => before?.includes(id)).join();
+      const { added, removed, reordered } = listChange(before ?? [], after ?? []);
 
       const extensions = (view: MetadataView): Extension[] => view.metadata.extrinsic.extensionsByVersion[version] ?? [];
-      const retyped = extensions(live).flatMap((extension): ExtensionChange[] => {
-        const other = extensions(candidate).find(({ identifier }) => identifier === extension.identifier);
+      const retyped = extensions(live).flatMap((extension, index, list): ExtensionChange[] => {
+        // Listed twice, the first on live is compared with the first on the candidate, and so on.
+        const same = ({ identifier }: Extension) => identifier === extension.identifier;
+        const other = extensions(candidate).filter(same)[list.slice(0, index).filter(same).length];
         if (!other) return [];
         const { types, truncated } = listed(
           changes("type", live.lookup(extension.type), candidate.lookup(other.type)),

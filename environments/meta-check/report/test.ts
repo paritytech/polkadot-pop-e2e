@@ -72,7 +72,7 @@ const pipeline = (overrides: Partial<PipelineFinding>): PipelineFinding => ({
   before: "Identical",
   after: "Identical",
   verdict: "ok",
-  retyped: [],
+  retypedFromSdk: [],
   change: null,
   ...overrides,
 });
@@ -252,12 +252,13 @@ describe("renderMarkdown", () => {
       "- 🔴 Transaction extensions v0: removes `B`; adds `D`; reorders the rest; retypes `C`",
       "- 🟢 Transaction extensions v1: new, with `A`, `B`",
       "",
-      "| Entry | Where | Live | Candidate |",
+      "| Entry / extension | Where | Live | Candidate |",
       "|---|---|---|---|",
       "| 🟢 `query:Game.Players` | `value.a` | — | `u32` |",
       "|  | `value.b` | — | `u32` |",
       "| 🔴 `constant:Game.Gone` (removed) | `value` | `enum { A, B }` | — |",
-      "| v0 `C` | `type` | `u32` | `Option<u32>` |",
+      // The extension's row has its version's verdict: it has none of its own.
+      "| 🔴 v0 `C` | `type` | `u32` | `Option<u32>` |",
       "",
     ]);
   });
@@ -290,6 +291,35 @@ describe("renderMarkdown", () => {
     );
     assert.ok(markdown.includes("<details><summary>What changed between live and candidate (extrinsic versions)</summary>"));
     assert.ok(markdown.includes("- ⚪ Extrinsic versions: removes `4`; adds `6` (not graded)\n"));
+  });
+
+  it("says under the headline when a candidate stops accepting an extrinsic version, without grading it", () => {
+    const markdown = renderMarkdown(run(report({ extrinsicVersions: { live: [4, 5], candidate: [5], added: [], removed: [4] } })));
+    assert.deepEqual(markdown.split("\n").slice(0, 4), [
+      "### 🟢 Metadata check: no breaking change for the product-sdk",
+      "",
+      "> ⚪ People: the candidate stops accepting extrinsic version `4` (not graded)",
+      "",
+    ]);
+    const adds = renderMarkdown(run(report({ extrinsicVersions: { live: [4], candidate: [4, 5], added: [5], removed: [] } })));
+    assert.ok(!adds.includes("> ⚪"));
+  });
+
+  it("says how often each list has an extension one lists twice, rather than that it moved", () => {
+    const lists = { expected: ["A", "A", "B"], live: ["A", "A", "B"], candidate: ["A", "B"] };
+    const markdown = renderMarkdown(
+      run(
+        report({
+          pipelines: [
+            pipeline({ ...lists, verdict: "breaking", after: "Incompatible", change: pipelineChange({ ...lists, removed: ["A"] }) }),
+          ],
+        }),
+      ),
+    );
+    assert.ok(markdown.includes("<details><summary>What changed between live and candidate (1 extension version)</summary>"));
+    assert.ok(markdown.includes("- 🔴 Transaction extensions v0: removes `A` (2 → 1)\n"));
+    assert.ok(markdown.includes("Candidate lacks what the SDK signs with: `A` (2 → 1)  "));
+    assert.ok(!markdown.includes("reorders"));
   });
 
   it("caps the changes it lists per entry, and keeps a table cell whole", async () => {
@@ -348,7 +378,7 @@ describe("toJson", () => {
           ],
           pipelines: [
             pipeline({
-              retyped: ["B"],
+              retypedFromSdk: ["B"],
               change: pipelineChange({
                 removed: ["C"],
                 retyped: [{ identifier: "B", types: [{ path: "type", status: "changed", before: "u32", after: "u64" }], truncated: false }],
@@ -383,7 +413,7 @@ describe("toJson", () => {
         uses: [{ package: "@x/app", file: "a.ts", line: 7 }],
       },
     ]);
-    assert.deepEqual(json.chains[0]?.pipelines[0]?.retyped, ["B"]);
+    assert.deepEqual(json.chains[0]?.pipelines[0]?.retypedFromSdk, ["B"]);
     // The lists themselves are the pipeline's live and candidate.
     assert.deepEqual(json.chains[0]?.pipelines[0]?.change, {
       status: "changed",
@@ -439,7 +469,7 @@ describe("assembleReport", () => {
     );
     // Lists from each side, D's from either, what the candidate retyped, and what changed.
     assert.deepEqual(r.pipelines, [
-      pipeline({ after: "BackwardsCompatible", expected: ["A"], live: ["A"], candidate: ["A"], retyped: ["A"] }),
+      pipeline({ after: "BackwardsCompatible", expected: ["A"], live: ["A"], candidate: ["A"], retypedFromSdk: ["A"] }),
       pipeline({ version: 1, before: "Missing", after: "Present", expected: null, live: null, candidate: ["A", "B"], change: added }),
     ]);
   });
@@ -596,7 +626,7 @@ describe("renderMarkdown on demo 1", { skip }, () => {
         "",
         "<details><summary>What changed between live and candidate (3 entries)</summary>",
         "",
-        "| Entry | Where | Live | Candidate |",
+        "| Entry / extension | Where | Live | Candidate |",
         "|---|---|---|---|",
         "| 🔴 `constant:Game.airdrop_event_id_base` (removed) | `value` | `[u8; 27]` | — |",
         "| 🟢 `query:Score.Participants` | `value.attended_games_while_recognized` | — | `u32` |",

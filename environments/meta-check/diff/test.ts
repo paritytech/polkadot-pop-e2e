@@ -13,7 +13,8 @@ import diff from "./index.ts";
 
 // ── Hand-built runtimes: only what diff reads ────────────
 
-// Every type gets its own id, and the name the report gives it; live and candidate share the table.
+// Every type gets its own id, and the name the report gives it. Each runtime gets a copy of
+// the types: as two runtimes' are, live's and the candidate's are objects of their own.
 const TYPES = new Map<number, LookupEntry>();
 const NAMES: unknown[] = [];
 const type = <T extends Var>(name: string, def: T): LookupEntry & T => {
@@ -41,13 +42,15 @@ const fake = (
   entries: Partial<Record<Selector, Encoding>> = {},
   pipelines: Record<number, Extension[]> = {},
   extrinsicVersions = [4, 5],
-) =>
-  ({
-    lookup: (id: number) => TYPES.get(id),
-    entry: (selector: Selector) => (entries[selector] ? { encoding: entries[selector] } : undefined),
+) => {
+  const own = structuredClone({ entries, types: TYPES });
+  return {
+    lookup: (id: number) => own.types.get(id),
+    entry: (selector: Selector) => (own.entries[selector] ? { encoding: own.entries[selector] } : undefined),
     pipelines: Object.fromEntries(Object.entries(pipelines).map(([version, list]) => [version, list.map((e) => e.identifier)])),
     metadata: { lookup: NAMES, extrinsic: { extensionsByVersion: pipelines, version: extrinsicVersions } },
-  }) as unknown as Runtime;
+  } as unknown as Runtime;
+};
 
 /** A runtime from a type registry as metadata has it, read with PAPI's own lookup, which first met these ids. */
 const fromRegistry = (registry: unknown[], ...first: number[]) => {
@@ -64,11 +67,16 @@ const requirements = (selectors: Selector[], usesTransactions = false) =>
   ({ chain: "individuality", entries: selectors.map((selector) => ({ selector })), usesTransactions }) as unknown as Requirements;
 
 const line = ({ path, status, before, after }: TypeChange) => `${path} ${status} ${before ?? "-"} -> ${after ?? "-"}`;
-const changes = (before: Var, after: Var) => compareTypes(fake(), fake())("value", before, after).map(line);
+/** Where `before` and `after` differ; `after` copied first, as the candidate has types of its own. */
+const changes = (before: Var, after: Var) => compareTypes(fake(), fake())("value", before, structuredClone(after)).map(line);
 
 const u16 = primitive("u16");
 const u32 = primitive("u32");
 const u64 = primitive("u64");
+
+/** An enum with `length` variants, each a u32. */
+const big = (length: number) =>
+  enumOf("Big", Object.fromEntries(Array.from({ length }, (_, i): [string, [number, LookupEntry]] => [`V${i}`, [i, u32]])));
 
 describe("compareTypes", () => {
   it("finds a field either side lacks, which PAPI's change list does not report from the receiving side", () => {
@@ -93,6 +101,30 @@ describe("compareTypes", () => {
     assert.deepEqual(changes(primitive("u16", "Balance"), primitive("u32", "Balance")), ["value changed u16 -> u32"]);
     assert.deepEqual(changes(struct("Key", { a: u32 }), type("Key", { type: "tuple", value: [u32, u16], innerDocs: [] })), [
       "value changed { a: u32 } -> (u32, u16)",
+    ]);
+  });
+
+  it("goes into options, results and tuples", () => {
+    const option = (some: LookupEntry) => type("Option", { type: "option", value: some });
+    const result = (ok: LookupEntry, ko: LookupEntry) => type("Result", { type: "result", value: { ok, ko } });
+    const tuple = (...value: LookupEntry[]) => type("Tuple", { type: "tuple", value, innerDocs: value.map(() => []) });
+    assert.deepEqual(changes(option(u32), option(u64)), ["value.some changed u32 -> u64"]);
+    assert.deepEqual(changes(result(u32, u16), result(u64, u32)), ["value.ok changed u32 -> u64", "value.ko changed u16 -> u32"]);
+    assert.deepEqual(changes(tuple(u32, u16), tuple(u32, u32, u64)), ["value.1 changed u16 -> u32", "value.2 added - -> u64"]);
+  });
+
+  it("sees a module error's byte length and a bit sequence's order, which its name does not show", () => {
+    const moduleError = (byteLength: number) =>
+      type("ModuleError", { type: "enum", value: { System: { type: "void", idx: 0 } }, innerDocs: {}, byteLength } as EnumVar);
+    const bits = (isLSB: boolean) => type("BitVec", { type: "bitSequence", isLSB });
+    assert.deepEqual(changes(moduleError(5), moduleError(6)), ["value changed enum { System } in 5 bytes -> enum { System } in 6 bytes"]);
+    assert.deepEqual(changes(bits(true), bits(false)), ["value changed BitVec<Lsb0> -> BitVec<Msb0>"]);
+  });
+
+  it("shows two long names from just before where they differ, when cutting them would hide it", () => {
+    const long = "A".repeat(110);
+    assert.deepEqual(changes(primitive("u16", `${long}<u16>`), primitive("u32", `${long}<u32>`)), [
+      `value changed …${"A".repeat(18)}<u16> -> …${"A".repeat(18)}<u32>`,
     ]);
   });
 
@@ -206,8 +238,9 @@ describe("compareTypes", () => {
   });
 
   it(`stops past ${MAX_TYPE_CHANGES} changes, returning one more to say so`, () => {
-    const many = Object.fromEntries(Array.from({ length: 150 }, (_, i): [string, [number, LookupEntry]] => [`V${i}`, [i, u32]]));
-    assert.equal(changes(enumOf("Big", {}), enumOf("Big", many)).length, MAX_TYPE_CHANGES + 1);
+    assert.equal(changes(big(0), big(MAX_TYPE_CHANGES)).length, MAX_TYPE_CHANGES);
+    assert.equal(changes(big(0), big(MAX_TYPE_CHANGES + 1)).length, MAX_TYPE_CHANGES + 1);
+    assert.equal(changes(big(0), big(150)).length, MAX_TYPE_CHANGES + 1);
   });
 });
 
@@ -243,20 +276,24 @@ describe("diff", () => {
     );
   });
 
-  it("says when an entry had more changes than it lists", () => {
-    const many = Object.fromEntries(Array.from({ length: 150 }, (_, i): [string, [number, LookupEntry]] => [`V${i}`, [i, u32]]));
-    const r = diff(requirements(["event:A.Big"]), fake({ "event:A.Big": value(enumOf("Big", {})) }), fake({ "event:A.Big": value(enumOf("Big", many)) }));
-    assert.equal(r.entries[0]?.types.length, MAX_TYPE_CHANGES);
-    assert.equal(r.entries[0]?.truncated, true);
+  it("says when an entry had more changes than it lists, and only then", () => {
+    const entry = (length: number) => diff(requirements(["event:A.Big"]), fake({ "event:A.Big": value(big(0)) }), fake({ "event:A.Big": value(big(length)) })).entries[0];
+    assert.deepEqual([entry(MAX_TYPE_CHANGES)?.types.length, entry(MAX_TYPE_CHANGES)?.truncated], [MAX_TYPE_CHANGES, false]);
+    assert.deepEqual([entry(MAX_TYPE_CHANGES + 1)?.types.length, entry(MAX_TYPE_CHANGES + 1)?.truncated], [MAX_TYPE_CHANGES, true]);
+  });
+
+  it("finds a runtime API's changed input by its position", () => {
+    const inputs = (...value: LookupEntry[]): Var => ({ type: "tuple", value, innerDocs: value.map(() => []) });
+    const r = diff(
+      requirements(["api:Api.get"]),
+      fake({ "api:Api.get": { args: inputs(u32, u16), value: u32 } }),
+      fake({ "api:Api.get": { args: inputs(u32, u32), value: u32 } }),
+    );
+    assert.deepEqual(r.entries[0]?.types.map(line), ["args.1 changed u16 -> u32"]);
   });
 
   it("lists the value's changes even when the args have more than the limit", () => {
-    const many = Object.fromEntries(Array.from({ length: 150 }, (_, i): [string, [number, LookupEntry]] => [`V${i}`, [i, u32]]));
-    const r = diff(
-      requirements(["query:A.Big"]),
-      fake({ "query:A.Big": { args: enumOf("Key", {}), value: u32 } }),
-      fake({ "query:A.Big": { args: enumOf("Key", many), value: u64 } }),
-    );
+    const r = diff(requirements(["query:A.Big"]), fake({ "query:A.Big": { args: big(0), value: u32 } }), fake({ "query:A.Big": { args: big(150), value: u64 } }));
     const types = r.entries[0]?.types ?? [];
     assert.equal(types.length, MAX_TYPE_CHANGES + 1);
     assert.deepEqual(types.filter((t) => t.path.startsWith("value")).map(line), ["value changed u32 -> u64"]);
@@ -289,6 +326,23 @@ describe("diff", () => {
         r.pipelines[0]?.retyped.map((e) => `${e.identifier}: ${e.types.map(line).join(", ")}`),
         ["D: type.at added - -> u32"],
       );
+    });
+
+    it("counts an extension a version lists twice, rather than calling it reordered", () => {
+      const r = transactions(
+        { 0: [ext("A"), ext("A"), ext("B")], 1: [ext("A"), ext("B")], 2: [ext("A"), ext("A")] },
+        { 0: [ext("A"), ext("B")], 1: [ext("B"), ext("A"), ext("A")], 2: [ext("A"), ext("A", u64.id)] },
+      );
+      assert.deepEqual(
+        r.pipelines.map((p) => [p.version, p.added, p.removed, p.reordered]),
+        [
+          [0, [], ["A"], false],
+          [1, ["A"], [], true],
+          [2, [], [], false],
+        ],
+      );
+      // The second on live against the second on the candidate.
+      assert.deepEqual(r.pipelines[2]?.retyped.map((e) => `${e.identifier}: ${e.types.map(line).join(", ")}`), ["A: type changed u32 -> u64"]);
     });
 
     it("sees a retyped extension's implicit value too", () => {

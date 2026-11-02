@@ -279,13 +279,13 @@ export interface PipelineChange {
   live: readonly string[] | null;
   /** A''s extension identifiers in order; null when A' has no such version. */
   candidate: readonly string[] | null;
-  /** In A''s list and not in A's. */
+  /** In A''s list and not in A's; one listed more often in A' than in A, once for each time more. */
   added: string[];
-  /** In A's list and not in A''s. */
+  /** In A's list and not in A''s; one listed more often in A than in A', once for each time more. */
   removed: string[];
-  /** The extensions in both lists are in another order. */
+  /** The extensions both lists keep are in another order. */
   reordered: boolean;
-  /** Extensions in both lists whose types differ. */
+  /** Extensions in both lists whose types differ: live's against the candidate's. */
   retyped: ExtensionChange[];
 }
 
@@ -326,8 +326,8 @@ export interface PipelineFinding extends PipelineVerdict {
   live: readonly string[] | null;
   /** A''s pipeline; null when A' has no such version. */
   candidate: readonly string[] | null;
-  /** Extensions in both D and A' whose types are not Identical. */
-  retyped: string[];
+  /** Extensions in both D and A' whose types are not Identical: A''s against D's, unlike `change.retyped`. */
+  retypedFromSdk: string[];
   /** What the upgrade changed in this version; null when A and A' have it alike, or both lack it. */
   change: PipelineChange | null;
 }
