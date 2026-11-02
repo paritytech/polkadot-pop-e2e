@@ -1,42 +1,117 @@
-// diff(R, A, A'): where the entries the SDK uses changed between live (A) and the
-// candidate (A'). It says what changed, not whether the SDK minds: that is check's
-// and regression's.
+// diff(R, A, A'): what changed between live (A) and the candidate (A') within what the
+// SDK uses: the entries R names and, where the SDK uses transactions, the extension
+// pipelines and the extrinsic versions. It says what changed in how they encode, not
+// whether the SDK minds: that is check's and regression's.
 
-import { entryPointsAreCompatible, type CompatibilityCache } from "@polkadot-api/metadata-compatibility";
+import type MetadataView from "../metadata-view/index.ts";
 import type Runtime from "../runtime/index.ts";
-import type { EntryChange, Requirements, RuntimeDiff, Selector } from "../types.ts";
+import type {
+  ChangeStatus,
+  Encoding,
+  EntryChange,
+  ExtensionChange,
+  ExtrinsicVersionChange,
+  PipelineChange,
+  Requirements,
+  RuntimeDiff,
+  Selector,
+  TypeChange,
+} from "../types.ts";
+import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 
-// PAPI reports a change at every level of the type tree it passes through; the deepest
-// ones say where. Past this many, the list stops helping.
-const MAX_CHANGED_PATHS = 8;
+type Changes = ReturnType<typeof compareTypes>;
 
-/** Where the entry's type differs between live and candidate: `args.dest`, `value.data.free`. */
-function changedAt(selector: Selector, live: Runtime, candidate: Runtime, cache: CompatibilityCache): string[] {
-  const before = live.entry(selector);
-  const after = candidate.entry(selector);
-  if (!before || !after) return [];
-  //using PAPI’s comparison engine to obtain change paths, not to decide SDK compatibility
-  const result = entryPointsAreCompatible(
-    before.shape,
-    (id) => live.node(id),
-    after.shape,
-    (id) => candidate.node(id),
-    cache,
-    true,
-  );
-  const paths = [
-    ...result.args.changes.map((change) => (change.path ? `args.${change.path}` : "args")),
-    ...result.values.changes.map((change) => (change.path ? `value.${change.path}` : "value")),
-  ];
-  return paths.filter((path) => !paths.some((other) => other.startsWith(`${path}.`))).slice(0, MAX_CHANGED_PATHS);
+/**
+ * Each side's changes, up to the limit for each: one side with many (a call's arguments)
+ * does not push out the other (its result). `truncated` when any side had more.
+ */
+const listed = (...sides: TypeChange[][]) => ({
+  types: sides.flatMap((side) => side.slice(0, MAX_TYPE_CHANGES)),
+  truncated: sides.some((side) => side.length > MAX_TYPE_CHANGES),
+});
+
+/** What a runtime without the entry encodes for it. */
+const NOTHING: Encoding = { args: null, value: null };
+
+/** How one entry R uses differs between live and the candidate; null when it does not. */
+function entryChange(selector: Selector, live: Runtime, candidate: Runtime, changes: Changes): EntryChange | null {
+  const onLive = live.entry(selector)?.encoding;
+  const onCandidate = candidate.entry(selector)?.encoding;
+  const before = onLive ?? NOTHING;
+  const after = onCandidate ?? NOTHING;
+  const { types, truncated } = listed(changes("args", before.args, after.args), changes("value", before.value, after.value));
+
+  let status: ChangeStatus;
+  if (onLive && onCandidate) {
+    // On both: a change only where they encode differently.
+    if (types.length === 0) return null;
+    status = "changed";
+  } else if (onLive) {
+    status = "removed";
+  } else if (onCandidate) {
+    status = "added";
+  } else {
+    return null;
+  }
+  // Added or removed is a change even with nothing to encode, as a call without arguments.
+  return { selector, status, types, truncated };
+}
+
+type Extension = MetadataView["metadata"]["extrinsic"]["extensionsByVersion"][number][number];
+
+/**
+ * Each extension version A or A' has, where it differs: the extensions added, removed or
+ * reordered, and those both keep whose types differ.
+ */
+function pipelineChanges(live: Runtime, candidate: Runtime, changes: Changes): PipelineChange[] {
+  const versions = [...new Set([live, candidate].flatMap((view) => Object.keys(view.pipelines).map(Number)))];
+  return versions
+    .sort((a, b) => a - b)
+    .flatMap((version): PipelineChange[] => {
+      const before = live.pipelines[version] ?? null;
+      const after = candidate.pipelines[version] ?? null;
+      const added = (after ?? []).filter((id) => !before?.includes(id));
+      const removed = (before ?? []).filter((id) => !after?.includes(id));
+      const kept = (before ?? []).filter((id) => after?.includes(id));
+      const reordered = kept.join() !== (after ?? []).filter((id) => before?.includes(id)).join();
+
+      const extensions = (view: MetadataView): Extension[] => view.metadata.extrinsic.extensionsByVersion[version] ?? [];
+      const retyped = extensions(live).flatMap((extension): ExtensionChange[] => {
+        const other = extensions(candidate).find(({ identifier }) => identifier === extension.identifier);
+        if (!other) return [];
+        const { types, truncated } = listed(
+          changes("type", live.lookup(extension.type), candidate.lookup(other.type)),
+          changes("additionalSigned", live.lookup(extension.additionalSigned), candidate.lookup(other.additionalSigned)),
+        );
+        return types.length > 0 ? [{ identifier: extension.identifier, types, truncated }] : [];
+      });
+
+      const status = !before ? "added" : !after ? "removed" : "changed";
+      if (status === "changed" && added.length + removed.length + retyped.length === 0 && !reordered) return [];
+      return [{ version, status, live: before, candidate: after, added, removed, reordered, retyped }];
+    });
+}
+
+/** The extrinsic format versions A and A' accept, when they differ. */
+function extrinsicVersionChange(live: Runtime, candidate: Runtime): ExtrinsicVersionChange | null {
+  const before = [...live.metadata.extrinsic.version].sort((a, b) => a - b);
+  const after = [...candidate.metadata.extrinsic.version].sort((a, b) => a - b);
+  if (before.join() === after.join()) return null;
+  return {
+    live: before,
+    candidate: after,
+    added: after.filter((version) => !before.includes(version)),
+    removed: before.filter((version) => !after.includes(version)),
+  };
 }
 
 export default function diff(requirements: Requirements, live: Runtime, candidate: Runtime): RuntimeDiff {
-  // Tracking changes makes PAPI's results carry more, so this cache is not shared with a check's.
-  const cache: CompatibilityCache = new Map();
-  const entries = requirements.entries.flatMap(({ selector }): EntryChange[] => {
-    const paths = changedAt(selector, live, candidate, cache);
-    return paths.length > 0 ? [{ selector, changedAt: paths }] : [];
-  });
-  return { chain: requirements.chain, entries };
+  const changes = compareTypes(live, candidate);
+  const { usesTransactions } = requirements;
+  return {
+    chain: requirements.chain,
+    entries: requirements.entries.flatMap(({ selector }) => entryChange(selector, live, candidate, changes) ?? []),
+    pipelines: usesTransactions ? pipelineChanges(live, candidate, changes) : [],
+    extrinsicVersions: usesTransactions ? extrinsicVersionChange(live, candidate) : null,
+  };
 }

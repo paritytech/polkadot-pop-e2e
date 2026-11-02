@@ -2,7 +2,7 @@
 // compares them. A runtime (A, A') and an SDK descriptor (D) are both read through it:
 // D is metadata too.
 
-import { getLookupFn } from "@polkadot-api/metadata-builders";
+import { getLookupFn, type LookupEntry } from "@polkadot-api/metadata-builders";
 import {
   enumValueEntryPointNode,
   mapLookupToTypedef,
@@ -14,7 +14,9 @@ import {
 } from "@polkadot-api/metadata-compatibility";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { DIRECTION } from "../selector.ts";
-import type { Entry, Kind, Metadata, Pipelines, Selector, Shape } from "../types.ts";
+import type { EncodedType, Encoding, Entry, Kind, Metadata, Pipelines, Selector, Shape } from "../types.ts";
+
+type Variant = Extract<EncodedType, { type: "enum" }>["value"][string];
 
 export default class MetadataView {
   readonly metadata: Metadata;
@@ -54,6 +56,11 @@ export default class MetadataView {
     return (kind === "api" ? this.#apis : this.#pallets).has(group);
   }
 
+  /** The type behind a type id as SCALE encodes it; see `EncodedType`. */
+  lookup(id: number): LookupEntry {
+    return this.#lookup(id);
+  }
+
   /** The type behind a type id in an entry's shape. Resolved on first use. */
   node(id: number): TypedefNode {
     let node = this.#nodes.get(id);
@@ -65,29 +72,56 @@ export default class MetadataView {
   }
 
   #collectEntries(): void {
-    const add = (kind: Kind, group: string, name: string, shape: Shape) => {
+    const add = (kind: Kind, group: string, name: string, shape: Shape, encoding: Encoding) => {
       const selector = `${kind}:${group}.${name}` as const;
-      this.#entries.set(selector, { selector, kind, group, name, shape, direction: DIRECTION[kind] });
+      this.#entries.set(selector, { selector, kind, group, name, shape, encoding, direction: DIRECTION[kind] });
     };
+    const value = (id: number): Encoding => ({ args: null, value: this.#lookup(id) });
+    // A runtime call's inputs are encoded one after the other, as a tuple.
+    const call = (fn: { inputs: { type: number }[]; output: number }): Encoding => ({
+      args:
+        fn.inputs.length > 0
+          ? { type: "tuple", value: fn.inputs.map((input) => this.#lookup(input.type)), innerDocs: fn.inputs.map(() => []) }
+          : null,
+      value: this.#lookup(fn.output),
+    });
     // Calls and events are the variants of the pallet's call and event enums.
     const variants = (ref: { type: number } | undefined) => {
       const entry = ref && this.#lookup(ref.type);
       return entry?.type === "enum" ? Object.entries(entry.value) : [];
     };
 
+    // What a call or an event carries: its one unnamed field's type, or its fields.
+    const payload = (variant: Variant): EncodedType | null =>
+      variant.type === "lookupEntry" ? variant.value : variant.type === "void" ? null : variant;
+
     for (const pallet of this.metadata.pallets) {
-      for (const item of pallet.storage?.items ?? []) add("query", pallet.name, item.name, storageEntryPoint(item));
+      for (const item of pallet.storage?.items ?? []) {
+        const { type } = item;
+        add("query", pallet.name, item.name, storageEntryPoint(item), {
+          args: type.tag === "map" ? this.#lookup(type.value.key) : null,
+          value: this.#lookup(type.tag === "map" ? type.value.value : type.value),
+        });
+      }
       for (const [name, variant] of variants(pallet.calls)) {
-        add("tx", pallet.name, name, { args: enumValueEntryPointNode(variant), values: voidEntryPointNode });
+        add("tx", pallet.name, name, { args: enumValueEntryPointNode(variant), values: voidEntryPointNode }, {
+          args: payload(variant),
+          value: null,
+        });
       }
       for (const [name, variant] of variants(pallet.events)) {
-        add("event", pallet.name, name, { args: voidEntryPointNode, values: enumValueEntryPointNode(variant) });
+        add("event", pallet.name, name, { args: voidEntryPointNode, values: enumValueEntryPointNode(variant) }, {
+          args: null,
+          value: payload(variant),
+        });
       }
-      for (const constant of pallet.constants) add("constant", pallet.name, constant.name, singleValueEntryPoint(constant.type));
-      for (const fn of pallet.viewFns) add("view", pallet.name, fn.name, runtimeCallEntryPoint(fn));
+      for (const constant of pallet.constants) {
+        add("constant", pallet.name, constant.name, singleValueEntryPoint(constant.type), value(constant.type));
+      }
+      for (const fn of pallet.viewFns) add("view", pallet.name, fn.name, runtimeCallEntryPoint(fn), call(fn));
     }
     for (const api of this.metadata.apis) {
-      for (const method of api.methods) add("api", api.name, method.name, runtimeCallEntryPoint(method));
+      for (const method of api.methods) add("api", api.name, method.name, runtimeCallEntryPoint(method), call(method));
     }
   }
 }

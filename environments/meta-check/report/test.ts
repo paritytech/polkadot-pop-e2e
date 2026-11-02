@@ -6,14 +6,17 @@ import SdkDescriptor from "../descriptor/index.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
 import type {
+  EntryChange,
   EntryFinding,
   Level,
+  PipelineChange,
   PipelineCheck,
   PipelineFinding,
   Report,
   Requirements,
   RuntimeCheck,
   Run,
+  RuntimeDiff,
   Selector,
   Use,
   Verdict,
@@ -41,16 +44,24 @@ const entry = (
   after: Level,
   {
     uses = [use("app/src/a.ts", 1, selector)],
-    changedAt = [],
+    change = null,
     optional = false,
     placedBy = "chain",
-  }: { uses?: Use[]; changedAt?: string[]; optional?: boolean; placedBy?: "chain" | "pallet" } = {},
+  }: { uses?: Use[]; change?: EntryChange | null; optional?: boolean; placedBy?: "chain" | "pallet" } = {},
 ): EntryFinding => ({
   requirement: { selector, direction: "both", expected: null, uses, placedBy, optional },
   before,
   after,
   verdict,
-  changedAt,
+  change,
+});
+
+/** An entry change whose types were added at these paths, `u32` each. */
+const changed = (selector: Selector, paths: string[], status: EntryChange["status"] = "changed"): EntryChange => ({
+  selector,
+  status,
+  types: paths.map((path) => ({ path, status: "added", before: null, after: "u32" })),
+  truncated: false,
 });
 
 const pipeline = (overrides: Partial<PipelineFinding>): PipelineFinding => ({
@@ -61,6 +72,19 @@ const pipeline = (overrides: Partial<PipelineFinding>): PipelineFinding => ({
   before: "Identical",
   after: "Identical",
   verdict: "ok",
+  retyped: [],
+  change: null,
+  ...overrides,
+});
+
+const pipelineChange = (overrides: Partial<PipelineChange>): PipelineChange => ({
+  version: 0,
+  status: "changed",
+  live: ["A", "B", "C"],
+  candidate: ["A", "B", "C"],
+  added: [],
+  removed: [],
+  reordered: false,
   retyped: [],
   ...overrides,
 });
@@ -74,6 +98,7 @@ const report = (overrides: Partial<Report>): Report => ({
   candidate: version(2),
   entries: [],
   pipelines: [],
+  extrinsicVersions: null,
   ...overrides,
 });
 
@@ -115,7 +140,7 @@ describe("renderMarkdown", () => {
         report({
           entries: [
             entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
-              changedAt: ["args.call"],
+              change: changed("tx:Sudo.sudo", ["args.call"]),
               placedBy: "pallet",
               uses: [use("a.ts", 1), use("a.ts", 9), use("b.ts", 3)],
             }),
@@ -126,6 +151,18 @@ describe("renderMarkdown", () => {
     );
     assert.ok(markdown.includes("| `tx:Sudo.sudo` † | Identical → **Partial** at `args.call` | `a.ts:1`, `:9`, `b.ts:3` |"));
     assert.ok(markdown.includes("| `query:Game.Seats` ? | Identical → **Incompatible** | `app/src/a.ts:1` |"));
+  });
+
+  it("names the path an entry's changes share and counts them, or each side they are on", async () => {
+    const cell = (change: EntryChange) =>
+      renderMarkdown(run(report({ entries: [entry(change.selector, "breaking", "Identical", "Partial", { change })] })))
+        .split("\n")
+        .find((line) => line.startsWith(`| \`${change.selector}\``));
+    assert.match(cell(changed("tx:Sudo.sudo", ["args.call.A.x", "args.call.B"])) ?? "", /\*\*Partial\*\* at `args.call` \(2 changes\) \|/);
+    assert.match(cell(changed("api:A.b", ["args.0", "value.ok"])) ?? "", /\*\*Partial\*\* at `args`, `value` \(2 changes\) \|/);
+    assert.match(cell({ ...changed("api:A.b", ["value.ok"]), truncated: true }) ?? "", / at `value.ok` \(1\+ changes\) \|/);
+    // An added or removed entry: its level already says it.
+    assert.match(cell(changed("query:A.b", ["value"], "removed")) ?? "", /\*\*Partial\*\* \|/);
   });
 
   it("caps the places an entry is read at", async () => {
@@ -171,6 +208,101 @@ describe("renderMarkdown", () => {
     assert.ok(markdown.includes("| 3 | C | C | **D** |"));
   });
 
+  it("lists what changed between live and candidate, whatever its verdict, collapsed", async () => {
+    const markdown = renderMarkdown(
+      run(
+        report({
+          entries: [
+            entry("query:Game.Players", "ok", "Identical", "Identical", { change: changed("query:Game.Players", ["value.a", "value.b"]) }),
+            entry("constant:Game.Gone", "breaking", "Identical", "Missing", {
+              change: {
+                selector: "constant:Game.Gone",
+                status: "removed",
+                types: [{ path: "value", status: "removed", before: "enum { A, B }", after: null }],
+                truncated: false,
+              },
+            }),
+            entry("query:Game.Same", "ok", "Identical", "Identical"),
+          ],
+          pipelines: [
+            pipeline({
+              verdict: "breaking",
+              change: pipelineChange({
+                removed: ["B"],
+                added: ["D"],
+                reordered: true,
+                retyped: [
+                  {
+                    identifier: "C",
+                    types: [{ path: "type", status: "changed", before: "u32", after: "Option<u32>" }],
+                    truncated: false,
+                  },
+                ],
+              }),
+            }),
+            pipeline({ version: 1, change: pipelineChange({ version: 1, status: "added", live: null, added: ["A", "B"] }) }),
+          ],
+        }),
+      ),
+    );
+    const section = markdown.slice(markdown.indexOf("<details><summary>What changed"));
+    assert.deepEqual(section.slice(0, section.indexOf("</details>")).split("\n"), [
+      "<details><summary>What changed between live and candidate (2 entries, 2 extension versions)</summary>",
+      "",
+      "- 🔴 Transaction extensions v0: removes `B`; adds `D`; reorders the rest; retypes `C`",
+      "- 🟢 Transaction extensions v1: new, with `A`, `B`",
+      "",
+      "| Entry | Where | Live | Candidate |",
+      "|---|---|---|---|",
+      "| 🟢 `query:Game.Players` | `value.a` | — | `u32` |",
+      "|  | `value.b` | — | `u32` |",
+      "| 🔴 `constant:Game.Gone` (removed) | `value` | `enum { A, B }` | — |",
+      "| v0 `C` | `type` | `u32` | `Option<u32>` |",
+      "",
+    ]);
+  });
+
+  it("gives an added or removed entry with nothing to encode a row of its own", async () => {
+    const gone: EntryChange = { selector: "tx:Game.offboard", status: "removed", types: [], truncated: false };
+    const markdown = renderMarkdown(run(report({ entries: [entry("tx:Game.offboard", "breaking", "Identical", "Missing", { change: gone })] })));
+    assert.ok(markdown.includes("| 🔴 `tx:Game.offboard` (removed) | — | `()` | — |"));
+    assert.ok(markdown.includes("<details><summary>What changed between live and candidate (1 entry)</summary>"));
+  });
+
+  it("says when an extension version that comes or goes has no extensions", async () => {
+    const markdown = renderMarkdown(
+      run(
+        report({
+          pipelines: [
+            pipeline({ version: 2, change: pipelineChange({ version: 2, status: "added", live: null, candidate: [] }) }),
+            pipeline({ version: 3, change: pipelineChange({ version: 3, status: "removed", live: [], candidate: null }) }),
+          ],
+        }),
+      ),
+    );
+    assert.ok(markdown.includes("- 🟢 Transaction extensions v2: new, with no extensions\n"));
+    assert.ok(markdown.includes("- 🟢 Transaction extensions v3: gone; live had no extensions\n"));
+  });
+
+  it("lists the extrinsic versions the candidate stops or starts accepting, ungraded", async () => {
+    const markdown = renderMarkdown(
+      run(report({ extrinsicVersions: { live: [4, 5], candidate: [5, 6], added: [6], removed: [4] } })),
+    );
+    assert.ok(markdown.includes("<details><summary>What changed between live and candidate (extrinsic versions)</summary>"));
+    assert.ok(markdown.includes("- ⚪ Extrinsic versions: removes `4`; adds `6` (not graded)\n"));
+  });
+
+  it("caps the changes it lists per entry, and keeps a table cell whole", async () => {
+    const paths = Array.from({ length: 7 }, (_, i) => `value.f${i}`);
+    const change = { ...changed("query:Game.Players", paths), truncated: true };
+    change.types[0] = { path: "value.f0", status: "changed", before: "A | B", after: "u32" };
+    const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "ok", "Identical", "Identical", { change })] })));
+    assert.ok(markdown.includes("| 🟢 `query:Game.Players` | `value.f0` | `A \\| B` | `u32` |"));
+    assert.ok(markdown.includes("|  | `value.f4` | — | `u32` |\n| | … 2 more in report.json, and more past its limit | | |"));
+    // Nothing breaking or pre-existing, and still a section: the upgrade changed something.
+    assert.ok(markdown.includes("#### People\n"));
+  });
+
   it("says when the candidate has no such pipeline", async () => {
     const markdown = renderMarkdown(
       run(report({ pipelines: [pipeline({ candidate: null, after: "Missing", verdict: "breaking" })] })),
@@ -208,21 +340,43 @@ describe("toJson", () => {
     const json = toJson({
       reports: [
         report({
-          entries: [entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", { changedAt: ["args.call"], uses: [use("a.ts", 7)] })],
-          pipelines: [pipeline({ retyped: ["B"] })],
+          entries: [
+            entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
+              change: changed("tx:Sudo.sudo", ["args.call"]),
+              uses: [use("a.ts", 7)],
+            }),
+          ],
+          pipelines: [
+            pipeline({
+              retyped: ["B"],
+              change: pipelineChange({
+                removed: ["C"],
+                retyped: [{ identifier: "B", types: [{ path: "type", status: "changed", before: "u32", after: "u64" }], truncated: false }],
+              }),
+            }),
+          ],
         }),
       ],
       unplaced: [],
       failed: [],
     });
-    assert.equal(json.schemaVersion, 1);
+    assert.equal(json.schemaVersion, 2);
+    assert.equal(json.chains[0]?.extrinsicVersions, null);
+    // Its own shape, not the internal object: a field added inside does not reach the artifact.
+    const versions = { live: [4, 5], candidate: [5], added: [], removed: [4], internal: true };
+    const withVersions = toJson(run(report({ extrinsicVersions: versions })));
+    assert.deepEqual(withVersions.chains[0]?.extrinsicVersions, { live: [4, 5], candidate: [5], added: [], removed: [4] });
     assert.deepEqual(json.chains[0]?.entries, [
       {
         selector: "tx:Sudo.sudo",
         verdict: "breaking",
         before: "Identical",
         after: "Partial",
-        changedAt: ["args.call"],
+        change: {
+          status: "changed",
+          types: [{ path: "args.call", status: "added", before: null, after: "u32" }],
+          truncated: false,
+        },
         direction: "both",
         optional: false,
         placedBy: "chain",
@@ -230,6 +384,14 @@ describe("toJson", () => {
       },
     ]);
     assert.deepEqual(json.chains[0]?.pipelines[0]?.retyped, ["B"]);
+    // The lists themselves are the pipeline's live and candidate.
+    assert.deepEqual(json.chains[0]?.pipelines[0]?.change, {
+      status: "changed",
+      added: [],
+      removed: ["C"],
+      reordered: false,
+      retyped: [{ identifier: "B", types: [{ path: "type", status: "changed", before: "u32", after: "u64" }], truncated: false }],
+    });
     // Plain data: survives a round trip.
     assert.deepEqual(JSON.parse(JSON.stringify(json)), json);
   });
@@ -249,6 +411,8 @@ describe("assembleReport", () => {
     pipelines,
   });
 
+  const added = pipelineChange({ version: 1, status: "added", live: null, candidate: ["A", "B"], added: ["A", "B"] });
+
   it("joins both checks, their verdicts and the diff into one chain's report", () => {
     const r = assembleReport(
       checked(1, ["Identical", "Identical"], [{ version: 0, expected: ["A"], actual: ["A"], level: "Identical", retyped: [] }]),
@@ -260,18 +424,34 @@ describe("assembleReport", () => {
           { version: 1, expected: null, actual: ["A", "B"], level: "Present", retyped: [] },
         ],
       ),
-      { chain: "individuality", entries: [{ selector: "tx:Sudo.sudo", changedAt: ["args.call"] }] },
+      {
+        chain: "individuality",
+        entries: [changed("tx:Sudo.sudo", ["args.call"])],
+        pipelines: [added],
+        extrinsicVersions: { live: [4, 5], candidate: [5], added: [], removed: [4] },
+      },
     );
+    assert.deepEqual(r.extrinsicVersions?.removed, [4]);
     assert.deepEqual([r.live.specVersion, r.candidate.specVersion], [1, 2]);
     assert.deepEqual(
-      r.entries.map((e) => `${e.requirement.selector} ${e.before}->${e.after} ${e.verdict} [${e.changedAt.join()}]`),
+      r.entries.map((e) => `${e.requirement.selector} ${e.before}->${e.after} ${e.verdict} [${(e.change?.types ?? []).map((t) => t.path).join()}]`),
       ["query:Game.Players Identical->Identical ok []", "tx:Sudo.sudo Identical->Partial breaking [args.call]"],
     );
-    // Lists from each side, D's from either, and what the candidate retyped.
+    // Lists from each side, D's from either, what the candidate retyped, and what changed.
     assert.deepEqual(r.pipelines, [
       pipeline({ after: "BackwardsCompatible", expected: ["A"], live: ["A"], candidate: ["A"], retyped: ["A"] }),
-      pipeline({ version: 1, before: "Missing", after: "Present", expected: null, live: null, candidate: ["A", "B"] }),
+      pipeline({ version: 1, before: "Missing", after: "Present", expected: null, live: null, candidate: ["A", "B"], change: added }),
     ]);
+  });
+
+  it("refuses a diff of other requirements or another chain: its changes would vanish", () => {
+    const live = checked(1, ["Identical", "Identical"], []);
+    const assemble = (changes: RuntimeDiff) => () => assembleReport(live, checked(2, ["Identical", "Identical"], []), changes);
+    const refused = /the diff is not of the requirements and chain the checks are/;
+    const none = { entries: [], pipelines: [], extrinsicVersions: null };
+    assert.throws(assemble({ ...none, chain: "assetHub" }), refused);
+    assert.throws(assemble({ ...none, chain: "individuality", entries: [changed("query:Game.Rounds", ["value"])] }), refused);
+    assert.throws(assemble({ ...none, chain: "individuality", pipelines: [added] }), refused);
   });
 });
 
@@ -318,7 +498,10 @@ describe("buildReport on the fixtures", { skip }, () => {
   const breaking = (r: Report) => [
     ...r.entries
       .filter((e) => e.verdict === "breaking")
-      .map((e) => `${e.requirement.selector} ${e.before}->${e.after} ${e.changedAt.join(",")}`.trim()),
+      .map((e) => {
+        const at = e.change?.status === "changed" ? e.change.types.map((t) => t.path.split(".").slice(0, 2).join(".")) : [];
+        return `${e.requirement.selector} ${e.before}->${e.after} ${[...new Set(at)].join(",")}`.trim();
+      }),
     ...r.pipelines.filter((p) => p.verdict === "breaking").map((p) => `pipeline v${p.version} ${p.before}->${p.after}`),
   ];
   const pipelines = (r: Report) => r.pipelines.map((p) => `v${p.version} ${p.verdict} ${p.before}->${p.after}`);
@@ -409,6 +592,18 @@ describe("renderMarkdown on demo 1", { skip }, () => {
         "| Entry | Live → candidate | Read at |",
         "|---|---|---|",
         "| `constant:Score.Suffix` | Missing → Missing | `individuality/src/rings.ts:297` |",
+        "</details>",
+        "",
+        "<details><summary>What changed between live and candidate (3 entries)</summary>",
+        "",
+        "| Entry | Where | Live | Candidate |",
+        "|---|---|---|---|",
+        "| 🔴 `constant:Game.airdrop_event_id_base` (removed) | `value` | `[u8; 27]` | — |",
+        "| 🟢 `query:Score.Participants` | `value.attended_games_while_recognized` | — | `u32` |",
+        "| 🟢 `tx:Sudo.sudo` | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationThreshold` | — | `[Option<u32>; 1]` |",
+        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationPeriod` | — | `[Option<u32>; 1]` |",
+        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationsPerPeriod` | — | `[Option<u32>; 1]` |",
+        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.MaxLitePeople` | — | `[Option<u32>; 1]` |",
         "</details>",
         "",
         "<sub>D: `paseo-individuality` from `0x69e7…7871` · `?` optional read · `†` chain inferred from the pallet</sub>",

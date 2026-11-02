@@ -90,10 +90,10 @@ describe("buildRequirements", { skip }, () => {
     assert.equal(await optional(`chain.individuality.query.Game?.Players;\nchain.individuality.query.Game.Players;`), false);
   });
 
-  it("signs on a chain with a tx requirement", async () => {
+  it("uses transactions on a chain with a tx requirement", async () => {
     const set = buildRequirements(await paseo(), usageOf(`chain.individuality.tx.Game.report(x);\nchain.assetHub.query.System.Number;`));
     assert.deepEqual(
-      set.chains.map((c) => `${c.chain} ${c.signs}`),
+      set.chains.map((c) => `${c.chain} ${c.usesTransactions}`),
       ["individuality true", "assetHub false", "bulletin false"],
     );
   });

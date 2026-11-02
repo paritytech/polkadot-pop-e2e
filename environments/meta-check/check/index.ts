@@ -19,7 +19,7 @@ export default function check(requirements: Requirements, runtime: Runtime): Run
   const versions = [
     ...new Set([descriptor, runtime].flatMap((view) => Object.keys(view.pipelines).map(Number))),
   ].sort((a, b) => a - b);
-  const pipelines = requirements.signs
+  const pipelines = requirements.usesTransactions
     ? versions.map((version): PipelineCheck => {
         const { level, retyped } = pipelineLevel(version, descriptor, runtime, cache);
         return {

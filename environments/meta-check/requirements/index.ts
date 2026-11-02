@@ -57,8 +57,8 @@ export default function buildRequirements(
           optional: uses.every((use) => use.optional),
         }),
       );
-    const signs = entries.some((entry) => parseSelector(entry.selector).kind === "tx");
-    return [{ chain, descriptor, entries, signs }];
+    const usesTransactions = entries.some((entry) => parseSelector(entry.selector).kind === "tx");
+    return [{ chain, descriptor, entries, usesTransactions }];
   });
 
   return { chains, unplaced };

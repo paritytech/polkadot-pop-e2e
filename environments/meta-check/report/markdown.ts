@@ -1,15 +1,32 @@
 // A run as markdown for the job summary: the verdict first, breaking findings in full,
-// pre-existing ones collapsed, ok ones only counted. The JSON has everything.
+// pre-existing ones collapsed, ok ones only counted, then what the upgrade changed,
+// collapsed. The JSON has the rest, up to its own limits.
 
-import type { ChainKey, EntryFinding, Level, PipelineFinding, Report, Run, Use, Verdict } from "../types.ts";
+import type {
+  ChainKey,
+  EntryFinding,
+  ExtrinsicVersionChange,
+  Level,
+  PipelineFinding,
+  Report,
+  Run,
+  TypeChange,
+  Use,
+  Verdict,
+} from "../types.ts";
 
 const CHAIN: Record<ChainKey, string> = { individuality: "People", assetHub: "Asset Hub", bulletin: "Bulletin" };
 
 // Past these, a cell stops being read; the count says the rest.
 const MAX_USES = 6;
 const MAX_NAMES = 5;
+const MAX_TYPE_ROWS = 5;
+
+const MARK: Record<Verdict, string> = { breaking: "🔴", "pre-existing": "🟡", ok: "🟢" };
 
 const code = (text: string): string => `\`${text}\``;
+/** In a table cell: a `|`, even in code, would end the cell. */
+const cellCode = (text: string): string => code(text.replaceAll("|", "\\|"));
 const shortHash = (hash: string): string => `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 
 const findings = (report: Report): (EntryFinding | PipelineFinding)[] => [...report.entries, ...report.pipelines];
@@ -28,11 +45,28 @@ function readAt(uses: Use[]): string {
   return [...shown, ...(more > 0 ? [`+${more} more`] : [])].join(", ");
 }
 
-/** `Identical → **Partial** at `args.call``. */
-function levels(before: Level, after: Level, changedAt: string[], emphasise: boolean): string {
-  const at = changedAt.length > 0 ? ` at ${changedAt.map(code).join(", ")}` : "";
-  return `${before} → ${emphasise ? `**${after}**` : after}${at}`;
+/**
+ * Where an entry's types changed, for its row: the path all its changes share, `args.call`
+ * (6 changes), or each side they are on. Not for an added or removed entry: its level says it.
+ */
+function changedAt(finding: EntryFinding): string {
+  const { change } = finding;
+  if (change?.status !== "changed") return "";
+  const paths = change.types.map((type) => type.path.split("."));
+  const [first = [], ...rest] = paths;
+  const shared: string[] = [];
+  for (const [i, segment] of first.entries()) {
+    if (!rest.every((other) => other[i] === segment)) break;
+    shared.push(segment);
+  }
+  const where = shared.length > 0 ? [shared.join(".")] : [...new Set(paths.map((segments) => segments[0] ?? ""))];
+  const count = paths.length > 1 || change.truncated ? ` (${paths.length}${change.truncated ? "+" : ""} changes)` : "";
+  return ` at ${where.map(code).join(", ")}${count}`;
 }
+
+/** `Identical → **Partial**`. */
+const levels = (before: Level, after: Level, emphasise: boolean): string =>
+  `${before} → ${emphasise ? `**${after}**` : after}`;
 
 function entryName(finding: EntryFinding): string {
   const { selector, optional, placedBy } = finding.requirement;
@@ -42,10 +76,13 @@ function entryName(finding: EntryFinding): string {
 const ENTRY_TABLE = ["| Entry | Live → candidate | Read at |", "|---|---|---|"];
 
 const entryRow = (finding: EntryFinding, emphasise: boolean): string =>
-  `| ${entryName(finding)} | ${levels(finding.before, finding.after, finding.changedAt, emphasise)} | ${readAt(finding.requirement.uses)} |`;
+  `| ${entryName(finding)} | ${levels(finding.before, finding.after, emphasise)}${changedAt(finding)} | ${readAt(finding.requirement.uses)} |`;
 
 const names = (ids: string[]): string =>
   ids.length > MAX_NAMES ? `${ids.slice(0, MAX_NAMES).map(code).join(", ")}, … (${ids.length})` : ids.map(code).join(", ");
+
+/** An extension version's identifiers, or that it has none. */
+const extensions = (ids: string[]): string => (ids.length > 0 ? names(ids) : "no extensions");
 
 /** What the candidate's pipeline does differently from what the SDK signs with. */
 function pipelineDifference(pipeline: PipelineFinding): string[] {
@@ -106,7 +143,92 @@ function preExisting(report: Report): string[] {
     "",
     ...ENTRY_TABLE,
     ...entries.map((f) => entryRow(f, false)),
-    ...pipelines.map((p) => `| transaction extensions v${p.version} | ${levels(p.before, p.after, [], false)} | — |`),
+    ...pipelines.map((p) => `| transaction extensions v${p.version} | ${levels(p.before, p.after, false)} | — |`),
+    "</details>",
+    "",
+  ];
+}
+
+/** Where types differ, a row each, up to a few; the first row names what they belong to. */
+function typeRows(name: string, types: TypeChange[], truncated: boolean): string[] {
+  const rows = types
+    .slice(0, MAX_TYPE_ROWS)
+    .map(
+      (type, index) =>
+        `| ${index === 0 ? name : ""} | ${cellCode(type.path)} | ${type.before === null ? "—" : cellCode(type.before)} | ` +
+        `${type.after === null ? "—" : cellCode(type.after)} |`,
+    );
+  const more = types.length - rows.length;
+  if (more === 0 && !truncated) return rows;
+  // report.json lists up to its limit; past it, the changes are in neither.
+  const rest = [...(more > 0 ? [`${more} more in report.json`] : []), ...(truncated ? ["more past its limit"] : [])];
+  return [...rows, `| | … ${rest.join(", and ")} | | |`];
+}
+
+function entryChangeRows(finding: EntryFinding): string[] {
+  const { change } = finding;
+  if (!change) return [];
+  const status = change.status === "changed" ? "" : ` (${change.status})`;
+  const name = `${MARK[finding.verdict]} ${code(finding.requirement.selector)}${status}`;
+  // Added or removed with nothing to encode, as a call without arguments: `()` on the side that has it.
+  if (change.types.length === 0) {
+    const side = (status: string) => (change.status === status ? code("()") : "—");
+    return [`| ${name} | — | ${side("removed")} | ${side("added")} |`];
+  }
+  return typeRows(name, change.types, change.truncated);
+}
+
+/** What the candidate did to one extension version, against live; the types it changed go to the table. */
+function pipelineChangeLine(finding: PipelineFinding): string {
+  const { change } = finding;
+  if (!change) return "";
+  const what =
+    change.status === "added"
+      ? [`new, with ${extensions(change.added)}`]
+      : change.status === "removed"
+        ? [`gone; live had ${extensions(change.removed)}`]
+        : [
+            ...(change.removed.length > 0 ? [`removes ${names(change.removed)}`] : []),
+            ...(change.added.length > 0 ? [`adds ${names(change.added)}`] : []),
+            ...(change.reordered ? ["reorders the rest"] : []),
+            ...(change.retyped.length > 0 ? [`retypes ${names(change.retyped.map((extension) => extension.identifier))}`] : []),
+          ];
+  return `- ${MARK[finding.verdict]} Transaction extensions v${change.version}: ${what.join("; ")}`;
+}
+
+/** Which extrinsic versions the candidate stopped or started accepting. No grade, so no verdict. */
+function extrinsicVersionLine({ added, removed }: ExtrinsicVersionChange): string {
+  const what = [
+    ...(removed.length > 0 ? [`removes ${names(removed.map(String))}`] : []),
+    ...(added.length > 0 ? [`adds ${names(added.map(String))}`] : []),
+  ];
+  return `- ⚪ Extrinsic versions: ${what.join("; ")} (not graded)`;
+}
+
+/** Everything the candidate changed within what the SDK uses, whatever its verdict. Collapsed: the JSON lists more. */
+function changes(report: Report): string[] {
+  const entries = report.entries.filter((f) => f.change);
+  const pipelines = report.pipelines.filter((f) => f.change);
+  const { extrinsicVersions } = report;
+  if (entries.length + pipelines.length === 0 && !extrinsicVersions) return [];
+  const extensionRows = pipelines.flatMap((f) =>
+    (f.change?.retyped ?? []).flatMap((extension) =>
+      typeRows(`v${f.version} ${code(extension.identifier)}`, extension.types, extension.truncated),
+    ),
+  );
+  const tableRows = [...entries.flatMap(entryChangeRows), ...extensionRows];
+  const counts = [
+    ...(entries.length > 0 ? [`${entries.length} ${entries.length === 1 ? "entry" : "entries"}`] : []),
+    ...(pipelines.length > 0 ? [`${pipelines.length} extension version${pipelines.length === 1 ? "" : "s"}`] : []),
+    ...(extrinsicVersions ? ["extrinsic versions"] : []),
+  ];
+  const lines = [...(extrinsicVersions ? [extrinsicVersionLine(extrinsicVersions)] : []), ...pipelines.map(pipelineChangeLine)];
+  return [
+    `<details><summary>What changed between live and candidate (${counts.join(", ")})</summary>`,
+    "",
+    ...lines,
+    ...(lines.length > 0 ? [""] : []),
+    ...(tableRows.length > 0 ? ["| Entry | Where | Live | Candidate |", "|---|---|---|---|", ...tableRows] : []),
     "</details>",
     "",
   ];
@@ -116,7 +238,7 @@ function chainSection(report: Report): string[] {
   const entries = report.entries.filter((f) => f.verdict === "breaking");
   const pipelines = report.pipelines.filter((f) => f.verdict === "breaking");
   const breaking = entries.length + pipelines.length;
-  const rest = preExisting(report);
+  const rest = [...preExisting(report), ...changes(report)];
   if (breaking === 0 && rest.length === 0) return [];
   return [
     `#### ${CHAIN[report.chain]}${breaking > 0 ? `: ${breaking} breaking` : ""}`,

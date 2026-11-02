@@ -42,7 +42,7 @@ describe("check on the fixtures", { skip }, () => {
     );
   });
 
-  it("skips the pipelines on a chain the SDK does not sign on", async () => {
+  it("skips the pipelines on a chain the SDK uses no transactions on", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-"));
     fs.mkdirSync(path.join(dir, "src"));
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@x/reader" }));

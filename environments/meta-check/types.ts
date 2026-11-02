@@ -12,13 +12,15 @@
  * - `check(R, A)`: how well one runtime fits R. Live and candidate are each checked.
  * - `regression(onLive, onCandidate)`: comparing those two checks distinguishes new
  * regressions from existing mismatches.
- * - `diff(R, A, A')`: where the entries R uses changed between the two runtimes.
+ * - `diff(R, A, A')`: what changed between the two runtimes within what the SDK uses:
+ * the entries R uses and, where the SDK submits transactions, the extension pipelines.
  *
  * This is a static metadata check, not a guarantee of runtime behaviour.
  * See `docs/design/runtime-diff.md` for the design; implementation details below
  * describe the current checker.
  */
 
+import type { Var } from "@polkadot-api/metadata-builders";
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type SdkDescriptor from "./descriptor/index.ts";
@@ -48,6 +50,20 @@ export interface RuntimeVersion {
  */
 export type Shape = EntryPoint;
 
+/**
+ * A type as SCALE encodes it, the way polkadot-api builds its codecs from metadata
+ * (`getLookupFn`): newtypes unwrapped, but integer widths, compact encoding, lengths,
+ * field order and variant indexes kept. Unlike a `Shape`'s types, two of these that
+ * compare equal encode alike.
+ */
+export type EncodedType = Var;
+
+/** The types of one entry as they are encoded: what goes in and what comes out; null for a side with nothing. */
+export interface Encoding {
+  args: EncodedType | null;
+  value: EncodedType | null;
+}
+
 /** One entry in a runtime's metadata, or in D. */
 export interface Entry {
   selector: Selector;
@@ -56,6 +72,7 @@ export interface Entry {
   group: string;
   name: string;
   shape: Shape;
+  encoding: Encoding;
   direction: Direction;
 }
 
@@ -116,8 +133,11 @@ export interface Requirements {
   descriptor: SdkDescriptor;
   /** Sorted by selector. */
   entries: Requirement[];
-  /** The SDK builds transactions here (a `tx:` requirement), so the extension pipelines matter. */
-  signs: boolean;
+  /**
+   * The SDK builds transactions here, signed or not (a `tx:` requirement), so the extension
+   * pipelines and extrinsic versions matter. A chain the SDK only ships a signer for has none.
+   */
+  usesTransactions: boolean;
 }
 
 /** R: the requirements for each chain the caller gave a descriptor for. */
@@ -206,26 +226,96 @@ export interface Regression {
   pipelines: PipelineVerdict[];
 }
 
-/** One entry R uses whose type differs between A and A'. */
-export interface EntryChange {
-  selector: Selector;
-  /** The type paths where A and A' differ, deepest only: `args.dest`, `value.data.free`. */
-  changedAt: string[];
+/** `added`: only A' has it. `removed`: only A has it. `changed`: both have it, and it differs. */
+export type ChangeStatus = "added" | "removed" | "changed";
+
+/** One place where a type differs between A and A' in how it encodes, or in its names. */
+export interface TypeChange {
+  /**
+   * From the entry's `args` or `value`, or the extension's `type` or `additionalSigned`,
+   * in PAPI's path segments: `args.dest`, `value.info.some`, `value.ok.value`.
+   */
+  path: string;
+  /**
+   * For `changed`: the type was replaced by another (another kind, width or length), the
+   * struct's fields moved (`{ a, b }` → `{ b, a }`), or the variant's index changed
+   * (`index 3` → `index 4`).
+   */
+  status: ChangeStatus;
+  /** A's type there, or what about it differs; null when only A' has it. */
+  before: string | null;
+  /** A''s type there, or what about it differs; null when only A has it. */
+  after: string | null;
 }
 
-/** `diff(R, A, A')`: the entries R uses that both runtimes have, and whose types differ. */
+/** One entry R uses that differs between A and A'. */
+export interface EntryChange {
+  selector: Selector;
+  status: ChangeStatus;
+  /**
+   * Where its types differ, in walk order: `args`, then `value`, up to 100 each. For an
+   * added or removed entry, its whole `args` and `value`: empty when it has neither, as a
+   * call without arguments or an event without fields.
+   */
+  types: TypeChange[];
+  /** A side had more changes than `types` lists; they are in neither the JSON nor the markdown. */
+  truncated: boolean;
+}
+
+/** One extension in A's and A''s version whose types differ. */
+export interface ExtensionChange {
+  identifier: string;
+  /** Where its `type` (the explicit value) or `additionalSigned` (the implicit one) differ, up to 100 each. */
+  types: TypeChange[];
+  /** A side had more changes than `types` lists. */
+  truncated: boolean;
+}
+
+/** One extension version that differs between A and A'. */
+export interface PipelineChange {
+  version: number;
+  status: ChangeStatus;
+  /** A's extension identifiers in order; null when A has no such version. */
+  live: readonly string[] | null;
+  /** A''s extension identifiers in order; null when A' has no such version. */
+  candidate: readonly string[] | null;
+  /** In A''s list and not in A's. */
+  added: string[];
+  /** In A's list and not in A''s. */
+  removed: string[];
+  /** The extensions in both lists are in another order. */
+  reordered: boolean;
+  /** Extensions in both lists whose types differ. */
+  retyped: ExtensionChange[];
+}
+
+/** The extrinsic format versions A and A' accept (4, 5), ascending, when they differ. */
+export interface ExtrinsicVersionChange {
+  live: number[];
+  candidate: number[];
+  /** A' accepts them, A does not. */
+  added: number[];
+  /** A accepts them, A' does not. */
+  removed: number[];
+}
+
+/** `diff(R, A, A')`: what differs between the two runtimes within what the SDK uses. */
 export interface RuntimeDiff {
   chain: ChainKey;
-  /** In the requirements' order. */
+  /** The entries R uses that differ, in the requirements' order. */
   entries: EntryChange[];
+  /** The extension versions that differ, ascending. Empty when the SDK uses no transactions on this chain. */
+  pipelines: PipelineChange[];
+  /** Null when they are alike, or when the SDK uses no transactions on this chain. Not graded: no verdict. */
+  extrinsicVersions: ExtrinsicVersionChange | null;
 }
 
 // ── Report ───────────────────────────────────────────────
 
-/** An entry's verdict, and where its type changed. */
+/** An entry's verdict, and what the upgrade changed in it. */
 export interface EntryFinding extends EntryVerdict {
-  /** The type paths where A and A' differ, deepest only; empty when it did not change. */
-  changedAt: string[];
+  /** Null when A and A' have the entry alike, or both lack it. */
+  change: EntryChange | null;
 }
 
 /** A pipeline's verdict, and the lists behind it. */
@@ -238,6 +328,8 @@ export interface PipelineFinding extends PipelineVerdict {
   candidate: readonly string[] | null;
   /** Extensions in both D and A' whose types are not Identical. */
   retyped: string[];
+  /** What the upgrade changed in this version; null when A and A' have it alike, or both lack it. */
+  change: PipelineChange | null;
 }
 
 /** The result for one chain: each requirement's and extension version's verdict, and what lies behind it. */
@@ -251,6 +343,8 @@ export interface Report {
   entries: EntryFinding[];
   /** Empty when the SDK does not sign on this chain. */
   pipelines: PipelineFinding[];
+  /** What the upgrade changed in the extrinsic versions; ungraded. Null when nothing, or no transactions. */
+  extrinsicVersions: ExtrinsicVersionChange | null;
 }
 
 /** One check run: a report per upgraded chain, and the reads no chain took. */
