@@ -2,7 +2,7 @@
 // compares them. A runtime (A, A') and an SDK descriptor (D) are both read through it:
 // D is metadata too.
 
-import { getLookupFn, type LookupEntry } from "@polkadot-api/metadata-builders";
+import { getLookupFn, type LookupEntry, type Var } from "@polkadot-api/metadata-builders";
 import {
   enumValueEntryPointNode,
   mapLookupToTypedef,
@@ -15,9 +15,9 @@ import {
 } from "@polkadot-api/metadata-compatibility";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { DIRECTION } from "../selector.ts";
-import type { EncodedType, Encoding, Entry, Kind, Metadata, Pipelines, Selector } from "../types.ts";
+import type { Encoding, Entry, Kind, Metadata, Pipelines, Selector } from "../types.ts";
 
-type Variant = Extract<EncodedType, { type: "enum" }>["value"][string];
+type Variant = Extract<Var, { type: "enum" }>["value"][string];
 
 // How many bare `{ id }`s in a row `lookup` follows before it gives up.
 const MAX_HOPS = 8;
@@ -61,7 +61,7 @@ export default class MetadataView {
   }
 
   /**
-   * The type behind a type id as SCALE encodes it; see `EncodedType`. PAPI's lookup can
+   * The type behind a type id as SCALE encodes it. PAPI's lookup can
    * hand out a bare `{ id }` with no shape: a newtype around a type still being built
    * copies that type before it is filled, as XCM's `Xcm(Vec<Instruction>)` does when the
    * lookup starts at `Vec<Instruction>`. The id is then the wrapped type's, filled by now,
@@ -108,7 +108,7 @@ export default class MetadataView {
     };
 
     // What a call or an event carries: its one unnamed field's type, or its fields.
-    const payload = (variant: Variant): EncodedType | null =>
+    const payload = (variant: Variant): Var | null =>
       variant.type === "lookupEntry" ? variant.value : variant.type === "void" ? null : variant;
 
     for (const pallet of this.metadata.pallets) {

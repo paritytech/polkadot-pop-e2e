@@ -5,13 +5,14 @@
 // AccountId32 and AccountId20 alike (both a string); it lists changes only one level
 // down, from one side, and none where the receiving side has more than the sending one.
 // Its type checksums erase the same widths, and field order and variant indexes too.
-// So this walks the types polkadot-api builds its codecs from (`EncodedType`), with an
+// So this walks the types polkadot-api builds its codecs from (`Var`), with an
 // equality of its own: two types are equal when they encode alike, under the same names.
 
+import type { Var } from "@polkadot-api/metadata-builders";
 import type MetadataView from "../metadata-view/index.ts";
-import type { EncodedType, TypeChange } from "../types.ts";
+import type { TypeChange } from "../types.ts";
 
-type Variant = Extract<EncodedType, { type: "enum" }>["value"][string];
+type Variant = Extract<Var, { type: "enum" }>["value"][string];
 
 // Past these, a type name stops being read.
 const NAME_DEPTH = 2;
@@ -74,8 +75,8 @@ function typeName(view: MetadataView, id: number, depth = NAME_DEPTH): string {
 }
 
 /** A type as it encodes, its children by name: `{ who: AccountId32, amount: u128 }`, `Compact<u32>`. */
-function encodedText(view: MetadataView, type: EncodedType): string {
-  const name = (child: EncodedType) => ("id" in child ? typeName(view, child.id as number, NAME_DEPTH - 1) : "…");
+function encodedText(view: MetadataView, type: Var): string {
+  const name = (child: Var) => ("id" in child ? typeName(view, child.id as number, NAME_DEPTH - 1) : "…");
   switch (type.type) {
     case "primitive":
       return type.value;
@@ -107,27 +108,27 @@ function encodedText(view: MetadataView, type: EncodedType): string {
 }
 
 /** A type by its Rust name when it has an id; inline (a call's fields) by how it encodes. */
-const fullName = (view: MetadataView, type: EncodedType): string =>
+const fullName = (view: MetadataView, type: Var): string =>
   "id" in type ? typeName(view, type.id as number) : encodedText(view, type);
 
-const describe = (view: MetadataView, type: EncodedType): string => cut(fullName(view, type));
+const describe = (view: MetadataView, type: Var): string => cut(fullName(view, type));
 
 /** What a variant carries, as a type. */
-const payload = (variant: Variant): EncodedType => (variant.type === "lookupEntry" ? variant.value : variant);
+const payload = (variant: Variant): Var => (variant.type === "lookupEntry" ? variant.value : variant);
 
 /** The type itself, where PAPI's lookup left a copy of it with only its id; see `MetadataView.lookup`. */
-const shaped = (view: MetadataView, type: EncodedType): EncodedType => ("type" in type ? type : view.lookup((type as { id: number }).id));
+const shaped = (view: MetadataView, type: Var): Var => ("type" in type ? type : view.lookup((type as { id: number }).id));
 
 /**
  * PAPI makes `(T, T)`, or a tuple struct `Pair(T, T)`, an array `[T; 2]` unless an element
  * or field has doc comments, and a tuple otherwise: a doc comment can turn one into the
  * other. Both encode the elements one after the other, so they compare element by element.
  */
-const arrayAndTuple = (a: EncodedType, b: EncodedType): boolean =>
+const arrayAndTuple = (a: Var, b: Var): boolean =>
   (a.type === "array" && b.type === "tuple") || (a.type === "tuple" && b.type === "array");
 
 /** A type's children, by the path segment PAPI names them with; an array facing a tuple, by index. */
-function children(type: EncodedType, other: EncodedType): Map<string, EncodedType> {
+function children(type: Var, other: Var): Map<string, Var> {
   if (type.type === "array" && other.type === "tuple") {
     return new Map(Array.from({ length: type.len }, (_, index) => [String(index), type.value]));
   }
@@ -154,7 +155,7 @@ function children(type: EncodedType, other: EncodedType): Map<string, EncodedTyp
 }
 
 /** Whether the two types differ in themselves, not only in their children: kind, width, length. */
-function differsInItself(before: EncodedType, after: EncodedType): boolean {
+function differsInItself(before: Var, after: Var): boolean {
   if (before.type !== after.type) return !arrayAndTuple(before, after);
   switch (before.type) {
     case "primitive":
@@ -174,7 +175,7 @@ function differsInItself(before: EncodedType, after: EncodedType): boolean {
 }
 
 /** The fields both structs have, in each one's order, when the orders differ: SCALE encodes fields in order. */
-function fieldOrder(before: EncodedType, after: EncodedType): [string, string] | null {
+function fieldOrder(before: Var, after: Var): [string, string] | null {
   if (before.type !== "struct" || after.type !== "struct") return null;
   const ours = Object.keys(before.value).filter((key) => key in after.value);
   const theirs = Object.keys(after.value).filter((key) => key in before.value);
@@ -182,7 +183,7 @@ function fieldOrder(before: EncodedType, after: EncodedType): [string, string] |
 }
 
 /** The variants both enums have whose index differs, with both indexes: SCALE encodes the index. */
-function reindexed(before: EncodedType, after: EncodedType): Map<string, [number, number]> {
+function reindexed(before: Var, after: Var): Map<string, [number, number]> {
   if (before.type !== "enum" || after.type !== "enum") return new Map();
   return new Map(
     Object.entries(before.value).flatMap(([key, variant]): [string, [number, number]][] => {
@@ -200,11 +201,11 @@ function reindexed(before: EncodedType, after: EncodedType): Map<string, [number
  * it is compared again wherever it is met.
  */
 function encodesAlike(live: MetadataView, candidate: MetadataView) {
-  const settled = new Map<EncodedType, Map<EncodedType, boolean>>();
-  const comparing = new Map<EncodedType, Map<EncodedType, number>>();
+  const settled = new Map<Var, Map<Var, boolean>>();
+  const comparing = new Map<Var, Map<Var, number>>();
 
   /** `assumedAt`: the shallowest pair still being compared that the result leans on. */
-  const visit = (onLive: EncodedType, onCandidate: EncodedType, depth: number): { equal: boolean; assumedAt: number } => {
+  const visit = (onLive: Var, onCandidate: Var, depth: number): { equal: boolean; assumedAt: number } => {
     const a = shaped(live, onLive);
     const b = shaped(candidate, onCandidate);
     if (a === b) return { equal: true, assumedAt: Infinity };
@@ -213,7 +214,7 @@ function encodesAlike(live: MetadataView, candidate: MetadataView) {
     const at = comparing.get(a)?.get(b);
     if (at !== undefined) return { equal: true, assumedAt: at };
 
-    const open = comparing.get(a) ?? new Map<EncodedType, number>();
+    const open = comparing.get(a) ?? new Map<Var, number>();
     comparing.set(a, open.set(b, depth));
     let equal = !differsInItself(a, b) && !fieldOrder(a, b) && reindexed(a, b).size === 0;
     let assumedAt = Infinity;
@@ -233,14 +234,14 @@ function encodesAlike(live: MetadataView, candidate: MetadataView) {
 
     // Unequal even when assuming equal is unequal; equal is settled once nothing above it was assumed.
     if (!equal || assumedAt >= depth) {
-      const known = settled.get(a) ?? new Map<EncodedType, boolean>();
+      const known = settled.get(a) ?? new Map<Var, boolean>();
       settled.set(a, known.set(b, equal));
       return { equal, assumedAt: Infinity };
     }
     return { equal, assumedAt };
   };
 
-  return (a: EncodedType, b: EncodedType) => visit(a, b, 0).equal;
+  return (a: Var, b: Var) => visit(a, b, 0).equal;
 }
 
 /**
@@ -254,20 +255,20 @@ function encodesAlike(live: MetadataView, candidate: MetadataView) {
 export default function compareTypes(live: MetadataView, candidate: MetadataView) {
   const alike = encodesAlike(live, candidate);
 
-  return function changes(path: string, before: EncodedType | null | undefined, after: EncodedType | null | undefined): TypeChange[] {
+  return function changes(path: string, before: Var | null | undefined, after: Var | null | undefined): TypeChange[] {
     const found: TypeChange[] = [];
     // The pairs being walked: a recursive type meets itself again, already being compared.
-    const walking = new Map<EncodedType, Set<EncodedType>>();
+    const walking = new Map<Var, Set<Var>>();
     const push = (change: TypeChange) => {
       if (found.length <= MAX_TYPE_CHANGES) found.push(change);
     };
 
-    const walk = (at: string, onLive: EncodedType | null | undefined, onCandidate: EncodedType | null | undefined): void => {
+    const walk = (at: string, onLive: Var | null | undefined, onCandidate: Var | null | undefined): void => {
       if (found.length > MAX_TYPE_CHANGES) return;
       const from = onLive && shaped(live, onLive);
       const to = onCandidate && shaped(candidate, onCandidate);
       if (!from && !to) return;
-      if (!from) return push({ path: at, status: "added", before: null, after: describe(candidate, to as EncodedType) });
+      if (!from) return push({ path: at, status: "added", before: null, after: describe(candidate, to as Var) });
       if (!to) return push({ path: at, status: "removed", before: describe(live, from), after: null });
       if (alike(from, to) || walking.get(from)?.has(to)) return;
       if (differsInItself(from, to)) {
@@ -280,7 +281,7 @@ export default function compareTypes(live: MetadataView, candidate: MetadataView
       const order = fieldOrder(from, to);
       if (order) push({ path: at, status: "changed", before: order[0], after: order[1] });
 
-      const pairs = walking.get(from) ?? new Set<EncodedType>();
+      const pairs = walking.get(from) ?? new Set<Var>();
       walking.set(from, pairs.add(to));
       const indexes = reindexed(from, to);
       const ours = children(from, to);

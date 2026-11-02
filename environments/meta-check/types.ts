@@ -23,18 +23,10 @@ export interface RuntimeVersion {
   codeHash: string;
 }
 
-/**
- * A type as SCALE encodes it, the way polkadot-api builds its codecs from metadata
- * (`getLookupFn`): newtypes unwrapped, but integer widths, compact encoding, lengths,
- * field order and variant indexes kept. Unlike an `EntryPoint`'s types, two of these that
- * compare equal encode alike.
- */
-export type EncodedType = Var;
-
 /** The types of one entry as they are encoded: what goes in and what comes out; null for a side with nothing. */
 export interface Encoding {
-  args: EncodedType | null;
-  value: EncodedType | null;
+  args: Var | null;
+  value: Var | null;
 }
 
 /** One entry in a runtime's metadata, or in D. */
