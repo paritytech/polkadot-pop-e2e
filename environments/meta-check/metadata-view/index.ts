@@ -10,11 +10,12 @@ import {
   singleValueEntryPoint,
   storageEntryPoint,
   voidEntryPointNode,
+  type EntryPoint,
   type TypedefNode,
 } from "@polkadot-api/metadata-compatibility";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
 import { DIRECTION } from "../selector.ts";
-import type { EncodedType, Encoding, Entry, Kind, Metadata, Pipelines, Selector, Shape } from "../types.ts";
+import type { EncodedType, Encoding, Entry, Kind, Metadata, Pipelines, Selector } from "../types.ts";
 
 type Variant = Extract<EncodedType, { type: "enum" }>["value"][string];
 
@@ -87,7 +88,7 @@ export default class MetadataView {
   }
 
   #collectEntries(): void {
-    const add = (kind: Kind, group: string, name: string, shape: Shape, encoding: Encoding) => {
+    const add = (kind: Kind, group: string, name: string, shape: EntryPoint, encoding: Encoding) => {
       const selector = `${kind}:${group}.${name}` as const;
       this.#entries.set(selector, { selector, kind, group, name, shape, encoding, direction: DIRECTION[kind] });
     };

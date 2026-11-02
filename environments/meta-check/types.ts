@@ -1,24 +1,4 @@
-/**
- * Shared types for checking a candidate runtime against product-sdk's expectations.
- *
- * - D: the metadata used to generate the SDK's descriptors.
- * - U: chain-entry reads found by scanning the SDK's code.
- * - R: the SDK's requirements for each target chain: which entries it uses
- * and what types it expects, derived from U and that chain's D.
- * - A / A': the live / candidate runtime.
- *
- * `buildRequirements(D, U) -> R`, then for each upgraded chain:
- *
- * - `check(R, A)`: how well one runtime fits R. Live and candidate are each checked.
- * - `regression(onLive, onCandidate)`: comparing those two checks distinguishes new
- * regressions from existing mismatches.
- * - `diff(R, A, A')`: what changed between the two runtimes within what the SDK uses:
- * the entries R uses and, where the SDK submits transactions, the extension pipelines.
- *
- * This is a static metadata check, not a guarantee of runtime behaviour.
- * See `docs/design/runtime-diff.md` for the design; implementation details below
- * describe the current checker.
- */
+/** Shared metadata-check types. See README.md for the model and flow. */
 
 import type { Var } from "@polkadot-api/metadata-builders";
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
@@ -30,35 +10,23 @@ export type Metadata = ReturnType<typeof unifyMetadata>;
 
 // ── Inputs ───────────────────────────────────────────────
 
-/**
- * What an entry is, by the property of polkadot-api's typed API the SDK reads it through:
- * `tx`, `query`, `event`, `constants`, `apis` or `view`. All its properties but its two helpers.
- */
 export type Kind = Exclude<keyof TypedApi<ChainDefinition>, "txFromCallData" | "getStaticApis">;
 
-/** An entry on a chain, as the SDK reads it: `tx:Game.sign_up`, `query:Score.Participants`, `apis:NftsApi.owner`. */
+/** A chain entry, e.g. `tx:Game.sign_up` or `constants:Score.Suffix`. */
 export type Selector = `${Kind}:${string}.${string}`;
 
-/** What identifies a runtime (A or A') in the report: `System.Version`, and the hash of its code. */
 export interface RuntimeVersion {
   specName: string;
   specVersion: number;
   transactionVersion: number;
-  /** blake2-256 of the code, as polkadot-api.json records it for D. */
+  /** Blake2-256 of the runtime code. */
   codeHash: string;
 }
 
 /**
- * The type of one entry, the way polkadot-api compares them: the type ids of what goes
- * in (`args`) and what comes out (`values`). The ids mean something only in the
- * `MetadataView` the entry came from.
- */
-export type Shape = EntryPoint;
-
-/**
  * A type as SCALE encodes it, the way polkadot-api builds its codecs from metadata
  * (`getLookupFn`): newtypes unwrapped, but integer widths, compact encoding, lengths,
- * field order and variant indexes kept. Unlike a `Shape`'s types, two of these that
+ * field order and variant indexes kept. Unlike an `EntryPoint`'s types, two of these that
  * compare equal encode alike.
  */
 export type EncodedType = Var;
@@ -76,7 +44,8 @@ export interface Entry {
   /** The pallet, or the runtime API. */
   group: string;
   name: string;
-  shape: Shape;
+  /** Type IDs belong to the originating MetadataView. */
+  shape: EntryPoint;
   encoding: Encoding;
   direction: Direction;
 }
@@ -167,7 +136,7 @@ export type Level = "Identical" | "BackwardsCompatible" | "Partial" | "Incompati
  */
 export type Verdict = "ok" | "breaking" | "pre-existing";
 
-// ── One runtime: check(R, A) ─────────────────────────────
+// ── check(R, A) ─────────────────────────────
 
 /** One requirement graded against one runtime. */
 export interface EntryCheck {
