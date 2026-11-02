@@ -112,7 +112,7 @@ describe("renderMarkdown", () => {
           entries: [
             entry("query:Game.Players", "breaking", "Identical", "Missing"),
             entry("query:Game.Rounds", "ok", "Identical", "Identical"),
-            entry("constant:Score.Suffix", "pre-existing", "Missing", "Missing"),
+            entry("constants:Score.Suffix", "pre-existing", "Missing", "Missing"),
           ],
           pipelines: [pipeline({})],
         }),
@@ -159,8 +159,8 @@ describe("renderMarkdown", () => {
         .split("\n")
         .find((line) => line.startsWith(`| \`${change.selector}\``));
     assert.match(cell(changed("tx:Sudo.sudo", ["args.call.A.x", "args.call.B"])) ?? "", /\*\*Partial\*\* at `args.call` \(2 changes\) \|/);
-    assert.match(cell(changed("api:A.b", ["args.0", "value.ok"])) ?? "", /\*\*Partial\*\* at `args`, `value` \(2 changes\) \|/);
-    assert.match(cell({ ...changed("api:A.b", ["value.ok"]), truncated: true }) ?? "", / at `value.ok` \(1\+ changes\) \|/);
+    assert.match(cell(changed("apis:A.b", ["args.0", "value.ok"])) ?? "", /\*\*Partial\*\* at `args`, `value` \(2 changes\) \|/);
+    assert.match(cell({ ...changed("apis:A.b", ["value.ok"]), truncated: true }) ?? "", / at `value.ok` \(1\+ changes\) \|/);
     // An added or removed entry: its level already says it.
     assert.match(cell(changed("query:A.b", ["value"], "removed")) ?? "", /\*\*Partial\*\* \|/);
   });
@@ -175,14 +175,14 @@ describe("renderMarkdown", () => {
     const markdown = renderMarkdown(
       run(
         report({
-          entries: [entry("constant:Score.Suffix", "pre-existing", "Missing", "Missing")],
+          entries: [entry("constants:Score.Suffix", "pre-existing", "Missing", "Missing")],
           pipelines: [pipeline({ verdict: "pre-existing", before: "Incompatible", after: "Incompatible" })],
         }),
       ),
     );
     assert.ok(markdown.includes("#### People\n"));
     assert.ok(markdown.includes("<details><summary>🟡 Pre-existing (2): broken on live already, not caused by this upgrade</summary>"));
-    assert.ok(markdown.includes("| `constant:Score.Suffix` | Missing → Missing | `app/src/a.ts:1` |"));
+    assert.ok(markdown.includes("| `constants:Score.Suffix` | Missing → Missing | `app/src/a.ts:1` |"));
     assert.ok(markdown.includes("| transaction extensions v0 | Incompatible → Incompatible | — |"));
   });
 
@@ -214,9 +214,9 @@ describe("renderMarkdown", () => {
         report({
           entries: [
             entry("query:Game.Players", "ok", "Identical", "Identical", { change: changed("query:Game.Players", ["value.a", "value.b"]) }),
-            entry("constant:Game.Gone", "breaking", "Identical", "Missing", {
+            entry("constants:Game.Gone", "breaking", "Identical", "Missing", {
               change: {
-                selector: "constant:Game.Gone",
+                selector: "constants:Game.Gone",
                 status: "removed",
                 types: [{ path: "value", status: "removed", before: "enum { A, B }", after: null }],
                 truncated: false,
@@ -256,7 +256,7 @@ describe("renderMarkdown", () => {
       "|---|---|---|---|",
       "| 🟢 `query:Game.Players` | `value.a` | — | `u32` |",
       "|  | `value.b` | — | `u32` |",
-      "| 🔴 `constant:Game.Gone` (removed) | `value` | `enum { A, B }` | — |",
+      "| 🔴 `constants:Game.Gone` (removed) | `value` | `enum { A, B }` | — |",
       // The extension's row has its version's verdict: it has none of its own.
       "| 🔴 v0 `C` | `type` | `u32` | `Option<u32>` |",
       "",
@@ -540,14 +540,14 @@ describe("buildReport on the fixtures", { skip }, () => {
     const r = await fixtureReport("0.42.0");
     assert.deepEqual(pipelines(r), ["v0 ok Incompatible->Identical", "v1 ok Missing->Identical"]);
     // Read by the SDK as a fallback for older runtimes; neither runtime has it.
-    assert.deepEqual(notOk(r), ["pre-existing constant:Score.Suffix Missing->Missing"]);
+    assert.deepEqual(notOk(r), ["pre-existing constants:Score.Suffix Missing->Missing"]);
   });
 
   // Demo 1, the gate's case: the next runtime drops a constant the current SDK reads.
   it("breaks the current SDK on the nightly: a constant it reads is gone (Rule 1)", async () => {
     const r = await fixtureReport("0.42.0", { live: "0.3.4", candidate: "nightly-3004007" });
-    assert.deepEqual(breaking(r), ["constant:Game.airdrop_event_id_base Identical->Missing"]);
-    const gone = r.entries.find((e) => e.requirement.selector === "constant:Game.airdrop_event_id_base");
+    assert.deepEqual(breaking(r), ["constants:Game.airdrop_event_id_base Identical->Missing"]);
+    const gone = r.entries.find((e) => e.requirement.selector === "constants:Game.airdrop_event_id_base");
     assert.deepEqual(
       gone?.requirement.uses.map((u) => `${u.file}:${u.line}`),
       [
@@ -569,7 +569,7 @@ describe("buildReport on the fixtures", { skip }, () => {
 
   it("breaks SDK 0.28.0 on Asset Hub: a runtime API result that no longer always decodes", async () => {
     assert.deepEqual(breaking(await fixtureReport("0.28.0", { chain: "assetHub" })), [
-      "api:ReviveApi.call Identical->Partial value.result",
+      "apis:ReviveApi.call Identical->Partial value.result",
       "tx:Sudo.sudo Identical->Partial args.call",
       "pipeline v0 Identical->Incompatible",
     ]);
@@ -615,20 +615,20 @@ describe("renderMarkdown on demo 1", { skip }, () => {
         "",
         "| Entry | Live → candidate | Read at |",
         "|---|---|---|",
-        "| `constant:Game.airdrop_event_id_base` | Identical → **Missing** | `individuality/src/airdrop-read.ts:292`, `:318`, `individuality/src/prize-status.ts:132`, `individuality/src/signup.ts:290` |",
+        "| `constants:Game.airdrop_event_id_base` | Identical → **Missing** | `individuality/src/airdrop-read.ts:292`, `:318`, `individuality/src/prize-status.ts:132`, `individuality/src/signup.ts:290` |",
         "",
         "<details><summary>🟡 Pre-existing (1): broken on live already, not caused by this upgrade</summary>",
         "",
         "| Entry | Live → candidate | Read at |",
         "|---|---|---|",
-        "| `constant:Score.Suffix` | Missing → Missing | `individuality/src/rings.ts:297` |",
+        "| `constants:Score.Suffix` | Missing → Missing | `individuality/src/rings.ts:297` |",
         "</details>",
         "",
         "<details><summary>What changed between live and candidate (3 entries)</summary>",
         "",
         "| Entry / extension | Where | Live | Candidate |",
         "|---|---|---|---|",
-        "| 🔴 `constant:Game.airdrop_event_id_base` (removed) | `value` | `[u8; 27]` | — |",
+        "| 🔴 `constants:Game.airdrop_event_id_base` (removed) | `value` | `[u8; 27]` | — |",
         "| 🟢 `query:Score.Participants` | `value.attended_games_while_recognized` | — | `u32` |",
         "| 🟢 `tx:Sudo.sudo` | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationThreshold` | — | `[Option<u32>; 1]` |",
         "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationPeriod` | — | `[Option<u32>; 1]` |",

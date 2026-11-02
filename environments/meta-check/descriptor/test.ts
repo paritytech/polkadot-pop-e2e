@@ -31,8 +31,8 @@ describe("SdkDescriptor", { skip }, () => {
       for (const e of d.entries()) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
       return byKind;
     };
-    assert.deepEqual(count(await load("0.28.0")), { query: 287, tx: 352, event: 401, constant: 170, view: 53, api: 47 });
-    assert.deepEqual(count(await load("0.42.0")), { query: 291, tx: 356, event: 405, constant: 171, view: 57, api: 51 });
+    assert.deepEqual(count(await load("0.28.0")), { query: 287, tx: 352, event: 401, constants: 170, view: 53, apis: 47 });
+    assert.deepEqual(count(await load("0.42.0")), { query: 291, tx: 356, event: 405, constants: 171, view: 57, apis: 51 });
   });
 
   it("finds an entry by its selector", async () => {
@@ -45,7 +45,7 @@ describe("SdkDescriptor", { skip }, () => {
     );
     assert.equal(d.entry("tx:Coinage.transfer")?.direction, "encode");
     assert.equal(d.entry("event:System.ExtrinsicSuccess")?.direction, "decode");
-    assert.equal(d.entry("api:Core.version")?.kind, "api");
+    assert.equal(d.entry("apis:Core.version")?.kind, "apis");
     assert.equal(d.entry("view:Assets.balance_of")?.kind, "view");
     assert.equal(d.entry("tx:NoSuchPallet.no_such_call"), undefined);
   });
@@ -61,8 +61,8 @@ describe("SdkDescriptor", { skip }, () => {
     const old = await load("0.28.0");
     const current = await load("0.42.0");
     // Gone from the runtime since 0.28.0's descriptors were generated.
-    assert.ok(old.entry("constant:NftCredits.MaxCreditsPerBlock"));
-    assert.equal(current.entry("constant:NftCredits.MaxCreditsPerBlock"), undefined);
+    assert.ok(old.entry("constants:NftCredits.MaxCreditsPerBlock"));
+    assert.equal(current.entry("constants:NftCredits.MaxCreditsPerBlock"), undefined);
     // New since.
     assert.equal(old.entry("tx:Score.force_set_attendance"), undefined);
     assert.ok(current.entry("tx:Score.force_set_attendance"));

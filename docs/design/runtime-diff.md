@@ -78,9 +78,9 @@ decodes:
 | Kind | SDK encodes | SDK decodes | Graded side |
 |---|---|---|---|
 | `tx` (call) | arguments | — | args |
-| `event`, `constant` | — | value | values |
+| `event`, `constants` | — | value | values |
 | `query` (storage) | keys | value | the worse of the two |
-| `api`, `view` | inputs | output | the worse of the two |
+| `apis`, `view` | inputs | output | the worse of the two |
 
 Example: a call argument's enum gains a variant. The SDK's old values still fit, so it is safe. A
 returned enum gains a variant: the SDK can now receive a value it cannot decode.

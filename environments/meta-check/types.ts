@@ -23,15 +23,20 @@
 import type { Var } from "@polkadot-api/metadata-builders";
 import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
+import type { ChainDefinition, TypedApi } from "polkadot-api";
 import type SdkDescriptor from "./descriptor/index.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
 // ── Inputs ───────────────────────────────────────────────
 
-export type Kind = "tx" | "query" | "event" | "constant" | "api" | "view";
+/**
+ * What an entry is, by the property of polkadot-api's typed API the SDK reads it through:
+ * `tx`, `query`, `event`, `constants`, `apis` or `view`. All its properties but its two helpers.
+ */
+export type Kind = Exclude<keyof TypedApi<ChainDefinition>, "txFromCallData" | "getStaticApis">;
 
-/** An entry on a chain, as the SDK names it: `tx:Game.sign_up`, `query:Score.Participants`. */
+/** An entry on a chain, as the SDK reads it: `tx:Game.sign_up`, `query:Score.Participants`, `apis:NftsApi.owner`. */
 export type Selector = `${Kind}:${string}.${string}`;
 
 /** What identifies a runtime (A or A') in the report: `System.Version`, and the hash of its code. */

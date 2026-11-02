@@ -7,8 +7,8 @@
 // the checker can say which declaration a local name refers to.
 
 import ts from "typescript";
-import { CHAIN_KEYS } from "../selector.ts";
-import type { ChainKey, Kind, Selector } from "../types.ts";
+import { CHAIN_KEYS, KINDS } from "../selector.ts";
+import type { ChainKey, Selector } from "../types.ts";
 
 export interface Read {
   selector: Selector;
@@ -24,16 +24,6 @@ interface Segment {
   name: string;
   optional: boolean;
 }
-
-/** The API word in an access chain, and the kind of entry it reads. */
-const KIND: Record<string, Kind> = {
-  query: "query",
-  tx: "tx",
-  constants: "constant",
-  apis: "api",
-  event: "event",
-  view: "view",
-};
 
 // An alias of an alias of ... stops here, so a cycle cannot loop.
 const MAX_ALIAS_DEPTH = 10;
@@ -110,10 +100,10 @@ function resolve(checker: ts.TypeChecker, root: ts.Identifier, depth = 0): Segme
   return [...resolve(checker, chain.root, depth + 1), ...chain.segments, ...taken];
 }
 
-/** The first `<kind>.<Pallet>.<name>` in a path, and the chain key just before it. */
+/** The first `<kind>.<Pallet>.<name>` in a path, and the chain key just before it. The kind is the API's own word. */
 function match(path: Segment[]): Omit<Read, "line"> | null {
   for (let i = 0; i + 2 < path.length; i++) {
-    const kind = KIND[path[i]?.name ?? ""];
+    const kind = KINDS.find((k) => k === path[i]?.name);
     const group = path[i + 1];
     const name = path[i + 2];
     if (!kind || !group || !name || !/^[A-Z]/.test(group.name)) continue;

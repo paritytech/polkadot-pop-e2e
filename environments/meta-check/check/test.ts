@@ -33,7 +33,7 @@ describe("check on the fixtures", { skip }, () => {
     assert.equal(r.runtime.specVersion, 3001000);
     assert.deepEqual(
       r.entries.filter((e) => e.level === "Missing").map((e) => e.requirement.selector),
-      ["constant:Score.Suffix"],
+      ["constants:Score.Suffix"],
     );
     // D signs with v1, which v0.3.1 does not have yet.
     assert.deepEqual(

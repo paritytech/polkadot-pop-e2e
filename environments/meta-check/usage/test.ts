@@ -21,7 +21,7 @@ describe("readsIn", () => {
       [
         "query:Game.Players individuality 2",
         "query:NetworkSuffix.NetworkSuffix individuality 3",
-        "api:NftsApi.owner assetHub 4",
+        "apis:NftsApi.owner assetHub 4",
       ],
     );
   });
@@ -34,7 +34,7 @@ describe("readsIn", () => {
         api.event.System.ExtrinsicSuccess.watch();
         api.view.Assets.balance_of(who);
       `),
-      ["tx:Coinage.transfer - 2", "constant:Resources.MaxUsernameLength - 3", "event:System.ExtrinsicSuccess - 4", "view:Assets.balance_of - 5"],
+      ["tx:Coinage.transfer - 2", "constants:Resources.MaxUsernameLength - 3", "event:System.ExtrinsicSuccess - 4", "view:Assets.balance_of - 5"],
     );
   });
 
@@ -67,7 +67,7 @@ describe("readsIn", () => {
       `),
       [
         "query:Game.Players individuality 3",
-        "constant:Resources.MaxUsernameLength individuality 5",
+        "constants:Resources.MaxUsernameLength individuality 5",
         "tx:Game.sign_up individuality 7",
       ],
     );

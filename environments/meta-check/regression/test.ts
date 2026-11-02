@@ -56,7 +56,7 @@ const runtimeCheck = (specVersion: number, entries: EntryCheck[], pipelines: Pip
 
 describe("regression", () => {
   const players = requirement("query:Game.Players");
-  const suffix = requirement("constant:Score.Suffix", true);
+  const suffix = requirement("constants:Score.Suffix", true);
   const versions = (onLive: RuntimeCheck, onCandidate: RuntimeCheck) =>
     regression(onLive, onCandidate).pipelines.map((p) => `v${p.version} ${p.before}->${p.after} ${p.verdict}`);
 
@@ -73,7 +73,7 @@ describe("regression", () => {
     );
     assert.deepEqual(
       entries.map((e) => `${e.requirement.selector} ${e.before}->${e.after} ${e.verdict}`),
-      ["constant:Score.Suffix Identical->Missing ok", "query:Game.Players Identical->Partial breaking"],
+      ["constants:Score.Suffix Identical->Missing ok", "query:Game.Players Identical->Partial breaking"],
     );
   });
 

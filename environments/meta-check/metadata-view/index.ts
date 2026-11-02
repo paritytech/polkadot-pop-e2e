@@ -54,9 +54,9 @@ export default class MetadataView {
     return this.#entries.get(selector);
   }
 
-  /** Whether the metadata has the group at all: the runtime API for `api`, the pallet for any other kind. */
+  /** Whether the metadata has the group at all: the runtime API for `apis`, the pallet for any other kind. */
   hasGroup(kind: Kind, group: string): boolean {
-    return (kind === "api" ? this.#apis : this.#pallets).has(group);
+    return (kind === "apis" ? this.#apis : this.#pallets).has(group);
   }
 
   /**
@@ -131,12 +131,12 @@ export default class MetadataView {
         });
       }
       for (const constant of pallet.constants) {
-        add("constant", pallet.name, constant.name, singleValueEntryPoint(constant.type), value(constant.type));
+        add("constants", pallet.name, constant.name, singleValueEntryPoint(constant.type), value(constant.type));
       }
       for (const fn of pallet.viewFns) add("view", pallet.name, fn.name, runtimeCallEntryPoint(fn), call(fn));
     }
     for (const api of this.metadata.apis) {
-      for (const method of api.methods) add("api", api.name, method.name, runtimeCallEntryPoint(method), call(method));
+      for (const method of api.methods) add("apis", api.name, method.name, runtimeCallEntryPoint(method), call(method));
     }
   }
 }

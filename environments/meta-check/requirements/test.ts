@@ -109,6 +109,6 @@ describe("buildRequirements", { skip }, () => {
     // Read with `?.`: the SDK works on runtimes without the NetworkSuffix pallet.
     assert.equal(people.find((e) => e.selector === "query:NetworkSuffix.NetworkSuffix")?.optional, true);
     // Read by the SDK, but not in its own descriptor: the issue's example of a surface to check by name.
-    assert.equal(people.find((e) => e.selector === "constant:Score.Suffix")?.expected, null);
+    assert.equal(people.find((e) => e.selector === "constants:Score.Suffix")?.expected, null);
   });
 });

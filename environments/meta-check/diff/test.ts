@@ -249,16 +249,16 @@ describe("diff", () => {
 
   it("lists the entries R uses that one side lacks or that differ, with each side's types", () => {
     const live = fake({ "query:A.Same": value(u32), "query:A.Gone": value(info), "tx:A.go": call(info), "query:A.Changed": value(u32) });
-    const candidate = fake({ "query:A.Same": value(u32), "constant:A.New": value(u64), "tx:A.go": call(info), "query:A.Changed": value(u64) });
+    const candidate = fake({ "query:A.Same": value(u32), "constants:A.New": value(u64), "tx:A.go": call(info), "query:A.Changed": value(u64) });
     const r = diff(
-      requirements(["constant:A.New", "query:A.Changed", "query:A.Gone", "query:A.Never", "query:A.Same", "tx:A.go"]),
+      requirements(["constants:A.New", "query:A.Changed", "query:A.Gone", "query:A.Never", "query:A.Same", "tx:A.go"]),
       live,
       candidate,
     );
     assert.deepEqual(
       r.entries.map((e) => `${e.selector} ${e.status}: ${e.types.map(line).join(", ")}`),
       [
-        "constant:A.New added: value added - -> u64",
+        "constants:A.New added: value added - -> u64",
         "query:A.Changed changed: value changed u32 -> u64",
         // A side with nothing is no type: a removed storage item or constant has only its value.
         "query:A.Gone removed: value removed Info -> -",
@@ -285,9 +285,9 @@ describe("diff", () => {
   it("finds a runtime API's changed input by its position", () => {
     const inputs = (...value: LookupEntry[]): Var => ({ type: "tuple", value, innerDocs: value.map(() => []) });
     const r = diff(
-      requirements(["api:Api.get"]),
-      fake({ "api:Api.get": { args: inputs(u32, u16), value: u32 } }),
-      fake({ "api:Api.get": { args: inputs(u32, u32), value: u32 } }),
+      requirements(["apis:Api.get"]),
+      fake({ "apis:Api.get": { args: inputs(u32, u16), value: u32 } }),
+      fake({ "apis:Api.get": { args: inputs(u32, u32), value: u32 } }),
     );
     assert.deepEqual(r.entries[0]?.types.map(line), ["args.1 changed u16 -> u32"]);
   });
@@ -397,7 +397,7 @@ describe("diff on the fixtures", { skip }, () => {
     assert.deepEqual(
       r.entries.map((e) => `${e.selector} ${e.status} ${e.types.length}`),
       [
-        "api:NftCreditsApi.nft_claim_credit_proofs changed 2",
+        "apis:NftCreditsApi.nft_claim_credit_proofs changed 2",
         "query:Airdrop.Events changed 1",
         "query:NftCredits.NftClaimCreditAwards changed 1",
         "tx:Sudo.sudo changed 6",
@@ -410,7 +410,7 @@ describe("diff on the fixtures", { skip }, () => {
 
   it("says which entries one runtime lacks, and the fields only the candidate has", async () => {
     const r = diff(await peopleOf("0.42.0"), wasm("0.3.4"), wasm("nightly-3004007"));
-    assert.deepEqual(changes(r, "constant:Game.airdrop_event_id_base"), ["value removed [u8; 27] -> -"]);
+    assert.deepEqual(changes(r, "constants:Game.airdrop_event_id_base"), ["value removed [u8; 27] -> -"]);
     // PAPI grades this BackwardsCompatible with no change listed: live decodes the candidate's value.
     assert.deepEqual(changes(r, "query:Score.Participants"), ["value.attended_games_while_recognized added - -> u32"]);
   });
@@ -427,7 +427,7 @@ describe("diff on the fixtures", { skip }, () => {
 
   it("sees error variants shift index, which PAPI does not compare", async () => {
     const r = diff(await requirementsOf("0.42.0", "assetHub"), wasm("0.3.1", "assetHub"), wasm("0.3.4", "assetHub"));
-    const revive = changes(r, "api:ReviveApi.call") ?? [];
+    const revive = changes(r, "apis:ReviveApi.call") ?? [];
     assert.deepEqual(revive.slice(0, 4), [
       "value.result.ko.Module.Assets.ContainsFreezes changed index 21 -> index 22",
       "value.result.ko.Module.Assets.ContainsHolds changed index 22 -> index 23",
