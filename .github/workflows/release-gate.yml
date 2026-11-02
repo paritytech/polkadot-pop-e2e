@@ -620,6 +620,15 @@ jobs:
             upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" > upgrades.env
           echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
 
+      # Before the upgrade: the last point the fork still runs live's code. Diagnosis only,
+      # never fails the gate; environments/README.md explains the diff.
+      - name: Capture the runtime diff
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" upgrades.env \
+            --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
+
       - name: Upgrade each chain's runtime
         run: |
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
@@ -669,21 +678,6 @@ jobs:
       - name: Let the runtime changes settle
         run: sleep 120
 
-      # A chain that took the code and then stopped is the signature of a broken
-      # migration: the runtime swapped in and failed on the state it inherited.
-      - name: Verify the fork is healthy post-upgrade
-        run: |
-          if ! node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60; then
-            echo "::error::the fork stopped producing blocks AFTER the runtime was applied. The chain accepted the new code and then failed on the state it inherited — that is what a missing or incorrect migration looks like. The upgrade lines above say which chains changed; the fork logs are attached to this run." >&2
-            exit 1
-          fi
-
-      # A polkadot-api client created within a minute or two of an enactment can spiral
-      # (see waitForQuiescence in the engine's spawner/src/upgrade/upgrade.ts) — give
-      # the swapped runtimes a settle window before pointing fresh test clients at them.
-      - name: Let the runtime changes settle
-        run: sleep 120
-
       # The suite derives its fork config from the base network's entry — the manifest
       # knows which network this is a fork of.
       - name: Point the suite at the fork
@@ -703,11 +697,33 @@ jobs:
           # Every fork is a fresh world — a cached attested account from an earlier
           # run does not exist on this one (same freshness rule as _health-check.yml).
           rm -f packages/chain-tests/.test-credentials.json
-          for t in $(node environments/resolve.mjs tests "$MANIFEST"); do
-            echo "::group::$t"
-            pnpm --filter @pop-e2e/chain-tests "$t"
-            echo "::endgroup::"
-          done
+          # One junit file per script: vitest writes junit.xml again on every run.
+          mapfile -t tests < <(node environments/resolve.mjs tests "$MANIFEST")
+          environments/run-chain-tests.sh packages/chain-tests/test-results "${tests[@]}"
+
+      # Puts each failing test next to the diff entries it touches and, when the run
+      # failed on a change that breaks the SDK, links a prefilled `runtime-break` issue
+      # on product-sdk. Runs after a refused upgrade too, when there are no test
+      # results but the diff still says what the chain was offered.
+      - name: Explain the run against the runtime diff
+        if: always()
+        continue-on-error: true
+        env:
+          OUTCOME: ${{ job.status }}
+          TITLE: ${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }}
+        run: |
+          pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json \
+            --junit packages/chain-tests/test-results --tests-dir packages/chain-tests \
+            --outcome "$OUTCOME" --title "$TITLE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the runtime diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-runtime-diff-${{ matrix.candidate.manifest.network }}-${{ matrix.candidate.id }}
+          path: runtime-diff/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload test results
         if: always()
