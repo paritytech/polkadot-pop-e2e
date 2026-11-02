@@ -92,14 +92,14 @@ export default class MetadataView {
       const selector = `${kind}:${group}.${name}` as const;
       this.#entries.set(selector, { selector, kind, group, name, shape, encoding, direction: DIRECTION[kind] });
     };
-    const value = (id: number): Encoding => ({ args: null, value: this.lookup(id) });
+    const value = (id: number): Encoding => ({ input: null, output: this.lookup(id) });
     // A runtime call's inputs are encoded one after the other, as a tuple.
     const call = (fn: { inputs: { type: number }[]; output: number }): Encoding => ({
-      args:
+      input:
         fn.inputs.length > 0
           ? { type: "tuple", value: fn.inputs.map((input) => this.lookup(input.type)), innerDocs: fn.inputs.map(() => []) }
           : null,
-      value: this.lookup(fn.output),
+      output: this.lookup(fn.output),
     });
     // Calls and events are the variants of the pallet's call and event enums.
     const variants = (ref: { type: number } | undefined) => {
@@ -115,20 +115,20 @@ export default class MetadataView {
       for (const item of pallet.storage?.items ?? []) {
         const { type } = item;
         add("query", pallet.name, item.name, storageEntryPoint(item), {
-          args: type.tag === "map" ? this.lookup(type.value.key) : null,
-          value: this.lookup(type.tag === "map" ? type.value.value : type.value),
+          input: type.tag === "map" ? this.lookup(type.value.key) : null,
+          output: this.lookup(type.tag === "map" ? type.value.value : type.value),
         });
       }
       for (const [name, variant] of variants(pallet.calls)) {
         add("tx", pallet.name, name, { args: enumValueEntryPointNode(variant), values: voidEntryPointNode }, {
-          args: payload(variant),
-          value: null,
+          input: payload(variant),
+          output: null,
         });
       }
       for (const [name, variant] of variants(pallet.events)) {
         add("event", pallet.name, name, { args: voidEntryPointNode, values: enumValueEntryPointNode(variant) }, {
-          args: null,
-          value: payload(variant),
+          input: null,
+          output: payload(variant),
         });
       }
       for (const constant of pallet.constants) {

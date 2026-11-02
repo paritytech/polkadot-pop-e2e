@@ -23,10 +23,14 @@ export interface RuntimeVersion {
   codeHash: string;
 }
 
-/** The types of one entry as they are encoded: what goes in and what comes out; null for a side with nothing. */
+/**
+ * Input/output types. Individuality examples:
+ * - `tx:Coinage.transfer`: input: { to: AccountId32 }, output: null.
+ * - `constants:System.BlockHashCount`: input: null, output: u32.
+ */
 export interface Encoding {
-  args: Var | null;
-  value: Var | null;
+  input: Var | null;
+  output: Var | null;
 }
 
 /** One entry in a runtime's metadata, or in D. */

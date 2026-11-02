@@ -60,8 +60,8 @@ const fromRegistry = (registry: unknown[], ...first: number[]) => {
   return { lookup, metadata: { lookup: types } } as unknown as Runtime;
 };
 
-const value = (type: LookupEntry): Encoding => ({ args: null, value: type });
-const call = (type: LookupEntry): Encoding => ({ args: type, value: null });
+const value = (type: LookupEntry): Encoding => ({ input: null, output: type });
+const call = (type: LookupEntry): Encoding => ({ input: type, output: null });
 
 const requirements = (selectors: Selector[], usesTransactions = false) =>
   ({ chain: "individuality", entries: selectors.map((selector) => ({ selector })), usesTransactions }) as unknown as Requirements;
@@ -268,7 +268,7 @@ describe("diff", () => {
   });
 
   it("keeps an added or removed entry that has nothing to encode, as a call without arguments", () => {
-    const none: Encoding = { args: null, value: null };
+    const none: Encoding = { input: null, output: null };
     const r = diff(requirements(["event:A.Done", "tx:A.stop", "tx:A.wait"]), fake({ "tx:A.stop": none, "tx:A.wait": none }), fake({ "event:A.Done": none, "tx:A.wait": none }));
     assert.deepEqual(
       r.entries.map((e) => `${e.selector} ${e.status} [${e.types.map(line).join(", ")}]`),
@@ -286,14 +286,14 @@ describe("diff", () => {
     const inputs = (...value: LookupEntry[]): Var => ({ type: "tuple", value, innerDocs: value.map(() => []) });
     const r = diff(
       requirements(["apis:Api.get"]),
-      fake({ "apis:Api.get": { args: inputs(u32, u16), value: u32 } }),
-      fake({ "apis:Api.get": { args: inputs(u32, u32), value: u32 } }),
+      fake({ "apis:Api.get": { input: inputs(u32, u16), output: u32 } }),
+      fake({ "apis:Api.get": { input: inputs(u32, u32), output: u32 } }),
     );
     assert.deepEqual(r.entries[0]?.types.map(line), ["args.1 changed u16 -> u32"]);
   });
 
   it("lists the value's changes even when the args have more than the limit", () => {
-    const r = diff(requirements(["query:A.Big"]), fake({ "query:A.Big": { args: big(0), value: u32 } }), fake({ "query:A.Big": { args: big(150), value: u64 } }));
+    const r = diff(requirements(["query:A.Big"]), fake({ "query:A.Big": { input: big(0), output: u32 } }), fake({ "query:A.Big": { input: big(150), output: u64 } }));
     const types = r.entries[0]?.types ?? [];
     assert.equal(types.length, MAX_TYPE_CHANGES + 1);
     assert.deepEqual(types.filter((t) => t.path.startsWith("value")).map(line), ["value changed u32 -> u64"]);

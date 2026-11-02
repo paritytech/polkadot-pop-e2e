@@ -31,7 +31,7 @@ const listed = (...sides: TypeChange[][]) => ({
 });
 
 /** What a runtime without the entry encodes for it. */
-const NOTHING: Encoding = { args: null, value: null };
+const NOTHING: Encoding = { input: null, output: null };
 
 /** How one entry R uses differs between live and the candidate; null when it does not. */
 function entryChange(selector: Selector, live: Runtime, candidate: Runtime, changes: Changes): EntryChange | null {
@@ -39,7 +39,7 @@ function entryChange(selector: Selector, live: Runtime, candidate: Runtime, chan
   const onCandidate = candidate.entry(selector)?.encoding;
   const before = onLive ?? NOTHING;
   const after = onCandidate ?? NOTHING;
-  const { types, truncated } = listed(changes("args", before.args, after.args), changes("value", before.value, after.value));
+  const { types, truncated } = listed(changes("args", before.input, after.input), changes("value", before.output, after.output));
 
   let status: ChangeStatus;
   if (onLive && onCandidate) {
