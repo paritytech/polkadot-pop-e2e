@@ -23,7 +23,7 @@ Both doors also carry an **advanced** raw-overlay field for the asks no field ex
 
 Whichever door: the gate forks the live network, converges X → Y — swapping/upgrading **only what differs** (identical pins byte-compare and no-op), never downgrading — runs the chain-tests, and the run summary leads with the exact transitions tested (`bulletin: runtime …v0.0.22-paseo → …v0.0.23-paseo`).
 
-Gated networks: **previewnet** (published fork bundle) and **paseo-next-v2** (`FRESH_BITE=1` — no published bundle, the gate bites live pnv2 at run time; the engine's shared-relay fixes replan the cores onto the fork's 6 validators and endow sudo at import, full E2E proven 2026-08-19). **devnet** is mapped but cannot be bitten yet (`NETWORK_META.gateable: false`): only the smol Paseo Asset Hub chain-spec is published (stateRootHash genesis) and doppelganger rejects it — "Genesis storage in hash format not supported", verified 2026-08-19; a full raw spec has to be sourced or generated first. Kusama and Polkadot have engine descriptors but stay out until a sudo-less enactment path exists (their converge cannot use sudo). Adding a network = one manifest + one `CHAINS`/`SERVICES`/`NETWORK_META` entry in `release-map.mjs`. The chain-tests side needs one base `NETWORKS` entry per network — `NETWORK=local-fork` then derives the fork config from it (the manifest's `network` field, passed as `FORK_OF`): capability flags and chain set are inherited, only the transport is swapped to the engine's local ports. The engine runs the identity backend on any fork carrying People, so pnv2 forks run the attestation-dependent tests against their own DUB. devnet has no identity-backend service mapped, so the workflow exports `FORK_IDENTITY_BACKEND=none` there and those tests skip; devnet's manifest also leaves `bulletin` unpinned — its deployed build (spec 2003001) is on no public release, so the fork keeps it as bitten.
+Gated networks: **previewnet** (published fork bundle) and **paseo-next-v2** (`FRESH_BITE=1` — no published bundle, the gate bites live pnv2 at run time; the engine's shared-relay fixes replan the cores onto the fork's 6 validators and endow sudo at import, full E2E proven 2026-08-19). **devnet** is mapped but cannot be bitten yet (`NETWORK_META.gateable: false`): only the smol Paseo Asset Hub chain-spec is published (stateRootHash genesis) and doppelganger rejects it — "Genesis storage in hash format not supported", verified 2026-08-19; a full raw spec has to be sourced or generated first. Kusama and Polkadot have engine descriptors but stay out until a sudo-less enactment path exists (their converge cannot use sudo). Adding a network = one manifest + one `CHAINS`/`SERVICES`/`NETWORK_META` entry in `release-map.mjs`. The chain-tests side needs one base `NETWORKS` entry per network, named by the manifest's `network` field and exported as `NETWORK`: the fork keeps its capability flags, and its endpoints, identity backend and IPFS gateway come from the Trinity stack descriptor the fork serves (`STACK`). The engine runs the identity backend on any fork carrying People, so pnv2 forks run the attestation-dependent tests against their own DUB. A devnet fork runs no identity backend, so its descriptor lists none and those tests skip; devnet's manifest also leaves `bulletin` unpinned — its deployed build (spec 2003001) is on no public release, so the fork keeps it as bitten.
 
 ## How a gate runs
 
@@ -31,7 +31,7 @@ The workflow (`.github/workflows/release-gate.yml`) **converges, it does not dif
 
 1. Fork the live network from the engine's published bundle and spawn it on the manifest's **binary** pins. The fork's state carries whatever runtimes production runs — the "from" side (X) is never declared in the manifest, the bundle is its source of truth, and the run summary reports the observed `X → Y` per chain.
 2. For every chain, download the pinned **runtime** (Y — always the *target*, never a claim about what's there) and run the engine's `make runtime-upgrade`. Byte-identical to what the fork runs → built-in no-op (`already-installed`), which in steady state is an *assertion* that the gated record still matches production; different → a real on-chain upgrade, enacted and verified; **lower** → the gate fails, the manifest fell behind production.
-3. Run the manifest's `tests:` (chain-tests scripts) with `NETWORK=local-fork`.
+3. Run the manifest's `tests:` (chain-tests scripts) with `STACK` set to the fork's Trinity stack descriptor.
 
 So the target file *is* the test plan, with no mode flags — and a target that moves **both** dimensions fans out into a candidate matrix, one fork run each:
 
@@ -43,21 +43,21 @@ So the target file *is* the test plan, with no mode flags — and a target that 
 
 Single-dimension targets collapse to just `target` (a binaries-only ask is then itself the mixed-version rollout test — every runtime converge no-ops; a runtimes-only ask is the pure upgrade gate). The cross terms are rollout-*ordering* findings — a red `runtimes-only` means "don't enact until every node runs the new binary", not "don't merge". One PR may carry targets for several networks; each fans out its own candidates, all in parallel.
 
-Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `NETWORK=local-fork` — against its upgraded fork; that suite is the actual verdict on the environment.
+Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `STACK` set to the fork's descriptor — against its upgraded fork; that suite is the actual verdict on the environment.
 
 The engine's own pins are its business (per-network `networks/<name>.json`; `config/versions.env` keeps only the shared toolchain); this directory answers "what is deployed as we know it" (canonical) and "what is being asked" (target).
 
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.13.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.14.1`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
   pnpm resolve:environment overrides environments/networks/previewnet.json  # engine env (PPN_BINARIES, NETWORK, ...)
   pnpm resolve:environment runtimes environments/networks/previewnet.json   # downloads, prints chain=path
   # in a previewnet-engine checkout: make start FORK=1 → make runtime-upgrade per line
-  NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
+  STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
 ## Advisory workflow calls

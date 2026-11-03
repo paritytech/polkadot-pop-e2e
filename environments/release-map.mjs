@@ -219,8 +219,8 @@ export const SERVICES = {
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
   },
   // The engine runs the identity backend on any fork carrying People; pnv2 and devnet
-  // forks have no storage stack. The workflow derives FORK_IDENTITY_BACKEND=none from
-  // the absence of the identity-backend service here.
+  // forks have no storage stack. The suite finds out from the fork's descriptor whether it
+  // runs an identity backend.
   'paseo-next-v2': {
     'eth-rpc': {
       override: 'eth-rpc',
