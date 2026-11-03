@@ -18,7 +18,6 @@
  * Run before tests:
  *   NETWORK=previewnet pnpm deploy-counter
  */
-import "../src/config/env.js";
 
 import { createClient, Binary, type SizedHex } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";

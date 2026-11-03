@@ -1,5 +1,5 @@
 import type { Descriptor, Pointer } from "@parity/trinity-stack";
-import { chain } from "@parity/trinity-stack/reader";
+import { chain, service } from "@parity/trinity-stack/reader";
 
 /** Per-network capability flags — drives test gating. */
 export interface NetworkFeatures {
@@ -18,8 +18,8 @@ export interface NetworkFeatures {
   /** DotNS is deployed at the addresses product-sdk pins. */
   dotns: boolean;
   /**
-   * Attestation through the stack's identity backend. Needs a truapi-host CLI preset for the
-   * network, which previewnet and paseo-next-v2 have.
+   * Attestation through the stack's identity backend, with the truapi-host CLI preset of the
+   * same name: previewnet and paseo-next-v2 have one.
    */
   identity: boolean;
 }
@@ -40,9 +40,9 @@ export interface NetworkConfig {
     hopWs?: string;
   };
   identityBackend: string | null;
-  /** "challenge" marks an IBv2 (identity-backend-rust) backend; absent means IBv1. */
-  identityBackendAuth?: "challenge";
   ipfsGateway: string;
+  /** The dotNS TLD the person's identities derive under. */
+  tld: string;
   features: NetworkFeatures;
   // Optional URI override for the keyring. When set, used instead of
   // the `TEST_MNEMONIC` env. Used on local forks, where `//Alice` is funded.
@@ -90,14 +90,14 @@ export const NETWORKS: Record<string, KnownNetwork> = {
   },
 };
 
-export const DEFAULT_NETWORK = "paseo-next-v2";
+const DEFAULT_NETWORK = "paseo-next-v2";
 
 /**
  * The `NETWORKS` entry a stack is an instance or a fork of: the one publishing at the stack's
  * URL, or at its `fork.of`, else the one its `id` is, with the `-fork` suffix a PPN fork carries
  * removed. Undefined when none matches.
  */
-export function networkOfStack(pointer: Pointer, descriptor: Descriptor): string | undefined {
+function networkOfStack(pointer: Pointer, descriptor: Descriptor): string | undefined {
   const urls = [pointer.url, descriptor.fork?.of.url];
   const byUrl = Object.keys(NETWORKS).find((key) => urls.includes(NETWORKS[key].stack.url));
   const byId = descriptor.id.replace(/-fork$/, "");
@@ -113,20 +113,18 @@ export function selectNetwork(
   network: string | undefined,
   stack: { pointer: Pointer; descriptor: Descriptor } | undefined,
 ): string {
-  if (network && !(network in NETWORKS)) {
-    throw new Error(`Unknown network: ${network}. Available: ${Object.keys(NETWORKS).join(", ")}`);
-  }
-  const stackNetwork = stack && networkOfStack(stack.pointer, stack.descriptor);
+  const known = Object.keys(NETWORKS).join(", ");
+  if (network && !(network in NETWORKS)) throw new Error(`Unknown network: ${network}. Available: ${known}`);
+  if (!stack) return network ?? DEFAULT_NETWORK;
+  const stackNetwork = networkOfStack(stack.pointer, stack.descriptor);
   if (network && stackNetwork && network !== stackNetwork) {
     throw new Error(`NETWORK=${network}, but STACK=${stack.pointer.url} is ${stackNetwork}`);
   }
-  if (network) return network;
-  if (stack && !stackNetwork) {
-    throw new Error(
-      `STACK=${stack.pointer.url} (${stack.descriptor.id}) is none of ${Object.keys(NETWORKS).join(", ")}; set NETWORK`,
-    );
+  const selected = network ?? stackNetwork;
+  if (!selected) {
+    throw new Error(`STACK=${stack.pointer.url} (${stack.descriptor.id}) is none of ${known}; set NETWORK`);
   }
-  return stackNetwork ?? DEFAULT_NETWORK;
+  return selected;
 }
 
 /**
@@ -136,20 +134,18 @@ export function selectNetwork(
  * in `-fork`, `//Alice` is the test account: sudo by bite override, and fundable.
  */
 export function networkConfig(known: KnownNetwork, descriptor: Descriptor): NetworkConfig {
-  const service = (kind: string) =>
+  const optionalUrl = (kind: string) =>
     descriptor.services.find((entry) => entry.kind === kind)?.urls[0]?.replace(/\/$/, "");
-  const identityBackend = known.features.identity ? (service("dub") ?? null) : null;
-  const hopWs = service("hop");
-  const ipfsGateway = service("ipfs-gateway");
-  if (!ipfsGateway) throw new Error(`stack ${descriptor.id} has no ipfs-gateway service`);
+  const identityBackend = known.features.identity ? (optionalUrl("dub") ?? null) : null;
+  const hopWs = optionalUrl("hop");
   return {
     name: descriptor.name,
     assetHub: { ws: chain(descriptor, "AssetHub").rpc[0] },
     people: { ws: chain(descriptor, "People").rpc[0] },
     bulletin: { ws: chain(descriptor, "Bulletin").rpc[0], ...(hopWs && { hopWs }) },
     identityBackend,
-    ...(identityBackend && { identityBackendAuth: "challenge" as const }),
-    ipfsGateway,
+    ipfsGateway: service(descriptor, "ipfs-gateway").urls[0].replace(/\/$/, ""),
+    tld: descriptor.tld,
     features: known.features,
     ...(descriptor.id.endsWith("-fork") && { testAccountUri: "//Alice" }),
   };

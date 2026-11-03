@@ -25,7 +25,6 @@
  * (paritytech/dotns DEPLOYMENTS.md → "Live addresses"), so they are constants
  * here rather than per-network config.
  */
-import "../src/config/env.js";
 
 import { namehash } from "viem";
 import { createAssetHubClient } from "../src/lib/client.js";

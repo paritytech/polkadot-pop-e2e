@@ -264,11 +264,10 @@ describe("LitePeople ring health", () => {
       console.log(`[ring-health] People RPC: ${network.people.ws}`);
       console.log(`[ring-health] AssetHub RPC: ${network.assetHub.ws}`);
 
-      const budgetKey = networkKey();
       ahCatchupBudgetRevs =
-        AH_CATCHUP_BUDGET_REVS_BY_NETWORK[budgetKey] ?? DEFAULT_AH_CATCHUP_BUDGET_REVS;
+        AH_CATCHUP_BUDGET_REVS_BY_NETWORK[networkKey()] ?? DEFAULT_AH_CATCHUP_BUDGET_REVS;
       console.log(
-        `[ring-health] AH catch-up budget for ${network.name} (key=${budgetKey}): ${ahCatchupBudgetRevs} revision(s)`,
+        `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey()}): ${ahCatchupBudgetRevs} revision(s)`,
       );
 
       peopleApi = await connect(network.people.ws);
