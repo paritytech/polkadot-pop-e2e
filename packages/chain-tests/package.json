@@ -29,6 +29,7 @@
     "@parity/product-sdk-individuality": "0.11.5",
     "@parity/product-sdk-statement-store": "0.7.8",
     "@parity/product-sdk-tx": "0.5.8",
+    "@parity/trinity-stack": "^0.2.0",
     "@polkadot-api/metadata-builders": "^0.15.2",
     "@polkadot-api/signers-common": "^0.4.0",
     "@polkadot-api/substrate-bindings": "^0.21.2",

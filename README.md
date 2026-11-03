@@ -35,19 +35,19 @@ the features a network does not have.
 
 ## Running against your own network
 
-Set `NETWORK=local-fork` and point the `FORK_*` variables at your endpoints — the
-config derives everything else from the network you forked:
+Set `STACK` to the stack's [Trinity stack descriptor](https://github.com/paritytech/trinity-user-agents/blob/main/docs/rfcs/trinity-stack-descriptor.md)
+URL or its `polkadotapp://stack` link. The suite takes the chains, the HOP endpoint, the
+identity backend and the IPFS gateway from the descriptor, and the runtime features from the
+network the stack runs, which is `NETWORK` or else the descriptor's `id` (`previewnet-fork`
+is a fork of `previewnet`):
 
 ```bash
-NETWORK=local-fork FORK_OF=previewnet \
-  FORK_ASSET_HUB_WS=ws://127.0.0.1:10020 \
-  FORK_PEOPLE_WS=ws://127.0.0.1:10010 \
-  FORK_BULLETIN_WS=ws://127.0.0.1:10030 \
+STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json \
   pnpm --filter @pop-e2e/chain-tests test:network-health
 ```
 
-On a fork `//Alice` is funded and holds sudo, and the engine spawns a local
-identity backend — so the full suite runs with no secrets at all.
+On a fork `//Alice` is funded and holds sudo, so the full suite runs with no secrets at all.
+Tests that need an identity backend skip when the descriptor lists none.
 
 ## The release gate
 

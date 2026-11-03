@@ -1,3 +1,5 @@
+import { decodeLink, read, type Descriptor } from "@parity/trinity-stack";
+
 /** Per-network capability flags — drives test gating. */
 export interface NetworkFeatures {
   /** `pallet-resources` allowance flow (StmtStore + LongTermStorage claims). */
@@ -79,7 +81,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
   // https://docs.polkadotcommunity.foundation/reference/networks/. None of the
   // next-runtime features exist here (no pallet-resources/pgas, no HOP, no
   // identity backend), so only the chain-level health portion of the suite runs.
-  // Exists primarily as a release-gate base network (FORK_OF=devnet).
+  // Exists primarily as a release-gate base network (a fork of devnet).
   devnet: {
     name: "Polkadot Products Devnet",
     assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
@@ -92,57 +94,65 @@ export const NETWORKS: Record<string, NetworkConfig> = {
 };
 
 /**
- * A locally spawned fork of a known network — `make start FORK=1` in the engine
- * (paritytech/previewnet-engine), as used by the release-gate workflow.
- *
- * Fork configs are DERIVED, not enumerated: a fork of X carries X's capability flags
- * and chain set (it is X's state), so everything is inherited from `NETWORKS[X]` and
- * only the transport is swapped — the engine's fixed local ports (its config/ports.env;
- * `FORK_*` env overrides for a remotely spawned instance), the local IBv2 gateway when
- * the base network runs an identity backend, and `//Alice` as the test account
- * (sudo on every fork by bite override, and fundable on every fork). Adding a network
- * to the gate therefore needs no new entry here — `FORK_OF=<network>` is enough.
+ * The stack `STACK` points at, by its descriptor URL or a `polkadotapp://stack` link, read
+ * once when this module loads. A release-gate fork serves its own at
+ * http://127.0.0.1:8090/.well-known/trinity-stack.json.
  */
-function localForkConfig(baseName: string): NetworkConfig {
-  const base = NETWORKS[baseName];
-  if (!base) {
-    throw new Error(
-      `Unknown FORK_OF network: ${baseName}. Available: ${Object.keys(NETWORKS).join(", ")}`,
-    );
+const stack = process.env.STACK ? await readStack(process.env.STACK) : undefined;
+
+async function readStack(location: string): Promise<Descriptor> {
+  const pointer = location.startsWith("polkadotapp:") ? decodeLink(location) : { url: location };
+  try {
+    return (await read(pointer)).descriptor;
+  } catch (error) {
+    throw new Error(`STACK=${location}: ${(error as Error).message}`);
   }
+}
+
+/**
+ * The `NETWORKS` entry the run tests: `NETWORK`, else the network `STACK` is an instance or a
+ * fork of (the engine names a fork of `previewnet` `previewnet-fork`), else paseo-next-v2.
+ */
+export function networkKey(): string {
+  return process.env.NETWORK ?? stack?.id.replace(/-fork$/, "") ?? "paseo-next-v2";
+}
+
+/**
+ * A known network's capability flags with the stack's transport: its chains, its HOP
+ * endpoint, its identity backend (none when the stack runs none, and attestation-dependent
+ * tests then skip) and its IPFS gateway. On a fork `//Alice` is the test account: sudo by
+ * bite override, and fundable on every fork.
+ */
+function stackConfig(descriptor: Descriptor, base: NetworkConfig): NetworkConfig {
+  const rpc = (role: string) => {
+    const url = descriptor.chains.find((chain) => chain.role === role)?.rpc[0];
+    if (!url) throw new Error(`stack ${descriptor.id} has no ${role} chain`);
+    return url;
+  };
+  const service = (kind: string) =>
+    descriptor.services.find((entry) => entry.kind === kind)?.urls[0]?.replace(/\/$/, "");
+  const identityBackend = service("dub") ?? null;
+  const hopWs = service("hop");
+  const ipfsGateway = service("ipfs-gateway");
+  if (!ipfsGateway) throw new Error(`stack ${descriptor.id} has no ipfs-gateway service`);
   return {
     ...base,
-    name: `Local fork of ${base.name}`,
-    assetHub: { ws: process.env.FORK_ASSET_HUB_WS ?? "ws://127.0.0.1:10020" },
-    people: { ws: process.env.FORK_PEOPLE_WS ?? "ws://127.0.0.1:10010" },
-    // Replacing the whole object deliberately drops any remote `hopWs` from the base:
-    // on a fork the local collator runs `--enable-hop`, so the plain ws serves HOP.
-    bulletin: { ws: process.env.FORK_BULLETIN_WS ?? "ws://127.0.0.1:10030" },
-    // The engine runs identity-backend-rust (IBv2) locally — even when the base
-    // network's deployment is IBv1. FORK_IDENTITY_BACKEND=none says this network's
-    // fork spawns NO identity backend at all — attestation-dependent tests then skip.
-    identityBackend:
-      base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
-        ? (process.env.FORK_IDENTITY_BACKEND ?? "http://127.0.0.1:8092")
-        : null,
-    ...(base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
-      ? { identityBackendAuth: "challenge" as const }
-      : {}),
-    ipfsGateway: process.env.FORK_IPFS_GATEWAY ?? "http://127.0.0.1:8080/ipfs",
-    testAccountUri: "//Alice",
+    name: descriptor.name,
+    assetHub: { ws: rpc("AssetHub") },
+    people: { ws: rpc("People") },
+    bulletin: { ws: rpc("Bulletin"), ...(hopWs && { hopWs }) },
+    identityBackend,
+    identityBackendAuth: identityBackend ? "challenge" : undefined,
+    ipfsGateway,
+    ...(descriptor.id.endsWith("-fork") && { testAccountUri: "//Alice" }),
   };
 }
 
 export function getNetworkConfig(): NetworkConfig {
-  const name = process.env.NETWORK ?? "paseo-next-v2";
-  if (name === "local-fork") {
-    return localForkConfig(process.env.FORK_OF ?? "previewnet");
-  }
+  const name = networkKey();
   const config = NETWORKS[name];
   if (!config) {
-    throw new Error(
-      `Unknown network: ${name}. Available: ${Object.keys(NETWORKS).join(", ")}, local-fork`,
-    );
+    throw new Error(`Unknown network: ${name}. Available: ${Object.keys(NETWORKS).join(", ")}`);
   }
-  return config;
+  return stack ? stackConfig(stack, config) : config;
 }

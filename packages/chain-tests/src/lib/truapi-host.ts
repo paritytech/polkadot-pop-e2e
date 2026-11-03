@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
-import { getNetworkConfig } from "../config/networks.js";
+import { getNetworkConfig, networkKey } from "../config/networks.js";
 import { ATTEST_TIMEOUT_MS } from "./attestation-budget.js";
 
 const run = promisify(execFile);
@@ -27,8 +27,7 @@ const PRESETS = {
 type Preset = keyof typeof PRESETS;
 
 function preset(): Preset {
-  const name = process.env.NETWORK === "local-fork" ? (process.env.FORK_OF ?? "previewnet") : process.env.NETWORK;
-  const network = name ?? "paseo-next-v2";
+  const network = networkKey();
   if (!(network in PRESETS)) throw new Error(`[truapi-host-setup] no CLI preset for network ${network}`);
   return network as Preset;
 }
@@ -44,7 +43,7 @@ function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
     TRUAPI_HOST_NO_UPDATE: "1",
   };
   if (network.identityBackend) env.HOST_CLI_IDENTITY_BACKEND_BASE = `${network.identityBackend}/api/v1`;
-  if (process.env.NETWORK === "local-fork") {
+  if (process.env.STACK) {
     env.HOST_CLI_PEOPLE_WS = network.people.ws;
     env.HOST_CLI_ASSET_HUB_WS = network.assetHub.ws;
     env.HOST_CLI_BULLETIN_WS = network.bulletin.ws;
