@@ -1,6 +1,6 @@
 import type SdkDescriptor from "../descriptor/index.ts";
 import type { ChainKey, Direction, Entry, Selector } from "../types.ts";
-import type { Use } from "../usage/types.ts";
+import type { RuntimeAccess } from "../runtime-access/types.ts";
 
 /** An SDK requirement for one metadata entry on one chain. */
 export interface Requirement {
@@ -8,10 +8,10 @@ export interface Requirement {
   get direction(): Direction;
   /** Expected entry from D; null means only existence is checked. */
   expected: Entry | null;
-  uses: Use[];
+  accesses: RuntimeAccess[];
   /** Explicit chain access, or inferred from the descriptor's pallet/runtime API. */
   placedBy: "chain" | "pallet";
-  /** All uses are optional; a missing entry is allowed. */
+  /** All accesses are optional; a missing entry is allowed. */
   get optional(): boolean;
 }
 
@@ -29,6 +29,6 @@ export interface Requirements {
 /** R: the requirements for each chain the caller gave a descriptor for. */
 export interface RequirementSet {
   chains: Requirements[];
-  /** Reads no chain took: their chain has no descriptor, or no descriptor has their pallet. */
-  unplaced: Use[];
+  /** Accesses no chain took: their chain has no descriptor, or no descriptor has their pallet. */
+  unplaced: RuntimeAccess[];
 }

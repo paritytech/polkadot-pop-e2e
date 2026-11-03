@@ -27,7 +27,7 @@ import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
 import locateSdk from "../sdk/index.ts";
 import type { ChainKey } from "../types.ts";
-import SdkUsage from "../usage/index.ts";
+import RuntimeAccesses from "../runtime-access/index.ts";
 import { readChainFile } from "./capture.ts";
 
 /** Manifest chain -> the SDK's chain-client key. Chains the SDK does not read (the relay) are not here. */
@@ -93,7 +93,7 @@ export async function report(options: ReportOptions): Promise<{ run: Run; warnin
 
   const set = buildRequirements(
     Object.fromEntries(chains.map(({ key, descriptor }) => [key, descriptor])),
-    SdkUsage.scan(...sdk.code),
+    RuntimeAccesses.scan(...sdk.code),
   );
   const reports: Report[] = [];
   for (const { chain, key } of chains) {

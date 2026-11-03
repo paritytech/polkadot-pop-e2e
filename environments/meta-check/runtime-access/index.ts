@@ -10,7 +10,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { ChainKey, Selector } from "../types.ts";
 import { readsIn } from "./reads.ts";
-import type { Use } from "./types.ts";
+import type { RuntimeAccess } from "./types.ts";
 
 const DESCRIPTORS = "@parity/product-sdk-descriptors";
 
@@ -76,26 +76,26 @@ function packageFinder(): (dir: string) => Package | null {
   return packageOf;
 }
 
-export default class SdkUsage {
-  readonly uses: Use[];
+export default class RuntimeAccesses {
+  readonly accesses: RuntimeAccess[];
 
-  private constructor(uses: Use[]) {
-    this.uses = uses;
+  private constructor(accesses: RuntimeAccess[]) {
+    this.accesses = accesses;
   }
 
   /**
-   * Every scanned file under each of `dirs`, except the descriptors package's own. A
-   * use's `file` is relative to its folder; when there are several, as for the packages
+   * Every scanned file under each of `dirs`, except the descriptors package's own. An
+   * access's `file` is relative to its folder; when there are several, as for the packages
    * npm installs, it is the package name and the path in the package instead
    * (`@parity/product-sdk-tx/dist/index.js`).
    *
    * A package that depends on the descriptors but reads nothing (and is not in
    * READS_NOTHING) means the scan missed something, such as a build change or a new
-   * access pattern, so it throws instead of reporting no usage.
+   * access pattern, so it throws instead of reporting no accesses.
    */
-  static scan(...dirs: string[]): SdkUsage {
+  static scan(...dirs: string[]): RuntimeAccesses {
     const packageOf = packageFinder();
-    const uses: Use[] = [];
+    const accesses: RuntimeAccess[] = [];
     const readsPerPackage = new Map<string, { pkg: Package; count: number }>();
     for (const dir of dirs) {
       const root = path.resolve(dir);
@@ -111,7 +111,7 @@ export default class SdkUsage {
         if (pkg.name === DESCRIPTORS) continue;
 
         const found = readsIn(file, fs.readFileSync(file, "utf8")).map(
-          (read): Use => ({
+          (read): RuntimeAccess => ({
             ...read,
             package: pkg.name,
             file: dirs.length > 1 ? path.join(pkg.name, path.relative(pkg.dir, file)) : path.relative(root, file),
@@ -120,7 +120,7 @@ export default class SdkUsage {
         const tally = readsPerPackage.get(pkg.name) ?? { pkg, count: 0 };
         tally.count += found.length;
         readsPerPackage.set(pkg.name, tally);
-        uses.push(...found);
+        accesses.push(...found);
       }
     }
 
@@ -129,19 +129,19 @@ export default class SdkUsage {
         throw new Error(`${pkg.name} depends on ${DESCRIPTORS} but no chain read was found in its files`);
       }
     }
-    return new SdkUsage(uses);
+    return new RuntimeAccesses(accesses);
   }
 
   selectors(): Set<Selector> {
-    return new Set(this.uses.map((use) => use.selector));
+    return new Set(this.accesses.map((access) => access.selector));
   }
 
-  forChain(chain: ChainKey): Use[] {
-    return this.uses.filter((use) => use.chain === chain);
+  forChain(chain: ChainKey): RuntimeAccess[] {
+    return this.accesses.filter((access) => access.chain === chain);
   }
 
   /** Reads through a local API whose chain the code does not show. */
-  unattributed(): Use[] {
-    return this.uses.filter((use) => use.chain === null);
+  unattributed(): RuntimeAccess[] {
+    return this.accesses.filter((access) => access.chain === null);
   }
 }

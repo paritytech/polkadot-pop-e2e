@@ -10,8 +10,8 @@ import buildRequirements from "../requirements/index.ts";
 import type { Requirements } from "../requirements/types.ts";
 import Runtime from "../runtime/index.ts";
 import type { Level, Selector } from "../types.ts";
-import SdkUsage from "../usage/index.ts";
-import type { Use } from "../usage/types.ts";
+import RuntimeAccesses from "../runtime-access/index.ts";
+import type { RuntimeAccess } from "../runtime-access/types.ts";
 import buildReport, { assembleReport } from "./index.ts";
 import toJson from "./json.ts";
 import renderMarkdown from "./markdown.ts";
@@ -19,7 +19,7 @@ import type { EntryFinding, PipelineFinding, Report, Run } from "./types.ts";
 
 // ── Hand-built findings ──────────────────────────────────
 
-const use = (file: string, line: number, selector: Selector = "query:Game.Players"): Use => ({
+const access = (file: string, line: number, selector: Selector = "query:Game.Players"): RuntimeAccess => ({
   selector,
   chain: "individuality",
   optional: false,
@@ -34,13 +34,13 @@ const entry = (
   before: Level,
   after: Level,
   {
-    uses = [use("app/src/a.ts", 1, selector)],
+    accesses = [access("app/src/a.ts", 1, selector)],
     change = null,
     optional = false,
     placedBy = "chain",
-  }: { uses?: Use[]; change?: EntryChange | null; optional?: boolean; placedBy?: "chain" | "pallet" } = {},
+  }: { accesses?: RuntimeAccess[]; change?: EntryChange | null; optional?: boolean; placedBy?: "chain" | "pallet" } = {},
 ): EntryFinding => ({
-  requirement: { selector, direction: "both", expected: null, uses, placedBy, optional },
+  requirement: { selector, direction: "both", expected: null, accesses, placedBy, optional },
   before,
   after,
   verdict,
@@ -133,7 +133,7 @@ describe("renderMarkdown", () => {
             entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
               change: changed("tx:Sudo.sudo", ["args.call"]),
               placedBy: "pallet",
-              uses: [use("a.ts", 1), use("a.ts", 9), use("b.ts", 3)],
+              accesses: [access("a.ts", 1), access("a.ts", 9), access("b.ts", 3)],
             }),
             entry("query:Game.Seats", "breaking", "Identical", "Incompatible", { optional: true }),
           ],
@@ -157,8 +157,8 @@ describe("renderMarkdown", () => {
   });
 
   it("caps the places an entry is read at", async () => {
-    const uses = Array.from({ length: 9 }, (_, i) => use(`f${i}.ts`, i));
-    const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "breaking", "Identical", "Missing", { uses })] })));
+    const accesses = Array.from({ length: 9 }, (_, i) => access(`f${i}.ts`, i));
+    const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "breaking", "Identical", "Missing", { accesses })] })));
     assert.ok(markdown.includes("`f5.ts:5`, +3 more |"));
   });
 
@@ -348,7 +348,7 @@ describe("renderMarkdown", () => {
   it("lists the reads on chains the run does not check", async () => {
     const markdown = renderMarkdown({
       reports: [report({})],
-      unplaced: [use("cloud-storage/src/verify.ts", 100, "query:TransactionStorage.Transactions")],
+      unplaced: [access("cloud-storage/src/verify.ts", 100, "query:TransactionStorage.Transactions")],
       failed: [],
     });
     assert.ok(markdown.includes("<details><summary>Reads on a chain this run does not check (1)</summary>"));
@@ -364,7 +364,7 @@ describe("toJson", () => {
           entries: [
             entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
               change: changed("tx:Sudo.sudo", ["args.call"]),
-              uses: [use("a.ts", 7)],
+              accesses: [access("a.ts", 7)],
             }),
           ],
           pipelines: [
@@ -502,9 +502,9 @@ describe("buildReport on the fixtures", { skip }, () => {
   };
 
   /** One chain's requirements for an SDK version. */
-  const requirementsOf = async (sdk: string, chain: Chain, usage: SdkUsage): Promise<Requirements> => {
+  const requirementsOf = async (sdk: string, chain: Chain, runtimeAccesses: RuntimeAccesses): Promise<Requirements> => {
     const descriptor = await SdkDescriptor.load(path.join(packagesOf(sdk), "descriptors", "chains", DESCRIPTOR[chain]));
-    const [requirements] = buildRequirements({ [chain]: descriptor }, usage).chains;
+    const [requirements] = buildRequirements({ [chain]: descriptor }, runtimeAccesses).chains;
     assert.ok(requirements);
     return requirements;
   };
@@ -512,8 +512,8 @@ describe("buildReport on the fixtures", { skip }, () => {
   /** One chain's report for an SDK version and an upgrade, by default People from v0.3.1 to v0.3.4. */
   const fixtureReport = async (
     sdk: string,
-    { live = "0.3.1", candidate = "0.3.4", chain = "individuality" as Chain, usage = SdkUsage.scan(packagesOf(sdk)) } = {},
-  ): Promise<Report> => buildReport(await requirementsOf(sdk, chain, usage), runtime(live, chain), runtime(candidate, chain));
+    { live = "0.3.1", candidate = "0.3.4", chain = "individuality" as Chain, runtimeAccesses = RuntimeAccesses.scan(packagesOf(sdk)) } = {},
+  ): Promise<Report> => buildReport(await requirementsOf(sdk, chain, runtimeAccesses), runtime(live, chain), runtime(candidate, chain));
   const notOk = (r: Report) =>
     r.entries.filter((e) => e.verdict !== "ok").map((e) => `${e.verdict} ${e.requirement.selector} ${e.before}->${e.after}`);
   const breaking = (r: Report) => [
@@ -540,7 +540,7 @@ describe("buildReport on the fixtures", { skip }, () => {
     assert.deepEqual(breaking(r), ["constants:Game.airdrop_event_id_base Identical->Missing"]);
     const gone = r.entries.find((e) => e.requirement.selector === "constants:Game.airdrop_event_id_base");
     assert.deepEqual(
-      gone?.requirement.uses.map((u) => `${u.file}:${u.line}`),
+      gone?.requirement.accesses.map((access) => `${access.file}:${access.line}`),
       [
         "individuality/src/airdrop-read.ts:292",
         "individuality/src/airdrop-read.ts:318",
@@ -583,7 +583,7 @@ describe("renderMarkdown on demo 1", { skip }, () => {
   it("renders the current SDK breaking on the nightly", async () => {
     const packages = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages");
     const descriptor = await SdkDescriptor.load(path.join(packages, "descriptors", "chains", "paseo-individuality"));
-    const set = buildRequirements({ individuality: descriptor }, SdkUsage.scan(packages));
+    const set = buildRequirements({ individuality: descriptor }, RuntimeAccesses.scan(packages));
     const wasm = (release: string) =>
       new Runtime(fs.readFileSync(path.join(FIXTURES, `runtime-${release}`, "next_people_paseo_runtime.compact.compressed.wasm")));
     const [requirements] = set.chains;

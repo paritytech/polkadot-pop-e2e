@@ -6,13 +6,13 @@ import { listChange } from "../diff/index.ts";
 import type { ExtrinsicVersionChange, TypeChange } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import type { ChainKey, Level } from "../types.ts";
-import type { Use } from "../usage/types.ts";
+import type { RuntimeAccess } from "../runtime-access/types.ts";
 import type { EntryFinding, PipelineFinding, Report, Run } from "./types.ts";
 
 const CHAIN: Record<ChainKey, string> = { individuality: "People", assetHub: "Asset Hub", bulletin: "Bulletin" };
 
 // Past these, a cell stops being read; the count says the rest.
-const MAX_USES = 6;
+const MAX_ACCESSES = 6;
 const MAX_NAMES = 5;
 const MAX_TYPE_ROWS = 5;
 
@@ -27,15 +27,15 @@ const findings = (report: Report): (EntryFinding | PipelineFinding)[] => [...rep
 const count = (report: Report, verdict: Verdict): number =>
   findings(report).filter((finding) => finding.verdict === verdict).length;
 
-/** `a.ts:292`, `:318`, `b.ts:132`: a file named once per run of uses in it. */
-function readAt(uses: Use[]): string {
+/** `a.ts:292`, `:318`, `b.ts:132`: a file named once per run of accesses in it. */
+function readAt(accesses: RuntimeAccess[]): string {
   let previous = "";
-  const shown = uses.slice(0, MAX_USES).map((use) => {
-    const at = use.file === previous ? `:${use.line}` : `${use.file}:${use.line}`;
-    previous = use.file;
+  const shown = accesses.slice(0, MAX_ACCESSES).map((access) => {
+    const at = access.file === previous ? `:${access.line}` : `${access.file}:${access.line}`;
+    previous = access.file;
     return code(at);
   });
-  const more = uses.length - shown.length;
+  const more = accesses.length - shown.length;
   return [...shown, ...(more > 0 ? [`+${more} more`] : [])].join(", ");
 }
 
@@ -70,7 +70,7 @@ function entryName(finding: EntryFinding): string {
 const ENTRY_TABLE = ["| Entry | Live → candidate | Read at |", "|---|---|---|"];
 
 const entryRow = (finding: EntryFinding, emphasise: boolean): string =>
-  `| ${entryName(finding)} | ${levels(finding.before, finding.after, emphasise)}${changedAt(finding)} | ${readAt(finding.requirement.uses)} |`;
+  `| ${entryName(finding)} | ${levels(finding.before, finding.after, emphasise)}${changedAt(finding)} | ${readAt(finding.requirement.accesses)} |`;
 
 const listOf = (items: string[]): string =>
   items.length > MAX_NAMES ? `${items.slice(0, MAX_NAMES).join(", ")}, … (${items.length})` : items.join(", ");
@@ -255,12 +255,12 @@ function chainSection(report: Report): string[] {
   ];
 }
 
-function unplaced(uses: Use[]): string[] {
-  if (uses.length === 0) return [];
+function unplaced(accesses: RuntimeAccess[]): string[] {
+  if (accesses.length === 0) return [];
   return [
-    `<details><summary>Reads on a chain this run does not check (${uses.length})</summary>`,
+    `<details><summary>Reads on a chain this run does not check (${accesses.length})</summary>`,
     "",
-    ...uses.map((use) => `- ${code(use.selector)} at ${code(`${use.file}:${use.line}`)}`),
+    ...accesses.map((access) => `- ${code(access.selector)} at ${code(`${access.file}:${access.line}`)}`),
     "</details>",
     "",
   ];

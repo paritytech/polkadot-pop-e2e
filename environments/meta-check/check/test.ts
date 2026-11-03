@@ -7,7 +7,7 @@ import SdkDescriptor from "../descriptor/index.ts";
 import buildRequirements from "../requirements/index.ts";
 import type { Requirements } from "../requirements/types.ts";
 import Runtime from "../runtime/index.ts";
-import SdkUsage from "../usage/index.ts";
+import RuntimeAccesses from "../runtime-access/index.ts";
 import check from "./index.ts";
 
 // Against fixtures/ (see fixtures/README.md): People, read by SDK 0.42.0. Skipped without
@@ -20,10 +20,10 @@ describe("check on the fixtures", { skip }, () => {
   const people = (release: string) =>
     new Runtime(fs.readFileSync(path.join(FIXTURES, `runtime-${release}`, "next_people_paseo_runtime.compact.compressed.wasm")));
 
-  /** People's requirements for what `usage` reads: by default, everything the SDK reads. */
-  const requirementsOf = async (usage = SdkUsage.scan(packages)): Promise<Requirements> => {
+  /** People's requirements for the accesses found: by default, everything the SDK reads. */
+  const requirementsOf = async (runtimeAccesses = RuntimeAccesses.scan(packages)): Promise<Requirements> => {
     const descriptor = await SdkDescriptor.load(path.join(packages, "descriptors", "chains", "paseo-individuality"));
-    const [requirements] = buildRequirements({ individuality: descriptor }, usage).chains;
+    const [requirements] = buildRequirements({ individuality: descriptor }, runtimeAccesses).chains;
     assert.ok(requirements);
     return requirements;
   };
@@ -47,7 +47,7 @@ describe("check on the fixtures", { skip }, () => {
     fs.mkdirSync(path.join(dir, "src"));
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@x/reader" }));
     fs.writeFileSync(path.join(dir, "src", "read.ts"), "chain.individuality.query.Game.Players;");
-    const r = check(await requirementsOf(SdkUsage.scan(dir)), people("0.3.4"));
+    const r = check(await requirementsOf(RuntimeAccesses.scan(dir)), people("0.3.4"));
     assert.deepEqual(r.pipelines, []);
     assert.deepEqual(
       r.entries.map((e) => `${e.requirement.selector} ${e.level}`),

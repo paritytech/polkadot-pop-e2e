@@ -1,7 +1,7 @@
 import type { EntryChange, ExtrinsicVersionChange, PipelineChange } from "../diff/types.ts";
 import type { EntryVerdict, PipelineVerdict } from "../regression/types.ts";
 import type { ChainKey, RuntimeVersion } from "../types.ts";
-import type { Use } from "../usage/types.ts";
+import type { RuntimeAccess } from "../runtime-access/types.ts";
 
 /** An entry's verdict, and what the upgrade changed in it. */
 export interface EntryFinding extends EntryVerdict {
@@ -41,7 +41,7 @@ export interface Report {
 /** One check run: a report per upgraded chain, and the reads no chain took. */
 export interface Run {
   reports: Report[];
-  unplaced: Use[];
+  unplaced: RuntimeAccess[];
   /** Upgraded chains that could not be checked, and why. */
   failed: { chain: string; error: string }[];
 }

@@ -1,7 +1,7 @@
 import type { ChainKey, Selector } from "../types.ts";
 
-/** An SDK source location that accesses a metadata entry. */
-export interface Use {
+/** An SDK source location that accesses a runtime API. */
+export interface RuntimeAccess {
   selector: Selector;
   /** Null when the scanner cannot identify the chain. */
   chain: ChainKey | null;

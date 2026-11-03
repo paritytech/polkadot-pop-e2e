@@ -16,12 +16,12 @@
 // Empty `pipelines` and a null `extrinsicVersions` also mean the SDK uses no transactions there.
 
 import type { EntryChange, PipelineChange, TypeChange } from "../diff/types.ts";
-import type { Use } from "../usage/types.ts";
+import type { RuntimeAccess } from "../runtime-access/types.ts";
 import type { Run } from "./types.ts";
 
 export const SCHEMA_VERSION = 1;
 
-const use = ({ selector, chain, optional, package: pkg, file, line }: Use) => ({
+const access = ({ selector, chain, optional, package: pkg, file, line }: RuntimeAccess) => ({
   selector,
   chain,
   optional,
@@ -66,7 +66,7 @@ export default function toJson(run: Run) {
         direction: requirement.direction,
         optional: requirement.optional,
         placedBy: requirement.placedBy,
-        uses: requirement.uses.map(({ package: pkg, file, line }) => ({ package: pkg, file, line })),
+        uses: requirement.accesses.map(({ package: pkg, file, line }) => ({ package: pkg, file, line })),
       })),
       pipelines: report.pipelines.map(({ version, verdict, before, after, expected, live, candidate, retypedFromSdk, change }) => ({
         version,
@@ -86,7 +86,7 @@ export default function toJson(run: Run) {
         removed: report.extrinsicVersions.removed,
       },
     })),
-    unplaced: run.unplaced.map(use),
+    unplaced: run.unplaced.map(access),
     failed: run.failed,
   };
 }

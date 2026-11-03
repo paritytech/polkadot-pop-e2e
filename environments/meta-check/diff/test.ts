@@ -8,7 +8,7 @@ import buildRequirements from "../requirements/index.ts";
 import type { Requirements } from "../requirements/types.ts";
 import Runtime from "../runtime/index.ts";
 import type { Encoding, Selector } from "../types.ts";
-import SdkUsage from "../usage/index.ts";
+import RuntimeAccesses from "../runtime-access/index.ts";
 import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 import diff from "./index.ts";
 import type { RuntimeDiff, TypeChange } from "./types.ts";
@@ -386,7 +386,7 @@ describe("diff on the fixtures", { skip }, () => {
     const packages = path.join(FIXTURES, `product-sdk-${sdk}`, "product-sdk", "packages");
     const name = chain === "individuality" ? "paseo-individuality" : "paseo-asset-hub";
     const descriptor = await SdkDescriptor.load(path.join(packages, "descriptors", "chains", name));
-    const [requirements] = buildRequirements({ [chain]: descriptor }, SdkUsage.scan(packages)).chains;
+    const [requirements] = buildRequirements({ [chain]: descriptor }, RuntimeAccesses.scan(packages)).chains;
     assert.ok(requirements);
     return requirements;
   };

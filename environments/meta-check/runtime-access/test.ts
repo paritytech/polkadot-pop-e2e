@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { readsIn } from "./reads.ts";
-import SdkUsage from "./index.ts";
+import RuntimeAccesses from "./index.ts";
 
 /** The reads in a snippet, as `selector chain line`. */
 const reads = (source: string): string[] =>
@@ -149,9 +149,9 @@ describe("readsIn", () => {
   });
 });
 
-describe("SdkUsage.scan", () => {
+describe("RuntimeAccesses.scan", () => {
   const packagesWith = (files: Record<string, string>): string => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-usage-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-access-"));
     for (const [file, text] of Object.entries(files)) {
       fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
       fs.writeFileSync(path.join(dir, file), text);
@@ -170,7 +170,7 @@ describe("SdkUsage.scan", () => {
       "descriptors/package.json": manifest("@parity/product-sdk-descriptors"),
       "descriptors/src/x.ts": "api.query.System.Account;",
     });
-    assert.deepEqual(SdkUsage.scan(dir).uses, [
+    assert.deepEqual(RuntimeAccesses.scan(dir).accesses, [
       { selector: "query:Game.Players", chain: "individuality", optional: false, line: 2, package: "@x/game", file: "game/src/read.ts" },
     ]);
   });
@@ -180,7 +180,7 @@ describe("SdkUsage.scan", () => {
       "game/package.json": manifest("@x/game", DESCRIPTORS),
       "game/src/read.ts": "export const nothing = 1;",
     });
-    assert.throws(() => SdkUsage.scan(dir), /@x\/game depends on @parity\/product-sdk-descriptors/);
+    assert.throws(() => RuntimeAccesses.scan(dir), /@x\/game depends on @parity\/product-sdk-descriptors/);
   });
 
   it("scans one package's src/, naming the package from the package.json above it", () => {
@@ -188,7 +188,7 @@ describe("SdkUsage.scan", () => {
       "game/package.json": manifest("@x/game", DESCRIPTORS),
       "game/src/read.ts": "chain.individuality.query.Game.Players;",
     });
-    assert.deepEqual(SdkUsage.scan(path.join(dir, "game", "src")).uses, [
+    assert.deepEqual(RuntimeAccesses.scan(path.join(dir, "game", "src")).accesses, [
       { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, package: "@x/game", file: "read.ts" },
     ]);
   });
@@ -202,7 +202,7 @@ describe("SdkUsage.scan", () => {
       "game/test/helpers.ts": "chain.individuality.query.Game.Seats;",
     });
     assert.deepEqual(
-      SdkUsage.scan(dir).uses.map((u) => u.file),
+      RuntimeAccesses.scan(dir).accesses.map((access) => access.file),
       ["game/src/read.ts"],
     );
   });
@@ -216,14 +216,14 @@ describe("SdkUsage.scan", () => {
       "game/node_modules/dep/index.js": "chain.individuality.query.Game.Rounds;",
     });
     assert.deepEqual(
-      SdkUsage.scan(path.join(dir, "game")).uses.map((u) => `${u.package} ${u.file} ${u.selector}`),
+      RuntimeAccesses.scan(path.join(dir, "game")).accesses.map((access) => `${access.package} ${access.file} ${access.selector}`),
       ["@x/game dist/index.js query:Game.Players"],
     );
   });
 
   it("throws for a file with no package.json above it", () => {
     const dir = packagesWith({ "loose/read.ts": "chain.individuality.query.Game.Players;" });
-    assert.throws(() => SdkUsage.scan(dir), /no package\.json above it/);
+    assert.throws(() => RuntimeAccesses.scan(dir), /no package\.json above it/);
   });
 
   it("accepts a package without the descriptors that reads nothing", () => {
@@ -231,7 +231,7 @@ describe("SdkUsage.scan", () => {
       "logger/package.json": manifest("@x/logger"),
       "logger/src/log.ts": "export const log = console.log;",
     });
-    assert.deepEqual(SdkUsage.scan(dir).uses, []);
+    assert.deepEqual(RuntimeAccesses.scan(dir).accesses, []);
   });
 });
 
@@ -239,15 +239,15 @@ describe("SdkUsage.scan", () => {
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
 
-describe("SdkUsage on the fixture SDKs", { skip }, () => {
-  const scan = (sdk: string) => SdkUsage.scan(path.join(FIXTURES, `product-sdk-${sdk}`, "product-sdk", "packages"));
+describe("RuntimeAccesses on the fixture SDKs", { skip }, () => {
+  const scan = (sdk: string) => RuntimeAccesses.scan(path.join(FIXTURES, `product-sdk-${sdk}`, "product-sdk", "packages"));
 
   it("finds the reads, with where they are", () => {
-    const usage = scan("0.42.0");
-    assert.equal(usage.uses.length, 112);
-    assert.equal(usage.selectors().size, 71);
+    const runtimeAccesses = scan("0.42.0");
+    assert.equal(runtimeAccesses.accesses.length, 112);
+    assert.equal(runtimeAccesses.selectors().size, 71);
     assert.ok(
-      usage.uses.some(
+      runtimeAccesses.accesses.some(
         (u) =>
           u.selector === "query:NetworkSuffix.NetworkSuffix" &&
           u.chain === "individuality" &&
@@ -258,17 +258,17 @@ describe("SdkUsage on the fixture SDKs", { skip }, () => {
   });
 
   it("splits the reads by chain", () => {
-    const usage = scan("0.42.0");
-    assert.equal(usage.forChain("individuality").length, 79);
-    assert.equal(usage.forChain("assetHub").length, 12);
-    assert.equal(usage.unattributed().length, 21);
-    assert.ok(usage.forChain("assetHub").every((u) => u.package === "@parity/product-sdk-nfts"));
+    const runtimeAccesses = scan("0.42.0");
+    assert.equal(runtimeAccesses.forChain("individuality").length, 79);
+    assert.equal(runtimeAccesses.forChain("assetHub").length, 12);
+    assert.equal(runtimeAccesses.unattributed().length, 21);
+    assert.ok(runtimeAccesses.forChain("assetHub").every((access) => access.package === "@parity/product-sdk-nfts"));
   });
 
   it("scans one package's src/ the same as it is found in the whole tree", () => {
     const individuality = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages", "individuality", "src");
-    const alone = SdkUsage.scan(individuality).uses;
-    const inTree = scan("0.42.0").uses.filter((u) => u.package === "@parity/product-sdk-individuality");
+    const alone = RuntimeAccesses.scan(individuality).accesses;
+    const inTree = scan("0.42.0").accesses.filter((access) => access.package === "@parity/product-sdk-individuality");
     assert.equal(alone.length, 74);
     assert.deepEqual(
       alone.map((u) => `${u.selector} individuality/src/${u.file}:${u.line}`),

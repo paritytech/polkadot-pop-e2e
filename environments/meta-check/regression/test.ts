@@ -34,7 +34,7 @@ const requirement = (selector: Selector, optional = false): Requirement => ({
   selector,
   direction: "both",
   expected: null,
-  uses: [],
+  accesses: [],
   placedBy: "chain",
   optional,
 });
