@@ -1,85 +1,77 @@
 import type { ChainKey, Selector } from "../types.ts";
 
-/** `added`: only A' has it. `removed`: only A has it. `changed`: both have it, and it differs. */
+/** Candidate relative to live. */
 export type ChangeStatus = "added" | "removed" | "changed";
 
-/** One place where a type differs between A and A' in how it encodes, or in its names. */
+/** An encoding or name change at one type path. */
 export interface TypeChange {
-  /**
-   * From the entry's `args` or `value`, or the extension's `type` or `additionalSigned`,
-   * in PAPI's path segments: `args.dest`, `value.info.some`, `value.ok.value`.
-   */
+  /** Rooted at `args`, `value`, `type`, or `additionalSigned`, e.g. `value.info.some`. */
   path: string;
-  /**
-   * For `changed`: the type was replaced by another (another kind, width or length), the
-   * struct's fields moved (`{ a, b }` → `{ b, a }`), or the variant's index changed
-   * (`index 3` → `index 4`).
-   */
+  /** `changed` includes type replacements, field reordering, and variant index changes. */
   status: ChangeStatus;
-  /** A's type there, or what about it differs; null when only A' has it. */
+  /** Live type or change detail; null when added. */
   before: string | null;
-  /** A''s type there, or what about it differs; null when only A has it. */
+  /** Candidate type or change detail; null when removed. */
   after: string | null;
 }
 
-/** One entry R uses that differs between A and A'. */
+/** A changed metadata entry within the SDK requirements. */
 export interface EntryChange {
   selector: Selector;
   status: ChangeStatus;
   /**
-   * Where its types differ, in walk order: `args`, then `value`, up to 100 each. For an
-   * added or removed entry, its whole `args` and `value`: empty when it has neither, as a
-   * call without arguments or an event without fields.
+   * Input changes, then output changes, capped separately. Added/removed entries list
+   * whole input/output types; empty for entries with neither, e.g. argument-free calls.
    */
   types: TypeChange[];
-  /** A side had more changes than `types` lists; they are in neither the JSON nor the markdown. */
+  /** Additional changes were omitted from both JSON and Markdown. */
   truncated: boolean;
 }
 
-/** One extension in A's and A''s version whose types differ. */
+/** Type changes to an extension present in both runtimes at the same extension version. */
 export interface ExtensionChange {
   identifier: string;
-  /** Where its `type` (the explicit value) or `additionalSigned` (the implicit one) differ, up to 100 each. */
+  /** Explicit (`type`) and implicit (`additionalSigned`) changes, capped separately. */
   types: TypeChange[];
-  /** A side had more changes than `types` lists. */
+  /** Additional changes were omitted from both JSON and Markdown. */
   truncated: boolean;
 }
 
-/** One extension version that differs between A and A'. */
+/** Changes to one transaction-extension pipeline version. */
 export interface PipelineChange {
   version: number;
   status: ChangeStatus;
-  /** A's extension identifiers in order; null when A has no such version. */
+  /** Ordered identifiers; null when live lacks this version. */
   live: readonly string[] | null;
-  /** A''s extension identifiers in order; null when A' has no such version. */
+  /** Ordered identifiers; null when the candidate lacks this version. */
   candidate: readonly string[] | null;
-  /** In A''s list and not in A's; one listed more often in A' than in A, once for each time more. */
+  /** Extra occurrences on the candidate, including duplicate identifiers. */
   added: string[];
-  /** In A's list and not in A''s; one listed more often in A than in A', once for each time more. */
+  /** Extra occurrences on live, including duplicate identifiers. */
   removed: string[];
-  /** The extensions both lists keep are in another order. */
+  /** Retained identifiers changed order. */
   reordered: boolean;
-  /** Extensions in both lists whose types differ: live's against the candidate's. */
+  /** Retained extensions whose types changed. */
   retyped: ExtensionChange[];
 }
 
-/** The extrinsic format versions A and A' accept (4, 5), ascending, when they differ. */
+/** Changes to accepted extrinsic format versions; lists are sorted ascending. */
 export interface ExtrinsicVersionChange {
   live: number[];
   candidate: number[];
-  /** A' accepts them, A does not. */
+  /** Accepted only by the candidate. */
   added: number[];
-  /** A accepts them, A' does not. */
+  /** Accepted only by live. */
   removed: number[];
 }
 
-/** `diff(R, A, A')`: what differs between the two runtimes within what the SDK uses. */
+/** Live-to-candidate changes within the SDK requirements, without compatibility verdicts. */
 export interface RuntimeDiff {
   chain: ChainKey;
-  /** The entries R uses that differ, in the requirements' order. */
+  /** Changed entries, in requirements order. */
   entries: EntryChange[];
-  /** The extension versions that differ, ascending. Empty when the SDK uses no transactions on this chain. */
+  /** Changed extension versions, ascending. Empty when unchanged or no transactions are used. */
   pipelines: PipelineChange[];
-  /** Null when they are alike, or when the SDK uses no transactions on this chain. Not graded: no verdict. */
+  /** Null when unchanged or no transactions are used. */
   extrinsicVersions: ExtrinsicVersionChange | null;
 }
