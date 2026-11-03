@@ -3,21 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import SdkDescriptor from "../descriptor/index.ts";
+import type { EntryChange, PipelineChange, RuntimeDiff } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
 import type {
-  EntryChange,
   EntryFinding,
   Level,
-  PipelineChange,
   PipelineCheck,
   PipelineFinding,
   Report,
   Requirements,
   RuntimeCheck,
   Run,
-  RuntimeDiff,
   Selector,
   Use,
 } from "../types.ts";

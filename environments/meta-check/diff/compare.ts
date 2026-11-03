@@ -10,7 +10,7 @@
 
 import type { Var } from "@polkadot-api/metadata-builders";
 import type MetadataView from "../metadata-view/index.ts";
-import type { TypeChange } from "../types.ts";
+import type { TypeChange } from "./types.ts";
 
 type Variant = Extract<Var, { type: "enum" }>["value"][string];
 

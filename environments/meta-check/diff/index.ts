@@ -5,19 +5,17 @@
 
 import type MetadataView from "../metadata-view/index.ts";
 import type Runtime from "../runtime/index.ts";
+import type { Encoding, Requirements, Selector } from "../types.ts";
+import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 import type {
   ChangeStatus,
-  Encoding,
   EntryChange,
   ExtensionChange,
   ExtrinsicVersionChange,
   PipelineChange,
-  Requirements,
   RuntimeDiff,
-  Selector,
   TypeChange,
-} from "../types.ts";
-import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
+} from "./types.ts";
 
 type Changes = ReturnType<typeof compareTypes>;
 

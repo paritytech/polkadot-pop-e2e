@@ -6,10 +6,11 @@ import { denormalizeLookup, type EnumVar, type LookupEntry, type MetadataPrimiti
 import SdkDescriptor from "../descriptor/index.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
-import type { Encoding, Requirements, RuntimeDiff, Selector, TypeChange } from "../types.ts";
+import type { Encoding, Requirements, Selector } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 import diff from "./index.ts";
+import type { RuntimeDiff, TypeChange } from "./types.ts";
 
 // ── Hand-built runtimes: only what diff reads ────────────
 

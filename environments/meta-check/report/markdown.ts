@@ -3,16 +3,15 @@
 // collapsed. The JSON has the rest, up to its own limits.
 
 import { listChange } from "../diff/index.ts";
+import type { ExtrinsicVersionChange, TypeChange } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import type {
   ChainKey,
   EntryFinding,
-  ExtrinsicVersionChange,
   Level,
   PipelineFinding,
   Report,
   Run,
-  TypeChange,
   Use,
 } from "../types.ts";
 
