@@ -5,8 +5,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import SdkDescriptor from "../descriptor/index.ts";
 import buildRequirements from "../requirements/index.ts";
+import type { Requirements } from "../requirements/types.ts";
 import Runtime from "../runtime/index.ts";
-import type { Requirements } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import check from "./index.ts";
 

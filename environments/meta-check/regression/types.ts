@@ -1,4 +1,5 @@
-import type { Level, Requirement } from "../types.ts";
+import type { Requirement } from "../requirements/types.ts";
+import type { Level } from "../types.ts";
 
 /**
  * - `ok`: meets the compatibility policy, including allowed absence.

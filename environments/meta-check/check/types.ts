@@ -1,4 +1,5 @@
-import type { ChainKey, Level, Requirement, RuntimeVersion } from "../types.ts";
+import type { Requirement } from "../requirements/types.ts";
+import type { ChainKey, Level, RuntimeVersion } from "../types.ts";
 
 /** One requirement graded against one runtime. */
 export interface EntryCheck {

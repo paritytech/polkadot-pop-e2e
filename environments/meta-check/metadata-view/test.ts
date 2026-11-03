@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { metadata } from "@polkadot-api/substrate-bindings";
 import { entryLevel } from "../check/grade.ts";
-import type { Requirement, Selector } from "../types.ts";
+import type { Requirement } from "../requirements/types.ts";
+import type { Selector } from "../types.ts";
 import MetadataView from "./index.ts";
 
 // ── A small metadata, encoded here: one pallet's storage items, read in their order ──

@@ -4,8 +4,9 @@
 // whether the SDK minds: that is check's and regression's.
 
 import type MetadataView from "../metadata-view/index.ts";
+import type { Requirements } from "../requirements/types.ts";
 import type Runtime from "../runtime/index.ts";
-import type { Encoding, Requirements, Selector } from "../types.ts";
+import type { Encoding, Selector } from "../types.ts";
 import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 import type {
   ChangeStatus,

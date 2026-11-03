@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { EntryCheck, PipelineCheck, RuntimeCheck } from "../check/types.ts";
-import type { Level, Requirement, Selector } from "../types.ts";
+import type { Requirement } from "../requirements/types.ts";
+import type { Level, Selector } from "../types.ts";
 import regression, { verdict } from "./index.ts";
 
 describe("verdict", () => {

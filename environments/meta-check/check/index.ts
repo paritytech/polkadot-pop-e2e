@@ -3,8 +3,8 @@
 // is regression's job; comparing the two runtimes is diff's.
 
 import type { CompatibilityCache } from "@polkadot-api/metadata-compatibility";
+import type { Requirements } from "../requirements/types.ts";
 import type Runtime from "../runtime/index.ts";
-import type { Requirements } from "../types.ts";
 import { entryLevel, pipelineLevel } from "./grade.ts";
 import type { EntryCheck, PipelineCheck, RuntimeCheck } from "./types.ts";
 

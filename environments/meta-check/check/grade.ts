@@ -10,7 +10,8 @@ import {
 } from "@polkadot-api/metadata-compatibility";
 import { worse } from "../level.ts";
 import type MetadataView from "../metadata-view/index.ts";
-import type { Level, Requirement } from "../types.ts";
+import type { Requirement } from "../requirements/types.ts";
+import type { Level } from "../types.ts";
 
 const LEVEL: Record<CompatibilityLevel, Level> = {
   [CompatibilityLevel.Incompatible]: "Incompatible",

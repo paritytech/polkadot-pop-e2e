@@ -7,9 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import SdkDescriptor from "../descriptor/index.ts";
-import type { ChainKey, RequirementSet } from "../types.ts";
+import type { ChainKey } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import buildRequirements from "./index.ts";
+import type { RequirementSet } from "./types.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
