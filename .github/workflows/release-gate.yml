@@ -98,6 +98,21 @@ on:
           e.g. paritytech/device-uniqueness-backend@v0.5.0
         type: string
         required: false
+      product_sdk:
+        description: >
+          product-sdk packages to run the tests on instead of the ones chain-tests
+          pins, as npm specs separated by spaces. Each replaces that package
+          everywhere it is installed. With no runtime field set, the run tests them
+          against the live runtimes. e.g.
+          @parity/product-sdk-individuality@0.10.1-dev.453.0 @parity/product-sdk@0.39.0-dev.453.0
+        type: string
+        required: false
+      truapi:
+        description: >
+          The @parity/truapi release or prerelease whose truapi-host CLI the tests
+          drive, instead of the pinned one. e.g. 0.29.0-rc.1
+        type: string
+        required: false
       advanced:
         description: >
           Sparse target overlay (JSON) — the pins to test. May carry `ppn_ref`.
@@ -146,9 +161,9 @@ on:
   #     network's, so it can land a westend build.
   # Pin an exact tag whenever you want the run to stay reproducible.
   #
-  # workflow_dispatch caps at 10 inputs, which is what `advanced` is for: it holds
-  # the asks no field expresses (a `tests` list, asset-hub split from people, a
-  # `ppn_ref`) and REPLACES every field above it when filled.
+  # `advanced` holds the asks no field expresses (a `tests` list, asset-hub split
+  # from people, a `ppn_ref`) and REPLACES every pin field above it when filled.
+  # The two client fields still apply next to it.
   workflow_dispatch:
     inputs:
       environment:
@@ -220,6 +235,17 @@ on:
           previewnet only. `@latest` is safe.
           e.g. paritytech/device-uniqueness-backend@latest
         required: false
+      product_sdk:
+        description: >
+          product-sdk packages to test instead of the pinned ones, npm specs
+          separated by spaces. Alone, it tests them against the live runtimes.
+          e.g. @parity/product-sdk-individuality@0.10.1-dev.453.0
+        required: false
+      truapi:
+        description: >
+          @parity/truapi release or prerelease whose truapi-host the tests drive,
+          instead of the pinned one. e.g. 0.29.0-rc.1
+        required: false
       advanced:
         description: >
           Raw target overlay (JSON) for asks the fields cannot express — REPLACES
@@ -263,6 +289,8 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
+      product_sdk: ${{ steps.ask.outputs.product_sdk }}
+      truapi: ${{ steps.ask.outputs.truapi }}
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -287,8 +315,8 @@ jobs:
           node-version: "22"
 
       # Fold the dispatch form's fields into the one sparse overlay the resolver
-      # takes, and lift `ppn_ref` back out of it. No-op on a PR run (the manifest
-      # diff is the ask there) — the fields are dispatch-only.
+      # takes, and lift `ppn_ref` and the client builds back out of it. The pin
+      # fields are no-ops on a PR run (the manifest diff is the ask there).
       - name: Assemble the ask
         id: ask
         env:
@@ -301,6 +329,8 @@ jobs:
           GATE_RUNTIME_WEB3_STORAGE: ${{ inputs.runtime_web3_storage }}
           GATE_SERVICE_ETH_RPC: ${{ inputs.service_eth_rpc }}
           GATE_SERVICE_IDENTITY_BACKEND: ${{ inputs.service_identity_backend }}
+          GATE_PRODUCT_SDK: ${{ inputs.product_sdk }}
+          GATE_TRUAPI: ${{ inputs.truapi }}
           GATE_ADVANCED: ${{ inputs.advanced }}
         run: |
           set -euo pipefail
@@ -308,6 +338,8 @@ jobs:
           {
             echo "target=$(jq -c '.target // empty' ask.json)"
             echo "ppn_ref=$(jq -r '.ppn_ref // empty' ask.json)"
+            echo "product_sdk=$(jq -r '.product_sdk // empty' ask.json)"
+            echo "truapi=$(jq -r '.truapi // empty' ask.json)"
           } >> "$GITHUB_OUTPUT"
           echo "ask: $(cat ask.json)"
 
@@ -475,6 +507,24 @@ jobs:
       # generates the PAPI descriptors from committed .scale metadata.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Before the fork, so a prerelease whose API no longer matches the tests
+      # fails in a minute instead of after the upgrade.
+      - name: Use the requested product-sdk and truapi builds
+        env:
+          PRODUCT_SDK: ${{ needs.plan.outputs.product_sdk }}
+          TRUAPI: ${{ needs.plan.outputs.truapi }}
+        run: |
+          set -euo pipefail
+          clients=$(node environments/client-builds.mjs)
+          printf '\n%s\n' "$clients" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -n "$PRODUCT_SDK$TRUAPI" ]; then
+            pnpm install --no-frozen-lockfile
+            if ! pnpm --filter @pop-e2e/chain-tests exec tsc --noEmit -p .; then
+              echo "::error::the chain-tests do not typecheck against the requested product-sdk build; the errors above name what changed"
+              exit 1
+            fi
+          fi
 
       # `artifact:<name>` pins name a build uploaded in the calling run. A called
       # workflow's jobs live in the caller's run, so a plain download reaches them.

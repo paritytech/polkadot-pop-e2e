@@ -2,7 +2,7 @@
 // Both channels share FIELDS, so these cases pin the shape they must agree on.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { FIELDS, parseIssueForm, parseDispatchInputs, splitPpnRef } from './gate-form.mjs';
+import { FIELDS, parseIssueForm, parseDispatchInputs, splitRunOptions } from './gate-form.mjs';
 import { mergeTarget, validateManifest } from './release-map.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,9 +135,9 @@ describe('per-chain runtime fields', () => {
   });
 });
 
-describe('ppn_ref', () => {
-  it('is lifted out of the overlay, leaving the pins behind', () => {
-    const { ppnRef, target } = splitPpnRef({
+describe('run options', () => {
+  it('ppn_ref is lifted out of the overlay, leaving the pins behind', () => {
+    const { ppnRef, target } = splitRunOptions({
       ppn_ref: 'mak/engine-branch',
       chains: { relay: { runtime: 'paseo-network/runtimes@v2.4.5' } },
     });
@@ -145,15 +145,54 @@ describe('ppn_ref', () => {
     assert.deepEqual(target, { chains: { relay: { runtime: 'paseo-network/runtimes@v2.4.5' } } });
   });
 
-  it('alone in the overlay leaves a steady-state run', () => {
-    const { ppnRef, target } = splitPpnRef({ ppn_ref: 'mak/engine-branch' });
+  it('alone in the overlay leave a steady-state run', () => {
+    const { ppnRef, target } = splitRunOptions({ ppn_ref: 'mak/engine-branch' });
     assert.equal(ppnRef, 'mak/engine-branch');
     assert.equal(target, null);
   });
 
-  it('is empty when the overlay does not name one', () => {
-    assert.equal(splitPpnRef({ tests: ['test:network-health'] }).ppnRef, '');
-    assert.equal(splitPpnRef(null).ppnRef, '');
+  it('are empty when the overlay does not name them', () => {
+    assert.deepEqual(splitRunOptions({ tests: ['test:network-health'] }), {
+      ppnRef: '',
+      productSdk: '',
+      truapi: '',
+      target: { tests: ['test:network-health'] },
+    });
+    assert.equal(splitRunOptions(null).ppnRef, '');
+  });
+
+  // A runtime PR testing its change against an unreleased fix: the client builds
+  // ride next to the runtime pins and never reach the manifest.
+  it('carry the client builds next to the runtime pins', () => {
+    const { productSdk, truapi, target } = splitRunOptions(
+      parseDispatchInputs(
+        dispatch({
+          runtime_people: 'artifact:e2e-runtime-wasm',
+          product_sdk: '@parity/product-sdk-individuality@0.10.1-dev.453.0',
+          truapi: '0.29.0-rc.1',
+        })
+      ).target
+    );
+    assert.equal(productSdk, '@parity/product-sdk-individuality@0.10.1-dev.453.0');
+    assert.equal(truapi, '0.29.0-rc.1');
+    assert.deepEqual(target, { chains: { people: { runtime: 'artifact:e2e-runtime-wasm' } } });
+  });
+
+  it('keep the client builds when the advanced overlay replaces the pin fields', () => {
+    const { productSdk, target } = splitRunOptions(
+      parseDispatchInputs({
+        ...dispatch({ runtime_relay: 'paseo-network/runtimes@v2.4.9', product_sdk: '@parity/product-sdk@dev' }),
+        GATE_ADVANCED: '{"tests":["test:ring-health"]}',
+      }).target
+    );
+    assert.equal(productSdk, '@parity/product-sdk@dev');
+    assert.deepEqual(target, { tests: ['test:ring-health'] });
+  });
+
+  it('client builds alone leave a steady-state run on the live runtimes', () => {
+    const { truapi, target } = splitRunOptions(parseDispatchInputs(dispatch({ truapi: '0.29.0-rc.1' })).target);
+    assert.equal(truapi, '0.29.0-rc.1');
+    assert.equal(target, null);
   });
 });
 

@@ -15,11 +15,13 @@
 // One field per override: a requester never has to know the overlay's JSON shape.
 // The advanced raw-JSON escape hatch (GATE_ADVANCED / the issue textarea) stays for
 // asks the fields cannot express — a different `tests` list, a `ppn_ref` — and
-// REPLACES the fields entirely when filled.
+// REPLACES the pin fields when filled.
 //
-// A value is `owner/repo@tag`, or `artifact:<name>` for a build uploaded in the
+// A pin is `owner/repo@tag`, or `artifact:<name>` for a build uploaded in the
 // calling run. One field per chain either way, so what is being tested reads off
-// the call: nothing is inferred from filenames.
+// the call: nothing is inferred from filenames. The two client fields are not pins:
+// they name the product-sdk packages and truapi release the tests run on, and are
+// split out of the overlay before it reaches the manifest.
 
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -70,14 +72,26 @@ export const FIELDS = [
     label: 'Service: identity-backend',
     paths: [['services', 'identity-backend']],
   },
+  {
+    id: 'product_sdk',
+    label: 'Client: product-sdk',
+    paths: [['product_sdk']],
+    client: true,
+  },
+  {
+    id: 'truapi',
+    label: 'Client: truapi',
+    paths: [['truapi']],
+    client: true,
+  },
 ];
 
 export const ADVANCED_LABEL = 'Advanced: raw target overlay (JSON)';
 
 /** Sparse overlay from `{fieldId: pin}`, or null when nothing was filled in. */
-export function assemble(values) {
+export function assemble(values, fields = FIELDS) {
   const target = {};
-  for (const { id, paths } of FIELDS) {
+  for (const { id, paths } of fields) {
     const value = (values[id] ?? '').split('\n')[0].trim();
     if (!value) continue;
     for (const path of paths) {
@@ -112,50 +126,58 @@ function section(body, label) {
   return value === '_No response_' ? '' : value;
 }
 
+/** The raw JSON replaces the pin fields when given; the client fields apply either way. */
+function overlay(values, raw) {
+  if (!raw) return assemble(values);
+  const advanced = parseAdvanced(raw);
+  const clients = assemble(values, FIELDS.filter((field) => field.client));
+  return clients ? { ...clients, ...advanced } : advanced;
+}
+
 export function parseIssueForm(body) {
   const network = section(body, 'Network').split('\n')[0].trim();
   if (!network) throw new Error('the issue names no network');
 
-  const raw = section(body, ADVANCED_LABEL);
-  if (raw) return { network, target: parseAdvanced(raw) };
-
   const values = {};
   for (const { id, label } of FIELDS) values[id] = section(body, label);
-  return { network, target: assemble(values) };
+  return { network, target: overlay(values, section(body, ADVANCED_LABEL)) };
 }
 
 /** Dispatch inputs arrive as GATE_<ID>; GATE_ADVANCED is the raw-JSON override. */
 export function parseDispatchInputs(env) {
-  const raw = (env.GATE_ADVANCED ?? '').trim();
-  if (raw) return { target: parseAdvanced(raw) };
-
   const values = {};
   for (const { id } of FIELDS) values[id] = env[`GATE_${id.toUpperCase()}`] ?? '';
-  return { target: assemble(values) };
+  return { target: overlay(values, (env.GATE_ADVANCED ?? '').trim()) };
 }
 
+const RUN_OPTIONS = { ppn_ref: 'ppnRef', product_sdk: 'productSdk', truapi: 'truapi' };
+
 /**
- * Split the engine ref out of an overlay. `ppn_ref` is not a manifest pin — it
- * selects which previewnet-engine the gate runs — but it rides in the advanced JSON
- * because the dispatch form has no tenth slot left for it.
+ * Split the keys that are not manifest pins out of an overlay: `ppn_ref` (which
+ * previewnet-engine ref the gate runs), `product_sdk` and `truapi` (which client
+ * builds the tests run on). Each comes back as a string, empty when not named.
  */
-export function splitPpnRef(target) {
-  if (!target || typeof target !== 'object' || !('ppn_ref' in target)) {
-    return { ppnRef: '', target };
+export function splitRunOptions(target) {
+  const options = Object.fromEntries(Object.values(RUN_OPTIONS).map((name) => [name, '']));
+  if (!target || typeof target !== 'object') return { ...options, target };
+  const rest = { ...target };
+  for (const [key, name] of Object.entries(RUN_OPTIONS)) {
+    if (!(key in rest)) continue;
+    options[name] = rest[key] ?? '';
+    delete rest[key];
   }
-  const { ppn_ref: ppnRef, ...rest } = target;
-  return { ppnRef: ppnRef ?? '', target: Object.keys(rest).length ? rest : null };
+  return { ...options, target: Object.keys(rest).length ? rest : null };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const mode = process.argv[2];
   if (mode === 'issue') {
     // The issue channel forwards its overlay verbatim into the dispatch form's
-    // `advanced` input, so ppn_ref stays inside it — the gate splits it once, below.
+    // `advanced` input, so the run options stay inside it — the gate splits them once, below.
     console.log(JSON.stringify(parseIssueForm(fs.readFileSync(0, 'utf8'))));
   } else if (mode === 'dispatch') {
-    const { ppnRef, target } = splitPpnRef(parseDispatchInputs(process.env).target);
-    console.log(JSON.stringify({ target, ppn_ref: ppnRef }));
+    const { ppnRef, productSdk, truapi, target } = splitRunOptions(parseDispatchInputs(process.env).target);
+    console.log(JSON.stringify({ target, ppn_ref: ppnRef, product_sdk: productSdk, truapi }));
   } else {
     console.error('usage: node environments/gate-form.mjs <issue|dispatch>');
     process.exit(1);
