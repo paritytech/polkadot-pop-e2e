@@ -5,15 +5,8 @@
 import { listChange } from "../diff/index.ts";
 import type { ExtrinsicVersionChange, TypeChange } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
-import type {
-  ChainKey,
-  EntryFinding,
-  Level,
-  PipelineFinding,
-  Report,
-  Run,
-  Use,
-} from "../types.ts";
+import type { ChainKey, Level, Use } from "../types.ts";
+import type { EntryFinding, PipelineFinding, Report, Run } from "./types.ts";
 
 const CHAIN: Record<ChainKey, string> = { individuality: "People", assetHub: "Asset Hub", bulletin: "Bulletin" };
 

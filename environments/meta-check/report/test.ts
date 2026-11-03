@@ -8,20 +8,12 @@ import type { EntryChange, PipelineChange, RuntimeDiff } from "../diff/types.ts"
 import type { Verdict } from "../regression/types.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
-import type {
-  EntryFinding,
-  Level,
-  PipelineFinding,
-  Report,
-  Requirements,
-  Run,
-  Selector,
-  Use,
-} from "../types.ts";
+import type { Level, Requirements, Selector, Use } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import buildReport, { assembleReport } from "./index.ts";
 import toJson from "./json.ts";
 import renderMarkdown from "./markdown.ts";
+import type { EntryFinding, PipelineFinding, Report, Run } from "./types.ts";
 
 // ── Hand-built findings ──────────────────────────────────
 

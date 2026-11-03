@@ -22,10 +22,11 @@ import SdkDescriptor from "../descriptor/index.ts";
 import buildReport from "../report/index.ts";
 import toJson from "../report/json.ts";
 import renderMarkdown from "../report/markdown.ts";
+import type { Report, Run } from "../report/types.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
 import locateSdk from "../sdk/index.ts";
-import type { ChainKey, Report, Run } from "../types.ts";
+import type { ChainKey } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import { readChainFile } from "./capture.ts";
 
