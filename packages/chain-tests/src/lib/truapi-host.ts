@@ -43,11 +43,10 @@ function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
     TRUAPI_HOST_NO_UPDATE: "1",
   };
   if (network.identityBackend) env.HOST_CLI_IDENTITY_BACKEND_BASE = `${network.identityBackend}/api/v1`;
-  if (process.env.STACK) {
-    env.HOST_CLI_PEOPLE_WS = network.people.ws;
-    env.HOST_CLI_ASSET_HUB_WS = network.assetHub.ws;
-    env.HOST_CLI_BULLETIN_WS = network.bulletin.ws;
-  }
+  // The preset's genesis hashes stay, so this only works on the preset's network or a fork of it.
+  env.HOST_CLI_PEOPLE_WS = network.people.ws;
+  env.HOST_CLI_ASSET_HUB_WS = network.assetHub.ws;
+  env.HOST_CLI_BULLETIN_WS = network.bulletin.ws;
   return env;
 }
 

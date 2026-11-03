@@ -29,17 +29,18 @@ need `TEST_MNEMONIC` set to a funded account; see
 [`packages/chain-tests/.env.example`](packages/chain-tests/.env.example).
 
 Networks are defined in
-[`packages/chain-tests/src/config/networks.ts`](packages/chain-tests/src/config/networks.ts).
-Each declares its endpoints and which runtime features it carries, and tests skip
-the features a network does not have.
+[`packages/chain-tests/src/config/stack-config.ts`](packages/chain-tests/src/config/stack-config.ts).
+Each names where its operator publishes its [Trinity stack descriptor](https://github.com/paritytech/trinity-user-agents/blob/main/docs/rfcs/trinity-stack-descriptor.md),
+with the key it is signed with, and which runtime features it carries. The suite reads the
+chains, the HOP endpoint, the identity backend and the IPFS gateway from that descriptor, and
+tests skip the features a network does not have.
 
 ## Running against your own network
 
-Set `STACK` to the stack's [Trinity stack descriptor](https://github.com/paritytech/trinity-user-agents/blob/main/docs/rfcs/trinity-stack-descriptor.md)
-URL or its `polkadotapp://stack` link. The suite takes the chains, the HOP endpoint, the
-identity backend and the IPFS gateway from the descriptor, and the runtime features from the
-network the stack runs, which is `NETWORK` or else the descriptor's `id` (`previewnet-fork`
-is a fork of `previewnet`):
+Set `STACK` to another stack's descriptor URL or stack link, such as a fork's, to run a
+network's suite against it. The network is `NETWORK`, or else the one the stack is an instance
+or a fork of: the network publishing at the stack's URL or its `fork.of`, or the one its `id`
+is (`previewnet-fork` is a fork of `previewnet`).
 
 ```bash
 STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json \
@@ -47,7 +48,9 @@ STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json \
 ```
 
 On a fork `//Alice` is funded and holds sudo, so the full suite runs with no secrets at all.
-Tests that need an identity backend skip when the descriptor lists none.
+Attestation needs a stack that keeps its network's genesis, such as a fork: truapi-host checks
+each chain against its preset's genesis hash, so it rejects a staging instance started from
+its own genesis. Tests that need an identity backend skip when the stack lists none.
 
 ## The release gate
 

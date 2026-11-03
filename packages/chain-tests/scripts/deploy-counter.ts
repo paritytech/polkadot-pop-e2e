@@ -18,10 +18,7 @@
  * Run before tests:
  *   NETWORK=previewnet pnpm deploy-counter
  */
-import { config as loadEnv } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
+import "../src/config/env.js";
 
 import { createClient, Binary, type SizedHex } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";

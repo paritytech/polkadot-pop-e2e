@@ -218,9 +218,6 @@ export const SERVICES = {
     'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
   },
-  // The engine runs the identity backend on any fork carrying People; pnv2 and devnet
-  // forks have no storage stack. The suite finds out from the fork's descriptor whether it
-  // runs an identity backend.
   'paseo-next-v2': {
     'eth-rpc': {
       override: 'eth-rpc',
