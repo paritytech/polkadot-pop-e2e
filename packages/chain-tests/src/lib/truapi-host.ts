@@ -63,7 +63,7 @@ export function assertPinnedVersion(): Promise<void> {
 async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): Promise<string> {
   await assertPinnedVersion();
   if (!getNetworkConfig().features.identity) {
-    throw new Error(`[truapi-host-setup] no CLI preset for network ${networkKey()}`);
+    throw new Error(`[truapi-host-setup] truapi-host doesn't have a CLI preset for network ${networkKey()}`);
   }
   const bin = binary();
   try {

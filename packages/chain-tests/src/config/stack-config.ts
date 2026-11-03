@@ -50,12 +50,12 @@ export interface NetworkConfig {
 }
 
 /** A network the suite knows: where its operator publishes its descriptor, and what it runs. */
-export interface KnownNetwork {
+export interface NetworkEntry {
   stack: Pointer;
   features: NetworkFeatures;
 }
 
-export const NETWORKS: Record<string, KnownNetwork> = {
+export const NETWORKS: Record<string, NetworkEntry> = {
   // paseo-next v1 is sunset — no more testing against it. The runtime
   // doesn't ship the rich AssetHub (`MembersSubscriber`, pallet-pgas,
   // pallet-revive) we depend on, and product flows have all migrated to
@@ -78,7 +78,7 @@ export const NETWORKS: Record<string, KnownNetwork> = {
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
   // https://docs.polkadotcommunity.foundation/reference/networks/. None of the
-  // next-runtime features exist here, and truapi-host has no preset for it, so only the
+  // next-runtime features exist here, and truapi-host doesn't have a preset for it, so only the
   // chain-level health portion of the suite runs. Exists primarily as a network the
   // release gate forks.
   devnet: {
@@ -92,6 +92,9 @@ export const NETWORKS: Record<string, KnownNetwork> = {
 
 const DEFAULT_NETWORK = "paseo-next-v2";
 
+/** The id suffix a PPN fork carries: a fork of `previewnet` has the id `previewnet-fork`. */
+const FORK_ID = /-fork$/;
+
 /**
  * The `NETWORKS` entry a stack is an instance or a fork of: the one publishing at the stack's
  * URL, or at its `fork.of`, else the one its `id` is, with the `-fork` suffix a PPN fork carries
@@ -100,43 +103,43 @@ const DEFAULT_NETWORK = "paseo-next-v2";
 function networkOfStack(pointer: Pointer, descriptor: Descriptor): string | undefined {
   const urls = [pointer.url, descriptor.fork?.of.url];
   const byUrl = Object.keys(NETWORKS).find((key) => urls.includes(NETWORKS[key].stack.url));
-  const byId = descriptor.id.replace(/-fork$/, "");
+  const byId = descriptor.id.replace(FORK_ID, "");
   return byUrl ?? (byId in NETWORKS ? byId : undefined);
 }
 
 /**
  * The `NETWORKS` entry a run tests: `NETWORK` when set, else the one `STACK` is an instance or
  * a fork of, else paseo-next-v2. Fails when `NETWORK` is unknown, when `NETWORK` and `STACK` are
- * different known networks, or when `STACK` matches none and `NETWORK` is not set.
+ * different known networks, or when `STACK` doesn't match one and `NETWORK` is not set.
  */
 export function selectNetwork(
   network: string | undefined,
   stack: { pointer: Pointer; descriptor: Descriptor } | undefined,
 ): string {
-  const known = Object.keys(NETWORKS).join(", ");
-  if (network && !(network in NETWORKS)) throw new Error(`Unknown network: ${network}. Available: ${known}`);
+  const networkList = Object.keys(NETWORKS).join(", ");
+  if (network && !(network in NETWORKS)) throw new Error(`Unknown network: ${network}. Available: ${networkList}`);
   if (!stack) return network ?? DEFAULT_NETWORK;
   const stackNetwork = networkOfStack(stack.pointer, stack.descriptor);
   if (network && stackNetwork && network !== stackNetwork) {
     throw new Error(`NETWORK=${network}, but STACK=${stack.pointer.url} is ${stackNetwork}`);
   }
-  const selected = network ?? stackNetwork;
-  if (!selected) {
-    throw new Error(`STACK=${stack.pointer.url} (${stack.descriptor.id}) is none of ${known}; set NETWORK`);
+  if (network) return network;
+  if (!stackNetwork) {
+    throw new Error(`STACK=${stack.pointer.url} (${stack.descriptor.id}) doesn't match any of ${networkList}; set NETWORK`);
   }
-  return selected;
+  return stackNetwork;
 }
 
 /**
  * A known network's capability flags with a stack's chains, HOP endpoint, identity backend
  * and IPFS gateway. The identity backend is null when the network does not attest or the
- * stack runs none, and attestation-dependent tests then skip. On a PPN fork, whose `id` ends
- * in `-fork`, `//Alice` is the test account: sudo by bite override, and fundable.
+ * stack doesn't run one, and attestation-dependent tests then skip. On a PPN fork `//Alice` is
+ * the test account: sudo by bite override, and fundable.
  */
-export function networkConfig(known: KnownNetwork, descriptor: Descriptor): NetworkConfig {
+export function buildNetworkConfig(entry: NetworkEntry, descriptor: Descriptor): NetworkConfig {
   const optionalUrl = (kind: string) =>
     descriptor.services.find((entry) => entry.kind === kind)?.urls[0]?.replace(/\/$/, "");
-  const identityBackend = known.features.identity ? (optionalUrl("dub") ?? null) : null;
+  const identityBackend = entry.features.identity ? (optionalUrl("dub") ?? null) : null;
   const hopWs = optionalUrl("hop");
   return {
     name: descriptor.name,
@@ -146,7 +149,7 @@ export function networkConfig(known: KnownNetwork, descriptor: Descriptor): Netw
     identityBackend,
     ipfsGateway: service(descriptor, "ipfs-gateway").urls[0].replace(/\/$/, ""),
     tld: descriptor.tld,
-    features: known.features,
-    ...(descriptor.id.endsWith("-fork") && { testAccountUri: "//Alice" }),
+    features: entry.features,
+    ...(FORK_ID.test(descriptor.id) && { testAccountUri: "//Alice" }),
   };
 }

@@ -690,7 +690,7 @@ jobs:
         run: |
           url=http://127.0.0.1:8090/.well-known/trinity-stack.json
           curl -sS --fail --max-time 5 --retry 30 --retry-delay 10 --retry-all-errors -o /dev/null "$url" \
-            || { echo "::error::the fork serves no Trinity stack descriptor at $url"; exit 1; }
+            || { echo "::error::the fork doesn't serve a Trinity stack descriptor at $url"; exit 1; }
           echo "STACK=$url" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/install-truapi-host

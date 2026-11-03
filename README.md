@@ -48,9 +48,9 @@ STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json \
 ```
 
 On a fork `//Alice` is funded and holds sudo, so the full suite runs with no secrets at all.
-Attestation needs a stack that keeps its network's genesis, such as a fork: truapi-host checks
-each chain against its preset's genesis hash, so it rejects a staging instance started from
-its own genesis. Tests that need an identity backend skip when the stack lists none.
+Attestation works only on a stack with its network's genesis, such as a fork: truapi-host
+checks each chain against its preset's genesis hash, so it rejects a staging instance started
+from its own genesis. Tests that use an identity backend skip when the stack doesn't list one.
 
 ## The release gate
 
