@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import Runtime from "../runtime/index.ts";
+import { parseSelector } from "../selector.ts";
 import SdkDescriptor from "./index.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
@@ -28,7 +29,10 @@ describe("SdkDescriptor", { skip }, () => {
   it("lists every entry of every kind", async () => {
     const count = (d: SdkDescriptor) => {
       const byKind: Record<string, number> = {};
-      for (const e of d.entries()) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
+      for (const { selector } of d.entries()) {
+        const { kind } = parseSelector(selector);
+        byKind[kind] = (byKind[kind] ?? 0) + 1;
+      }
       return byKind;
     };
     assert.deepEqual(count(await load("0.28.0")), { query: 287, tx: 352, event: 401, constants: 170, view: 53, apis: 47 });
@@ -39,15 +43,22 @@ describe("SdkDescriptor", { skip }, () => {
     const d = await load("0.42.0");
     const account = d.entry("query:System.Account");
     assert.ok(account);
-    assert.deepEqual(
-      { kind: account.kind, group: account.group, name: account.name, direction: account.direction },
-      { kind: "query", group: "System", name: "Account", direction: "both" },
-    );
+    assert.equal(account.selector, "query:System.Account");
+    assert.equal(account.direction, "both");
     assert.equal(d.entry("tx:Coinage.transfer")?.direction, "encode");
     assert.equal(d.entry("event:System.ExtrinsicSuccess")?.direction, "decode");
-    assert.equal(d.entry("apis:Core.version")?.kind, "apis");
-    assert.equal(d.entry("view:Assets.balance_of")?.kind, "view");
+    assert.equal(d.entry("apis:Core.version")?.selector, "apis:Core.version");
+    assert.equal(d.entry("view:Assets.balance_of")?.selector, "view:Assets.balance_of");
     assert.equal(d.entry("tx:NoSuchPallet.no_such_call"), undefined);
+  });
+
+  it("derives an entry's direction from its current selector", async () => {
+    const d = await load("0.42.0");
+    const entry = d.entry("tx:Coinage.transfer");
+    assert.ok(entry);
+    assert.equal(entry.direction, "encode");
+    entry.selector = "constants:System.BlockHashCount";
+    assert.equal(entry.direction, "decode");
   });
 
   it("resolves the types behind an entry's shape", async () => {

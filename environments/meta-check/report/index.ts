@@ -5,8 +5,9 @@
 import check from "../check/index.ts";
 import diff from "../diff/index.ts";
 import regression from "../regression/index.ts";
+import type { PipelineVerdict } from "../regression/types.ts";
 import type Runtime from "../runtime/index.ts";
-import type { PipelineFinding, PipelineVerdict, Report, Requirements, RuntimeCheck, RuntimeDiff } from "../types.ts";
+import type { PipelineFinding, Report, Requirements, RuntimeCheck, RuntimeDiff } from "../types.ts";
 
 export default function buildReport(requirements: Requirements, live: Runtime, candidate: Runtime): Report {
   return assembleReport(check(requirements, live), check(requirements, candidate), diff(requirements, live, candidate));

@@ -14,7 +14,7 @@ import {
   type TypedefNode,
 } from "@polkadot-api/metadata-compatibility";
 import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
-import { DIRECTION } from "../selector.ts";
+import { DIRECTION, parseSelector } from "../selector.ts";
 import type { Encoding, Entry, Kind, Metadata, Pipelines, Selector } from "../types.ts";
 
 type Variant = Extract<Var, { type: "enum" }>["value"][string];
@@ -90,7 +90,14 @@ export default class MetadataView {
   #collectEntries(): void {
     const add = (kind: Kind, group: string, name: string, shape: EntryPoint, encoding: Encoding) => {
       const selector = `${kind}:${group}.${name}` as const;
-      this.#entries.set(selector, { selector, kind, group, name, shape, encoding, direction: DIRECTION[kind] });
+      this.#entries.set(selector, {
+        selector,
+        shape,
+        encoding,
+        get direction() {
+          return DIRECTION[parseSelector(this.selector).kind];
+        },
+      });
     };
     const value = (id: number): Encoding => ({ input: null, output: this.lookup(id) });
     // A runtime call's inputs are encoded one after the other, as a tuple.

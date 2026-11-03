@@ -44,6 +44,9 @@ describe("buildRequirements", { skip }, () => {
     const [requirement] = set.chains[0]?.entries ?? [];
     assert.equal(requirement?.expected?.selector, "query:Game.Players");
     assert.equal(requirement?.direction, "both");
+    assert.ok(requirement);
+    requirement.selector = "tx:Game.report";
+    assert.equal(requirement.direction, "encode");
   });
 
   it("puts a read with no chain on every chain whose descriptor has the pallet", async () => {
@@ -90,12 +93,25 @@ describe("buildRequirements", { skip }, () => {
     assert.equal(await optional(`chain.individuality.query.Game?.Players;\nchain.individuality.query.Game.Players;`), false);
   });
 
+  it("derives optionality from the current uses", async () => {
+    const set = buildRequirements(await paseo(), usageOf(`chain.individuality.query.Game?.Players;`));
+    const requirement = set.chains[0]?.entries[0];
+    assert.ok(requirement);
+    assert.equal(requirement.optional, true);
+    requirement.uses = requirement.uses.map((use) => ({ ...use, optional: false }));
+    assert.equal(requirement.optional, false);
+  });
+
   it("uses transactions on a chain with a tx requirement", async () => {
     const set = buildRequirements(await paseo(), usageOf(`chain.individuality.tx.Game.report(x);\nchain.assetHub.query.System.Number;`));
     assert.deepEqual(
       set.chains.map((c) => `${c.chain} ${c.usesTransactions}`),
       ["individuality true", "assetHub false", "bulletin false"],
     );
+    const people = set.chains[0];
+    assert.ok(people);
+    people.entries = [];
+    assert.equal(people.usesTransactions, false);
   });
 
   it("builds R for the fixture SDKs", async () => {

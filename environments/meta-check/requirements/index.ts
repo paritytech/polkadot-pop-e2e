@@ -50,15 +50,27 @@ export default function buildRequirements(
       .map(
         ([selector, { uses, namedChain }]): Requirement => ({
           selector,
-          direction: DIRECTION[parseSelector(selector).kind],
+          get direction() {
+            return DIRECTION[parseSelector(this.selector).kind];
+          },
           expected: descriptor.entry(selector) ?? null,
           uses,
           placedBy: namedChain ? "chain" : "pallet",
-          optional: uses.every((use) => use.optional),
+          get optional() {
+            return this.uses.every((use) => use.optional);
+          },
         }),
       );
-    const usesTransactions = entries.some((entry) => parseSelector(entry.selector).kind === "tx");
-    return [{ chain, descriptor, entries, usesTransactions }];
+    return [
+      {
+        chain,
+        descriptor,
+        entries,
+        get usesTransactions() {
+          return this.entries.some(({ selector }) => parseSelector(selector).kind === "tx");
+        },
+      },
+    ];
   });
 
   return { chains, unplaced };

@@ -3,7 +3,8 @@
 // levels only; where the runtime's types changed is diff's.
 
 import { RANK } from "../level.ts";
-import type { EntryVerdict, Level, PipelineVerdict, Regression, RuntimeCheck, Verdict } from "../types.ts";
+import type { Level, RuntimeCheck } from "../types.ts";
+import type { EntryVerdict, PipelineVerdict, Regression, Verdict } from "./types.ts";
 
 /**
  * The Partial policy: the candidate breaks an entry when it fits worse than live did

@@ -3,6 +3,7 @@
 // collapsed. The JSON has the rest, up to its own limits.
 
 import { listChange } from "../diff/index.ts";
+import type { Verdict } from "../regression/types.ts";
 import type {
   ChainKey,
   EntryFinding,
@@ -13,7 +14,6 @@ import type {
   Run,
   TypeChange,
   Use,
-  Verdict,
 } from "../types.ts";
 
 const CHAIN: Record<ChainKey, string> = { individuality: "People", assetHub: "Asset Hub", bulletin: "Bulletin" };

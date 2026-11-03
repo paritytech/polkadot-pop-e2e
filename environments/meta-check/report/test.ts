@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import SdkDescriptor from "../descriptor/index.ts";
+import type { Verdict } from "../regression/types.ts";
 import buildRequirements from "../requirements/index.ts";
 import Runtime from "../runtime/index.ts";
 import type {
@@ -19,7 +20,6 @@ import type {
   RuntimeDiff,
   Selector,
   Use,
-  Verdict,
 } from "../types.ts";
 import SdkUsage from "../usage/index.ts";
 import buildReport, { assembleReport } from "./index.ts";

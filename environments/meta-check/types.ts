@@ -1,10 +1,11 @@
 /** Shared metadata-check types. See README.md for the model and flow. */
 
 import type { Var } from "@polkadot-api/metadata-builders";
-import type { EntryPoint } from "@polkadot-api/metadata-compatibility";
+import type { CompatibilityLevel, EntryPoint } from "@polkadot-api/metadata-compatibility";
 import type { unifyMetadata } from "@polkadot-api/substrate-bindings";
 import type { ChainDefinition, TypedApi } from "polkadot-api";
 import type SdkDescriptor from "./descriptor/index.ts";
+import type { EntryVerdict, PipelineVerdict } from "./regression/types.ts";
 
 export type Metadata = ReturnType<typeof unifyMetadata>;
 
@@ -33,35 +34,30 @@ export interface Encoding {
   output: Var | null;
 }
 
-/** One entry in a runtime's metadata, or in D. */
+/** A chain entry from runtime or descriptor metadata. */
 export interface Entry {
   selector: Selector;
-  kind: Kind;
-  /** The pallet, or the runtime API. */
-  group: string;
-  name: string;
-  /** Type IDs belong to the originating MetadataView. */
+  /** PAPI compatibility types; may normalize different encodings to the same type. */
   shape: EntryPoint;
+  /** Codec-building types; preserve widths, field order, and variant indices for diffing. */
   encoding: Encoding;
-  direction: Direction;
+  get direction(): Direction;
 }
 
-/** Extension version -> the extension identifiers, in the order the signer builds them. */
+/** Transaction-extension identifiers in encoding order, keyed by extension version. */
 export type Pipelines = Record<number, readonly string[]>;
 
-/**
- * The chain-client key an SDK read goes through, as in `chain.individuality.query...`.
- * Which descriptor it means (paseo-individuality, previewnet-individuality) depends on
- * the network, so it is mapped when the requirements are built.
- */
+
+/** SDK chain-client key, e.g. `individuality` in `chain.individuality.query...`. */
 export type ChainKey = "individuality" | "assetHub" | "bulletin";
 
-/** One place in the SDK's code that reads a chain entry. U is all of them. */
+
+/** An SDK source location that accesses a metadata entry. */
 export interface Use {
   selector: Selector;
-  /** Null when the code reads through a local API and does not show which chain. */
+  /** Null when the scanner cannot identify the chain. */
   chain: ChainKey | null;
-  /** Read with `?.` on the pallet or the entry: the code copes with the entry being absent. */
+  /** Optional chaining on the pallet or entry. */
   optional: boolean;
   /** The package name, e.g. `@parity/product-sdk-individuality`. */
   package: string;
@@ -72,43 +68,36 @@ export interface Use {
 
 // ── Requirements (R) ─────────────────────────────────────
 
-/**
- * Who encodes and who decodes, which decides which value set must fit inside which.
- * It follows from the kind: the SDK encodes a call's arguments, decodes an event or a
- * constant, and does both for storage (keys, value) and runtime APIs (inputs, output).
- */
+
+/** SDK perspective: encodes inputs, decodes outputs, or both. */
 export type Direction = "encode" | "decode" | "both";
 
-/** One entry the SDK needs from one chain's runtime. */
+
+/** An SDK requirement for one metadata entry on one chain. */
 export interface Requirement {
   selector: Selector;
-  direction: Direction;
-  /** D's entry: the type the SDK expects. Null when D does not have it, so only its name is checked. */
+  get direction(): Direction;
+  /** Expected entry from D; null means only existence is checked. */
   expected: Entry | null;
-  /** Every place in the SDK that reads it. */
   uses: Use[];
-  /**
-   * `chain`: the code named the chain (`chain.individuality...`). `pallet`: it did not, and
-   * the requirement is on this chain because D has the pallet (or runtime API).
-   */
+  /** Explicit chain access, or inferred from the descriptor's pallet/runtime API. */
   placedBy: "chain" | "pallet";
-  /** Every use reads it with `?.`: the SDK copes with the entry being absent. */
-  optional: boolean;
+  /** All uses are optional; a missing entry is allowed. */
+  get optional(): boolean;
 }
 
-/** R for one chain: Rules 1 and 2 from `entries`, Rule 3 from the descriptor's pipelines. */
+
+/** SDK requirements for one chain. */
 export interface Requirements {
   chain: ChainKey;
-  /** D for this chain; grading resolves `expected`'s type ids through it. */
+  /** Descriptor used to resolve expected types. */
   descriptor: SdkDescriptor;
   /** Sorted by selector. */
   entries: Requirement[];
-  /**
-   * The SDK builds transactions here, signed or not (a `tx:` requirement), so the extension
-   * pipelines and extrinsic versions matter. A chain the SDK only ships a signer for has none.
-   */
-  usesTransactions: boolean;
+  /** Has a tx requirement; enables pipeline checks and extrinsic-version diffing. */
+  get usesTransactions(): boolean;
 }
+
 
 /** R: the requirements for each chain the caller gave a descriptor for. */
 export interface RequirementSet {
@@ -120,81 +109,45 @@ export interface RequirementSet {
 // ── Grades ───────────────────────────────────────────────
 
 /**
- * polkadot-api's compatibility levels, plus `Missing` for an entry the runtime does not
- * have and `Present` for one it has whose type cannot be checked, because D lacks it.
+ * PAPI compatibility level, or:
+ * - Missing: the runtime lacks the entry.
+ * - Present: the entry exists, but D has no type to compare against.
  */
-export type Level = "Identical" | "BackwardsCompatible" | "Partial" | "Incompatible" | "Missing" | "Present";
+export type Level = keyof typeof CompatibilityLevel | "Missing" | "Present";
 
-/**
- * - `ok`: the SDK can use the entry on the candidate.
- * - `breaking`: the candidate fits the SDK worse than live did, and below BackwardsCompatible.
- * - `pre-existing`: it does not fit, but it already did not fit on live.
- */
-export type Verdict = "ok" | "breaking" | "pre-existing";
-
-// ── check(R, A) ─────────────────────────────
+// ── Compatibility checks ─────────────────────────────────
 
 /** One requirement graded against one runtime. */
 export interface EntryCheck {
   requirement: Requirement;
-  /** D against the runtime. */
   level: Level;
 }
 
-/** One extension version graded against one runtime, Rule 3. */
+/** One extension version graded against one runtime. */
 export interface PipelineCheck {
   version: number;
-  /** What D signs with; null when D has no such version, so the SDK does not use it. */
+  /** Descriptor's pipeline; null when it has no such version. */
   expected: readonly string[] | null;
   /** The runtime's pipeline; null when it has no such version. */
   actual: readonly string[] | null;
-  /** D against the runtime. */
   level: Level;
-  /** Extensions in both D and the runtime whose types are not Identical. */
+  /** Extension identifiers present in both pipelines whose types are not Identical. */
   retyped: string[];
 }
 
-/** One chain's requirements against one runtime, live (A) or the candidate (A'). */
+/** Compatibility results for one chain and runtime. */
 export interface RuntimeCheck {
   chain: ChainKey;
-  /** D: the descriptor chain and the code hash it was generated from. */
+  /** Descriptor chain and the runtime code hash it was generated from. */
   descriptor: { chain: string; codeHash: string };
   runtime: RuntimeVersion;
-  /** In the requirements' order: by selector. */
+  /** Sorted by selector. */
   entries: EntryCheck[];
-  /** Every version D or the runtime has, ascending. Empty when the SDK does not sign on this chain. */
+  /** All descriptor/runtime extension versions, ascending. Empty when the SDK uses no transactions. */
   pipelines: PipelineCheck[];
 }
 
-// ── Live against candidate: regression and diff ──────────
-
-/** One requirement on live and on the candidate, and what the upgrade did to it. */
-export interface EntryVerdict {
-  requirement: Requirement;
-  /** D against A. */
-  before: Level;
-  /** D against A'. */
-  after: Level;
-  verdict: Verdict;
-}
-
-/** One extension version on live and on the candidate, and what the upgrade did to it, Rule 3. */
-export interface PipelineVerdict {
-  version: number;
-  /** D against A. */
-  before: Level;
-  /** D against A'. */
-  after: Level;
-  verdict: Verdict;
-}
-
-/** `regression(onLive, onCandidate)`: the verdict on each requirement and extension version. */
-export interface Regression {
-  /** In the requirements' order. */
-  entries: EntryVerdict[];
-  /** Every version D, A or A' has, ascending. Empty when the SDK does not sign on this chain. */
-  pipelines: PipelineVerdict[];
-}
+// ── Runtime changes ──────────────────────────────────────
 
 /** `added`: only A' has it. `removed`: only A has it. `changed`: both have it, and it differs. */
 export type ChangeStatus = "added" | "removed" | "changed";
