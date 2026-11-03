@@ -8,8 +8,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import type { ChainKey, Selector, Use } from "../types.ts";
+import type { ChainKey, Selector } from "../types.ts";
 import { readsIn } from "./reads.ts";
+import type { Use } from "./types.ts";
 
 const DESCRIPTORS = "@parity/product-sdk-descriptors";
 

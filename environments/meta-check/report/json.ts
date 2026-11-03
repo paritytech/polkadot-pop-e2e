@@ -16,7 +16,7 @@
 // Empty `pipelines` and a null `extrinsicVersions` also mean the SDK uses no transactions there.
 
 import type { EntryChange, PipelineChange, TypeChange } from "../diff/types.ts";
-import type { Use } from "../types.ts";
+import type { Use } from "../usage/types.ts";
 import type { Run } from "./types.ts";
 
 export const SCHEMA_VERSION = 1;

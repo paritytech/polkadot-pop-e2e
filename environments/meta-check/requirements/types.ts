@@ -1,5 +1,6 @@
 import type SdkDescriptor from "../descriptor/index.ts";
-import type { ChainKey, Direction, Entry, Selector, Use } from "../types.ts";
+import type { ChainKey, Direction, Entry, Selector } from "../types.ts";
+import type { Use } from "../usage/types.ts";
 
 /** An SDK requirement for one metadata entry on one chain. */
 export interface Requirement {

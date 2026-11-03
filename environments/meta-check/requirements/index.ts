@@ -8,8 +8,9 @@
 
 import type SdkDescriptor from "../descriptor/index.ts";
 import { CHAIN_KEYS, DIRECTION, parseSelector } from "../selector.ts";
-import type { ChainKey, Selector, Use } from "../types.ts";
+import type { ChainKey, Selector } from "../types.ts";
 import type SdkUsage from "../usage/index.ts";
+import type { Use } from "../usage/types.ts";
 import type { Requirement, RequirementSet } from "./types.ts";
 
 /** The uses placed on one chain, per selector, and whether any of them named the chain. */

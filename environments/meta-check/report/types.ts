@@ -1,6 +1,7 @@
 import type { EntryChange, ExtrinsicVersionChange, PipelineChange } from "../diff/types.ts";
 import type { EntryVerdict, PipelineVerdict } from "../regression/types.ts";
-import type { ChainKey, RuntimeVersion, Use } from "../types.ts";
+import type { ChainKey, RuntimeVersion } from "../types.ts";
+import type { Use } from "../usage/types.ts";
 
 /** An entry's verdict, and what the upgrade changed in it. */
 export interface EntryFinding extends EntryVerdict {
