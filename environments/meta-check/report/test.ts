@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import type { PipelineCheck, RuntimeCheck } from "../check/types.ts";
 import SdkDescriptor from "../descriptor/index.ts";
 import type { EntryChange, PipelineChange, RuntimeDiff } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
@@ -10,11 +11,9 @@ import Runtime from "../runtime/index.ts";
 import type {
   EntryFinding,
   Level,
-  PipelineCheck,
   PipelineFinding,
   Report,
   Requirements,
-  RuntimeCheck,
   Run,
   Selector,
   Use,

@@ -4,8 +4,9 @@
 
 import type { CompatibilityCache } from "@polkadot-api/metadata-compatibility";
 import type Runtime from "../runtime/index.ts";
-import type { EntryCheck, PipelineCheck, Requirements, RuntimeCheck } from "../types.ts";
+import type { Requirements } from "../types.ts";
 import { entryLevel, pipelineLevel } from "./grade.ts";
+import type { EntryCheck, PipelineCheck, RuntimeCheck } from "./types.ts";
 
 export default function check(requirements: Requirements, runtime: Runtime): RuntimeCheck {
   const { descriptor } = requirements;

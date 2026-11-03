@@ -2,8 +2,9 @@
 // (A') does to the SDK, from the same requirements checked against each. It compares
 // levels only; where the runtime's types changed is diff's.
 
+import type { RuntimeCheck } from "../check/types.ts";
 import { RANK } from "../level.ts";
-import type { Level, RuntimeCheck } from "../types.ts";
+import type { Level } from "../types.ts";
 import type { EntryVerdict, PipelineVerdict, Regression, Verdict } from "./types.ts";
 
 /**
