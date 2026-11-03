@@ -90,8 +90,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       viem:
-        specifier: ^2.57.13
-        version: 2.57.13(typescript@7.0.2)
+        specifier: ^2.57.14
+        version: 2.57.14(typescript@7.0.2)
     devDependencies:
       '@parity/truapi':
         specifier: 0.28.0
@@ -1828,8 +1828,8 @@ packages:
   verifiablejs@1.6.0:
     resolution: {integrity: sha512-JFkmQQsf4NHNng10cUl+0G+Hkb0W722r7BbDI7iheXG3o3Ux0XawNKYxh3rXiBmUCbRw3AcZHx+Rcw1a+xW6GQ==}
 
-  viem@2.57.13:
-    resolution: {integrity: sha512-hSIsR4Y47BKrp89idH11WC3pqYOJFq9nVYBYxuJ9zXCA8Qg3pQhnlhnHn4qnjo7Z5wXs920XhtWbnrAtFidk+Q==}
+  viem@2.57.14:
+    resolution: {integrity: sha512-ctaSyx3I24va98H2PYz8C30FKXXo8Th/H6Wrn7za7N+RuPQHiL09zFedX6GZDCtz73YFLrf7YeVOgU5CUVByng==}
     peerDependencies:
       typescript: '>=5.0.4'
     peerDependenciesMeta:
@@ -1960,8 +1960,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.22.0:
-    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
+  ws@8.22.1:
+    resolution: {integrity: sha512-oyL6OPYme/CmiFvNuGzeoxCJ4nOrZE2O1FwM9MWM1AsGri6nLXB2pg+lNA8aLeXMSav0J6eIVS1j6vUPzUtK9g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -2221,7 +2221,7 @@ snapshots:
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd-helpers': 0.0.30
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
-      viem: 2.57.13(typescript@7.0.2)
+      viem: 2.57.14(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2338,7 +2338,7 @@ snapshots:
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-tx': 0.5.8(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
-      viem: 2.57.13(typescript@7.0.2)
+      viem: 2.57.14(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -3085,7 +3085,7 @@ snapshots:
     dependencies:
       '@polkadot/x-global': 14.0.3
       tslib: 2.8.1
-      ws: 8.22.0
+      ws: 8.22.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3916,7 +3916,7 @@ snapshots:
 
   smoldot@2.0.26:
     dependencies:
-      ws: 8.22.0
+      ws: 8.22.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3924,14 +3924,14 @@ snapshots:
 
   smoldot@3.3.2:
     dependencies:
-      ws: 8.22.0
+      ws: 8.22.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
   smoldot@3.7.0:
     dependencies:
-      ws: 8.22.0
+      ws: 8.22.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4076,7 +4076,7 @@ snapshots:
 
   verifiablejs@1.6.0: {}
 
-  viem@2.57.13(typescript@7.0.2):
+  viem@2.57.14(typescript@7.0.2):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
@@ -4161,7 +4161,7 @@ snapshots:
 
   ws@8.21.0: {}
 
-  ws@8.22.0: {}
+  ws@8.22.1: {}
 
   yaml@2.9.0:
     optional: true
