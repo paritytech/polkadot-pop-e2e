@@ -192,10 +192,17 @@ describe("extension pipelines", () => {
     return out;
   };
   const v0 = () => metadata.extrinsic.extensionsByVersion[0] ?? [];
+  const isUnit = (id: number) => {
+    const def = metadata.lookup[id]?.def;
+    return (def?.tag === "tuple" || def?.tag === "composite") && def.value.length === 0;
+  };
+  type Ext = ReturnType<typeof v0>[number];
+  const isEmpty = (x: Ext) => isUnit(x.type) && isUnit(x.additionalSigned);
 
   it("reads extensions leaving v0 for a new v1 as a move, and breaking", () => {
-    const [a, b, ...rest] = v0();
+    const [a, b] = v0().filter((x) => !isEmpty(x));
     assert.ok(a && b);
+    const rest = v0().filter((x) => x !== a && x !== b);
     const ext = diffPipelines(withPipelines({ 0: v0() }), withPipelines({ 0: rest, 1: [a, b, ...rest] }));
     assert.deepEqual(
       ext.moved.map((m) => [m.identifier, m.from, m.to]),
@@ -223,6 +230,18 @@ describe("extension pipelines", () => {
       withPipelines({ 0: [{ ...first, additionalSigned: other.additionalSigned }, ...rest] }),
     );
     assert.deepEqual([ext.versions[0]?.retyped, ext.versions[0]?.breaking], [[first.identifier], true]);
+  });
+
+  it("does not call an added or removed empty extension breaking, since the signer fills it", () => {
+    const empty = v0().find(isEmpty);
+    const full = v0().find((x) => !isEmpty(x));
+    assert.ok(empty && full);
+    const without = (id: string) => withPipelines({ 0: v0().filter((x) => x.identifier !== id) });
+    const live = withPipelines({ 0: v0() });
+    const lost = diffPipelines(live, without(empty.identifier)).versions[0];
+    const gained = diffPipelines(without(empty.identifier), live).versions[0];
+    assert.deepEqual([lost?.status, lost?.breaking, gained?.status, gained?.breaking], ["changed", false, "changed", false]);
+    assert.equal(diffPipelines(live, without(full.identifier)).versions[0]?.breaking, true);
   });
 
   it("lists a compatible type change without calling it breaking", () => {

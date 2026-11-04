@@ -1,5 +1,6 @@
 // Transaction extension pipelines, per extension version.
 
+import { getDynamicBuilder, getLookupFn } from "@polkadot-api/metadata-builders";
 import { CompatibilityLevel, entryPointsAreCompatible, type EntryPoint } from "@polkadot-api/metadata-compatibility";
 import { isBreaking, runtimeCtx } from "./entries.ts";
 import type { UnifiedMetadata } from "./metadata.ts";
@@ -28,11 +29,29 @@ export interface PipelineDiff {
 const ids = (list: Extension[] | undefined): string[] => (list ?? []).map((e) => e.identifier);
 
 /**
+ * Whether polkadot-api's signer fills the extension by itself: its type and its
+ * additional-signed both encode to nothing (`withEmptyExtensions` in
+ * @polkadot-api/signers-common encodes them from `undefined` the same way).
+ */
+function emptyIn(metadata: UnifiedMetadata): (e: Extension) => boolean {
+  const builder = getDynamicBuilder(getLookupFn(metadata));
+  const encodesToNothing = (id: number): boolean => {
+    try {
+      return builder.buildDefinition(id).enc(undefined).length === 0;
+    } catch {
+      return false;
+    }
+  };
+  return (e) => encodesToNothing(e.type) && encodesToNothing(e.additionalSigned);
+}
+
+/**
  * What was added, removed or reordered in each version, and which extensions kept
- * their name but changed type. A removed pipeline, or an added, removed, reordered or
- * incompatibly retyped extension, is breaking: a signer built for live produces
- * transactions the candidate rejects. A new version, or a type change polkadot-api
- * still accepts (BackwardsCompatible), is not.
+ * their name but changed type. A removed pipeline, or a reordered or incompatibly
+ * retyped extension, is breaking: a signer built for live produces transactions the
+ * candidate rejects. So is an added or removed extension, unless it is empty and
+ * polkadot-api's signer fills it by itself. A new version, or a type change
+ * polkadot-api still accepts (BackwardsCompatible), is not.
  * `moved` names extensions that left one version for another, which is how "the
  * person extensions moved from v0 to a new v1" reads.
  */
@@ -41,6 +60,8 @@ export function diffPipelines(liveMeta: UnifiedMetadata, candidateMeta: UnifiedM
   const candidate = candidateMeta.extrinsic.extensionsByVersion;
   const liveCtx = runtimeCtx(liveMeta);
   const candidateCtx = runtimeCtx(candidateMeta);
+  const emptyLive = emptyIn(liveMeta);
+  const emptyCandidate = emptyIn(candidateMeta);
 
   const typeLevel = (a: Extension, b: Extension | undefined): CompatibilityLevel => {
     if (!b) return CompatibilityLevel.Identical;
@@ -69,11 +90,11 @@ export function diffPipelines(liveMeta: UnifiedMetadata, candidateMeta: UnifiedM
       .filter((e) => e.level !== CompatibilityLevel.Identical);
     const retyped = levels.map((e) => e.id);
     const breaking =
-      added.length > 0 ||
-      removed.length > 0 ||
+      after.some((e) => added.includes(e.identifier) && !emptyCandidate(e)) ||
+      before.some((e) => removed.includes(e.identifier) && !emptyLive(e)) ||
       reordered ||
       levels.some((e) => isBreaking(CompatibilityLevel.Identical, e.level));
-    const changed = breaking || retyped.length > 0;
+    const changed = breaking || added.length > 0 || removed.length > 0 || reordered || retyped.length > 0;
     return { ...row, status: changed ? "changed" : "same", breaking, added, removed, reordered, retyped };
   });
 
