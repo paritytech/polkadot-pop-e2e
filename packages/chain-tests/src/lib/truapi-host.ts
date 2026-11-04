@@ -1,14 +1,14 @@
 /**
  * The host side of the tests, run through the truapi-host CLI so the gate
  * exercises the same truapi core hosts ship: attestation, and the statement
- * allowance and PGAS claims. On a fork the CLI's preset chains are pointed at
- * the fork's endpoints and its identity backend.
+ * allowance and PGAS claims. The CLI's preset chains are pointed at the stack's
+ * endpoints and its identity backend.
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
-import { getNetworkConfig } from "../config/networks.js";
+import { getNetworkConfig, networkKey } from "../config/networks.js";
 import { ATTEST_TIMEOUT_MS } from "./attestation-budget.js";
 
 const run = promisify(execFile);
@@ -19,22 +19,8 @@ const PINNED_VERSION: string = JSON.parse(
 
 const binary = () => process.env.TRUAPI_HOST_BIN ?? "truapi-host";
 
-/** CLI presets, with the dotNS TLD each derives identities under. */
-const PRESETS = {
-  previewnet: "testnet",
-  "paseo-next-v2": "paseo",
-} as const;
-type Preset = keyof typeof PRESETS;
-
-function preset(): Preset {
-  const name = process.env.NETWORK === "local-fork" ? (process.env.FORK_OF ?? "previewnet") : process.env.NETWORK;
-  const network = name ?? "paseo-next-v2";
-  if (!(network in PRESETS)) throw new Error(`[truapi-host-setup] no CLI preset for network ${network}`);
-  return network as Preset;
-}
-
 /** The dotNS TLD truapi derives the person's identities under on this network. */
-export const networkSuffix = () => PRESETS[preset()];
+export const networkSuffix = () => getNetworkConfig().tld;
 
 function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
   const network = getNetworkConfig();
@@ -42,13 +28,12 @@ function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
     ...process.env,
     HOST_CLI_SIGNER_MNEMONIC: mnemonic,
     TRUAPI_HOST_NO_UPDATE: "1",
+    // The preset's genesis hashes stay, so this only works on the preset's network or a fork of it.
+    HOST_CLI_PEOPLE_WS: network.people.ws,
+    HOST_CLI_ASSET_HUB_WS: network.assetHub.ws,
+    HOST_CLI_BULLETIN_WS: network.bulletin.ws,
   };
   if (network.identityBackend) env.HOST_CLI_IDENTITY_BACKEND_BASE = `${network.identityBackend}/api/v1`;
-  if (process.env.NETWORK === "local-fork") {
-    env.HOST_CLI_PEOPLE_WS = network.people.ws;
-    env.HOST_CLI_ASSET_HUB_WS = network.assetHub.ws;
-    env.HOST_CLI_BULLETIN_WS = network.bulletin.ws;
-  }
   return env;
 }
 
@@ -77,9 +62,12 @@ export function assertPinnedVersion(): Promise<void> {
 
 async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): Promise<string> {
   await assertPinnedVersion();
+  if (!getNetworkConfig().features.identity) {
+    throw new Error(`[truapi-host-setup] truapi-host doesn't have a CLI preset for network ${networkKey()}`);
+  }
   const bin = binary();
   try {
-    const { stdout } = await run(bin, [...args, "--network", preset()], {
+    const { stdout } = await run(bin, [...args, "--network", networkKey()], {
       env: hostEnv(mnemonic),
       timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,

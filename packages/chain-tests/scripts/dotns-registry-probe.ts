@@ -25,10 +25,6 @@
  * (paritytech/dotns DEPLOYMENTS.md → "Live addresses"), so they are constants
  * here rather than per-network config.
  */
-import { config as loadEnv } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
 
 import { namehash } from "viem";
 import { createAssetHubClient } from "../src/lib/client.js";

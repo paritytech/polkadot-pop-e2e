@@ -61,19 +61,9 @@ describe("Statement: People Chain + Identity Backend", () => {
     const elapsed = Date.now() - start;
     expect(res.ok).toBe(true);
 
-    // The generations answer different shapes: IBv1 `{message: "OK", uptime}`,
-    // IBv2 (identity-backend-rust) `{status: "ok", service}`.
-    if (network.identityBackendAuth === "challenge") {
-      const body = (await res.json()) as { status: string; service: string };
-      console.log(`[statement] Backend health: ${body.status} (${body.service}, ${elapsed}ms)`);
-      expect(body.status).toBe("ok");
-    } else {
-      const body = (await res.json()) as { message: string; uptime: number };
-      console.log(
-        `[statement] Backend health: ${body.message}, uptime=${Math.floor(body.uptime)}s (${elapsed}ms)`,
-      );
-      expect(body.message).toBe("OK");
-    }
+    const body = (await res.json()) as { status: string; service: string };
+    console.log(`[statement] Backend health: ${body.status} (${body.service}, ${elapsed}ms)`);
+    expect(body.status).toBe("ok");
   });
 
   /** A product-sdk client publishing as `secret`, with the transport a host would provide. */
