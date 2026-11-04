@@ -26,6 +26,6 @@
     "@types/node": "^22.19.20",
     "fzstd": "^0.1.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }
