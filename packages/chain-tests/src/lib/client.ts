@@ -11,7 +11,7 @@ import {
   previewBulletin,
   previewPeople,
 } from "@pop-e2e/papi";
-import { getNetworkConfig } from "../config/networks.js";
+import { getNetworkConfig, networkKey } from "../config/networks.js";
 
 /**
  * Pallet matrix (verified by grepping each generated descriptor's .d.ts):
@@ -81,7 +81,7 @@ export interface DescriptorTriple {
 }
 
 export function descriptorsForNetwork(): DescriptorTriple {
-  switch (process.env.NETWORK) {
+  switch (networkKey()) {
     case "previewnet":
       return { assetHub: previewAssetHub, bulletin: previewBulletin, people: previewPeople };
     case "paseo-next-v2":

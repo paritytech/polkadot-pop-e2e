@@ -13,7 +13,7 @@ name: Release Gate
 #
 # The payload is packages/chain-tests: every candidate run ends with
 # `pnpm --filter @pop-e2e/chain-tests <script>` (per the manifest's `tests:`)
-# against the upgraded fork via NETWORK=local-fork.
+# against the upgraded fork, found through the Trinity stack descriptor it serves (STACK).
 #
 # The engine is paritytech/previewnet-engine (`make start FORK=1`, `make runtime-upgrade`);
 # this workflow only composes it. See environments/README.md.
@@ -243,7 +243,7 @@ env:
   # Which previewnet-engine release the gate composes — a tag, so an engine merge
   # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
   # `advanced` overlay overrides it for runs against a branch.
-  PPN_REF_DEFAULT: v0.13.0
+  PPN_REF_DEFAULT: v0.14.2
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
@@ -678,12 +678,14 @@ jobs:
       - name: Let the runtime changes settle
         run: sleep 120
 
-      # The suite derives its fork config from the base network's entry — the manifest
-      # knows which network this is a fork of.
+      # The suite takes the fork's endpoints and identity backend from the descriptor the
+      # fork serves, and NETWORK (exported with the overrides) for the network's features.
       - name: Point the suite at the fork
         run: |
-          echo "FORK_OF=$(node -p "require('./$MANIFEST').network")" >> "$GITHUB_ENV"
-          echo "NETWORK=local-fork" >> "$GITHUB_ENV"
+          url=http://127.0.0.1:8090/.well-known/trinity-stack.json
+          curl -sS --fail --max-time 5 --retry 30 --retry-delay 10 --retry-all-errors -o /dev/null "$url" \
+            || { echo "::error::the fork doesn't serve a Trinity stack descriptor at $url"; exit 1; }
+          echo "STACK=$url" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/install-truapi-host
 

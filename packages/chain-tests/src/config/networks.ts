@@ -1,148 +1,51 @@
-/** Per-network capability flags — drives test gating. */
-export interface NetworkFeatures {
-  /** `pallet-resources` allowance flow (StmtStore + LongTermStorage claims). */
-  resources: boolean;
-  /** `pallet-pgas` claim + `pallet-revive` PGAS-paid contract calls. */
-  pgas: boolean;
-  /**
-   * Bulletin collator exposes the `hop_*` RPCs (HOP submit/claim/ack/poolStatus)
-   * AND the runtime has `pallet-bulletin-hop-promotion` wired in. Both are
-   * required: missing the pallet means `is_promoted_on_chain` is unavailable;
-   * missing `--enable-hop` on the collator means `hop_submit` returns nothing.
-   * Check with `hop_poolStatus` over WS before flipping this on.
-   */
-  hop: boolean;
-  /** DotNS is deployed at the addresses product-sdk pins. */
-  dotns: boolean;
-}
+import "./env.js";
+import { decodeLink, isTrinityStackError, read, type Descriptor, type Pointer } from "@parity/trinity-stack";
+import { NETWORKS, buildNetworkConfig, selectNetwork, type NetworkConfig } from "./stack-config.js";
 
-export interface NetworkConfig {
-  name: string;
-  assetHub: { ws: string };
-  people: { ws: string };
-  bulletin: {
-    ws: string;
-    /**
-     * Optional dedicated HOP collator endpoint — a Bulletin collator run
-     * with `--enable-hop`. The hop test points its `HopClient` here when
-     * set, falling back to `ws` otherwise. Lets HOP target a specific
-     * collator distinct from the public Bulletin RPC (which may be a plain
-     * full node that doesn't serve the `hop_*` RPCs).
-     */
-    hopWs?: string;
-  };
-  identityBackend: string | null;
-  /** "challenge" marks an IBv2 (identity-backend-rust) backend; absent means IBv1. */
-  identityBackendAuth?: "challenge";
-  ipfsGateway: string;
-  features: NetworkFeatures;
-  // Optional URI override for the keyring. When set, used instead of
-  // the `TEST_MNEMONIC` env. Used on local forks, where `//Alice` is funded.
-  testAccountUri?: string;
-}
-
-export const NETWORKS: Record<string, NetworkConfig> = {
-  // paseo-next v1 is sunset — no more testing against it. The runtime
-  // doesn't ship the rich AssetHub (`MembersSubscriber`, pallet-pgas,
-  // pallet-revive) we depend on, and product flows have all migrated to
-  // paseo-next-v2 anyway. v2 + previewnet are the supported targets.
-  "paseo-next-v2": {
-    name: "Paseo Next v2",
-    // Paseo Asset Hub Next (1500), Bulletin Next (1501), People Next System
-    // (1502). Same runtime feature set as previewnet — pallet-resources +
-    // pallet-pgas + pallet-revive — but with the public Polkadot endpoints.
-    assetHub: { ws: "wss://paseo-asset-hub-next-rpc.polkadot.io" },
-    people: { ws: "wss://paseo-people-next-system-rpc.polkadot.io" },
-    bulletin: {
-      ws: "wss://paseo-bulletin-next-rpc.polkadot.io",
-      hopWs: "wss://paseo-hop-next-0.polkadot.io",
-    },
-    // device-uniqueness-backend (the new IB) — challenge→token auth.
-    identityBackend: "https://identity.dotspark.app",
-    identityBackendAuth: "challenge",
-    ipfsGateway: "https://paseo-bulletin-next-ipfs.polkadot.io/ipfs",
-    features: { resources: true, pgas: true, hop: true, dotns: true },
-  },
-  previewnet: {
-    name: "Previewnet",
-    assetHub: { ws: "wss://previewnet.substrate.dev/asset-hub" },
-    people: { ws: "wss://previewnet.substrate.dev/people" },
-    bulletin: { ws: "wss://previewnet.substrate.dev/bulletin" },
-    // device-uniqueness-backend (the new IB) — challenge→token auth.
-    identityBackend: "https://previewnet.substrate.dev/dub",
-    identityBackendAuth: "challenge",
-    ipfsGateway: "https://previewnet.substrate.dev/ipfs",
-    features: { resources: true, pgas: true, hop: true, dotns: true },
-  },
-  // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
-  // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
-  // https://docs.polkadotcommunity.foundation/reference/networks/. None of the
-  // next-runtime features exist here (no pallet-resources/pgas, no HOP, no
-  // identity backend), so only the chain-level health portion of the suite runs.
-  // Exists primarily as a release-gate base network (FORK_OF=devnet).
-  devnet: {
-    name: "Polkadot Products Devnet",
-    assetHub: { ws: "wss://asset-hub-paseo-rpc.n.dwellir.com" },
-    people: { ws: "wss://people-paseo.rotko.net" },
-    bulletin: { ws: "wss://bulletin-paseo.tservices.es:8443" },
-    identityBackend: null,
-    ipfsGateway: "https://devnet-ipfs.api.polkadotcommunity.foundation/ipfs",
-    features: { resources: false, pgas: false, hop: false, dotns: false },
-  },
-};
+export type { NetworkConfig } from "./stack-config.js";
 
 /**
- * A locally spawned fork of a known network — `make start FORK=1` in the engine
- * (paritytech/previewnet-engine), as used by the release-gate workflow.
- *
- * Fork configs are DERIVED, not enumerated: a fork of X carries X's capability flags
- * and chain set (it is X's state), so everything is inherited from `NETWORKS[X]` and
- * only the transport is swapped — the engine's fixed local ports (its config/ports.env;
- * `FORK_*` env overrides for a remotely spawned instance), the local IBv2 gateway when
- * the base network runs an identity backend, and `//Alice` as the test account
- * (sudo on every fork by bite override, and fundable on every fork). Adding a network
- * to the gate therefore needs no new entry here — `FORK_OF=<network>` is enough.
+ * The pointer a `STACK` value stands for: a stack link on any scheme or domain, such as
+ * `polkadotapp://stack?…` or `https://dot.li/stack?…`, or a descriptor URL. A known network's
+ * descriptor URL gets that network's key, so it is verified the same way as without `STACK`.
  */
-function localForkConfig(baseName: string): NetworkConfig {
-  const base = NETWORKS[baseName];
-  if (!base) {
-    throw new Error(
-      `Unknown FORK_OF network: ${baseName}. Available: ${Object.keys(NETWORKS).join(", ")}`,
-    );
+function parseStackPointer(location: string): Pointer {
+  try {
+    return decodeLink(location);
+  } catch (error) {
+    if (!isTrinityStackError(error) || error.code !== "invalid-link") throw error;
+    return Object.values(NETWORKS).find((entry) => entry.stack.url === location)?.stack ?? { url: location };
   }
-  return {
-    ...base,
-    name: `Local fork of ${base.name}`,
-    assetHub: { ws: process.env.FORK_ASSET_HUB_WS ?? "ws://127.0.0.1:10020" },
-    people: { ws: process.env.FORK_PEOPLE_WS ?? "ws://127.0.0.1:10010" },
-    // Replacing the whole object deliberately drops any remote `hopWs` from the base:
-    // on a fork the local collator runs `--enable-hop`, so the plain ws serves HOP.
-    bulletin: { ws: process.env.FORK_BULLETIN_WS ?? "ws://127.0.0.1:10030" },
-    // The engine runs identity-backend-rust (IBv2) locally — even when the base
-    // network's deployment is IBv1. FORK_IDENTITY_BACKEND=none says this network's
-    // fork spawns NO identity backend at all — attestation-dependent tests then skip.
-    identityBackend:
-      base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
-        ? (process.env.FORK_IDENTITY_BACKEND ?? "http://127.0.0.1:8092")
-        : null,
-    ...(base.identityBackend && process.env.FORK_IDENTITY_BACKEND !== "none"
-      ? { identityBackendAuth: "challenge" as const }
-      : {}),
-    ipfsGateway: process.env.FORK_IPFS_GATEWAY ?? "http://127.0.0.1:8080/ipfs",
-    testAccountUri: "//Alice",
-  };
+}
+
+/** Fetches and verifies a descriptor; fails on an unreachable or expired stack. */
+async function readStack(pointer: Pointer, label: string): Promise<Descriptor> {
+  try {
+    const result = await read(pointer);
+    if (result.expired) throw new Error(`the stack expired at ${result.descriptor.expiresAt}`);
+    if (result.stale) console.warn(`[networks] ${label}: the descriptor is past its validUntil`);
+    return result.descriptor;
+  } catch (error) {
+    throw new Error(`${label}: ${(error as Error).message}`);
+  }
+}
+
+// Read once, when this module loads: the stack `STACK` points at, such as a release-gate fork
+// at http://127.0.0.1:8090/.well-known/trinity-stack.json, or else the tested network's own.
+const stackLocation = process.env.STACK;
+const pointer = stackLocation ? parseStackPointer(stackLocation) : undefined;
+const stack = pointer && { pointer, descriptor: await readStack(pointer, `STACK=${stackLocation}`) };
+const network = selectNetwork(process.env.NETWORK, stack);
+const config = buildNetworkConfig(
+  NETWORKS[network],
+  stack?.descriptor ?? (await readStack(NETWORKS[network].stack, network)),
+);
+
+/** The `NETWORKS` entry the run tests, such as `previewnet` for a previewnet fork. */
+export function networkKey(): string {
+  return network;
 }
 
 export function getNetworkConfig(): NetworkConfig {
-  const name = process.env.NETWORK ?? "paseo-next-v2";
-  if (name === "local-fork") {
-    return localForkConfig(process.env.FORK_OF ?? "previewnet");
-  }
-  const config = NETWORKS[name];
-  if (!config) {
-    throw new Error(
-      `Unknown network: ${name}. Available: ${Object.keys(NETWORKS).join(", ")}, local-fork`,
-    );
-  }
   return config;
 }
