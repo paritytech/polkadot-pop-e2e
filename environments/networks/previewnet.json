@@ -16,7 +16,7 @@
       "runtime": "paritytech/individuality-community@v0.3.4"
     },
     "bulletin": {
-      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.26-paseo"
+      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.28-paseo"
     },
     "web3-storage": {
       "runtime": "paritytech/web3-storage@v0.4.1-paseo"
