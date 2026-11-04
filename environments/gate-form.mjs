@@ -20,8 +20,8 @@
 // A pin is `owner/repo@tag`, or `artifact:<name>` for a build uploaded in the
 // calling run. One field per chain either way, so what is being tested reads off
 // the call: nothing is inferred from filenames. The two client fields are not pins:
-// they name the product-sdk packages and truapi release the tests run on, and are
-// split out of the overlay before it reaches the manifest.
+// they pick the product-sdk packages and truapi release the tests run on, and are
+// split out of the overlay before the overlay is applied to the manifest.
 
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -126,7 +126,7 @@ function section(body, label) {
   return value === '_No response_' ? '' : value;
 }
 
-/** The raw JSON replaces the pin fields when given; the client fields apply either way. */
+/** The raw JSON replaces the pin fields when present; the client fields apply either way. */
 function overlay(values, raw) {
   if (!raw) return assemble(values);
   const advanced = parseAdvanced(raw);
@@ -155,15 +155,18 @@ const RUN_OPTIONS = { ppn_ref: 'ppnRef', product_sdk: 'productSdk', truapi: 'tru
 /**
  * Split the keys that are not manifest pins out of an overlay: `ppn_ref` (which
  * previewnet-engine ref the gate runs), `product_sdk` and `truapi` (which client
- * builds the tests run on). Each comes back as a string, empty when not named.
+ * builds the tests run on). Each comes back as a string, empty when absent; any
+ * other type fails.
  */
 export function splitRunOptions(target) {
-  const options = Object.fromEntries(Object.values(RUN_OPTIONS).map((name) => [name, '']));
+  const options = Object.fromEntries(Object.values(RUN_OPTIONS).map((option) => [option, '']));
   if (!target || typeof target !== 'object') return { ...options, target };
   const rest = { ...target };
-  for (const [key, name] of Object.entries(RUN_OPTIONS)) {
+  for (const [key, option] of Object.entries(RUN_OPTIONS)) {
     if (!(key in rest)) continue;
-    options[name] = rest[key] ?? '';
+    const value = rest[key] ?? '';
+    if (typeof value !== 'string') throw new Error(`"${key}" in the advanced overlay must be a string`);
+    options[option] = value;
     delete rest[key];
   }
   return { ...options, target: Object.keys(rest).length ? rest : null };

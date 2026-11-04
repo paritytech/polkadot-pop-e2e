@@ -151,7 +151,7 @@ describe('run options', () => {
     assert.equal(target, null);
   });
 
-  it('are empty when the overlay does not name them', () => {
+  it('are empty when the overlay does not contain them', () => {
     assert.deepEqual(splitRunOptions({ tests: ['test:network-health'] }), {
       ppnRef: '',
       productSdk: '',
@@ -162,7 +162,7 @@ describe('run options', () => {
   });
 
   // A runtime PR testing its change against an unreleased fix: the client builds
-  // ride next to the runtime pins and never reach the manifest.
+  // ride next to the runtime pins and stay out of the manifest.
   it('carry the client builds next to the runtime pins', () => {
     const { productSdk, truapi, target } = splitRunOptions(
       parseDispatchInputs(
@@ -178,7 +178,7 @@ describe('run options', () => {
     assert.deepEqual(target, { chains: { people: { runtime: 'artifact:e2e-runtime-wasm' } } });
   });
 
-  it('keep the client builds when the advanced overlay replaces the pin fields', () => {
+  it('remain when the advanced overlay replaces the pin fields', () => {
     const { productSdk, target } = splitRunOptions(
       parseDispatchInputs({
         ...dispatch({ runtime_relay: 'paseo-network/runtimes@v2.4.9', product_sdk: '@parity/product-sdk@dev' }),
@@ -187,6 +187,13 @@ describe('run options', () => {
     );
     assert.equal(productSdk, '@parity/product-sdk@dev');
     assert.deepEqual(target, { tests: ['test:ring-health'] });
+  });
+
+  it('reject a value that is not a string', () => {
+    assert.throws(
+      () => splitRunOptions({ product_sdk: ['@parity/product-sdk@0.43.0'] }),
+      /"product_sdk" in the advanced overlay must be a string/
+    );
   });
 
   it('client builds alone leave a steady-state run on the live runtimes', () => {
