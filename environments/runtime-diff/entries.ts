@@ -152,13 +152,28 @@ export function sdkLevel(
 }
 
 /**
- * Breaking: the candidate fits the SDK worse than live did, and badly enough that
- * polkadot-api refuses the entry for at least some values (below
- * BackwardsCompatible). Anything else is additive. An entry the SDK already could not
- * use on live stays additive: this run did not cause it.
+ * The candidate fits worse than live did, and badly enough that polkadot-api refuses
+ * at least some values (below BackwardsCompatible). An entry the SDK already could
+ * not use on live does not count: this run did not cause it.
  */
 export const isBreaking = (live: CompatibilityLevel, candidate: CompatibilityLevel): boolean =>
   candidate < live && candidate < CompatibilityLevel.BackwardsCompatible;
+
+/**
+ * - breaking: the SDK's code reads it and polkadot-api now refuses it outright.
+ * - partial: the SDK's code reads it and polkadot-api now checks each value, so some
+ *   values fail and others still work (a new variant in a returned value, a removed
+ *   one in an argument).
+ * - other: the scan found no SDK code that reads it, or polkadot-api still accepts
+ *   it. polkadot-api checks an entry only when it is used, so an entry nobody reads
+ *   cannot break the SDK.
+ */
+export type Severity = "breaking" | "partial" | "other";
+
+export function severityOf(live: CompatibilityLevel, candidate: CompatibilityLevel, sdkRef: boolean): Severity {
+  if (!sdkRef || !isBreaking(live, candidate)) return "other";
+  return candidate === CompatibilityLevel.Incompatible ? "breaking" : "partial";
+}
 
 export interface ChangePath {
   side: "args" | "value";
@@ -168,10 +183,13 @@ export interface ChangePath {
 export interface EntryDiff {
   selector: string;
   change: "added" | "removed" | "changed";
-  severity: "breaking" | "additive";
+  severity: Severity;
   sdk: { live: string; candidate: string };
   paths: ChangePath[];
-  /** The SDK's own code reads it, not only its descriptor. */
+  /**
+   * The SDK's own code reads it, not only its descriptor. The scan behind it does not
+   * follow aliases (`const query = api.query.Game`), so it can miss reads.
+   */
   sdkRef: boolean;
 }
 
@@ -190,10 +208,11 @@ function changedPaths(a: EntryPoint, live: Ctx, b: EntryPoint, candidate: Ctx): 
     .slice(0, 8);
 }
 
+const RANK: Record<Severity, number> = { breaking: 0, partial: 1, other: 2 };
+
 /**
  * Every descriptor entry the two runtimes disagree on, graded for the SDK. Breaking
- * first, then what the SDK's own code reads: a changed event nobody decodes matters
- * less than a call the SDK builds.
+ * first, then partial, then what the SDK's own code reads.
  */
 export function diffEntries(sdk: DescriptorCtx, live: Ctx, candidate: Ctx, sdkRefs: Set<string>): EntryDiff[] {
   const out: EntryDiff[] = [];
@@ -208,19 +227,20 @@ export function diffEntries(sdk: DescriptorCtx, live: Ctx, candidate: Ctx, sdkRe
       const before = sdkLevel(kind, sdk, sdkEntry, live, group, name);
       const after = sdkLevel(kind, sdk, sdkEntry, candidate, group, name);
       const selector = `${PREFIX[kind]}:${group}.${name}`;
+      const sdkRef = sdkRefs.has(selector);
       out.push({
         selector,
         change: !b ? "removed" : !a ? "added" : "changed",
-        severity: isBreaking(before, after) ? "breaking" : "additive",
+        severity: severityOf(before, after, sdkRef),
         sdk: { live: LEVEL[before], candidate: LEVEL[after] },
         paths,
-        sdkRef: sdkRefs.has(selector),
+        sdkRef,
       });
     }
   }
   return out.sort(
     (x, y) =>
-      Number(y.severity === "breaking") - Number(x.severity === "breaking") ||
+      RANK[x.severity] - RANK[y.severity] ||
       Number(y.sdkRef) - Number(x.sdkRef) ||
       x.selector.localeCompare(y.selector),
   );

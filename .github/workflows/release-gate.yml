@@ -701,7 +701,7 @@ jobs:
           mapfile -t tests < <(node environments/resolve.mjs tests "$MANIFEST")
           environments/run-chain-tests.sh packages/chain-tests/test-results "${tests[@]}"
 
-      # Puts each failing test next to the diff entries it touches and, when the run
+      # Puts each failing test next to the diff entries its error names and, when the run
       # failed on a change that breaks the SDK, links a prefilled `runtime-break` issue
       # on product-sdk. Runs after a refused upgrade too, when there are no test
       # results but the diff still says what the chain was offered.
@@ -713,7 +713,7 @@ jobs:
           TITLE: ${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }}
         run: |
           pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json \
-            --junit packages/chain-tests/test-results --tests-dir packages/chain-tests \
+            --junit packages/chain-tests/test-results \
             --outcome "$OUTCOME" --title "$TITLE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the runtime diff

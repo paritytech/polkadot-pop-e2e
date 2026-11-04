@@ -50,9 +50,9 @@ for (const c of result.chains) {
     console.error(`${c.chain}: could not diff: ${c.error}`);
     continue;
   }
-  const breaking = c.entries.filter((e) => e.severity === "breaking").length;
+  const count = (severity: string) => c.entries.filter((e) => e.severity === severity).length;
   console.error(
-    `${c.chain}: ${c.live.specVersion ?? "?"} -> ${c.candidate.specVersion ?? "?"}; ${breaking} breaking, ` +
-      `${c.entries.length - breaking} additive SDK entries; extensions: ${c.extensions.summary}`,
+    `${c.chain}: ${c.live.specVersion ?? "?"} -> ${c.candidate.specVersion ?? "?"}; SDK entries: ${count("breaking")} breaking, ` +
+      `${count("partial")} may fail for some values, ${count("other")} other; extensions: ${c.extensions.summary}`,
   );
 }

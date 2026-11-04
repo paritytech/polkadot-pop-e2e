@@ -1,7 +1,7 @@
 // Explain a gate run against its runtime diff.
 //
 //   tsx environments/runtime-diff/report.ts <runtime-diff/diff.json> \
-//     [--junit packages/chain-tests/test-results] [--tests-dir packages/chain-tests] \
+//     [--junit packages/chain-tests/test-results] \
 //     [--outcome success|failure] [--title "previewnet · target"]
 //
 // `--junit` takes junit files or directories, comma-separated. Markdown goes to
@@ -21,14 +21,13 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     junit: { type: "string", default: "" },
-    "tests-dir": { type: "string", default: "packages/chain-tests" },
     outcome: { type: "string" },
     title: { type: "string" },
   },
 });
 const [diffFile] = positionals;
 if (!diffFile) {
-  console.error("usage: report.ts <diff.json> [--junit file|dir,...] [--tests-dir dir] [--outcome status] [--title text]");
+  console.error("usage: report.ts <diff.json> [--junit file|dir,...] [--outcome status] [--title text]");
   process.exit(2);
 }
 if (!fs.existsSync(diffFile)) {
@@ -50,7 +49,7 @@ if (!isDiff(diff)) {
   process.exit(1);
 }
 const failures = readFailures(values.junit.split(",").filter(Boolean));
-const explained = explainFailures(diff, failures, values["tests-dir"]);
+const explained = explainFailures(diff, failures);
 const markdown = renderReport(diff, explained, { outcome: values.outcome, title: values.title, run: runUrl() });
 
 const dir = path.dirname(diffFile);

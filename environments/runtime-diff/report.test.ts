@@ -7,13 +7,13 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { ChainDiff, Diff } from "./diff.ts";
+import type { EntryDiff } from "./entries.ts";
 import { readJson } from "./json.ts";
 import { failuresFromJunit, readFailures, type Failure } from "./junit.ts";
 import { explainFailures, linksFor } from "./links.ts";
 import { issueUrl, renderReport } from "./markdown.ts";
 
 const HERE = import.meta.dirname;
-const TESTS_DIR = path.join(HERE, "..", "..", "packages", "chain-tests");
 const tmp = (prefix: string): string => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
 const JUNIT = `<?xml version="1.0" encoding="UTF-8" ?>
@@ -58,7 +58,7 @@ const people: ChainDiff = {
     {
       selector: "event:Game.NewGame",
       change: "changed",
-      severity: "additive",
+      severity: "other",
       sdk: { live: "Identical", candidate: "BackwardsCompatible" },
       paths: [],
       sdkRef: false,
@@ -181,21 +181,17 @@ exit $code
 });
 
 describe("report", () => {
-  it("links an entry named in the error above one the test merely reaches", () => {
+  it("links only what the error names", () => {
     const [named, other] = failures();
     assert.ok(named && other);
-    const nothing = { own: new Set<string>(), viaSdk: new Set<string>() };
     assert.deepEqual(
-      linksFor(named, nothing, diff).map((l) => [l.what, l.why]),
+      linksFor(named, diff).map((l) => [l.what, l.why]),
       [["tx:PeopleLite.set_alias_account", "named in the error"]],
     );
-    // An additive change cannot explain a failure, even when the test reads it.
-    assert.deepEqual(linksFor(other, { own: new Set(["event:Game.NewGame"]), viaSdk: new Set() }, diff), []);
+    assert.deepEqual(linksFor(other, diff), []);
   });
 
-  it("links extension changes only on chains the test signs on", () => {
-    const [, other] = failures();
-    assert.ok(other);
+  it("links an extension change only when the error names it or the transaction was rejected", () => {
     const [v0] = people.extensions.versions;
     assert.ok(v0);
     const signed: ChainDiff = {
@@ -203,41 +199,87 @@ describe("report", () => {
       entries: [],
       extensions: { ...people.extensions, versions: [{ ...v0, status: "changed", breaking: true }] },
     };
-    const hub: ChainDiff = { ...signed, chain: "asset-hub", pallets: ["Assets", "System"] };
-    const surface = { own: new Set(["tx:PeopleLite.set_alias_account"]), viaSdk: new Set<string>() };
+    const fail = (message: string): Failure => ({ file: "src/tests/core.test.ts", name: "signs", message });
+    const whys = (message: string) => linksFor(fail(message), { ...diff, chains: [signed] }).map((l) => l.why);
+    assert.deepEqual(whys("1010: Invalid Transaction: BadProof"), ["the error is a rejected transaction"]);
+    assert.deepEqual(whys("CheckNonce: could not encode"), ["the error names CheckNonce"]);
+    assert.deepEqual(whys("timeout"), []);
+  });
+
+  it("does not link a removed entry twice, as an entry and as a gone surface", () => {
+    const removed: ChainDiff = {
+      ...people,
+      entries: [
+        {
+          selector: "constant:Game.airdrop_event_id_base",
+          change: "removed",
+          severity: "breaking",
+          sdk: { live: "Identical", candidate: "Incompatible" },
+          paths: [],
+          sdkRef: true,
+        },
+      ],
+      missingSurfaces: [
+        { selector: "constant:Game.airdrop_event_id_base", packages: ["@parity/product-sdk-individuality"], alsoMissingOnLive: false },
+      ],
+    };
+    const fail: Failure = {
+      file: "src/tests/game-airdrop.test.ts",
+      name: "reads the base",
+      message: "Runtime entry Constant(Game.airdrop_event_id_base) not found",
+    };
     assert.deepEqual(
-      linksFor(other, surface, { ...diff, chains: [signed, hub] }).map((l) => [l.chain, l.why]),
-      [["people", "the test signs transactions"]],
+      linksFor(fail, { ...diff, chains: [removed] }).map((l) => l.what),
+      ["constant:Game.airdrop_event_id_base"],
     );
   });
 
-  it("does not take a pallet on every diffed chain as the chain the test signs on", () => {
-    const [, other] = failures();
-    assert.ok(other);
-    const [v0] = people.extensions.versions;
-    assert.ok(v0);
-    const signed: ChainDiff = {
+  it("counts an entry the error names as breaking, whatever its grade", () => {
+    const fail: Failure = { file: "src/tests/game.test.ts", name: "decodes", message: "Incompatible runtime entry Event(Game.NewGame)" };
+    const quiet: Diff = { ...diff, chains: [{ ...people, entries: people.entries.filter((e) => e.severity !== "breaking") }] };
+    const explained = explainFailures(quiet, [fail]);
+    const md = renderReport(quiet, explained, { outcome: "failure" });
+    assert.match(md, /game › decodes: `event:Game.NewGame` on people \(named in the error\)/);
+    assert.match(md, /Open a `runtime-break` issue/);
+    const body = new URL(issueUrl(quiet, explained)).searchParams.get("body") ?? "";
+    assert.match(body, /`event:Game.NewGame` changed \(Identical → BackwardsCompatible\)/);
+  });
+
+  it("keeps entries that may fail for some values out of the issue", () => {
+    const partial: ChainDiff = {
       ...people,
-      entries: [],
-      extensions: { ...people.extensions, versions: [{ ...v0, status: "changed", breaking: true }] },
+      entries: [
+        ...people.entries,
+        {
+          selector: "tx:Sudo.sudo",
+          change: "changed",
+          severity: "partial",
+          sdk: { live: "Identical", candidate: "Partial" },
+          paths: [{ side: "args", path: "call" }],
+          sdkRef: true,
+        },
+      ],
     };
-    const hub: ChainDiff = { ...people, chain: "asset-hub", entries: [], pallets: ["Assets", "System"] };
-    const surface = { own: new Set(["tx:System.remark"]), viaSdk: new Set<string>() };
-    assert.deepEqual(linksFor(other, surface, { ...diff, chains: [signed, hub] }), []);
+    const withPartial: Diff = { ...diff, chains: [partial] };
+    const explained = explainFailures(withPartial, failures());
+    const md = renderReport(withPartial, explained, { outcome: "failure" });
+    assert.match(md, /1 breaking, 1 may fail for some values, 1 other/);
+    assert.match(md, /\| 🟡 \| `tx:Sudo.sudo` ★ \|/);
+    assert.doesNotMatch(new URL(issueUrl(withPartial, explained)).searchParams.get("body") ?? "", /Sudo/);
   });
 
   it("puts the cause next to the failure and offers the product-sdk issue", () => {
-    const explained = explainFailures(diff, failures(), TESTS_DIR);
+    const explained = explainFailures(diff, failures());
     const md = renderReport(diff, explained, { outcome: "failure", title: "previewnet · target", run: "https://example/run/1" });
-    assert.match(md, /lite-alias-bind › Lite sign-up > binds the alias: likely `tx:PeopleLite.set_alias_account` on people \(breaking, named in the error\)/);
-    assert.match(md, /core › reads 'blocks': no link to this diff found in the code, so the cause is not known/);
+    assert.match(md, /lite-alias-bind › Lite sign-up > binds the alias: `tx:PeopleLite.set_alias_account` on people \(named in the error\)/);
+    assert.match(md, /core › reads 'blocks': the error names nothing in this diff/);
     assert.match(md, /\[Open a `runtime-break` issue on paritytech\/product-sdk\]\(https:\/\/github\.com\/paritytech\/product-sdk\/issues\/new\?/);
     assert.match(md, /\| 🔴 \| `tx:PeopleLite.set_alias_account` ★ \| changed at `args.alias` \| Identical → Incompatible \| lite-alias-bind › Lite sign-up > binds the alias \|/);
-    assert.match(md, /1 breaking, 1 additive/);
+    assert.match(md, /1 breaking, 0 may fail for some values, 1 other/);
   });
 
   it("prefills the issue with the breaking changes and the run", () => {
-    const explained = explainFailures(diff, failures(), TESTS_DIR);
+    const explained = explainFailures(diff, failures());
     const url = new URL(issueUrl(diff, explained, { run: "https://example/run/1" }));
     assert.equal(url.searchParams.get("labels"), "runtime-break");
     assert.equal(url.searchParams.get("title"), "runtime-break: previewnet people 3004000 → 3005000");
@@ -250,7 +292,7 @@ describe("report", () => {
 
   it("does not blame the runtime when nothing in the diff breaks the SDK", () => {
     const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }] };
-    const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
+    const md = renderReport(calm, explainFailures(calm, failures()), { outcome: "failure" });
     assert.doesNotMatch(md, /Open a `runtime-break` issue/);
     assert.match(md, /probably does not come from a metadata change/);
   });
@@ -260,9 +302,32 @@ describe("report", () => {
     assert.doesNotMatch(renderReport(calm, [], { outcome: "failure" }), /probably does not come from a metadata change/);
   });
 
+  it("does not clear the runtime when an entry may fail for some values", () => {
+    const partial: EntryDiff = {
+      selector: "tx:Sudo.sudo",
+      change: "changed",
+      severity: "partial",
+      sdk: { live: "Identical", candidate: "Partial" },
+      paths: [{ side: "args", path: "call" }],
+      sdkRef: true,
+    };
+    const calm: Diff = { ...diff, chains: [{ ...people, entries: [partial] }] };
+    const md = renderReport(calm, explainFailures(calm, [{ file: "src/tests/core.test.ts", name: "x", message: "timeout" }]), {
+      outcome: "failure",
+    });
+    assert.doesNotMatch(md, /probably does not come from a metadata change/);
+    assert.doesNotMatch(md, /Open a `runtime-break` issue/);
+  });
+
+  it("does not clear the runtime when a chain's endpoint matched no descriptor", () => {
+    const calm: Diff = { ...diff, chains: [{ ...people, entries: [], descriptor: null }] };
+    const md = renderReport(calm, explainFailures(calm, failures()), { outcome: "failure" });
+    assert.doesNotMatch(md, /probably does not come from a metadata change/);
+  });
+
   it("does not clear the runtime when a chain could not be diffed", () => {
     const calm: Diff = { ...diff, chains: [{ ...people, entries: [] }, { ...people, chain: "relay", error: "timeout" }] };
-    const md = renderReport(calm, explainFailures(calm, failures(), TESTS_DIR), { outcome: "failure" });
+    const md = renderReport(calm, explainFailures(calm, failures()), { outcome: "failure" });
     assert.doesNotMatch(md, /probably does not come from a metadata change/);
   });
 
@@ -301,7 +366,7 @@ describe("report", () => {
     fs.mkdirSync(path.join(dir, "results"));
     fs.writeFileSync(path.join(dir, "results", "junit-test_a.xml"), JUNIT);
     const args = ["--import", "tsx", path.join(HERE, "report.ts"), path.join(dir, "diff.json")];
-    const out = execFileSync(process.execPath, [...args, "--junit", path.join(dir, "results"), "--tests-dir", TESTS_DIR], {
+    const out = execFileSync(process.execPath, [...args, "--junit", path.join(dir, "results")], {
       encoding: "utf8",
     });
     assert.match(out, /### Runtime diff/);

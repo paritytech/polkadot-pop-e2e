@@ -9,7 +9,7 @@ import path from "node:path";
 import { before, describe, it } from "node:test";
 import { CompatibilityLevel } from "@polkadot-api/metadata-compatibility";
 import { capture, diffMetadata, forkPorts, readPlan } from "./diff.ts";
-import { isBreaking, type Descriptor } from "./entries.ts";
+import { isBreaking, severityOf, type Descriptor } from "./entries.ts";
 import { diffPipelines } from "./extensions.ts";
 import { isRecord, readJson } from "./json.ts";
 import { decodeMetadata, type UnifiedMetadata } from "./metadata.ts";
@@ -126,6 +126,17 @@ describe("entries", () => {
     assert.equal(isBreaking(Incompatible, Incompatible), false);
   });
 
+  it("calls only what the SDK's code reads breaking, and a new Partial a separate tier", () => {
+    const { Incompatible, Partial, BackwardsCompatible, Identical } = CompatibilityLevel;
+    assert.equal(severityOf(Identical, Incompatible, true), "breaking");
+    assert.equal(severityOf(Identical, Partial, true), "partial");
+    assert.equal(severityOf(Partial, Incompatible, true), "breaking");
+    assert.equal(severityOf(Identical, BackwardsCompatible, true), "other");
+    assert.equal(severityOf(Partial, Partial, true), "other");
+    // polkadot-api checks an entry only when it is used: nobody reads it, nothing breaks.
+    assert.equal(severityOf(Identical, Incompatible, false), "other");
+  });
+
   it("reports nothing between a runtime and itself", async () => {
     const diff = await diffMetadata(metadata, structuredClone(metadata), descriptor);
     assert.deepEqual(diff.entries, []);
@@ -133,7 +144,7 @@ describe("entries", () => {
     assert.ok(diff.pallets.includes("PeopleLite"));
   });
 
-  it("grades a removal as breaking and a new entry as additive", async () => {
+  it("grades a removal the SDK reads as breaking, and a new entry as other", async () => {
     const live = structuredClone(metadata);
     const candidate = structuredClone(metadata);
     const score = pallet(candidate, "Score");
@@ -142,7 +153,8 @@ describe("entries", () => {
     const [added] = pallet(live, "Game").storage?.items.splice(0, 1) ?? [];
     assert.ok(removed && added);
 
-    const { entries } = await diffMetadata(live, candidate, descriptor);
+    const bySdk = { "@parity/product-sdk-individuality": [`constant:Score.${removed.name}`] };
+    const { entries } = await diffMetadata(live, candidate, descriptor, bySdk);
     const gone = entries.find((e) => e.selector === `constant:Score.${removed.name}`);
     const fresh = entries.find((e) => e.selector === `query:Game.${added.name}`);
     assert.deepEqual([gone?.change, gone?.severity, gone?.sdk], [
@@ -150,8 +162,12 @@ describe("entries", () => {
       "breaking",
       { live: "Identical", candidate: "Incompatible" },
     ]);
-    assert.deepEqual([fresh?.change, fresh?.severity], ["added", "additive"]);
+    assert.deepEqual([fresh?.change, fresh?.severity], ["added", "other"]);
     assert.equal(entries[0]?.severity, "breaking", "breaking entries come first");
+
+    // The same removal, read by no SDK code, cannot break the SDK.
+    const unread = (await diffMetadata(live, candidate, descriptor)).entries.find((e) => e.selector === gone?.selector);
+    assert.deepEqual([unread?.change, unread?.severity], ["removed", "other"]);
   });
 
   it("grades a type change by how the SDK fits it, not by the change alone", async () => {
@@ -162,7 +178,8 @@ describe("entries", () => {
     assert.ok(number && digest);
     number.type = structuredClone(digest.type); // a u32 storage value now holds a digest
 
-    const { entries } = await diffMetadata(metadata, candidate, descriptor);
+    const bySdk = { "@parity/product-sdk-individuality": ["query:System.Number"] };
+    const { entries } = await diffMetadata(metadata, candidate, descriptor, bySdk);
     const changed = entries.find((e) => e.selector === "query:System.Number");
     assert.deepEqual([changed?.change, changed?.severity, changed?.sdk.candidate], ["changed", "breaking", "Incompatible"]);
   });

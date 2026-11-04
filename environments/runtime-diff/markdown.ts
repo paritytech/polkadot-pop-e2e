@@ -1,9 +1,9 @@
-// The job summary: each failing test next to what it touches, then each chain's diff,
-// and a prefilled product-sdk issue when the run failed on a breaking change.
+// The job summary: each failing test next to what its error names, then each chain's
+// diff, and a prefilled product-sdk issue when the run failed on a breaking change.
 
 import path from "node:path";
 import type { ChainDiff, Diff, MetadataDiff } from "./diff.ts";
-import type { EntryDiff } from "./entries.ts";
+import type { EntryDiff, Severity } from "./entries.ts";
 import type { PipelineDiff } from "./extensions.ts";
 import type { Failure } from "./junit.ts";
 import type { Explained, Link } from "./links.ts";
@@ -32,22 +32,30 @@ function changeText(e: EntryDiff): string {
 const pipelineBreaks = (ext: PipelineDiff): boolean =>
   ext.versions.some((v) => v.breaking) || ext.extrinsicVersions.removed.length > 0;
 
-function breakingOf(chain: Diffed) {
+const linkKey = (l: Pick<Link, "chain" | "what">): string => `${l.chain}|${l.what}`;
+const linkText = (l: Link): string => `${code(l.what)} on ${l.chain} (${l.why})`;
+
+/** What breaks the SDK on a chain: breaking entries, and any entry a failing test's error names. */
+function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
   return {
-    entries: chain.entries.filter((e) => e.severity === "breaking"),
+    entries: chain.entries.filter((e) => e.severity === "breaking" || named.has(linkKey({ chain: chain.chain, what: e.selector }))),
     // The SDK only signs on chains it has a descriptor for.
     extensions: chain.descriptor !== null && pipelineBreaks(chain.extensions),
-    missing: chain.missingSurfaces.filter((m) => !m.alsoMissingOnLive),
+    // A removed entry is already listed under its own name.
+    missing: chain.missingSurfaces.filter(
+      (m) => !m.alsoMissingOnLive && !chain.entries.some((e) => e.change === "removed" && e.selector === m.selector),
+    ),
   };
 }
 
-const isBreaking = (chain: Diffed): boolean => {
-  const b = breakingOf(chain);
+const isBreaking = (chain: Diffed, named?: Set<string>): boolean => {
+  const b = breakingOf(chain, named);
   return b.entries.length > 0 || b.extensions || b.missing.length > 0;
 };
 
-const linkKey = (l: Link): string => `${l.chain}|${l.what}`;
-const linkText = (l: Link): string => `${code(l.what)} on ${l.chain} (${l.breaking ? "breaking" : "additive"}, ${l.why})`;
+const namedKeys = (explained: Explained[]): Set<string> => new Set(explained.flatMap((t) => t.links.map(linkKey)));
+
+const MARK: Record<Severity, string> = { breaking: "🔴", partial: "🟡", other: "⚪" };
 
 function testsByLink(explained: Explained[]): Map<string, Explained[]> {
   const map = new Map<string, Explained[]>();
@@ -77,7 +85,7 @@ function entryTable(entries: EntryDiff[], chain: string, byLink: Map<string, Exp
   const rows = entries.slice(0, MAX_ROWS).map((e) => {
     const tests = byLink.get(`${chain}|${e.selector}`) ?? [];
     return (
-      `| ${e.severity === "breaking" ? "🔴" : "🟢"} | ${code(e.selector)}${e.sdkRef ? " ★" : ""} | ${cell(changeText(e))} ` +
+      `| ${MARK[e.severity]} | ${code(e.selector)}${e.sdkRef ? " ★" : ""} | ${cell(changeText(e))} ` +
       `| ${e.sdk.live} → ${e.sdk.candidate} | ${cell(testsText(tests))} |`
     );
   });
@@ -122,7 +130,7 @@ function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explaine
     `**Transaction extensions**${marker}: ${ext.summary}` +
       (removed.length ? ` Extrinsic version ${removed.join(", ")} removed.` : "") +
       (added.length ? ` Extrinsic version ${added.join(", ")} added.` : "") +
-      (extTests.length ? ` Failing tests that sign transactions: ${testsText(extTests)}.` : ""),
+      (extTests.length ? ` Failing tests whose error points here: ${testsText(extTests)}.` : ""),
     ...pipelineTable(ext),
     "",
   );
@@ -143,17 +151,34 @@ function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explaine
   }
 
   if (chain.descriptor) {
-    const breaking = chain.entries.filter((e) => e.severity === "breaking");
-    const additive = chain.entries.filter((e) => e.severity === "additive");
+    const of = (severity: Severity) => chain.entries.filter((e) => e.severity === severity);
+    const [breaking, partial, other] = [of("breaking"), of("partial"), of("other")];
     lines.push(
       chain.entries.length
-        ? `**SDK entries:** ${breaking.length} breaking, ${additive.length} additive. ★ = the SDK's code reads it.`
+        ? `**SDK entries:** ${breaking.length} breaking, ${partial.length} may fail for some values, ${other.length} other. ` +
+            "★ = the scan found SDK code that reads it, and only ★ entries are graded breaking. The scan does not follow " +
+            "aliases (`const query = api.query.Game`), so the SDK can read more than ★ shows."
         : "**SDK entries:** none of the descriptor's entries changed.",
       "",
     );
     if (breaking.length) lines.push(...entryTable(breaking, chain.chain, byLink), "");
-    if (additive.length) {
-      lines.push("<details><summary>Additive changes</summary>", "", ...entryTable(additive, chain.chain, byLink), "", "</details>", "");
+    if (partial.length) {
+      lines.push(
+        "🟡 polkadot-api now checks each value of these, so some values fail and others still work:",
+        "",
+        ...entryTable(partial, chain.chain, byLink),
+        "",
+      );
+    }
+    if (other.length) {
+      lines.push(
+        "<details><summary>Other changes: the scan found no SDK code that reads them, or polkadot-api still accepts them</summary>",
+        "",
+        ...entryTable(other, chain.chain, byLink),
+        "",
+        "</details>",
+        "",
+      );
     }
   }
   return lines;
@@ -172,7 +197,8 @@ export interface ReportOptions {
 
 /** A prefilled `runtime-break` issue on product-sdk, as the Runtime Release Contract asks. */
 export function issueUrl(diff: Diff, explained: Explained[], { run, title }: ReportOptions = {}): string {
-  const broken = diffed(diff).filter(isBreaking);
+  const named = namedKeys(explained);
+  const broken = diffed(diff).filter((c) => isBreaking(c, named));
   const sdk = diff.sdk.filter((p) => p.from === "@pop-e2e/chain-tests").map((p) => `${p.name}@${p.version}`);
   const chains = broken
     .map((c) => `${c.chain} ${spec(c.live.specVersion)} → ${spec(c.candidate.specVersion)}`)
@@ -184,7 +210,7 @@ export function issueUrl(diff: Diff, explained: Explained[], { run, title }: Rep
     `Tested through ${sdk.join(", ")}; descriptors ${diff.descriptors ?? "?"}.`,
     "",
     ...broken.flatMap((c) => {
-      const b = breakingOf(c);
+      const b = breakingOf(c, named);
       return [
         `### ${c.chain} (${c.pin ?? c.wasm})`,
         ...b.missing.map((m) => `- no longer has \`${m.selector}\` (read by ${m.packages.join(", ")})`),
@@ -199,7 +225,7 @@ export function issueUrl(diff: Diff, explained: Explained[], { run, title }: Rep
     ...(explained.length ? ["Failing tests:"] : []),
     ...explained.slice(0, 15).map((t) => {
       const top = t.links[0];
-      return `- ${testLabel(t)}${top ? ` — likely \`${top.what}\` (${top.why})` : ""}`;
+      return `- ${testLabel(t)}${top ? ` — \`${top.what}\` (${top.why})` : ""}`;
     }),
   ].join("\n");
   const params = new URLSearchParams({
@@ -215,32 +241,12 @@ const firstLine = (message: string): string => {
   return line.length > 160 ? `${line.slice(0, 160)}…` : line;
 };
 
-/**
- * One line per failing test. A link every failing test shares (most of the suite
- * goes through the same attestation fixture and so the same SDK) says nothing about
- * any one of them, so it is listed once above the tests instead of on each.
- */
 function failureLines(explained: Explained[]): string[] {
-  const [first, ...rest] = explained;
-  const shared = rest.length
-    ? (first?.links ?? []).filter(
-        (l) => l.why !== "named in the error" && rest.every((t) => t.links.some((m) => linkKey(m) === linkKey(l))),
-      )
-    : [];
-  const sharedKeys = new Set(shared.map(linkKey));
   const lines = [`**${explained.length} failing test${explained.length === 1 ? "" : "s"}, against this diff:**`, ""];
-  if (shared.length) {
-    const more = shared.length > 5 ? `, and ${shared.length - 5} more` : "";
-    lines.push(`Every failing test reaches ${shared.slice(0, 5).map(linkText).join("; ")}${more}.`, "");
-  }
   for (const t of explained) {
-    const own = t.links.filter((l) => !sharedKeys.has(linkKey(l))).slice(0, 3);
+    const own = t.links.slice(0, 3);
     const error = firstLine(t.message);
-    const verdict = own.length
-      ? `likely ${own.map(linkText).join("; ")}`
-      : shared.length
-        ? "only the shared changes above reach it"
-        : "no link to this diff found in the code, so the cause is not known";
+    const verdict = own.length ? own.map(linkText).join("; ") : "the error names nothing in this diff";
     lines.push(`- ✗ ${testLabel(t)}: ${verdict}.${error ? ` Error: ${code(error)}` : ""}`);
   }
   return lines;
@@ -257,14 +263,21 @@ export function renderReport(diff: Diff, explained: Explained[], options: Report
   }
   const failed = options.outcome === "failure" || explained.length > 0;
   if (explained.length) lines.push(...failureLines(explained), "");
-  if (failed && diffed(diff).some(isBreaking)) {
+  const named = namedKeys(explained);
+  if (failed && diffed(diff).some((c) => isBreaking(c, named))) {
     const url = issueUrl(diff, explained, options);
     lines.push(
       `This run failed and the candidate breaks the SDK surface above. [Open a \`${ISSUE_LABEL}\` issue on paritytech/product-sdk](${url}), prefilled from this run.`,
       "",
     );
-  } else if (explained.length && !diff.sdkError && diffed(diff).length === diff.chains.length) {
-    // Only tests that failed against a full diff clear the metadata; a refused or stopped upgrade says so on its own.
+  } else if (
+    explained.length &&
+    !diff.sdkError &&
+    diff.chains.every((c) => !("error" in c) && c.descriptor !== null && !c.entries.some((e) => e.severity === "partial"))
+  ) {
+    // Only tests that failed against a full diff clear the metadata. A chain that could
+    // not be diffed, or whose endpoint matched no SDK descriptor, had its entries
+    // unchecked; a partial entry can fail on the values a test used.
     lines.push(
       "The candidate changes nothing the SDK depends on in a breaking way, so this failure probably does not come from a metadata change. A change in runtime behaviour can still cause it.",
       "",

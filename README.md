@@ -85,7 +85,7 @@ Three ways to start one:
 
 When a run fails, its summary also says which runtime change most likely caused
 it. That is a diff of the forked runtime against the candidate, limited to what
-product-sdk uses, with each failing test placed next to the entries it touches.
+product-sdk uses, with each failing test placed next to the entry its error names.
 
 See [`environments/README.md`](environments/README.md) for how manifests, the
 release map, the candidate matrix and the runtime diff work.
