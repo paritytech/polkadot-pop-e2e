@@ -88,7 +88,7 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack.api.polkadotcommunity.foundation/.well-known/trinity-stack.json",
       key: "0x1fbc5eed0deb09fe4eeefdf45350b4b4cf36370d9bbb93ca2818b076737a0ed3",
     },
-    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: false },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true },
   },
 };
 
