@@ -108,12 +108,12 @@ starts, with the type errors.
 
 When a runtime change breaks product-sdk or truapi on purpose:
 
-1. The runtime PR's gate run fails. The runtime team opens a `runtime-break`
-   issue on [product-sdk](https://github.com/paritytech/product-sdk) or
-   [trinity-user-agents](https://github.com/paritytech/trinity-user-agents),
-   naming the runtime build and the failing tests.
+1. The runtime PR's gate run fails. The runtime team opens an issue on
+   [product-sdk](https://github.com/paritytech/product-sdk) or
+   [trinity-user-agents](https://github.com/paritytech/trinity-user-agents) with
+   the runtime build and the failing tests.
 2. The platform team fixes it in a PR, publishes a prerelease of the fix, and
-   names it in the issue.
+   adds the prerelease version to the issue.
 3. The runtime team reruns its gate with that prerelease, either in its PR's
    gate call, next to the runtime it builds:
 

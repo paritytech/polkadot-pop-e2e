@@ -1,4 +1,4 @@
-// What a gate run tests when it names product-sdk or truapi builds.
+// What a gate run tests when it requests product-sdk or truapi builds.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyBuilds, parseSpecs, summaryLine } from './client-builds.mjs';
@@ -19,7 +19,7 @@ const lockfile = [
   "  '@parity/product-sdk-individuality@0.11.5':",
 ].join('\n');
 
-describe('naming product-sdk builds', () => {
+describe('requesting product-sdk builds', () => {
   it('takes specs separated by spaces or commas', () => {
     assert.deepEqual(
       [...parseSpecs('@parity/product-sdk@0.39.0-dev.453.0, @parity/product-sdk-individuality@dev')],
@@ -40,13 +40,13 @@ describe('naming product-sdk builds', () => {
     assert.throws(() => parseSpecs('@parity/truapi@0.29.0'), /field of its own/);
   });
 
-  it('rejects a package named twice', () => {
-    assert.throws(() => parseSpecs('@parity/product-sdk@1.0.0 @parity/product-sdk@2.0.0'), /named twice/);
+  it('rejects a package listed twice', () => {
+    assert.throws(() => parseSpecs('@parity/product-sdk@1.0.0 @parity/product-sdk@2.0.0'), /appears twice/);
   });
 });
 
 describe('applying the requested builds', () => {
-  it('replaces a package everywhere it is installed, not only where chain-tests names it', () => {
+  it('replaces a package everywhere it is installed, not only in the chain-tests dependencies', () => {
     const next = applyBuilds(
       { productSdk: new Map([['@parity/product-sdk-individuality', '0.10.1-dev.453.0']]), truapi: null },
       { root, tests, lockfile }
@@ -58,7 +58,7 @@ describe('applying the requested builds', () => {
     assert.equal(next.tests.dependencies['@parity/product-sdk-individuality'], '0.10.1-dev.453.0');
   });
 
-  // A fix can live in a package the tests only reach through another one.
+  // A fix can live in a package the tests only install through another one.
   it('replaces a package the tests only install through the SDK', () => {
     const next = applyBuilds(
       { productSdk: new Map([['@parity/product-sdk-descriptors', '0.0.0-dev.457.0']]), truapi: null },
@@ -81,7 +81,7 @@ describe('applying the requested builds', () => {
     assert.equal(next.tests.devDependencies['@parity/truapi'], '0.29.0-rc.1');
   });
 
-  it('names every client version under test and marks the requested ones', () => {
+  it('lists every client version under test and marks the requested ones', () => {
     const { rows } = applyBuilds(
       { productSdk: new Map([['@parity/product-sdk-individuality', '0.10.1-dev.453.0']]), truapi: '0.29.0-rc.1' },
       { root, tests, lockfile }
