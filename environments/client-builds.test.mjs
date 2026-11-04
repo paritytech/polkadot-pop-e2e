@@ -17,6 +17,7 @@ const lockfile = [
   "  '@parity/product-sdk@0.43.0':",
   "  '@parity/product-sdk-descriptors@0.14.0':",
   "  '@parity/product-sdk-individuality@0.11.5':",
+  "  '@parity/truapi@0.28.0':",
 ].join('\n');
 
 describe('requesting product-sdk builds', () => {
@@ -75,10 +76,12 @@ describe('applying the requested builds', () => {
     );
   });
 
-  // The truapi-host install and the suite's version check both read this pin.
-  it('pins truapi where the CLI install and the suite read it', () => {
+  // The CLI install and the suite read the devDependency; product-sdk-host and
+  // product-sdk-renderer carry their own copy of the library.
+  it('replaces truapi for the CLI and inside product-sdk', () => {
     const next = applyBuilds({ productSdk: new Map(), truapi: '0.29.0-rc.1' }, { root, tests, lockfile });
     assert.equal(next.tests.devDependencies['@parity/truapi'], '0.29.0-rc.1');
+    assert.equal(next.root.pnpm.overrides['@parity/truapi'], '0.29.0-rc.1');
   });
 
   it('lists every client version under test and marks the requested ones', () => {

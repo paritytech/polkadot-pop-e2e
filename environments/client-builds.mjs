@@ -6,9 +6,9 @@
 //     node environments/client-builds.mjs resolve   → product_sdk=… and truapi=… lines
 //   PRODUCT_SDK=… TRUAPI=… node environments/client-builds.mjs apply   → run-summary line
 //
-// `apply` rewrites package.json files only; the caller reinstalls. A product-sdk
-// package is replaced everywhere it is installed, so the SDK packages agree on one
-// copy of it.
+// `apply` rewrites package.json files only; the caller reinstalls. Each requested
+// package, truapi included, is replaced everywhere it is installed, so the truapi-host
+// CLI and the truapi library inside product-sdk are the same release.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -65,15 +65,13 @@ export function applyBuilds({ productSdk, truapi }, { root, tests, lockfile }) {
       CLIENT_PACKAGE.test(name)
     )
   );
-  for (const [name, version] of productSdk) {
+  const requested = new Map([...productSdk, ...(truapi ? [[TRUAPI, truapi]] : [])]);
+  for (const [name, version] of requested) {
     if (!lockfile.includes(`${name}@`)) throw new Error(`${name} is not installed here, so replacing it tests nothing`);
     nextRoot.pnpm ??= {};
     nextRoot.pnpm.overrides = { ...nextRoot.pnpm.overrides, [name]: version };
-    if (nextTests.dependencies?.[name]) nextTests.dependencies[name] = version;
+    for (const deps of [nextTests.dependencies, nextTests.devDependencies]) if (deps?.[name]) deps[name] = version;
   }
-  if (truapi) nextTests.devDependencies[TRUAPI] = truapi;
-
-  const requested = new Map([...productSdk, ...(truapi ? [[TRUAPI, truapi]] : [])]);
   const rows = [...new Set([...pinned.keys(), ...requested.keys()])]
     .sort()
     .map((name) => ({ name, pinned: pinned.get(name) ?? null, tested: requested.get(name) ?? pinned.get(name) }));
