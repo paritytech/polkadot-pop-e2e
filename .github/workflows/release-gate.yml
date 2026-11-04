@@ -161,7 +161,7 @@ on:
   #     network's, so it can land a westend build.
   # Pin an exact tag whenever you want the run to stay reproducible.
   #
-  # `advanced` holds the asks no field expresses (a `tests` list, asset-hub split
+  # `advanced` contains the requests no field expresses (a `tests` list, asset-hub split
   # from people, a `ppn_ref`) and REPLACES every pin field above it when filled.
   # The two client fields still apply next to it.
   workflow_dispatch:
@@ -289,8 +289,8 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       ppn_ref: ${{ steps.ask.outputs.ppn_ref }}
-      product_sdk: ${{ steps.ask.outputs.product_sdk }}
-      truapi: ${{ steps.ask.outputs.truapi }}
+      product_sdk: ${{ steps.clients.outputs.product_sdk }}
+      truapi: ${{ steps.clients.outputs.truapi }}
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -316,7 +316,7 @@ jobs:
 
       # Fold the dispatch form's fields into the one sparse overlay the resolver
       # takes, and lift `ppn_ref` and the client builds back out of it. The pin
-      # fields are no-ops on a PR run (the manifest diff is the ask there).
+      # fields are no-ops on a PR run (the manifest diff is the request there).
       - name: Assemble the ask
         id: ask
         env:
@@ -342,6 +342,15 @@ jobs:
             echo "truapi=$(jq -r '.truapi // empty' ask.json)"
           } >> "$GITHUB_OUTPUT"
           echo "ask: $(cat ask.json)"
+
+      # Exact versions, so every candidate tests the same builds even if a dist-tag
+      # moves mid-run, and a version npm doesn't have fails here instead of on a fork runner.
+      - name: Resolve the requested product-sdk and truapi builds
+        id: clients
+        env:
+          PRODUCT_SDK: ${{ steps.ask.outputs.product_sdk }}
+          TRUAPI: ${{ steps.ask.outputs.truapi }}
+        run: node environments/client-builds.mjs resolve | tee -a "$GITHUB_OUTPUT"
 
       # The manifest on main is the canonical X (deployed state); the ask Y arrives
       # either as a PR editing it (the diff IS the ask; merging later IS the
@@ -508,23 +517,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Before the fork, so a prerelease whose API no longer matches the tests
-      # fails in a minute instead of after the upgrade.
+      # Before the fork, so a prerelease whose API no longer matches the tests, or a
+      # truapi version without a CLI release, fails in minutes instead of after the upgrade.
       - name: Use the requested product-sdk and truapi builds
         env:
           PRODUCT_SDK: ${{ needs.plan.outputs.product_sdk }}
           TRUAPI: ${{ needs.plan.outputs.truapi }}
         run: |
           set -euo pipefail
-          clients=$(node environments/client-builds.mjs)
+          clients=$(node environments/client-builds.mjs apply)
           printf '\n%s\n' "$clients" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ -n "$PRODUCT_SDK$TRUAPI" ]; then
             pnpm install --no-frozen-lockfile
             if ! pnpm --filter @pop-e2e/chain-tests exec tsc --noEmit -p .; then
-              echo "::error::the chain-tests do not typecheck against the requested product-sdk build; the errors above name what changed"
+              echo "::error::the chain-tests do not typecheck against the requested product-sdk build; the type errors above show what changed"
               exit 1
             fi
           fi
+
+      - uses: ./.github/actions/install-truapi-host
 
       # `artifact:<name>` pins name a build uploaded in the calling run. A called
       # workflow's jobs live in the caller's run, so a plain download reaches them.
@@ -742,8 +753,6 @@ jobs:
           curl -sS --fail --max-time 5 --retry 30 --retry-delay 10 --retry-all-errors -o /dev/null "$url" \
             || { echo "::error::the fork doesn't serve a Trinity stack descriptor at $url"; exit 1; }
           echo "STACK=$url" >> "$GITHUB_ENV"
-
-      - uses: ./.github/actions/install-truapi-host
 
       # Mirrors _health-check.yml: idempotently deploy the counter contract the
       # PGAS-paid Revive call test uses; the fork usually carries production's already.

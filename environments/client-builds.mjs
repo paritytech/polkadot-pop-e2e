@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// Swaps the product-sdk packages and the truapi release the chain-tests pin for the
-// builds a gate run asks for, then prints which versions the run tests.
+// Resolves the product-sdk packages and the truapi release a gate run requests to
+// exact versions, and swaps them in for the ones the chain-tests pin.
 //
-//   PRODUCT_SDK='@parity/product-sdk-individuality@0.10.1-dev.453.0' TRUAPI=0.29.0-rc.1 \
-//     node environments/client-builds.mjs
+//   PRODUCT_SDK='@parity/product-sdk-individuality@dev' TRUAPI=0.29.0-rc.1 \
+//     node environments/client-builds.mjs resolve   → product_sdk=… and truapi=… lines
+//   PRODUCT_SDK=… TRUAPI=… node environments/client-builds.mjs apply   → run-summary line
 //
-// Rewrites package.json files only; the caller reinstalls. A product-sdk package is
-// replaced everywhere it is installed, so the SDK packages agree on one copy of it.
+// `apply` rewrites package.json files only; the caller reinstalls. A product-sdk
+// package is replaced everywhere it is installed, so the SDK packages agree on one
+// copy of it.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -25,28 +27,28 @@ export function parseSpecs(text) {
   for (const spec of (text ?? '').split(/[\s,]+/).filter(Boolean)) {
     const match = SPEC.exec(spec);
     if (!match) throw new Error(`"${spec}" is not @parity/<package>@<version or dist-tag>`);
-    const [, name, wanted] = match;
+    const [, name, requested] = match;
     if (name === TRUAPI) throw new Error(`${TRUAPI} has a field of its own`);
-    if (specs.has(name)) throw new Error(`${name} is named twice`);
-    specs.set(name, wanted);
+    if (specs.has(name)) throw new Error(`${name} appears twice`);
+    specs.set(name, requested);
   }
   return specs;
 }
 
-/** The version npm resolves `name@wanted` to; fails when npm has none. */
-export function publishedVersion(name, wanted) {
+/** The version npm resolves `name@requested` to; fails when npm has none. */
+export function publishedVersion(name, requested) {
   let output;
   try {
-    output = execFileSync('npm', ['view', `${name}@${wanted}`, 'version', '--json'], {
+    output = execFileSync('npm', ['view', `${name}@${requested}`, 'version', '--json'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {
-    if (/E404/.test(error.stderr ?? '')) throw new Error(`npm has no ${name}@${wanted}`);
-    throw new Error(`failed to look up ${name}@${wanted} on npm: ${error.message}`);
+    if (/E404/.test(error.stderr ?? '')) throw new Error(`npm has no ${name}@${requested}`);
+    throw new Error(`failed to look up ${name}@${requested} on npm: ${error.message}`);
   }
   const version = [output.trim() ? JSON.parse(output) : []].flat().at(-1);
-  if (!version) throw new Error(`npm has no ${name}@${wanted}`);
+  if (!version) throw new Error(`npm has no ${name}@${requested}`);
   return version;
 }
 
@@ -78,7 +80,7 @@ export function applyBuilds({ productSdk, truapi }, { root, tests, lockfile }) {
   return { root: nextRoot, tests: nextTests, rows };
 }
 
-/** The run-summary line naming every client version under test, requested ones marked. */
+/** The run-summary line listing every client version under test, requested ones marked. */
 export function summaryLine(rows) {
   const cells = rows.map(({ name, pinned, tested }) =>
     tested === pinned ? `\`${name}\` ${tested}` : `\`${name}\` **${tested}** (requested, pinned ${pinned ?? 'none'})`
@@ -87,21 +89,32 @@ export function summaryLine(rows) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const mode = process.argv[2];
+  if (mode !== 'resolve' && mode !== 'apply') {
+    console.error('usage: node environments/client-builds.mjs <resolve|apply>');
+    process.exit(1);
+  }
   try {
-    const requested = parseSpecs(process.env.PRODUCT_SDK);
-    const productSdk = new Map([...requested].map(([name, wanted]) => [name, publishedVersion(name, wanted)]));
-    const truapiWanted = (process.env.TRUAPI ?? '').trim().replace(`${TRUAPI}@`, '');
-    const truapi = truapiWanted ? publishedVersion(TRUAPI, truapiWanted) : null;
+    const productSdk = new Map(
+      [...parseSpecs(process.env.PRODUCT_SDK)].map(([name, requested]) => [name, publishedVersion(name, requested)])
+    );
+    const truapiRequested = (process.env.TRUAPI ?? '').trim().replace(`${TRUAPI}@`, '');
+    const truapi = truapiRequested ? publishedVersion(TRUAPI, truapiRequested) : null;
     const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
     const next = applyBuilds(
       { productSdk, truapi },
       { root: read(ROOT_PACKAGE), tests: read(TESTS_PACKAGE), lockfile: fs.readFileSync(LOCKFILE, 'utf8') }
     );
-    if (productSdk.size || truapi) {
-      fs.writeFileSync(ROOT_PACKAGE, `${JSON.stringify(next.root, null, 2)}\n`);
-      fs.writeFileSync(TESTS_PACKAGE, `${JSON.stringify(next.tests, null, 2)}\n`);
+    if (mode === 'resolve') {
+      console.log(`product_sdk=${[...productSdk].map(([name, version]) => `${name}@${version}`).join(' ')}`);
+      console.log(`truapi=${truapi ?? ''}`);
+    } else {
+      if (productSdk.size || truapi) {
+        fs.writeFileSync(ROOT_PACKAGE, `${JSON.stringify(next.root, null, 2)}\n`);
+        fs.writeFileSync(TESTS_PACKAGE, `${JSON.stringify(next.tests, null, 2)}\n`);
+      }
+      console.log(summaryLine(next.rows));
     }
-    console.log(summaryLine(next.rows));
   } catch (error) {
     console.error(`::error::${error.message}`);
     process.exit(1);
