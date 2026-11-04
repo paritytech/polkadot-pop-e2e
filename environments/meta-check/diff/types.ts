@@ -1,12 +1,21 @@
-import type { ChainKey, Selector } from "../types.ts";
+import type { ChainKey, Encoding, Selector } from "../types.ts";
+
+type TypePathRoot = keyof Encoding | "type" | "additionalSigned";
+
+/**
+ * Alternative: construct normalized live and candidate type objects and render a
+ * Git-style diff instead of path-based changes. Preserve encoding details and use
+ * references for recursive/shared types. Compatibility checks remain separate.
+ */
+export type TypePath = TypePathRoot | `${TypePathRoot}.${string}`;
 
 /** Candidate relative to live. */
 export type ChangeStatus = "added" | "removed" | "changed";
 
 /** An encoding or name change at one type path. */
 export interface TypeChange {
-  /** Rooted at `args`, `value`, `type`, or `additionalSigned`, e.g. `value.info.some`. */
-  path: string;
+  /** Location within an input/output or extension type, e.g. `output.info.some`. */
+  path: TypePath;
   /** `changed` includes type replacements, field reordering, and variant index changes. */
   status: ChangeStatus;
   /** Live type or change detail; null when added. */

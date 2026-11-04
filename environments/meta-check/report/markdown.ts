@@ -40,7 +40,7 @@ function readAt(accesses: RuntimeAccess[]): string {
 }
 
 /**
- * Where an entry's types changed, for its row: the path all its changes share, `args.call`
+ * Where an entry's types changed, for its row: the path all its changes share, `input.call`
  * (6 changes), or each side they are on. Not for an added or removed entry: its level says it.
  */
 function changedAt(finding: EntryFinding): string {

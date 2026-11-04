@@ -5,8 +5,8 @@
 // verdicts come from, and live (A) against the candidate (A'), under `change`.
 // - `entries[]`: each entry the SDK uses. `before` and `after`: D against A and A'.
 //   `change`: how A and A' differ in it, or null: `status` and, where its types differ,
-//   `types[]` (`path`, `status`, `before`, `after`), up to 100 for its args and 100 for its
-//   value; `truncated` when there were more.
+//   `types[]` (`path`, `status`, `before`, `after`), up to 100 for its input and 100 for its
+//   output; `truncated` when there were more. Entry paths start with `input` or `output`.
 // - `pipelines[]`: each transaction extension version, graded the same way, with the
 //   identifier lists `expected` (D's), `live` and `candidate`. `retypedFromSdk`: identifiers
 //   whose types on A' are not Identical to D's. `change`: A against A', or null: the

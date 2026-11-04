@@ -10,7 +10,7 @@
 
 import type { Var } from "@polkadot-api/metadata-builders";
 import type MetadataView from "../metadata-view/index.ts";
-import type { TypeChange } from "./types.ts";
+import type { TypeChange, TypePath } from "./types.ts";
 
 type Variant = Extract<Var, { type: "enum" }>["value"][string];
 
@@ -255,7 +255,7 @@ function encodesAlike(live: MetadataView, candidate: MetadataView) {
 export default function compareTypes(live: MetadataView, candidate: MetadataView) {
   const alike = encodesAlike(live, candidate);
 
-  return function changes(path: string, before: Var | null | undefined, after: Var | null | undefined): TypeChange[] {
+  return function changes(path: TypePath, before: Var | null | undefined, after: Var | null | undefined): TypeChange[] {
     const found: TypeChange[] = [];
     // The pairs being walked: a recursive type meets itself again, already being compared.
     const walking = new Map<Var, Set<Var>>();
@@ -263,7 +263,7 @@ export default function compareTypes(live: MetadataView, candidate: MetadataView
       if (found.length <= MAX_TYPE_CHANGES) found.push(change);
     };
 
-    const walk = (at: string, onLive: Var | null | undefined, onCandidate: Var | null | undefined): void => {
+    const walk = (at: TypePath, onLive: Var | null | undefined, onCandidate: Var | null | undefined): void => {
       if (found.length > MAX_TYPE_CHANGES) return;
       const from = onLive && shaped(live, onLive);
       const to = onCandidate && shaped(candidate, onCandidate);

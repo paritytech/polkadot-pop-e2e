@@ -38,7 +38,7 @@ function entryChange(selector: Selector, live: Runtime, candidate: Runtime, chan
   const onCandidate = candidate.entry(selector)?.encoding;
   const before = onLive ?? NOTHING;
   const after = onCandidate ?? NOTHING;
-  const { types, truncated } = listed(changes("args", before.input, after.input), changes("value", before.output, after.output));
+  const { types, truncated } = listed(changes("input", before.input, after.input), changes("output", before.output, after.output));
 
   let status: ChangeStatus;
   if (onLive && onCandidate) {

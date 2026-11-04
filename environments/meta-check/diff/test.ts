@@ -11,7 +11,7 @@ import type { Encoding, Selector } from "../types.ts";
 import RuntimeAccesses from "../runtime-access/index.ts";
 import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
 import diff from "./index.ts";
-import type { RuntimeDiff, TypeChange } from "./types.ts";
+import type { RuntimeDiff, TypeChange, TypePath } from "./types.ts";
 
 // ── Hand-built runtimes: only what diff reads ────────────
 
@@ -70,7 +70,7 @@ const requirements = (selectors: Selector[], usesTransactions = false) =>
 
 const line = ({ path, status, before, after }: TypeChange) => `${path} ${status} ${before ?? "-"} -> ${after ?? "-"}`;
 /** Where `before` and `after` differ; `after` copied first, as the candidate has types of its own. */
-const changes = (before: Var, after: Var) => compareTypes(fake(), fake())("value", before, structuredClone(after)).map(line);
+const changes = (before: Var, after: Var) => compareTypes(fake(), fake())("output", before, structuredClone(after)).map(line);
 
 const u16 = primitive("u16");
 const u32 = primitive("u32");
@@ -81,28 +81,38 @@ const big = (length: number) =>
   enumOf("Big", Object.fromEntries(Array.from({ length }, (_, i): [string, [number, LookupEntry]] => [`V${i}`, [i, u32]])));
 
 describe("compareTypes", () => {
+  it("preserves entry and extension roots while building nested paths", () => {
+    const roots: TypePath[] = ["input", "output", "type", "additionalSigned"];
+    const compare = compareTypes(fake(), fake());
+    for (const root of roots) {
+      assert.deepEqual(compare(root, struct("Info", { count: u16 }), struct("Info", { count: u32 })).map(line), [
+        `${root}.count changed u16 -> u32`,
+      ]);
+    }
+  });
+
   it("finds a field either side lacks, which PAPI's change list does not report from the receiving side", () => {
     const live = struct("Info", { who: u32, gone: u32 });
     const candidate = struct("Info", { who: u32, amount: u64 });
-    assert.deepEqual(changes(live, candidate), ["value.gone removed u32 -> -", "value.amount added - -> u64"]);
+    assert.deepEqual(changes(live, candidate), ["output.gone removed u32 -> -", "output.amount added - -> u64"]);
   });
 
   it("sees what changes the encoding and PAPI calls Identical: widths, compact, account and byte lengths", () => {
     const compact = (size: "u32" | "u64") => type(`Compact<${size}>`, { type: "compact", isBig: size === "u64", size });
     const bytes = (len: number) => type(`[u8; ${len}]`, { type: "array", value: primitive("u8"), len });
-    assert.deepEqual(changes(u16, u32), ["value changed u16 -> u32"]);
-    assert.deepEqual(changes(u32, compact("u32")), ["value changed u32 -> Compact<u32>"]);
-    assert.deepEqual(changes(compact("u32"), compact("u64")), ["value changed Compact<u32> -> Compact<u64>"]);
+    assert.deepEqual(changes(u16, u32), ["output changed u16 -> u32"]);
+    assert.deepEqual(changes(u32, compact("u32")), ["output changed u32 -> Compact<u32>"]);
+    assert.deepEqual(changes(compact("u32"), compact("u64")), ["output changed Compact<u32> -> Compact<u64>"]);
     assert.deepEqual(changes(type("AccountId32", { type: "AccountId32" }), type("AccountId20", { type: "AccountId20" })), [
-      "value changed AccountId32 -> AccountId20",
+      "output changed AccountId32 -> AccountId20",
     ]);
-    assert.deepEqual(changes(bytes(32), bytes(20)), ["value changed [u8; 32] -> [u8; 20]"]);
+    assert.deepEqual(changes(bytes(32), bytes(20)), ["output changed [u8; 32] -> [u8; 20]"]);
   });
 
   it("names how a type encodes where its name stayed the same", () => {
-    assert.deepEqual(changes(primitive("u16", "Balance"), primitive("u32", "Balance")), ["value changed u16 -> u32"]);
+    assert.deepEqual(changes(primitive("u16", "Balance"), primitive("u32", "Balance")), ["output changed u16 -> u32"]);
     assert.deepEqual(changes(struct("Key", { a: u32 }), type("Key", { type: "tuple", value: [u32, u16], innerDocs: [] })), [
-      "value changed { a: u32 } -> (u32, u16)",
+      "output changed { a: u32 } -> (u32, u16)",
     ]);
   });
 
@@ -110,35 +120,35 @@ describe("compareTypes", () => {
     const option = (some: LookupEntry) => type("Option", { type: "option", value: some });
     const result = (ok: LookupEntry, ko: LookupEntry) => type("Result", { type: "result", value: { ok, ko } });
     const tuple = (...value: LookupEntry[]) => type("Tuple", { type: "tuple", value, innerDocs: value.map(() => []) });
-    assert.deepEqual(changes(option(u32), option(u64)), ["value.some changed u32 -> u64"]);
-    assert.deepEqual(changes(result(u32, u16), result(u64, u32)), ["value.ok changed u32 -> u64", "value.ko changed u16 -> u32"]);
-    assert.deepEqual(changes(tuple(u32, u16), tuple(u32, u32, u64)), ["value.1 changed u16 -> u32", "value.2 added - -> u64"]);
+    assert.deepEqual(changes(option(u32), option(u64)), ["output.some changed u32 -> u64"]);
+    assert.deepEqual(changes(result(u32, u16), result(u64, u32)), ["output.ok changed u32 -> u64", "output.ko changed u16 -> u32"]);
+    assert.deepEqual(changes(tuple(u32, u16), tuple(u32, u32, u64)), ["output.1 changed u16 -> u32", "output.2 added - -> u64"]);
   });
 
   it("sees a module error's byte length and a bit sequence's order, which its name does not show", () => {
     const moduleError = (byteLength: number) =>
       type("ModuleError", { type: "enum", value: { System: { type: "void", idx: 0 } }, innerDocs: {}, byteLength } as EnumVar);
     const bits = (isLSB: boolean) => type("BitVec", { type: "bitSequence", isLSB });
-    assert.deepEqual(changes(moduleError(5), moduleError(6)), ["value changed enum { System } in 5 bytes -> enum { System } in 6 bytes"]);
-    assert.deepEqual(changes(bits(true), bits(false)), ["value changed BitVec<Lsb0> -> BitVec<Msb0>"]);
+    assert.deepEqual(changes(moduleError(5), moduleError(6)), ["output changed enum { System } in 5 bytes -> enum { System } in 6 bytes"]);
+    assert.deepEqual(changes(bits(true), bits(false)), ["output changed BitVec<Lsb0> -> BitVec<Msb0>"]);
   });
 
   it("shows two long names from just before where they differ, when cutting them would hide it", () => {
     const long = "A".repeat(110);
     assert.deepEqual(changes(primitive("u16", `${long}<u16>`), primitive("u32", `${long}<u32>`)), [
-      `value changed …${"A".repeat(18)}<u16> -> …${"A".repeat(18)}<u32>`,
+      `output changed …${"A".repeat(18)}<u16> -> …${"A".repeat(18)}<u32>`,
     ]);
   });
 
   it("sees fields that moved within a struct, and variants whose index changed: SCALE encodes both", () => {
     assert.deepEqual(changes(struct("Info", { a: u32, b: u16, c: u32 }), struct("Info", { b: u16, a: u32 })), [
-      "value changed { a, b } -> { b, a }",
-      "value.c removed u32 -> -",
+      "output changed { a, b } -> { b, a }",
+      "output.c removed u32 -> -",
     ]);
     assert.deepEqual(changes(enumOf("Event", { A: [0, u16], B: [1, u32] }), enumOf("Event", { A: [0, u32], C: [1, u32], B: [2, u32] })), [
-      "value.A changed u16 -> u32",
-      "value.B changed index 1 -> index 2",
-      "value.C added - -> u32",
+      "output.A changed u16 -> u32",
+      "output.B changed index 1 -> index 2",
+      "output.C added - -> u32",
     ]);
   });
 
@@ -161,7 +171,7 @@ describe("compareTypes", () => {
       Object.assign(node.value, { tail: list });
       return struct("Call", { first: list, second: list });
     };
-    assert.deepEqual(changes(call(u32), call(u64)), ["value.first.Cons.head changed u32 -> u64", "value.second.Cons.head changed u32 -> u64"]);
+    assert.deepEqual(changes(call(u32), call(u64)), ["output.first.Cons.head changed u32 -> u64", "output.second.Cons.head changed u32 -> u64"]);
   });
 
   it("does not trust an equality that leaned on a recursive pair later found to differ", () => {
@@ -172,7 +182,7 @@ describe("compareTypes", () => {
       Object.assign(x.value, { back: p });
       return struct("Root", { p, x });
     };
-    assert.deepEqual(changes(root(u32), root(u64)), ["value.p.y changed u32 -> u64", "value.x.back.y changed u32 -> u64"]);
+    assert.deepEqual(changes(root(u32), root(u64)), ["output.p.y changed u32 -> u64", "output.x.back.y changed u32 -> u64"]);
   });
 
   describe("a newtype around a type still being built, which PAPI's lookup leaves a bare { id }", () => {
@@ -202,15 +212,15 @@ describe("compareTypes", () => {
       const [live, candidate] = [runtime("u16", 0), runtime("u32", 0)];
       // Entering at Vec<Instr> leaves Xcm a bare { id } of Vec<Instr>.
       assert.ok(!("type" in live.lookup(2)));
-      assert.deepEqual(compareTypes(live, candidate)("value", live.lookup(2), candidate.lookup(2)).map(line), [
-        "value.value.A changed u16 -> u32",
+      assert.deepEqual(compareTypes(live, candidate)("output", live.lookup(2), candidate.lookup(2)).map(line), [
+        "output.value.A changed u16 -> u32",
       ]);
     });
 
     it("compares it with the same type looked up whole on the other side", () => {
       const [live, candidate] = [runtime("u16", 0), runtime("u16", 2)];
       assert.ok("type" in candidate.lookup(2));
-      assert.deepEqual(compareTypes(live, candidate)("value", live.lookup(2), candidate.lookup(2)), []);
+      assert.deepEqual(compareTypes(live, candidate)("output", live.lookup(2), candidate.lookup(2)), []);
     });
   });
 
@@ -223,7 +233,7 @@ describe("compareTypes", () => {
         { id: 2, path: ["Pair"], params: [], def: { tag: "composite", value: fields.map(([type, docs]) => ({ type, docs })) }, docs: [] },
       ]);
     const compare = (live: Runtime, candidate: Runtime) =>
-      compareTypes(live, candidate)("value", live.lookup(2), candidate.lookup(2)).map(line);
+      compareTypes(live, candidate)("output", live.lookup(2), candidate.lookup(2)).map(line);
 
     it("finds nothing when a doc comment turns [u128; 2] into (u128, u128): they encode alike", () => {
       const undocumented = pair([0, []], [0, []]);
@@ -234,8 +244,8 @@ describe("compareTypes", () => {
     });
 
     it("compares one with the other element by element", () => {
-      assert.deepEqual(compare(pair([0, []], [0, []]), pair([0, []], [1, []])), ["value.1 changed u128 -> u64"]);
-      assert.deepEqual(compare(pair([0, []], [0, []]), pair([0, ["The first."]], [0, []], [0, []])), ["value.2 added - -> u128"]);
+      assert.deepEqual(compare(pair([0, []], [0, []]), pair([0, []], [1, []])), ["output.1 changed u128 -> u64"]);
+      assert.deepEqual(compare(pair([0, []], [0, []]), pair([0, ["The first."]], [0, []], [0, []])), ["output.2 added - -> u128"]);
     });
   });
 
@@ -260,10 +270,10 @@ describe("diff", () => {
     assert.deepEqual(
       r.entries.map((e) => `${e.selector} ${e.status}: ${e.types.map(line).join(", ")}`),
       [
-        "constants:A.New added: value added - -> u64",
-        "query:A.Changed changed: value changed u32 -> u64",
-        // A side with nothing is no type: a removed storage item or constant has only its value.
-        "query:A.Gone removed: value removed Info -> -",
+        "constants:A.New added: output added - -> u64",
+        "query:A.Changed changed: output changed u32 -> u64",
+        // A side with nothing is no type: a removed storage item or constant has only its output.
+        "query:A.Gone removed: output removed Info -> -",
       ],
     );
     assert.ok(r.entries.every((e) => !e.truncated));
@@ -291,14 +301,14 @@ describe("diff", () => {
       fake({ "apis:Api.get": { input: inputs(u32, u16), output: u32 } }),
       fake({ "apis:Api.get": { input: inputs(u32, u32), output: u32 } }),
     );
-    assert.deepEqual(r.entries[0]?.types.map(line), ["args.1 changed u16 -> u32"]);
+    assert.deepEqual(r.entries[0]?.types.map(line), ["input.1 changed u16 -> u32"]);
   });
 
-  it("lists the value's changes even when the args have more than the limit", () => {
+  it("lists output changes even when the input has more than the limit", () => {
     const r = diff(requirements(["query:A.Big"]), fake({ "query:A.Big": { input: big(0), output: u32 } }), fake({ "query:A.Big": { input: big(150), output: u64 } }));
     const types = r.entries[0]?.types ?? [];
     assert.equal(types.length, MAX_TYPE_CHANGES + 1);
-    assert.deepEqual(types.filter((t) => t.path.startsWith("value")).map(line), ["value changed u32 -> u64"]);
+    assert.deepEqual(types.filter((t) => t.path.startsWith("output")).map(line), ["output changed u32 -> u64"]);
     assert.equal(r.entries[0]?.truncated, true);
   });
 
@@ -406,15 +416,15 @@ describe("diff on the fixtures", { skip }, () => {
       ],
     );
     // PAPI lists no change for this key: its kind changed at the root.
-    assert.deepEqual(changes(r, "query:NftCredits.NftClaimCreditAwards"), ["args changed u32 -> (u32, u32)"]);
-    assert.deepEqual(changes(r, "tx:Sudo.sudo")?.[0], "args.call.Score.force_set_attendance added - -> { who: AccountOrPerson<AccountId32>, attended: bool, game_index: u32 }");
+    assert.deepEqual(changes(r, "query:NftCredits.NftClaimCreditAwards"), ["input changed u32 -> (u32, u32)"]);
+    assert.deepEqual(changes(r, "tx:Sudo.sudo")?.[0], "input.call.Score.force_set_attendance added - -> { who: AccountOrPerson<AccountId32>, attended: bool, game_index: u32 }");
   });
 
   it("says which entries one runtime lacks, and the fields only the candidate has", async () => {
     const r = diff(await peopleOf("0.42.0"), wasm("0.3.4"), wasm("nightly-3004007"));
-    assert.deepEqual(changes(r, "constants:Game.airdrop_event_id_base"), ["value removed [u8; 27] -> -"]);
+    assert.deepEqual(changes(r, "constants:Game.airdrop_event_id_base"), ["output removed [u8; 27] -> -"]);
     // PAPI grades this BackwardsCompatible with no change listed: live decodes the candidate's value.
-    assert.deepEqual(changes(r, "query:Score.Participants"), ["value.attended_games_while_recognized added - -> u32"]);
+    assert.deepEqual(changes(r, "query:Score.Participants"), ["output.attended_games_while_recognized added - -> u32"]);
   });
 
   it("says how the extension pipelines changed: the person extensions left v0, and a new v1 has them", async () => {
@@ -431,10 +441,10 @@ describe("diff on the fixtures", { skip }, () => {
     const r = diff(await requirementsOf("0.42.0", "assetHub"), wasm("0.3.1", "assetHub"), wasm("0.3.4", "assetHub"));
     const revive = changes(r, "apis:ReviveApi.call") ?? [];
     assert.deepEqual(revive.slice(0, 4), [
-      "value.result.ko.Module.Assets.ContainsFreezes changed index 21 -> index 22",
-      "value.result.ko.Module.Assets.ContainsHolds changed index 22 -> index 23",
-      "value.result.ko.Module.Assets.TooManyReserves changed index 23 -> index 24",
-      "value.result.ko.Module.Assets.AssetIdAllocationFailed added - -> ()",
+      "output.result.ko.Module.Assets.ContainsFreezes changed index 21 -> index 22",
+      "output.result.ko.Module.Assets.ContainsHolds changed index 22 -> index 23",
+      "output.result.ko.Module.Assets.TooManyReserves changed index 23 -> index 24",
+      "output.result.ko.Module.Assets.AssetIdAllocationFailed added - -> ()",
     ]);
   });
 

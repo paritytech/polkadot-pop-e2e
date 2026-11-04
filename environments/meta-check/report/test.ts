@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import type { PipelineCheck, RuntimeCheck } from "../check/types.ts";
 import SdkDescriptor from "../descriptor/index.ts";
-import type { EntryChange, PipelineChange, RuntimeDiff } from "../diff/types.ts";
+import type { EntryChange, PipelineChange, RuntimeDiff, TypePath } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import buildRequirements from "../requirements/index.ts";
 import type { Requirements } from "../requirements/types.ts";
@@ -48,7 +48,7 @@ const entry = (
 });
 
 /** An entry change whose types were added at these paths, `u32` each. */
-const changed = (selector: Selector, paths: string[], status: EntryChange["status"] = "changed"): EntryChange => ({
+const changed = (selector: Selector, paths: TypePath[], status: EntryChange["status"] = "changed"): EntryChange => ({
   selector,
   status,
   types: paths.map((path) => ({ path, status: "added", before: null, after: "u32" })),
@@ -131,7 +131,7 @@ describe("renderMarkdown", () => {
         report({
           entries: [
             entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
-              change: changed("tx:Sudo.sudo", ["args.call"]),
+              change: changed("tx:Sudo.sudo", ["input.call"]),
               placedBy: "pallet",
               accesses: [access("a.ts", 1), access("a.ts", 9), access("b.ts", 3)],
             }),
@@ -140,7 +140,7 @@ describe("renderMarkdown", () => {
         }),
       ),
     );
-    assert.ok(markdown.includes("| `tx:Sudo.sudo` † | Identical → **Partial** at `args.call` | `a.ts:1`, `:9`, `b.ts:3` |"));
+    assert.ok(markdown.includes("| `tx:Sudo.sudo` † | Identical → **Partial** at `input.call` | `a.ts:1`, `:9`, `b.ts:3` |"));
     assert.ok(markdown.includes("| `query:Game.Seats` ? | Identical → **Incompatible** | `app/src/a.ts:1` |"));
   });
 
@@ -149,11 +149,11 @@ describe("renderMarkdown", () => {
       renderMarkdown(run(report({ entries: [entry(change.selector, "breaking", "Identical", "Partial", { change })] })))
         .split("\n")
         .find((line) => line.startsWith(`| \`${change.selector}\``));
-    assert.match(cell(changed("tx:Sudo.sudo", ["args.call.A.x", "args.call.B"])) ?? "", /\*\*Partial\*\* at `args.call` \(2 changes\) \|/);
-    assert.match(cell(changed("apis:A.b", ["args.0", "value.ok"])) ?? "", /\*\*Partial\*\* at `args`, `value` \(2 changes\) \|/);
-    assert.match(cell({ ...changed("apis:A.b", ["value.ok"]), truncated: true }) ?? "", / at `value.ok` \(1\+ changes\) \|/);
+    assert.match(cell(changed("tx:Sudo.sudo", ["input.call.A.x", "input.call.B"])) ?? "", /\*\*Partial\*\* at `input.call` \(2 changes\) \|/);
+    assert.match(cell(changed("apis:A.b", ["input.0", "output.ok"])) ?? "", /\*\*Partial\*\* at `input`, `output` \(2 changes\) \|/);
+    assert.match(cell({ ...changed("apis:A.b", ["output.ok"]), truncated: true }) ?? "", / at `output.ok` \(1\+ changes\) \|/);
     // An added or removed entry: its level already says it.
-    assert.match(cell(changed("query:A.b", ["value"], "removed")) ?? "", /\*\*Partial\*\* \|/);
+    assert.match(cell(changed("query:A.b", ["output"], "removed")) ?? "", /\*\*Partial\*\* \|/);
   });
 
   it("caps the places an entry is read at", async () => {
@@ -204,12 +204,12 @@ describe("renderMarkdown", () => {
       run(
         report({
           entries: [
-            entry("query:Game.Players", "ok", "Identical", "Identical", { change: changed("query:Game.Players", ["value.a", "value.b"]) }),
+            entry("query:Game.Players", "ok", "Identical", "Identical", { change: changed("query:Game.Players", ["output.a", "output.b"]) }),
             entry("constants:Game.Gone", "breaking", "Identical", "Missing", {
               change: {
                 selector: "constants:Game.Gone",
                 status: "removed",
-                types: [{ path: "value", status: "removed", before: "enum { A, B }", after: null }],
+                types: [{ path: "output", status: "removed", before: "enum { A, B }", after: null }],
                 truncated: false,
               },
             }),
@@ -245,9 +245,9 @@ describe("renderMarkdown", () => {
       "",
       "| Entry / extension | Where | Live | Candidate |",
       "|---|---|---|---|",
-      "| 🟢 `query:Game.Players` | `value.a` | — | `u32` |",
-      "|  | `value.b` | — | `u32` |",
-      "| 🔴 `constants:Game.Gone` (removed) | `value` | `enum { A, B }` | — |",
+      "| 🟢 `query:Game.Players` | `output.a` | — | `u32` |",
+      "|  | `output.b` | — | `u32` |",
+      "| 🔴 `constants:Game.Gone` (removed) | `output` | `enum { A, B }` | — |",
       // The extension's row has its version's verdict: it has none of its own.
       "| 🔴 v0 `C` | `type` | `u32` | `Option<u32>` |",
       "",
@@ -314,12 +314,12 @@ describe("renderMarkdown", () => {
   });
 
   it("caps the changes it lists per entry, and keeps a table cell whole", async () => {
-    const paths = Array.from({ length: 7 }, (_, i) => `value.f${i}`);
+    const paths = Array.from({ length: 7 }, (_, i): TypePath => `output.f${i}`);
     const change = { ...changed("query:Game.Players", paths), truncated: true };
-    change.types[0] = { path: "value.f0", status: "changed", before: "A | B", after: "u32" };
+    change.types[0] = { path: "output.f0", status: "changed", before: "A | B", after: "u32" };
     const markdown = renderMarkdown(run(report({ entries: [entry("query:Game.Players", "ok", "Identical", "Identical", { change })] })));
-    assert.ok(markdown.includes("| 🟢 `query:Game.Players` | `value.f0` | `A \\| B` | `u32` |"));
-    assert.ok(markdown.includes("|  | `value.f4` | — | `u32` |\n| | … 2 more in report.json, and more past its limit | | |"));
+    assert.ok(markdown.includes("| 🟢 `query:Game.Players` | `output.f0` | `A \\| B` | `u32` |"));
+    assert.ok(markdown.includes("|  | `output.f4` | — | `u32` |\n| | … 2 more in report.json, and more past its limit | | |"));
     // Nothing breaking or pre-existing, and still a section: the upgrade changed something.
     assert.ok(markdown.includes("#### People\n"));
   });
@@ -363,7 +363,7 @@ describe("toJson", () => {
         report({
           entries: [
             entry("tx:Sudo.sudo", "breaking", "Identical", "Partial", {
-              change: changed("tx:Sudo.sudo", ["args.call"]),
+              change: changed("tx:Sudo.sudo", ["input.call"]),
               accesses: [access("a.ts", 7)],
             }),
           ],
@@ -395,7 +395,7 @@ describe("toJson", () => {
         after: "Partial",
         change: {
           status: "changed",
-          types: [{ path: "args.call", status: "added", before: null, after: "u32" }],
+          types: [{ path: "input.call", status: "added", before: null, after: "u32" }],
           truncated: false,
         },
         direction: "both",
@@ -447,7 +447,7 @@ describe("assembleReport", () => {
       ),
       {
         chain: "individuality",
-        entries: [changed("tx:Sudo.sudo", ["args.call"])],
+        entries: [changed("tx:Sudo.sudo", ["input.call"])],
         pipelines: [added],
         extrinsicVersions: { live: [4, 5], candidate: [5], added: [], removed: [4] },
       },
@@ -456,7 +456,7 @@ describe("assembleReport", () => {
     assert.deepEqual([r.live.specVersion, r.candidate.specVersion], [1, 2]);
     assert.deepEqual(
       r.entries.map((e) => `${e.requirement.selector} ${e.before}->${e.after} ${e.verdict} [${(e.change?.types ?? []).map((t) => t.path).join()}]`),
-      ["query:Game.Players Identical->Identical ok []", "tx:Sudo.sudo Identical->Partial breaking [args.call]"],
+      ["query:Game.Players Identical->Identical ok []", "tx:Sudo.sudo Identical->Partial breaking [input.call]"],
     );
     // Lists from each side, D's from either, what the candidate retyped, and what changed.
     assert.deepEqual(r.pipelines, [
@@ -471,7 +471,7 @@ describe("assembleReport", () => {
     const refused = /the diff is not of the requirements and chain the checks are/;
     const none = { entries: [], pipelines: [], extrinsicVersions: null };
     assert.throws(assemble({ ...none, chain: "assetHub" }), refused);
-    assert.throws(assemble({ ...none, chain: "individuality", entries: [changed("query:Game.Rounds", ["value"])] }), refused);
+    assert.throws(assemble({ ...none, chain: "individuality", entries: [changed("query:Game.Rounds", ["output"])] }), refused);
     assert.throws(assemble({ ...none, chain: "individuality", pipelines: [added] }), refused);
   });
 });
@@ -553,15 +553,15 @@ describe("buildReport on the fixtures", { skip }, () => {
   // Demo 2: an SDK whose descriptors still match v0.3.1.
   it("breaks SDK 0.28.0 on People: a new Partial (Rule 2) and the extension move (Rule 3)", async () => {
     const r = await fixtureReport("0.28.0");
-    assert.deepEqual(breaking(r), ["tx:Sudo.sudo Identical->Partial args.call", "pipeline v0 Identical->Incompatible"]);
+    assert.deepEqual(breaking(r), ["tx:Sudo.sudo Identical->Partial input.call", "pipeline v0 Identical->Incompatible"]);
     // v1 only exists on the candidate: the old SDK never signs with it.
     assert.deepEqual(pipelines(r), ["v0 breaking Identical->Incompatible", "v1 ok Missing->Present"]);
   });
 
   it("breaks SDK 0.28.0 on Asset Hub: a runtime API result that no longer always decodes", async () => {
     assert.deepEqual(breaking(await fixtureReport("0.28.0", { chain: "assetHub" })), [
-      "apis:ReviveApi.call Identical->Partial value.result",
-      "tx:Sudo.sudo Identical->Partial args.call",
+      "apis:ReviveApi.call Identical->Partial output.result",
+      "tx:Sudo.sudo Identical->Partial input.call",
       "pipeline v0 Identical->Incompatible",
     ]);
   });
@@ -619,12 +619,12 @@ describe("renderMarkdown on demo 1", { skip }, () => {
         "",
         "| Entry / extension | Where | Live | Candidate |",
         "|---|---|---|---|",
-        "| 🔴 `constants:Game.airdrop_event_id_base` (removed) | `value` | `[u8; 27]` | — |",
-        "| 🟢 `query:Score.Participants` | `value.attended_games_while_recognized` | — | `u32` |",
-        "| 🟢 `tx:Sudo.sudo` | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationThreshold` | — | `[Option<u32>; 1]` |",
-        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationPeriod` | — | `[Option<u32>; 1]` |",
-        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationsPerPeriod` | — | `[Option<u32>; 1]` |",
-        "|  | `args.call.Parameters.set_parameter.key_value.LitePersonhood.MaxLitePeople` | — | `[Option<u32>; 1]` |",
+        "| 🔴 `constants:Game.airdrop_event_id_base` (removed) | `output` | `[u8; 27]` | — |",
+        "| 🟢 `query:Score.Participants` | `output.attended_games_while_recognized` | — | `u32` |",
+        "| 🟢 `tx:Sudo.sudo` | `input.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationThreshold` | — | `[Option<u32>; 1]` |",
+        "|  | `input.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationPeriod` | — | `[Option<u32>; 1]` |",
+        "|  | `input.call.Parameters.set_parameter.key_value.LitePersonhood.PaidRegistrationsPerPeriod` | — | `[Option<u32>; 1]` |",
+        "|  | `input.call.Parameters.set_parameter.key_value.LitePersonhood.MaxLitePeople` | — | `[Option<u32>; 1]` |",
         "</details>",
         "",
         "<sub>D: `paseo-individuality` from `0x69e7…7871` · `?` optional read · `†` chain inferred from the pallet</sub>",
