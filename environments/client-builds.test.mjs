@@ -5,7 +5,12 @@ import { applyBuilds, parseSpecs, summaryLine } from './client-builds.mjs';
 
 const root = { name: 'pop-e2e', pnpm: { overrides: { '@polkadot-api/json-rpc-provider': '^0.2.0' } } };
 const tests = {
-  dependencies: { '@parity/product-sdk': '0.43.0', '@parity/product-sdk-individuality': '0.11.5', viem: '^2.57.13' },
+  dependencies: {
+    '@parity/product-sdk': '0.43.0',
+    '@parity/product-sdk-individuality': '0.11.5',
+    '@parity/trinity-stack': '^0.2.0',
+    viem: '^2.57.13',
+  },
   devDependencies: { '@parity/truapi': '0.28.0', vitest: '^5.0.5' },
 };
 const lockfile = [

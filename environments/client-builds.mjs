@@ -17,6 +17,7 @@ const TESTS_PACKAGE = 'packages/chain-tests/package.json';
 const LOCKFILE = 'pnpm-lock.yaml';
 const TRUAPI = '@parity/truapi';
 const SPEC = /^(@parity\/[a-z0-9][a-z0-9-]*)@(.+)$/;
+const CLIENT_PACKAGE = /^@parity\/(product-sdk|bulletin-sdk|truapi$)/;
 
 /** `@parity/<package>` → requested version or dist-tag, from a space- or comma-separated list. */
 export function parseSpecs(text) {
@@ -59,7 +60,7 @@ export function applyBuilds({ productSdk, truapi }, { root, tests, lockfile }) {
   const nextTests = structuredClone(tests);
   const pinned = new Map(
     [...Object.entries(tests.dependencies ?? {}), ...Object.entries(tests.devDependencies ?? {})].filter(([name]) =>
-      name.startsWith('@parity/')
+      CLIENT_PACKAGE.test(name)
     )
   );
   for (const [name, version] of productSdk) {
