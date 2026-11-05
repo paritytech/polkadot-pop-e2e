@@ -19,7 +19,7 @@ Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves thr
 | `paseo-network/runtimes` | `v2.4.3` | Behind the deployed `v2.4.4` — GitHub ranks `releases/latest` by tag `created_at`, not publish date, so the gate rejects it as a downgrade |
 | `polkadot-bulletin-chain` | whichever flavor sorts first | Flavor-blind, so it can land a westend build |
 
-Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine ref to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
+Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine ref to take the engine from. When filled it *replaces* the pin fields. The two client fields, `product_sdk` and `truapi`, still apply next to it: they are not pins, they pick the product-sdk packages and truapi release the tests run on, and the gate splits them out of the overlay before it reaches the manifest (see [Testing a runtime change against an unreleased product-sdk or truapi fix](../README.md#testing-a-runtime-change-against-an-unreleased-product-sdk-or-truapi-fix)).
 
 Whichever door: the gate forks the live network, converges X → Y — swapping/upgrading **only what differs** (identical pins byte-compare and no-op), never downgrading — runs the chain-tests, and the run summary leads with the exact transitions tested (`bulletin: runtime …v0.0.22-paseo → …v0.0.23-paseo`).
 
@@ -50,7 +50,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.14.2`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.14.2`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash

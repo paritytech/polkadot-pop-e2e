@@ -122,6 +122,24 @@ body:
         engine's default tag; naming one here exports DUB_TAG to gate that
         release. previewnet only. `@latest` is safe.
       placeholder: paritytech/device-uniqueness-backend@v0.3.0
+  - type: input
+    id: product-sdk
+    attributes:
+      label: "Client: product-sdk"
+      description: >
+        product-sdk packages to run the tests on instead of the pinned ones, as
+        npm specs separated by spaces. Each one replaces that package everywhere it
+        is installed. Use it to test a product-sdk prerelease against a runtime, or
+        against the live runtimes by leaving every other field empty.
+      placeholder: "@parity/product-sdk-individuality@0.10.1-dev.453.0 @parity/product-sdk@0.39.0-dev.453.0"
+  - type: input
+    id: truapi
+    attributes:
+      label: "Client: truapi"
+      description: >
+        The @parity/truapi release or prerelease whose truapi-host CLI the tests
+        drive, instead of the pinned one.
+      placeholder: 0.29.0-rc.1
   - type: textarea
     id: target
     attributes:
@@ -130,7 +148,8 @@ body:
         Full control for asks the fields can't express — a different `tests` list,
         asset-hub pinned apart from people, or a `ppn_ref` naming the
         previewnet-engine ref to take the engine from. When filled, this REPLACES
-        the fields above. Shape: see environments/README.md.
+        the pin fields above; the two client fields still apply. Shape: see
+        environments/README.md.
       render: json
     validations:
       required: false
