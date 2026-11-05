@@ -45,13 +45,13 @@
     "multiformats": "^14.0.0",
     "polkadot-api": "^3.3.0",
     "verifiablejs": "1.6.0",
-    "viem": "^2.57.13"
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "@parity/truapi": "0.29.0",
     "solc": "^0.8.38",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
