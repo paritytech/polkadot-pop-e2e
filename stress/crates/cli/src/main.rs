@@ -1,0 +1,106 @@
+//! The `stress` binary. Two kinds of command:
+//!
+//! - `stress <scenario>`: runs one flood test against the network, from start to finish.
+//!   See `run::scenario` for the stages.
+//! - `stress check <dir>`: re-analyses a finished run from its saved files, without the
+//!   network. It rebuilds `run.om` (all metrics merged) and runs the checks again.
+//!
+//! Adding a scenario is one variant here and a module in `stress-scenarios`.
+
+mod machine;
+mod run;
+mod wiring;
+
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+use stress_scenarios::stmt::flood::StmtFlood;
+use stress_load::runner::Mode;
+
+/// Options for every scenario. Left empty uses defaults
+#[derive(Debug, Clone, clap::Args, serde::Serialize)]
+pub struct Common {
+    /// First step's rate, tx/s.
+    #[arg(long)]
+    pub start: Option<f64>,
+    /// Rate added per step.
+    #[arg(long)]
+    pub step: Option<f64>,
+    /// Rate multiplier per step, e.g. 2 doubles it; replaces `--step`.
+    #[arg(long, conflicts_with = "step", value_parser = growth)]
+    pub growth: Option<f64>,
+    /// Step length, s.
+    #[arg(long)]
+    pub interval: Option<u32>,
+    /// Steps.
+    #[arg(long)]
+    pub steps: Option<u32>,
+    /// Recovery budget, s.
+    #[arg(long)]
+    pub recovery: Option<u32>,
+    /// Baseline probes.
+    #[arg(long)]
+    pub probes: Option<usize>,
+    /// Sender connections.
+    #[arg(long, default_value_t = 4)]
+    pub connections: usize,
+    /// smoke: any problem fails the run; stress: only tool errors do.
+    #[arg(long, default_value = "stress")]
+    pub mode: Mode,
+    /// Results root.
+    #[arg(long, default_value = "results")]
+    pub out: PathBuf,
+}
+
+impl Common {
+    /// The scenario's ramp with the flags that were given.
+    pub fn ramp(&self, d: stress_load::Ramp) -> stress_load::Ramp {
+        stress_load::Ramp {
+            start: self.start.unwrap_or(d.start),
+            step: self.step.unwrap_or(d.step),
+            growth: self.growth.or(d.growth),
+            interval_s: self.interval.unwrap_or(d.interval_s),
+            steps: self.steps.unwrap_or(d.steps),
+            recovery_s: self.recovery.unwrap_or(d.recovery_s),
+            probes: self.probes.unwrap_or(d.probes),
+        }
+    }
+}
+
+fn growth(s: &str) -> Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(g) if g.is_finite() && g > 1.0 => Ok(g),
+        _ => Err(format!("{s}: a growth must be a number above 1")),
+    }
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "stress", about = "Non-functional tests of People")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Statement-store claim flood.
+    StmtFlood {
+        #[command(flatten)]
+        common: Common,
+        #[command(flatten)]
+        opts: stress_scenarios::stmt::flood::Options,
+    },
+    /// Builds run.om from a run's raw files and runs the checks again.
+    Check {
+        /// The run directory.
+        dir: PathBuf,
+    },
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    match Cli::parse().command {
+        Command::StmtFlood { common, opts } => std::process::exit(run::scenario::<StmtFlood>(common, opts).await?),
+        Command::Check { dir } => run::check(&dir),
+    }
+}

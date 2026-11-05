@@ -1,0 +1,29 @@
+[package]
+name = "stress-cli"
+description = "The `stress` binary: one subcommand per scenario, plus build and check"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "stress"
+path = "src/main.rs"
+
+[dependencies]
+stress-files.workspace = true
+stress-chain.workspace = true
+stress-monitors.workspace = true
+stress-load.workspace = true
+stress-checks.workspace = true
+stress-scenarios.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sp-crypto-hashing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[lints]
+workspace = true
