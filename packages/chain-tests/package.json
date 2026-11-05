@@ -48,7 +48,7 @@
     "viem": "^2.57.13"
   },
   "devDependencies": {
-    "@parity/truapi": "0.28.0",
+    "@parity/truapi": "0.29.0",
     "solc": "^0.8.38",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
