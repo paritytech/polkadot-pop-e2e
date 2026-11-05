@@ -189,6 +189,16 @@ describe('run options', () => {
     assert.deepEqual(target, { tests: ['test:ring-health'] });
   });
 
+  it('win over an empty key of the same name in the advanced overlay', () => {
+    const { productSdk } = splitRunOptions(
+      parseDispatchInputs({
+        ...dispatch({ product_sdk: '@parity/product-sdk-individuality@0.10.1-dev.453.0' }),
+        GATE_ADVANCED: '{"product_sdk":"","tests":["test:pop-gate"]}',
+      }).target
+    );
+    assert.equal(productSdk, '@parity/product-sdk-individuality@0.10.1-dev.453.0');
+  });
+
   it('reject a value that is not a string', () => {
     assert.throws(
       () => splitRunOptions({ product_sdk: ['@parity/product-sdk@0.43.0'] }),

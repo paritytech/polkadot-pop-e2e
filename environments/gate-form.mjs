@@ -126,12 +126,15 @@ function section(body, label) {
   return value === '_No response_' ? '' : value;
 }
 
-/** The raw JSON replaces the pin fields when present; the client fields apply either way. */
+/**
+ * The raw JSON replaces the pin fields when present. A filled client field applies
+ * either way and wins over the same key in the raw JSON.
+ */
 function overlay(values, raw) {
   if (!raw) return assemble(values);
   const advanced = parseAdvanced(raw);
   const clients = assemble(values, FIELDS.filter((field) => field.client));
-  return clients ? { ...clients, ...advanced } : advanced;
+  return clients ? { ...advanced, ...clients } : advanced;
 }
 
 export function parseIssueForm(body) {
