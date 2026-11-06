@@ -6,19 +6,19 @@
       "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
       "metadata": ".papi/metadata/paseo.scale",
       "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
-      "codeHash": "0xd85bfdb17cf421d6a75c9db9ba16cd713a840e42a02ca69becff7e3570b8debb"
+      "codeHash": "0x444ea236dc2563afd8fa8679ce0ae77b5a90768338980371a24b8be3f16a746b"
     },
     "bulletin": {
       "wsUrl": "wss://bulletin-paseo.tservices.es:8443",
       "metadata": ".papi/metadata/bulletin.scale",
       "genesis": "0xe101f0fa4627d29a257645e02be86d80378fea1a2bf8fa6a918d150ebc760a59",
-      "codeHash": "0xa9cbaf8f591063a17a786875c98f8423ce5376b08660affb54f3d0457a85a216"
+      "codeHash": "0x51067dd79c4ee3fc9caa2e8ef8654159c391d1a57ce80a0aa97ee69376311486"
     },
     "people": {
       "wsUrl": "wss://people-paseo.rotko.net",
       "metadata": ".papi/metadata/people.scale",
       "genesis": "0xe6c30d6e148f250b887105237bcaa5cb9f16dd203bf7b5b9d4f1da7387cb86ec",
-      "codeHash": "0x35364c0ac81591deb3c5fd02813a077464cd362d3a0ca22d5f79c8cc8773387d"
+      "codeHash": "0xffc75685208b4d233d1b92b04671a3d9aeedf1856ac197698ed6294869ccedf6"
     },
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
