@@ -23,7 +23,7 @@
     "@polkadot-api/metadata-compatibility": "^0.7.2",
     "@polkadot-api/substrate-bindings": "^0.21.2",
     "@polkadot-api/wasm-executor": "^0.2.3",
-    "@types/node": "^22.19.20",
+    "@types/node": "^26.6.6",
     "fzstd": "^0.1.1",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
