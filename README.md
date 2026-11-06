@@ -93,6 +93,52 @@ product-sdk uses, with each failing test placed next to the entry its error name
 See [`environments/README.md`](environments/README.md) for how manifests, the
 release map, the candidate matrix and the runtime diff work.
 
+### Testing a runtime change against an unreleased product-sdk or truapi fix
+
+The suite runs on the product-sdk packages and the truapi release that
+`packages/chain-tests/package.json` pins. A gate run can swap them, through
+inputs of the workflow call, fields of the dispatch form, or fields of the
+*Release gate request* issue form. They combine with the runtime fields:
+
+- `product_sdk`: npm specs separated by spaces, e.g.
+  `@parity/product-sdk-individuality@0.10.1-dev.453.0`. Each package is replaced
+  everywhere it is installed, including inside other SDK packages.
+- `truapi`: a `@parity/truapi` release or prerelease. The gate installs the
+  `truapi-host` CLI released with it.
+
+The run summary lists every product-sdk and truapi version under test. A
+product-sdk build whose API no longer matches the tests fails before the fork
+starts, with the type errors.
+
+When a runtime change breaks product-sdk or truapi on purpose:
+
+1. The runtime PR's gate run fails. The runtime team opens an issue on
+   [product-sdk](https://github.com/paritytech/product-sdk) or
+   [trinity-user-agents](https://github.com/paritytech/trinity-user-agents) with
+   the runtime build and the failing tests.
+2. The platform team fixes it in a PR, publishes a prerelease of the fix, and
+   adds the prerelease version to the issue.
+3. The runtime team reruns its gate with that prerelease, either in its PR's
+   gate call, next to the runtime it builds:
+
+   ```yaml
+   uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
+   with:
+     environment: previewnet,paseo-next-v2
+     runtime_asset_hub: artifact:e2e-runtime-wasm
+     runtime_people: artifact:e2e-runtime-wasm
+     product_sdk: "@parity/product-sdk-individuality@0.10.1-dev.453.0"
+   ```
+
+   or from the dispatch form here, with the runtime's nightly tag and the
+   prerelease. The override comes out of the runtime PR before it merges.
+4. The platform team runs the dispatch form with only `product_sdk` or `truapi`
+   filled, which tests the fix against the live runtimes.
+5. product-sdk or truapi releases the fix. Dependabot moves the pin here a day
+   later, and the `@parity` group PR merges once a code owner approves it. The
+   runtime PR's gate then passes without overrides, and the runtime can be
+   released and enacted.
+
 ## Repository layout
 
 ```
