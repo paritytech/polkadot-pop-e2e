@@ -10,7 +10,7 @@
       "runtime": "paseo-network/runtimes@v2.5.5"
     },
     "asset-hub": {
-      "runtime": "paseo-network/runtimes@v2.5.5"
+      "runtime": "paseo-network/runtimes@v2.5.6"
     },
     "people": {
       "runtime": "paseo-network/runtimes@v2.5.5"
