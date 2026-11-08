@@ -6,7 +6,7 @@
       "wsUrl": "wss://asset-hub-paseo-rpc.n.dwellir.com",
       "metadata": ".papi/metadata/paseo.scale",
       "genesis": "0xd6eec26135305a8ad257a20d003357284c8aa03d0bdb2b357ab0a22371e11ef2",
-      "codeHash": "0x444ea236dc2563afd8fa8679ce0ae77b5a90768338980371a24b8be3f16a746b"
+      "codeHash": "0x2283196eb891e66d1caaa87b82e0becf61aecadca3d125ddff320c42533f8e7c"
     },
     "bulletin": {
       "wsUrl": "wss://bulletin-paseo.tservices.es:8443",
