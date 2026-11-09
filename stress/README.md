@@ -24,8 +24,9 @@ production, the pool and PVF. Everything specific to People is in [`people-plugi
 - `recycler-start`, `recycler-stop`, `recycler-checks`: the Recycler observer. It records ring
   backlog, maintenance calls and cleanup into the run, and judges them after the load.
 
-The plugin builds against Polkameter's crates at one commit: the five `polkameter-*` `rev`s in
-`Cargo.toml` and `POLKAMETER_REF` in `stress-flood.yml` must be bumped together.
+The plugin builds against `polkameter-plugin-sdk` 0.4 from crates.io, and the workflow installs
+the PolkaMeter 0.4.0 CLI release. Bump the SDK in `Cargo.toml` and `POLKAMETER_VERSION` in
+`stress-flood.yml` together.
 
 ## Plans
 
@@ -56,24 +57,25 @@ regenerates the checks offline.
 
 ## Running it locally
 
-Build the plugin here, and Polkameter in its own checkout:
+Install the PolkaMeter CLI release and build the plugin here:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/agustinustheo/polkameter/v0.4.0/install.sh | sh -s -- 0.4.0
 cargo build --release --locked --bin polkameter-people-plugin   # in stress/
-cargo build --release --locked -p polkameter --no-default-features --bin polkameter  # in polkameter/
+polkameter plugin install target/release/polkameter-people-plugin
+polkameter plugin credential previewnet-sudo POLKAMETER_SETUP_SURI
 ```
 
-The workflow installs these apt packages when they are missing: `build-essential` (a C compiler
-for `ring`) and `make` and `jq` (the engine). The Polkameter CLI is built without its desktop app,
-so it needs no GTK, WebKit or frontend build.
+The plugin build needs a C compiler (`build-essential`, for `ring`); the engine needs `make` and
+`jq`. The workflow installs them when they are missing.
 
-Then, from the Polkameter checkout, with a Zombienet config of a previewnet fork
-(`ppn fork toml <bundle> <out>` in previewnet-engine):
+Then start a previewnet fork with Zombienet (`ppn fork toml <bundle> <out>` in previewnet-engine
+writes its config), register the `zombie.json` Zombienet writes, and run a plan:
 
 ```sh
-POLKAMETER_PLUGINS=/path/to/stress/target/release/polkameter-people-plugin \
-POLKAMETER_CREDENTIALS="previewnet-sudo=POLKAMETER_SETUP_SURI" POLKAMETER_SETUP_SURI=//Alice \
-scripts/local-fork-run.sh /path/to/fork.toml /path/to/stress/plans/people-smoke.polkameter.xml
+polkameter plugin topology previewnet /path/to/zombie.json
+POLKAMETER_SETUP_SURI=//Alice \
+  polkameter run plans/people-smoke.polkameter.xml --output runs --fail-on error
 ```
 
 `cargo test` here checks the claim encoding, people generation and proofs against
