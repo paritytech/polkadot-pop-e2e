@@ -1,7 +1,7 @@
 //! People workload for Polkameter: recognition, ring-proof claims and their encoding, and the
 //! Recycler observer. `main.rs` exposes them as plugin operations.
 
-use polkameter_chain::{AtBlock, ChainError, fetch};
+use polkameter_plugin_sdk::chain::{AtBlock, ChainError, fetch};
 
 pub mod recycler;
 /// Parts more than one scenario uses: our people, and the built rings.

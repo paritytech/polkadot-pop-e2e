@@ -11,11 +11,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Result;
-use polkameter_chain::Client;
-use polkameter_checks::{CheckResult, RunData};
-use polkameter_files::summary::Summary;
-use polkameter_files::{Problems, RunDir, read_store};
-use polkameter_monitors::{MonitorError, chain_series, walker};
+use polkameter_plugin_sdk::chain::Client;
+use polkameter_plugin_sdk::observers::summary::Summary;
+use polkameter_plugin_sdk::observers::{
+	CheckResult, FileError, MonitorError, Problems, RunData, RunDir, chain_series, read_store,
+	walker,
+};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -26,7 +27,7 @@ use monitor::RecyclerRecorder;
 pub struct Running {
 	stop: CancellationToken,
 	walker: JoinHandle<Result<(), MonitorError>>,
-	writer: JoinHandle<Result<(), polkameter_files::FileError>>,
+	writer: JoinHandle<Result<(), FileError>>,
 	drained: watch::Receiver<bool>,
 	problems: Problems,
 }

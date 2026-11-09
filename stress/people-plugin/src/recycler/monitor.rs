@@ -12,13 +12,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use polkameter_chain::value::{as_bytes32, as_u64, field, variant_name};
-use polkameter_chain::{
+use polkameter_plugin_sdk::chain::value::{as_bytes32, as_u64, field, variant_name};
+use polkameter_plugin_sdk::chain::{
 	AtBlock, ChainError, Client, DecodeAsType, Value, calls, entries, events, fetch,
 };
-use polkameter_files::{Millis, Problems, now_ms};
-use polkameter_monitors::ChainSeries;
-use polkameter_monitors::walker::Walk;
+use polkameter_plugin_sdk::observers::walker::Walk;
+use polkameter_plugin_sdk::observers::{ChainSeries, Millis, Problems, now_ms};
 use tokio::sync::watch;
 
 use crate::block_time;
@@ -41,7 +40,7 @@ pub type Id = [u8; 32];
 pub type Key = [u8; 32];
 
 #[derive(DecodeAsType)]
-#[decode_as_type(crate_path = "polkameter_chain::scale_decode_reexport")]
+#[decode_as_type(crate_path = "polkameter_plugin_sdk::chain::scale_decode_reexport")]
 struct RingStatus {
 	total: u32,
 	included: u32,

@@ -11,7 +11,7 @@
 //! encoding, so a mismatch is a tool error, not a chain result.
 
 use parity_scale_codec::{Compact, Encode};
-use polkameter_chain::Keypair;
+use polkameter_plugin_sdk::chain::Keypair;
 use sp_crypto_hashing::blake2_256;
 
 const GENERAL_V5: u8 = 0b0100_0101;
@@ -86,7 +86,7 @@ pub fn expected_extensions() -> impl Iterator<Item = &'static str> {
 	SLOTS.iter().map(|s| s.1)
 }
 
-pub use polkameter_chain::ChainInfo;
+pub use polkameter_plugin_sdk::chain::ChainInfo;
 
 /// One general tx: the call plus explicit values for the extensions it uses.
 #[derive(Debug, Clone)]

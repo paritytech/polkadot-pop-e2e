@@ -5,7 +5,7 @@
 use parity_scale_codec::{Decode, Encode};
 use people_plugin::shared::people::make_people;
 use people_plugin::stmt::claim::{self, Unproved};
-use polkameter_chain::ChainInfo;
+use polkameter_plugin_sdk::chain::ChainInfo;
 use polkameter_plugin_sdk::strip_0x;
 use serde_json::Value;
 use verifiable::GenerateVerifiable;
@@ -67,7 +67,7 @@ fn claim_bytes_match_ts() {
 	let fake: Vec<u8> = (0..785).map(|i| (i % 256) as u8).collect();
 	let tx = unproved.with_proof(&fake, 4, 3);
 	assert_eq!(tx, bytes(&v["fakeProofTx"]));
-	assert_eq!(polkameter_chain::tx_hash(&tx).to_vec(), bytes(&v["txHash"]));
+	assert_eq!(polkameter_plugin_sdk::chain::tx_hash(&tx).to_vec(), bytes(&v["txHash"]));
 }
 
 fn rust_root(members: &[[u8; 32]]) -> <Vrf as GenerateVerifiable>::Members {

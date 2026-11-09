@@ -5,8 +5,8 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use polkameter_chain::value::{as_u64, field, variant_name};
-use polkameter_chain::{AtBlock, ChainError, Client, DecodeAsType, Value, fetch};
+use polkameter_plugin_sdk::chain::value::{as_u64, field, variant_name};
+use polkameter_plugin_sdk::chain::{AtBlock, ChainError, Client, DecodeAsType, Value, fetch};
 use ring_proofs::Member;
 
 /// A built ring.
@@ -21,13 +21,13 @@ pub struct Ring {
 }
 
 #[derive(DecodeAsType)]
-#[decode_as_type(crate_path = "polkameter_chain::scale_decode_reexport")]
+#[decode_as_type(crate_path = "polkameter_plugin_sdk::chain::scale_decode_reexport")]
 struct Status {
 	included: u32,
 }
 
 #[derive(DecodeAsType)]
-#[decode_as_type(crate_path = "polkameter_chain::scale_decode_reexport")]
+#[decode_as_type(crate_path = "polkameter_plugin_sdk::chain::scale_decode_reexport")]
 struct Root {
 	revision: u32,
 }

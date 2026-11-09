@@ -9,12 +9,8 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-# Polkameter, pinned to one commit: the plugin SDK and the libraries the Recycler observer reuses.
-polkameter-plugin-sdk = { git = "https://github.com/agustinustheo/polkameter", rev = "bbe2afad61111ee117d553294ce6658a7649b6b7" }
-polkameter-chain = { git = "https://github.com/agustinustheo/polkameter", rev = "bbe2afad61111ee117d553294ce6658a7649b6b7" }
-polkameter-files = { git = "https://github.com/agustinustheo/polkameter", rev = "bbe2afad61111ee117d553294ce6658a7649b6b7" }
-polkameter-monitors = { git = "https://github.com/agustinustheo/polkameter", rev = "bbe2afad61111ee117d553294ce6658a7649b6b7" }
-polkameter-checks = { git = "https://github.com/agustinustheo/polkameter", rev = "bbe2afad61111ee117d553294ce6658a7649b6b7" }
+# PolkaMeter's plugin SDK, with the chain client and the libraries the Recycler observer reuses.
+polkameter-plugin-sdk = { version = "0.4", features = ["chain", "observers"] }
 ring-proofs = { path = "proofs" }
 
 anyhow = "1"

@@ -2,8 +2,9 @@
 //! a built root. They read the run's series, which hold this plugin's series and the run's
 //! phases.
 
-use polkameter_checks::{CheckResult, CounterReset, RunData, Status, Verdict, Window, quantile};
-use polkameter_files::num;
+use polkameter_plugin_sdk::observers::{
+	CheckResult, CounterReset, RunData, Status, Verdict, Window, num, quantile,
+};
 
 const NO_DATA: &str = "no Recycler data (no Members pallet?)";
 
@@ -181,5 +182,5 @@ pub fn run(d: &RunData, problems: &[String]) -> Vec<CheckResult> {
 }
 
 fn result(check: &str, verdict: Verdict, optional: bool) -> CheckResult {
-	CheckResult { outcome: "recycler".into(), check: check.into(), verdict, optional }
+	CheckResult { outcome: "recycler".into(), check: check.into(), verdict, optional, source: None }
 }

@@ -1,8 +1,8 @@
 //! The Recycler metrics. They are recorded into this plugin's `series.jsonl` and declared in its
 //! `metrics.json`, so Polkameter reads them with the run's series, labelled `job="plugin"`.
 
-use polkameter_files::PluginMetric;
-use polkameter_files::registry::{Def, Kind, Metric, kind};
+use polkameter_plugin_sdk::observers::PluginMetric;
+use polkameter_plugin_sdk::observers::registry::{Def, Kind, Metric, kind};
 
 const fn def(
 	name: &'static str,

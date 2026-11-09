@@ -10,9 +10,9 @@ use people_plugin::{
 	stmt::claim::{self, Unproved},
 	tx::{GeneralTx, expected_extensions},
 };
-use polkameter_chain::{Client, Keypair, Value as ScaleValue, fetch, has_prefix};
 use polkameter_plugin_sdk::{
 	Artifact, Context, Manifest, Operation, PROTOCOL, Plugin, PreparedTx, Schema, StateCheckInput,
+	chain::{ChainError, Client, Keypair, Value as ScaleValue, fetch, has_prefix},
 	strip_0x,
 };
 use ring_proofs::{Job, Prover, ProverPool};
@@ -68,7 +68,6 @@ impl Plugin for People {
 			id: "people".into(),
 			version: "0.1.0".into(),
 			protocol: PROTOCOL,
-			requirements: vec![],
 			operations: [
 				(
 					"preflight".into(),
@@ -205,7 +204,7 @@ impl Plugin for People {
 		};
 		if operation == "check-state" {
 			let result = self.check_state(&client, &inputs, context).await;
-			if result.as_ref().is_err_and(|error| error.is::<polkameter_chain::ChainError>()) {
+			if result.as_ref().is_err_and(|error| error.is::<ChainError>()) {
 				// A cached connection can drop during a long run. The read is at a fixed block
 				// hash, so one retry on a new connection is safe.
 				self.check_client = None;
