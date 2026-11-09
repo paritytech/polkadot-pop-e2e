@@ -45,6 +45,9 @@ function productContext(
   return blake2b256(preimage);
 }
 
+export const stmtStoreContextV012 = (networkSuffix: string, period: number, seq: number) =>
+  productContext(networkSuffix, 2, period, seq, "u32");
+
 export const longTermStorageContextV012 = (networkSuffix: string, period: number, counter: number) =>
   productContext(networkSuffix, 3, period, counter, "u8");
 

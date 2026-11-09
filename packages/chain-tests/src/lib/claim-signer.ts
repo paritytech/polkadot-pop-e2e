@@ -152,6 +152,8 @@ export interface ClaimSignerOpts {
   encodedMembers: Uint8Array;
   /** The collection's ring size exponent, from `ringExponent`. */
   ringExponent: number;
+  /** Optional worker-backed prover; the default proves in this thread. */
+  prove?: (message: Uint8Array) => Promise<Uint8Array>;
   /** The extension's value for `proof`, encoded with the live metadata's codec. */
   extensionValue: (proof: Uint8Array) => unknown;
 }
@@ -161,9 +163,10 @@ export interface ClaimSignerOpts {
  * claim: immortal, like truapi's, with the ring-VRF proof in `extensionName`.
  */
 export function createClaimSigner(opts: ClaimSignerOpts): TxCreator<CommonEnhancersSpecs> {
-  const inner = generalTxCreator(new Uint8Array(32), opts.extensionName, (message, codec) => {
+  const inner = generalTxCreator(new Uint8Array(32), opts.extensionName, async (message, codec) => {
     const { one_shot } = verifiableFor();
-    const { proof } = one_shot(opts.ringExponent, opts.verifiableEntropy, opts.encodedMembers, opts.context, message);
+    const proof = opts.prove ? await opts.prove(message)
+      : one_shot(opts.ringExponent, opts.verifiableEntropy, opts.encodedMembers, opts.context, message).proof;
     assertProof(proof);
     return codec.enc(opts.extensionValue(proof));
   });
