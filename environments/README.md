@@ -19,11 +19,11 @@ Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves thr
 | `paseo-network/runtimes` | `v2.4.3` | Behind the deployed `v2.4.4` — GitHub ranks `releases/latest` by tag `created_at`, not publish date, so the gate rejects it as a downgrade |
 | `polkadot-bulletin-chain` | whichever flavor sorts first | Flavor-blind, so it can land a westend build |
 
-Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine ref to take the engine from. When filled it *replaces* the fields. Two notes on the field list: `workflow_dispatch` accepts at most 10 inputs, which is why asset-hub and people share one `individuality` field (two runtimes out of one build — they have never been pinned apart), and why `ppn_ref` rides in the advanced overlay rather than owning a slot.
+Both doors also carry an **advanced** raw-overlay field for the asks no field expresses — a different `tests` list, `asset-hub` pinned apart from `people`, or a `ppn_ref` naming the previewnet-engine ref to take the engine from. When filled it *replaces* the pin fields. The two client fields, `product_sdk` and `truapi`, still apply next to it: they are not pins, they pick the product-sdk packages and truapi release the tests run on, and the gate splits them out of the overlay before it reaches the manifest (see [Testing a runtime change against an unreleased product-sdk or truapi fix](../README.md#testing-a-runtime-change-against-an-unreleased-product-sdk-or-truapi-fix)).
 
 Whichever door: the gate forks the live network, converges X → Y — swapping/upgrading **only what differs** (identical pins byte-compare and no-op), never downgrading — runs the chain-tests, and the run summary leads with the exact transitions tested (`bulletin: runtime …v0.0.22-paseo → …v0.0.23-paseo`).
 
-Gated networks: **previewnet** (published fork bundle) and **paseo-next-v2** (`FRESH_BITE=1` — no published bundle, the gate bites live pnv2 at run time; the engine's shared-relay fixes replan the cores onto the fork's 6 validators and endow sudo at import, full E2E proven 2026-08-19). **devnet** is mapped but cannot be bitten yet (`NETWORK_META.gateable: false`): only the smol Paseo Asset Hub chain-spec is published (stateRootHash genesis) and doppelganger rejects it — "Genesis storage in hash format not supported", verified 2026-08-19; a full raw spec has to be sourced or generated first. Kusama and Polkadot have engine descriptors but stay out until a sudo-less enactment path exists (their converge cannot use sudo). Adding a network = one manifest + one `CHAINS`/`SERVICES`/`NETWORK_META` entry in `release-map.mjs`. The chain-tests side needs one base `NETWORKS` entry per network — `NETWORK=local-fork` then derives the fork config from it (the manifest's `network` field, passed as `FORK_OF`): capability flags and chain set are inherited, only the transport is swapped to the engine's local ports. pnv2/devnet forks run no identity backend (their engine descriptors spawn only eth-rpc beside the chains), so the workflow exports `FORK_IDENTITY_BACKEND=none` and attestation-dependent tests skip; devnet's manifest also leaves `bulletin` unpinned — its deployed build (spec 2003001) is on no public release, so the fork keeps it as bitten.
+Gated networks: **previewnet** (published fork bundle) and **paseo-next-v2** (`FRESH_BITE=1` — no published bundle, the gate bites live pnv2 at run time; the engine's shared-relay fixes replan the cores onto the fork's 6 validators and endow sudo at import, full E2E proven 2026-08-19). **devnet** is mapped but cannot be bitten yet (`NETWORK_META.gateable: false`): only the smol Paseo Asset Hub chain-spec is published (stateRootHash genesis) and doppelganger rejects it — "Genesis storage in hash format not supported", verified 2026-08-19; a full raw spec has to be sourced or generated first. Kusama and Polkadot have engine descriptors but stay out until a sudo-less enactment path exists (their converge cannot use sudo). Adding a network = one manifest + one `CHAINS`/`SERVICES`/`NETWORK_META` entry in `release-map.mjs`. The chain-tests side needs one base `NETWORKS` entry per network, named by the manifest's `network` field and exported as `NETWORK`: the fork keeps its capability flags, and its endpoints, identity backend and IPFS gateway come from the Trinity stack descriptor the fork serves (`STACK`). The engine runs the identity backend on any fork carrying People, so pnv2 forks run the attestation-dependent tests against their own DUB. devnet does not attest (truapi-host has no preset for it), so those tests skip there even though its fork runs a DUB; devnet's manifest also leaves `bulletin` unpinned — its deployed build (spec 2003001) is on no public release, so the fork keeps it as bitten.
 
 ## How a gate runs
 
@@ -31,7 +31,7 @@ The workflow (`.github/workflows/release-gate.yml`) **converges, it does not dif
 
 1. Fork the live network from the engine's published bundle and spawn it on the manifest's **binary** pins. The fork's state carries whatever runtimes production runs — the "from" side (X) is never declared in the manifest, the bundle is its source of truth, and the run summary reports the observed `X → Y` per chain.
 2. For every chain, download the pinned **runtime** (Y — always the *target*, never a claim about what's there) and run the engine's `make runtime-upgrade`. Byte-identical to what the fork runs → built-in no-op (`already-installed`), which in steady state is an *assertion* that the gated record still matches production; different → a real on-chain upgrade, enacted and verified; **lower** → the gate fails, the manifest fell behind production.
-3. Run the manifest's `tests:` (chain-tests scripts) with `NETWORK=local-fork`.
+3. Run the manifest's `tests:` (chain-tests scripts) with `STACK` set to the fork's Trinity stack descriptor.
 
 So the target file *is* the test plan, with no mode flags — and a target that moves **both** dimensions fans out into a candidate matrix, one fork run each:
 
@@ -43,22 +43,44 @@ So the target file *is* the test plan, with no mode flags — and a target that 
 
 Single-dimension targets collapse to just `target` (a binaries-only ask is then itself the mixed-version rollout test — every runtime converge no-ops; a runtimes-only ask is the pure upgrade gate). The cross terms are rollout-*ordering* findings — a red `runtimes-only` means "don't enact until every node runs the new binary", not "don't merge". One PR may carry targets for several networks; each fans out its own candidates, all in parallel.
 
-Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `NETWORK=local-fork` — against its upgraded fork; that suite is the actual verdict on the environment.
+Each candidate ends by running the manifest's `tests:` — `pnpm --filter @pop-e2e/chain-tests <script>` per entry, with `STACK` set to the fork's descriptor — against its upgraded fork; that suite is the actual verdict on the environment.
 
 The engine's own pins are its business (per-network `networks/<name>.json`; `config/versions.env` keeps only the shared toolchain); this directory answers "what is deployed as we know it" (canonical) and "what is being asked" (target).
 
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.5.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.14.2`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
   pnpm resolve:environment overrides environments/networks/previewnet.json  # engine env (PPN_BINARIES, NETWORK, ...)
   pnpm resolve:environment runtimes environments/networks/previewnet.json   # downloads, prints chain=path
   # in a previewnet-engine checkout: make start FORK=1 → make runtime-upgrade per line
-  NETWORK=local-fork pnpm --filter @pop-e2e/chain-tests test:network-health
+  STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
+
+## The runtime diff
+
+A failing run names the tests that failed; the runtime diff says which runtime change most likely did it. The code is in [`runtime-diff/`](./runtime-diff). Before the upgrade, while the fork still runs the code it took from live, `capture.ts` reads each chain's `:code` from the fork and the candidate blob, takes both metadata with the wasm executor, and compares them on the surface the SDK depends on:
+
+- **Entries** (`entries.ts`): calls, storage, constants, events, runtime APIs and view functions in the pinned `@parity/product-sdk-descriptors`, for the descriptor chain whose endpoint matches the release map's. Each is graded by polkadot-api's own compatibility check, descriptor against live and then against the candidate. polkadot-api checks an entry only when it is used, so only entries the scan finds the SDK's shipped code reading (★) are graded breaking. Such an entry is **breaking** when polkadot-api now refuses it outright (`Incompatible`, where live was better), and **may fail for some values** when it now checks each value (`Partial`): a new variant in a returned value, or a removed one in an argument, fails while other values still work. Everything else is **other**. The ★ scan does not follow aliases (`const query = api.query.Game`), so the SDK can read more than ★ shows.
+- **Transaction extensions** (`extensions.ts`), per extension version: added, removed, reordered or retyped extensions, and extensions that moved between versions (`AsPerson, … moved from v0 to v1`). A removed pipeline, or a reordered extension, is breaking. So is an added or removed extension, unless its type and additional-signed are both empty and polkadot-api's signer fills it by itself. A retyped extension is breaking when polkadot-api no longer accepts every value of the old type (below `BackwardsCompatible`).
+- **SDK surfaces the candidate no longer has** (`sdk.ts`): selectors such as `query:NetworkSuffix.NetworkSuffix`, found by scanning the installed product-sdk packages, on chains that have that pallet at all.
+
+After the tests, `report.ts` reads the junit results and puts each failing test next to what its error names (`links.ts`): an entry or SDK surface (`Incompatible runtime entry Tx(Game.sign_up)`), or a breaking extension change when the error names the extension or says the transaction was rejected. A test is not linked to a change from a static guess at what it reaches. When the run failed and something breaks the SDK (a breaking entry, a gone SDK surface, a breaking extension change, or any entry a failing test's error names), the summary links a prefilled `runtime-break` issue on [paritytech/product-sdk](https://github.com/paritytech/product-sdk), which is the issue the Runtime Release Contract asks for. Nothing is filed automatically: a person opens the link. The report goes to the job summary, and `diff.json`, `report.json`, `report.md` and both sides' metadata go to the `release-gate-runtime-diff-<network>-<candidate>` artifact. Neither step can fail the gate.
+
+vitest writes `test-results/junit.xml` again on every run, and the gate runs a manifest's test scripts one after another. [`run-chain-tests.sh`](./run-chain-tests.sh) renames it to `junit-<script>.xml` after each script, so no script's results replace another's.
+
+Chains without SDK descriptors (the relay, web3-storage) get the extension comparison only. `metadata.ts` is copied from Runtime Watch ([paritytech/velocity](https://paritytech.github.io/velocity/runtime-watch/)), which has no package to call.
+
+The code is TypeScript, run with `tsx` and checked with `pnpm typecheck:environments`. Locally, against a running fork or any RPC:
+
+```bash
+pnpm exec tsx environments/runtime-diff/capture.ts environments/networks/previewnet.json upgrades.env \
+  --ports ppn/config/ports.env --out runtime-diff        # or --rpc people=https://…,asset-hub=./live.wasm
+pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json --junit packages/chain-tests/test-results
+```
 
 ## Advisory workflow calls
 
@@ -109,7 +131,6 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 - Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
 - Non-chain components beyond the pinned services (dotli, the host apps) are not gateable yet; the map's shape is where they will go.
-- `secrets.GH_PAT` is optional: every source the canonical manifests pin is public, and so is the engine. Pass a token to lift the unauthenticated API rate limit, or to gate a pin from a private repo.
 
 ## How the gate drives the engine
 

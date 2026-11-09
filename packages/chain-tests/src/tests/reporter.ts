@@ -1,11 +1,11 @@
-import type { Reporter, File, Task } from "vitest";
+import type { Reporter, TestModule } from "vitest/node";
 
 /**
  * Custom reporter that prints a clear summary table at the end of the test run.
  */
 export default class HealthReporter implements Reporter {
-  onFinished(files?: File[]) {
-    if (!files?.length) return;
+  onTestRunEnd(testModules: ReadonlyArray<TestModule>) {
+    if (!testModules.length) return;
 
     const network = process.env.NETWORK ?? "unknown";
     const results: {
@@ -15,9 +15,17 @@ export default class HealthReporter implements Reporter {
       duration: number;
     }[] = [];
 
-    for (const file of files) {
-      const suiteName = this.getSuiteName(file);
-      this.collectResults(file.tasks, suiteName, results);
+    for (const testModule of testModules) {
+      const fileSuite = suiteName(testModule.moduleId);
+      for (const test of testModule.children.allTests()) {
+        const state = test.result().state;
+        results.push({
+          suite: test.parent.type === "suite" && test.parent.name ? test.parent.name : fileSuite,
+          test: test.name,
+          status: state === "passed" ? "pass" : state === "failed" ? "fail" : "skip",
+          duration: test.diagnostic()?.duration ?? 0,
+        });
+      }
     }
 
     const passed = results.filter((r) => r.status === "pass").length;
@@ -71,35 +79,12 @@ export default class HealthReporter implements Reporter {
     console.log("═".repeat(80));
     console.log("");
   }
+}
 
-  private getSuiteName(file: File): string {
-    // Extract from filename: core.test.ts -> Core
-    const match = file.name.match(/([^/]+)\.test\./);
-    return match?.[1] ?? file.name;
-  }
-
-  private collectResults(
-    tasks: Task[],
-    suite: string,
-    results: { suite: string; test: string; status: string; duration: number }[],
-  ) {
-    for (const task of tasks) {
-      if (task.type === "suite") {
-        const name = task.name || suite;
-        this.collectResults(task.tasks, name, results);
-      } else if (task.type === "test") {
-        results.push({
-          suite,
-          test: task.name,
-          status:
-            task.result?.state === "pass" ? "pass" :
-            task.result?.state === "fail" ? "fail" :
-            "skip",
-          duration: task.result?.duration ?? 0,
-        });
-      }
-    }
-  }
+function suiteName(moduleId: string): string {
+  // core.test.ts -> core
+  const match = moduleId.match(/([^/]+)\.test\./);
+  return match?.[1] ?? moduleId;
 }
 
 function formatDuration(ms: number): string {

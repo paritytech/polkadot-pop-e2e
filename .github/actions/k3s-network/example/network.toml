@@ -1,0 +1,159 @@
+# The release gate's shape on K3s: six relay validators plus one collator per
+# system parachain, each in its own pod with its own cores. A spike, so it uses
+# public westend images instead of the forked PoP chains; the question it
+# answers is whether the per-node CPU split holds, not whether PoP works.
+#
+# Sizing (32 vCPU parity-large, 16 physical cores, SMT on):
+#   reserved for k3s, zombie-cli, port-forwards, init/temp pods   4 vCPU
+#   alice — every fork-mode collator reads the relay through it   4 vCPU
+#   bob..ferdie                                       5 x 2 =  10 vCPU
+#   asset-hub — 2s blocks on three cores, slot-based              4 vCPU
+#   people, coretime (stand-in for bulletin)          2 x 2 =   4 vCPU
+#   left in the shared pool                                       6 vCPU
+#
+# Every number is even: the kubelet runs full-pcpus-only, so an allocation is
+# whole physical cores and no node shares a core's sibling thread with another.
+# Requests equal limits, CPU and memory both, or the pod is not Guaranteed and
+# the static CPU manager leaves it on the shared pool.
+#
+# Resources are per node: zombienet-sdk v0.4.15 did not apply
+# `relaychain.default_resources` on k8s (first run: bob..ferdie fell back to the
+# LimitRange's 500m and were CFS-throttled in ~40% of periods).
+
+[settings]
+timeout = 1200
+node_spawn_timeout = 400
+
+[relaychain]
+chain = "westend-local"
+default_command = "polkadot"
+default_image = "{{POLKADOT_IMAGE}}"
+
+[[relaychain.nodes]]
+name = "alice"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "4"
+memory = "4Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "4"
+memory = "4Gi"
+
+[[relaychain.nodes]]
+name = "bob"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
+[[relaychain.nodes]]
+name = "charlie"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
+[[relaychain.nodes]]
+name = "dave"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
+[[relaychain.nodes]]
+name = "eve"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
+[[relaychain.nodes]]
+name = "ferdie"
+validator = true
+
+[relaychain.nodes.resources.requests]
+cpu = "2"
+memory = "3Gi"
+
+[relaychain.nodes.resources.limits]
+cpu = "2"
+memory = "3Gi"
+
+[[parachains]]
+id = 1000
+chain = "asset-hub-westend-local"
+default_command = "polkadot-parachain"
+default_image = "{{CUMULUS_IMAGE}}"
+
+[[parachains.collators]]
+name = "asset-hub-collator"
+# Its runtime checks relay-parent descendants, which only the slot-based
+# collator supplies; the engine runs these chains the same way.
+args = ["--authoring=slot-based"]
+
+[parachains.collators.resources.requests]
+cpu = "4"
+memory = "4Gi"
+
+[parachains.collators.resources.limits]
+cpu = "4"
+memory = "4Gi"
+
+[[parachains]]
+id = 1004
+chain = "people-westend-local"
+default_command = "polkadot-parachain"
+default_image = "{{CUMULUS_IMAGE}}"
+
+[[parachains.collators]]
+name = "people-collator"
+# Its runtime checks relay-parent descendants, which only the slot-based
+# collator supplies; the engine runs these chains the same way.
+args = ["--authoring=slot-based"]
+
+[parachains.collators.resources.requests]
+cpu = "2"
+memory = "4Gi"
+
+[parachains.collators.resources.limits]
+cpu = "2"
+memory = "4Gi"
+
+[[parachains]]
+id = 1005
+chain = "coretime-westend-local"
+default_command = "polkadot-parachain"
+default_image = "{{CUMULUS_IMAGE}}"
+
+[[parachains.collators]]
+name = "coretime-collator"
+
+[parachains.collators.resources.requests]
+cpu = "2"
+memory = "4Gi"
+
+[parachains.collators.resources.limits]
+cpu = "2"
+memory = "4Gi"

@@ -169,6 +169,8 @@ describe('candidateMatrix', () => {
     }
     const steady = candidateMatrix(previewnet, { ...previewnet });
     assert.match(steady[0].transitions[0], /steady state/);
+    assert.equal(steady[0].steady, true);
+    assert.ok(candidateMatrix(previewnet, bumpBoth).every((c) => !c.steady || c.id !== 'target'));
   });
 });
 

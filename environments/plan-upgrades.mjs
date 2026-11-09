@@ -6,6 +6,8 @@
 //     those chains; the rest stay as the fork took them from live, which is what
 //     the caller's runtime would meet in a real deployment. With nothing supplied
 //     the manifest is the ask, so every chain is considered.
+//   - A steady-state run asks for nothing, so it upgrades nothing: the fork is
+//     tested as it came from live, and pin drift is the baseline scan's to report.
 //   - Upgrade only on a version change. Same spec_version means the chain already
 //     runs this release and there is nothing to install, whatever the bytes say —
 //     public Paseo, for one, runs a relay blob that matches no published asset.
@@ -22,12 +24,19 @@ import { runtimeSpecOf } from './wasm-spec.mjs';
  * @param running  chain -> spec_version the fork is on.
  * @param supplied chains whose runtime arrived as a build.
  * @param specOf   wasm path -> declared spec_version.
+ * @param steady   no pin moves in this run.
  * @returns {{keep: string[], notes: string[], errors: string[]}}
  */
-export function planUpgrades({ plan, running, supplied, specOf }) {
+export function planUpgrades({ plan, running, supplied, specOf, steady = false }) {
   const keep = [];
   const notes = [];
   const errors = [];
+  if (steady) {
+    for (const [chain] of plan) {
+      notes.push(`  ${chain.padEnd(14)} skip — steady state, left as the fork took it from live (${running[chain] ?? '?'})`);
+    }
+    return { keep, notes, errors };
+  }
   const asked = new Set(supplied);
 
   for (const [chain, wasm] of plan) {
@@ -99,6 +108,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       .filter(([, c]) => String(c.runtime ?? '').startsWith('file:'))
       .map(([chain]) => chain),
     specOf: (wasm) => runtimeSpecOf(readFileSync(wasm)).specVersion,
+    steady: process.env.STEADY === 'true',
   });
 
   console.error(`Runtime upgrade plan for ${candidate.network}:`);

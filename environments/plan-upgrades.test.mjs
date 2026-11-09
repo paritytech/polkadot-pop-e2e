@@ -58,6 +58,17 @@ describe('what gets upgraded', () => {
   });
 });
 
+describe('steady state', () => {
+  it('upgrades nothing and fails nothing, even on a pin behind live', () => {
+    const { keep, errors } = plan({
+      steady: true,
+      specOf: specs({ 'relay.wasm': 2003001, 'ah.wasm': 2000038, 'people.wasm': 1000036, 'bulletin.wasm': 1000026 }),
+    });
+    assert.deepEqual(keep, []);
+    assert.deepEqual(errors, []);
+  });
+});
+
 describe('what fails', () => {
   it('fails a supplied build that would install nothing', () => {
     const { keep, errors } = plan({ supplied: ['people'] });

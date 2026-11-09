@@ -9,9 +9,16 @@
  * Accounts without a matching alias mapping in
  * `AliasAccounts.AliasToAccount` revert with `NotPerson()`.
  */
-import type { SizedHex } from "polkadot-api";
+import type { PolkadotClient, SizedHex } from "polkadot-api";
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import type { AssetHubApi, RichAssetHubApi } from "./client.js";
+import {
+  createContract,
+  createContractRuntimeFromClient,
+  type AbiEntry,
+  type ContractRevertInfo,
+  type QueryResult,
+} from "@parity/product-sdk-contracts";
+import { descriptorsForNetwork, type AssetHubApi, type RichAssetHubApi } from "./client.js";
 import {
   POP_COUNTER_BYTECODE_HEX,
   POP_COUNTER_RUNTIME_HEX,
@@ -42,9 +49,8 @@ export const BUMP_SELECTOR_HEX: string =
     .join("");
 
 /**
- * Minimal ABI for the functions `pop-gate-by-proof.test.ts` calls via viem's
- * `encodeFunctionData` / `decodeFunctionResult`. The stateless `bumpByProof`
- * path verifies a fresh ring-VRF proof inline (no prior alias registration).
+ * Minimal ABI for the pop-gate tests. The stateless `bumpByProof` path
+ * verifies a fresh ring-VRF proof inline (no prior alias registration).
  */
 export const POP_COUNTER_ABI = [
   { type: "function", name: "bump", stateMutability: "nonpayable", inputs: [], outputs: [] },
@@ -74,7 +80,24 @@ export const POP_COUNTER_ABI = [
     inputs: [{ name: "", type: "bytes32" }],
     outputs: [{ type: "uint256" }],
   },
+  { type: "error", name: "NotPerson", inputs: [] },
+  { type: "error", name: "BadProof", inputs: [] },
 ] as const;
+
+/** The deployed PopCounter, driven through product-sdk-contracts. */
+export async function connectPopCounter(client: PolkadotClient) {
+  const runtime = createContractRuntimeFromClient(client, descriptorsForNetwork().assetHub);
+  const address = await findPopCounterContract(runtime.api as unknown as AssetHubApi);
+  if (!address) {
+    throw new Error("No PopCounter contract deployed — run `pnpm deploy-counter` first.");
+  }
+  return { address, contract: createContract(runtime, address, POP_COUNTER_ABI as unknown as AbiEntry[]) };
+}
+
+/** The custom error a reverted query decoded to, if any. */
+export function revertName(result: QueryResult<unknown>): string | undefined {
+  return result.success ? undefined : (result.value as ContractRevertInfo).decoded?.errorName;
+}
 
 export async function findPopCounterContract(
   assetHubApi: AssetHubApi | RichAssetHubApi,

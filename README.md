@@ -29,25 +29,28 @@ need `TEST_MNEMONIC` set to a funded account; see
 [`packages/chain-tests/.env.example`](packages/chain-tests/.env.example).
 
 Networks are defined in
-[`packages/chain-tests/src/config/networks.ts`](packages/chain-tests/src/config/networks.ts).
-Each declares its endpoints and which runtime features it carries, and tests skip
-the features a network does not have.
+[`packages/chain-tests/src/config/stack-config.ts`](packages/chain-tests/src/config/stack-config.ts).
+Each names where its operator publishes its [Trinity stack descriptor](https://github.com/paritytech/trinity-user-agents/blob/main/docs/rfcs/trinity-stack-descriptor.md),
+with the key it is signed with, and which runtime features it carries. The suite reads the
+chains, the HOP endpoint, the identity backend and the IPFS gateway from that descriptor, and
+tests skip the features a network does not have.
 
 ## Running against your own network
 
-Set `NETWORK=local-fork` and point the `FORK_*` variables at your endpoints — the
-config derives everything else from the network you forked:
+Set `STACK` to another stack's descriptor URL or stack link, such as a fork's, to run a
+network's suite against it. The network is `NETWORK`, or else the one the stack is an instance
+or a fork of: the network publishing at the stack's URL or its `fork.of`, or the one its `id`
+is (`previewnet-fork` is a fork of `previewnet`).
 
 ```bash
-NETWORK=local-fork FORK_OF=previewnet \
-  FORK_ASSET_HUB_WS=ws://127.0.0.1:10020 \
-  FORK_PEOPLE_WS=ws://127.0.0.1:10010 \
-  FORK_BULLETIN_WS=ws://127.0.0.1:10030 \
+STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json \
   pnpm --filter @pop-e2e/chain-tests test:network-health
 ```
 
-On a fork `//Alice` is funded and holds sudo, and the engine spawns a local
-identity backend — so the full suite runs with no secrets at all.
+On a fork `//Alice` is funded and holds sudo, so the full suite runs with no secrets at all.
+Attestation works only on a stack with its network's genesis, such as a fork: truapi-host
+checks each chain against its preset's genesis hash, so it rejects a staging instance started
+from its own genesis. Tests that use an identity backend skip when the stack doesn't list one.
 
 ## The release gate
 
@@ -74,8 +77,6 @@ Three ways to start one:
       {"chains":{"asset-hub":{"runtime":"OWNER/REPO@TAG"},
                  "people":{"runtime":"OWNER/REPO@TAG"}}}
     runs_on: parity-large       # your own label; a fork needs real capacity
-  secrets:
-    GH_PAT: ${{ secrets.YOUR_READ_TOKEN }}
   ```
 
   A reusable workflow runs on the **caller's** runners, so `runs_on` is a label
@@ -85,8 +86,58 @@ Three ways to start one:
   A pin a named network does not carry fails that network's run, naming the chain,
   rather than silently skipping it.
 
+When a run fails, its summary also says which runtime change most likely caused
+it. That is a diff of the forked runtime against the candidate, limited to what
+product-sdk uses, with each failing test placed next to the entry its error names.
+
 See [`environments/README.md`](environments/README.md) for how manifests, the
-release map and the candidate matrix work.
+release map, the candidate matrix and the runtime diff work.
+
+### Testing a runtime change against an unreleased product-sdk or truapi fix
+
+The suite runs on the product-sdk packages and the truapi release that
+`packages/chain-tests/package.json` pins. A gate run can swap them, through
+inputs of the workflow call, fields of the dispatch form, or fields of the
+*Release gate request* issue form. They combine with the runtime fields:
+
+- `product_sdk`: npm specs separated by spaces, e.g.
+  `@parity/product-sdk-individuality@0.10.1-dev.453.0`. Each package is replaced
+  everywhere it is installed, including inside other SDK packages.
+- `truapi`: a `@parity/truapi` release or prerelease. The gate installs the
+  `truapi-host` CLI released with it.
+
+The run summary lists every product-sdk and truapi version under test. A
+product-sdk build whose API no longer matches the tests fails before the fork
+starts, with the type errors.
+
+When a runtime change breaks product-sdk or truapi on purpose:
+
+1. The runtime PR's gate run fails. The runtime team opens an issue on
+   [product-sdk](https://github.com/paritytech/product-sdk) or
+   [trinity-user-agents](https://github.com/paritytech/trinity-user-agents) with
+   the runtime build and the failing tests.
+2. The platform team fixes it in a PR, publishes a prerelease of the fix, and
+   adds the prerelease version to the issue.
+3. The runtime team reruns its gate with that prerelease, either in its PR's
+   gate call, next to the runtime it builds:
+
+   ```yaml
+   uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
+   with:
+     environment: previewnet,paseo-next-v2
+     runtime_asset_hub: artifact:e2e-runtime-wasm
+     runtime_people: artifact:e2e-runtime-wasm
+     product_sdk: "@parity/product-sdk-individuality@0.10.1-dev.453.0"
+   ```
+
+   or from the dispatch form here, with the runtime's nightly tag and the
+   prerelease. The override comes out of the runtime PR before it merges.
+4. The platform team runs the dispatch form with only `product_sdk` or `truapi`
+   filled, which tests the fix against the live runtimes.
+5. product-sdk or truapi releases the fix. Dependabot moves the pin here a day
+   later, and the `@parity` group PR merges once a code owner approves it. The
+   runtime PR's gate then passes without overrides, and the runtime can be
+   released and enacted.
 
 ## Repository layout
 

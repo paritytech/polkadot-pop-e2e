@@ -1,6 +1,6 @@
 // Shared GitHub release plumbing for the gate's resolver and the baseline scan.
-// Auth comes from GITHUB_TOKEN when set; private repos need a PAT with read
-// access to the pinned repos (the gate uses secrets.GH_PAT).
+// Auth comes from GITHUB_TOKEN when set, only to lift the anonymous rate limit:
+// every pinned repo is public.
 
 const API = 'https://api.github.com';
 
@@ -31,11 +31,7 @@ export async function getRelease(repo, tag) {
       : `${API}/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await fetchWithRetry(url, { headers: ghHeaders('application/vnd.github+json') });
   if (res.status === 404) {
-    // Fine-grained PATs answer 404 (not 403) for private repos they were never
-    // granted — say so, or a correct pin reads like a missing release.
-    throw new Error(
-      `GET ${url} -> 404. Either the tag does not exist, or ${repo} is private and the token (GITHUB_TOKEN / secrets.GH_PAT) has no read access to it — grant the PAT that repo`
-    );
+    throw new Error(`GET ${url} -> 404. ${repo} has no release ${tag}, or the repo is misspelt or private`);
   }
   if (!res.ok) throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
   return res.json();

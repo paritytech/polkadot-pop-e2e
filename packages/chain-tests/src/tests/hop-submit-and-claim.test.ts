@@ -2,15 +2,17 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { type PolkadotClient } from "polkadot-api";
 import {
   HopClient,
+  HopNetworkError,
   HopNotFoundError,
   type CustomEnvironment,
   type HopTicket,
 } from "hop-sdk";
 import { createBulletinClient, createPeopleClient } from "../lib/client.js";
 import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
-import { deriveKeyPair } from "../lib/attestation.js";
+import { ATTESTATION_TIMEOUT_MS } from "../lib/attestation-budget.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { personKey } from "../lib/truapi-identity.js";
 
 /**
  * HOP requires raw byte signing — the SDK calls `signBytes(payload)` and
@@ -54,6 +56,24 @@ async function pollClaim(
     `hop_claim returned NOT_FOUND repeatedly for ${timeoutMs / 1000}s — ` +
       `submit landed but entry never became claimable`,
   );
+}
+
+/**
+ * Retry on `HopNetworkError`. hop-sdk connects lazily without retrying, so a
+ * single dropped WebSocket handshake would otherwise fail the whole suite.
+ * The SDK opens a fresh socket on the next call after an error.
+ */
+async function withConnectRetry<T>(fn: () => Promise<T>, delaysMs = [2_000, 5_000]): Promise<T> {
+  for (const delayMs of delaysMs) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof HopNetworkError)) throw err;
+      console.log(`[hop] ${err.message}, retrying in ${delayMs / 1000}s`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return fn();
 }
 
 /** Poll `HopRuntimeApi.can_account_promote` until the signer is HOP-eligible. */
@@ -118,7 +138,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
 
     const creds = await ensureAttested();
     address = creds.address;
-    const keyPair = deriveKeyPair(creds.entropy);
+    const keyPair = personKey(creds);
 
     // `CustomEnvironment` is a `ws://${string}` | `wss://${string}` template
     // literal; our config types the endpoint as plain `string` so cast at
@@ -132,7 +152,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
 
     // Idempotent: skip the LTS claim if the signer is already HOP-eligible
     // (re-claims in the same period fail with `Custom(231)`).
-    if (await senderHop.canAccountPromote(address, 100)) {
+    if (await withConnectRetry(() => senderHop.canAccountPromote(address, 100))) {
       console.log(`[hop] Already HOP-eligible — skipping LTS claim.`);
     } else {
       const peopleConn = createPeopleClient(network.people.ws);
@@ -146,7 +166,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
       }
       await waitForHopAuthorization(senderHop, address);
     }
-  }, 300_000);
+  }, ATTESTATION_TIMEOUT_MS + 300_000);
 
   afterAll(() => {
     senderHop?.destroy();

@@ -37,6 +37,7 @@ const ORDER = [
   "alias-claim.test.ts",
   "pop-gate.test.ts",
   "pop-gate-by-proof.test.ts",
+  "lite-alias-bind.test.ts",
   "dotns.test.ts",
   "statement.test.ts",
   "storage.test.ts",

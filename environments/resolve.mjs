@@ -4,9 +4,8 @@
 //   node environments/resolve.mjs overrides <manifest.json>
 //     everything the gate exports to $GITHUB_ENV for this network: PPN_BINARIES
 //     (the engine-delivered pins), NETWORK/PPN_NETWORK (which network every engine
-//     call targets), FORK_DIR_NAME (the engine's per-network bundle dir),
-//     FRESH_BITE (1 when no published bundle exists and the gate bites live), and
-//     FORK_IDENTITY_BACKEND=none when the network's fork runs no identity backend
+//     call targets), FORK_DIR_NAME (the engine's per-network bundle dir) and
+//     FRESH_BITE (1 when no published bundle exists and the gate bites live)
 //
 //   node environments/resolve.mjs binaries <manifest.json> --dir <engineBinDir>
 //     downloads any file-delivered pins into the engine's bin/. Every current pin
@@ -47,13 +46,11 @@ import {
   binaryPlan,
   candidateMatrix,
   mergeTarget,
-  parseReleaseRef,
   allowedSources,
   ppnOverrides,
   envTagPins,
   NETWORK_META,
   CHAINS,
-  SERVICES,
 } from './release-map.mjs';
 import { getRelease, downloadAssetBytes } from './github.mjs';
 
@@ -124,22 +121,6 @@ if (mode === 'binaries') {
   }
 } else if (mode === 'tests') {
   for (const t of manifest.tests) console.log(t);
-} else if (mode === 'repos') {
-  // Every GitHub repo this manifest's pins are fetched from, plus the engine —
-  // what a token must be able to read for THIS run. Emitted so the gate can
-  // preflight exactly what it needs rather than a hardcoded list that drifts as
-  // manifests move between private and public (…-community) sources.
-  const repos = new Set(['paritytech/previewnet-engine']);
-  for (const pin of [
-    ...Object.values(manifest.binaries ?? {}),
-    ...Object.values(manifest.services ?? {}),
-    ...Object.values(manifest.chains ?? {}).map((c) => c.runtime),
-  ]) {
-    if (typeof pin !== 'string') continue;
-    const ref = parseReleaseRef(pin);
-    if (ref.repo) repos.add(ref.repo); // a file or an artifact needs no token
-  }
-  for (const r of [...repos].sort()) console.log(r);
 } else if (mode === 'sources') {
   console.log(allowedSources(manifest.network));
 } else if (mode === 'meta') {
@@ -152,10 +133,6 @@ if (mode === 'binaries') {
   console.log(`FORK_DIR_NAME=fork-bundle-${net}`);
   console.log(`FRESH_BITE=${NETWORK_META[net]?.freshBite ? 1 : 0}`);
   console.log(`FORK_WAIT_SECONDS=${NETWORK_META[net]?.waitSeconds ?? 900}`);
-  // Whether the fork RUNS an identity backend is engine wiring (SERVICES), not a
-  // manifest pin — the canonical deliberately omits identity-backend so the engine's
-  // own default tag governs; only a candidate override exports DUB_TAG.
-  if (!SERVICES[net]?.['identity-backend']) console.log('FORK_IDENTITY_BACKEND=none');
   for (const [envVar, tag] of Object.entries(envTagPins(manifest))) console.log(`${envVar}=${tag}`);
   console.log(`PPN_BINARIES=${ppnOverrides(manifest)}`);
 } else if (mode === 'candidates') {

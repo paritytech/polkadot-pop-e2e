@@ -38,19 +38,20 @@
  */
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { getPolkadotSigner } from "polkadot-api/signer";
+import { createPgasPayerSigner } from "./claim-signer.js";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { verifiableFor } from "./verifiable-loader.js";
 import {
   encodeMembers,
   fetchRingMembers,
+  ringExponent,
   LITE_PEOPLE_IDENTIFIER,
   waitForInclusion,
 } from "./ring.js";
 import { getCachedRingLocation } from "./ring-cascade.js";
-import { deriveKeyPair } from "./attestation.js";
 import type { PeopleApi, RichAssetHubApi } from "./client.js";
 import type { AttestedCredentials } from "./credentials.js";
+import { personKey, personRingEntropy } from "./truapi-identity.js";
 
 const PROOF_PREFIX = new TextEncoder().encode("alias-accounts"); // 14 bytes
 
@@ -170,7 +171,7 @@ export async function setAliasAccount(args: {
   peopleApi: PeopleApi;
   peopleClient: PolkadotClient;
   assetHubApi: RichAssetHubApi;
-  creds: Pick<AttestedCredentials, "address" | "entropy" | "publicKey">;
+  creds: Pick<AttestedCredentials, "address" | "entropy" | "publicKey" | "networkSuffix">;
   /** 32-byte context (build with `customAliasContext("...")`). */
   context: Uint8Array;
 }): Promise<SetAliasResult> {
@@ -178,7 +179,7 @@ export async function setAliasAccount(args: {
     throw new Error(`context must be 32 bytes, got ${args.context.length}`);
   }
 
-  const verifiableEntropy = blake2b256(args.creds.entropy);
+  const verifiableEntropy = personRingEntropy(args.creds);
 
   // Find the lite-person's ring assignment. Prefer the Ring Inclusion
   // probe's cached ring index — that part is stable for the account's
@@ -193,19 +194,16 @@ export async function setAliasAccount(args: {
 
   // Derive the attested account's sr25519 keypair once — same key
   // across all retry attempts.
-  const keyPair = deriveKeyPair(args.creds.entropy);
+  const keyPair = personKey(args.creds);
   if (Binary.toHex(keyPair.publicKey) !== Binary.toHex(args.creds.publicKey)) {
     throw new Error(
       `[alias-claim] keypair pubkey ${Binary.toHex(keyPair.publicKey)} != creds.publicKey ${Binary.toHex(args.creds.publicKey)}`,
     );
   }
-  const signer = getPolkadotSigner(
-    keyPair.publicKey,
-    "Sr25519",
-    async (input) => keyPair.sign(input),
-  );
+  const signer = createPgasPayerSigner(keyPair);
 
   const { one_shot } = verifiableFor();
+  const exponent = await ringExponent(args.peopleApi, "LitePeople");
   const ctxPreview = Binary.toHex(args.context).slice(0, 14);
 
   let lastErr: unknown;
@@ -225,6 +223,7 @@ export async function setAliasAccount(args: {
 
     const message = proofMessage(args.creds.publicKey, proofValidAt);
     const { proof, alias } = one_shot(
+      exponent,
       verifiableEntropy,
       snap.encodedMembers,
       args.context,
@@ -241,7 +240,7 @@ export async function setAliasAccount(args: {
     });
 
     try {
-      const result = await tx.signAndSubmit(signer);
+      const result = await tx.createAndSubmit(signer);
       if (!result.ok) {
         throw new Error(
           `[alias-claim] set_alias_account failed: ${JSON.stringify(result.dispatchError)}`,

@@ -23,7 +23,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import {
   createPeopleClient,
   createAssetHubClient,
@@ -41,6 +40,7 @@ import {
   customAliasContext,
   setAliasAccount,
 } from "../lib/alias-claim.js";
+import { personRingEntropy } from "../lib/truapi-identity.js";
 
 // Same as `PopCounter.CTX` in contracts/PopCounter.sol — registering
 // under this context here makes the attested account eligible to call
@@ -194,7 +194,7 @@ describe.skipIf(!getNetworkConfig().features.pgas || !needsAttestation())(
         // Register. The helper computes message = blake2_256(
         //   "alias-accounts" || account_pubkey || proof_valid_at_u64_LE),
         // generates the ring-VRF proof, and submits set_alias_account.
-        const verifiableEntropy = blake2b256(creds.entropy);
+        const verifiableEntropy = personRingEntropy(creds);
         console.log(
           `[alias-claim] entropy=${Binary.toHex(verifiableEntropy).slice(0, 14)}… ctx=${contextHex.slice(0, 14)}…`,
         );

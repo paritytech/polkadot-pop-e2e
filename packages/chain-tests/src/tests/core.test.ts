@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { createAssetHubClient, type AssetHubApi } from "../lib/client.js";
 import { createTestAccount, type TestAccount } from "../lib/signer.js";
-import { submitAndWatchBestBlock } from "../lib/tx.js";
+import { submitAndWatch } from "@parity/product-sdk-tx";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 
@@ -50,13 +50,11 @@ describe("Core: Asset Hub", () => {
     const remark = Binary.fromText(`triangle-e2e-health-${Date.now()}`);
     const start = Date.now();
 
-    const result = await submitAndWatchBestBlock(
-      api.tx.System.remark({ remark }),
-      account.signer,
-    );
+    const result = await submitAndWatch(api.tx.System.remark({ remark }), account.signer);
+    if (!result.ok) throw result.error;
     const elapsed = Date.now() - start;
 
-    console.log(`[core] Remark tx ok=${result.ok} block=#${result.block?.number} (${elapsed}ms)`);
-    expect(result.ok).toBe(true);
+    console.log(`[core] Remark tx ok=${result.value.ok} block=#${result.value.block.number} (${elapsed}ms)`);
+    expect(result.value.ok).toBe(true);
   });
 });
