@@ -40,12 +40,12 @@
     "@polkadot/util-crypto": "^14.0.3",
     "@pop-e2e/papi": "workspace:*",
     "@scure/sr25519": "^2.4.0",
-    "dotenv": "^18.0.9",
+    "dotenv": "^18.0.10",
     "hop-sdk": "^0.2.1",
     "multiformats": "^14.0.0",
     "polkadot-api": "^3.3.0",
     "verifiablejs": "1.6.0",
-    "viem": "^2.57.16"
+    "viem": "^2.57.17"
   },
   "devDependencies": {
     "@parity/truapi": "0.29.0",
