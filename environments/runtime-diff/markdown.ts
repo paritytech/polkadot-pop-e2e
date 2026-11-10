@@ -48,7 +48,8 @@ function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
   };
 }
 
-const isBreaking = (chain: Diffed, named?: Set<string>): boolean => {
+/** The job summary's per-chain decision. summary.ts must agree with it without failing tests (summary.test.ts checks that). */
+export const isBreaking = (chain: Diffed, named?: Set<string>): boolean => {
   const b = breakingOf(chain, named);
   return b.entries.length > 0 || b.extensions || b.missing.length > 0;
 };
