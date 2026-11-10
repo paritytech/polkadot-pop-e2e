@@ -143,9 +143,10 @@ When a runtime change breaks product-sdk or truapi on purpose:
 
 ```
 packages/chain-tests/   the suite — vitest, endpoint-agnostic
+packages/load-tests/    Jollity-shaped load on the People chain: statement store, host, chain
 packages/papi/          generated PAPI descriptors, refreshed daily
 environments/           release map, resolver, and one manifest per network
-.github/workflows/      release gate, baseline scan, PAPI refresh
+.github/workflows/      release gate, baseline scan, PAPI refresh, load test
 ```
 
 Two workflows keep the repo honest without anyone tending it: **baseline scan**
@@ -161,7 +162,9 @@ it as a dependency in production, and do not point it at an account holding real
 value — `TEST_MNEMONIC` should always name a throwaway.
 
 Secrets are read from the environment and are never committed. Nothing in this
-repo needs a credential to run against a public testnet or a local fork.
+repo needs a credential to run against a public testnet or a local fork, except
+a load test on a live network, which signs as root with that network's
+`SUDO_URI` from the `load-<network>` GitHub environment.
 
 Report a vulnerability through the process in
 [paritytech/.github](https://github.com/paritytech/.github/blob/main/SECURITY.md).
