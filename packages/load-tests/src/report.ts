@@ -100,6 +100,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.connectionsLost) > 0) findings.push(`RPC: ${total(stats.connectionsLost)} connections dropped`);
   if (total(stats.subscribeFailures) > 0) findings.push(`RPC: ${total(stats.subscribeFailures)} subscriptions not opened`);
   if (total(stats.subscriptionsEnded) > 0) findings.push(`statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early`);
+  if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} hosts failed`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);

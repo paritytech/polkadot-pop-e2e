@@ -12,6 +12,8 @@ export class SignallingStats {
   subscribed = 0;
   subscribeFailures: Record<string, number> = {};
   subscriptionsEnded: Record<string, number> = {};
+  /** Subscriptions open through the game that delivered none of its statements. */
+  silentSubscriptions = 0;
   /** `statement_submit` answers by status (and reason), or the error the request ended with. */
   submits: Record<string, number> = {};
   /** Bundles not sent because `maxInflight` submits were still waiting, as the app does. */

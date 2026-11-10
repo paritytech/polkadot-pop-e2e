@@ -29,6 +29,7 @@ export class Ghost {
   private sequence = 0;
   private inflight = 0;
   private stopped = false;
+  private delivered = 0;
 
   constructor(
     private readonly player: Player,
@@ -63,7 +64,9 @@ export class Ghost {
 
   async leave(): Promise<void> {
     this.stopSending();
-    if (this.subscription) await this.connection.unsubscribe(UNSUBSCRIBE, this.subscription, this.game.profile.submitTimeoutMs).catch(() => {});
+    if (!this.subscription) return;
+    if (this.delivered === 0) this.game.stats.silentSubscriptions++;
+    await this.connection.unsubscribe(UNSUBSCRIBE, this.subscription, this.game.profile.submitTimeoutMs).catch(() => {});
   }
 
   private schedule(delayMs: number): void {
@@ -114,6 +117,7 @@ export class Ghost {
       if (!probe || probe.sender === this.player.index) continue;
       if (probe.sentAt < window.start || probe.sentAt >= window.end) continue;
       stats.deliveredInWindow++;
+      this.delivered++;
       stats.latency.add(now - probe.sentAt);
     }
   }

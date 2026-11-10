@@ -75,6 +75,7 @@ async function play(ghost: number): Promise<void> {
   const inbox = topicOf(`${plan.namespace}/inbox/${index}`);
   const channel = topicOf(`${plan.namespace}/bundle/${index}`);
   await sleepUntil(plan.joinAt[ghost]);
+  let delivered = 0;
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: [inbox, plan.room] } }).subscribe({
     next(page) {
       const now = Date.now();
@@ -82,6 +83,7 @@ async function play(ghost: number): Promise<void> {
         const probe = statement.data && readProbe(statement.data);
         if (!probe || probe.sender === index || probe.sentAt < window.start || probe.sentAt >= window.end) continue;
         stats.deliveredInWindow++;
+        delivered++;
         stats.latency.add(now - probe.sentAt);
       }
     },
@@ -104,6 +106,7 @@ async function play(ghost: number): Promise<void> {
     next += connecting ? profile.connectingIntervalMs : profile.linkedIntervalMs;
   }
   await sleepUntil(plan.leaveAt);
+  if (delivered === 0) stats.silentSubscriptions++;
   subscription.unsubscribe();
 }
 
