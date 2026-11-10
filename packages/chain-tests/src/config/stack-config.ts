@@ -24,6 +24,12 @@ export interface NetworkFeatures {
   identity: boolean;
   /** People runs pallet-game: the Game sign-up, draws and prizes product-sdk reads. */
   game: boolean;
+  /**
+   * DotnsGateway.DispatcherAddress points at a RootGatewayDispatcher, which product-sdk's address
+   * discovery walks (TARGET() → protocolRegistry()). Previewnet's points at the PoP controller
+   * itself, so discovery cannot work there yet.
+   */
+  dotnsDiscovery: boolean;
 }
 
 export interface NetworkConfig {
@@ -68,14 +74,14 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack-paseo-next.parity-testnet.parity.io/.well-known/trinity-stack.json",
       key: "0x2b89d8ca74aa2e11ab55f5af1168cd6929b88d1998aecd979b42cfc1078d5377",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, dotnsDiscovery: true },
   },
   previewnet: {
     stack: {
       url: "https://previewnet.substrate.dev/.well-known/trinity-stack.json",
       key: "0x4d43362f03d5511632a210632d1fb7760b5a663580f12ffca34619f79357e239",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, dotnsDiscovery: false },
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
@@ -88,7 +94,7 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack.api.polkadotcommunity.foundation/.well-known/trinity-stack.json",
       key: "0x1fbc5eed0deb09fe4eeefdf45350b4b4cf36370d9bbb93ca2818b076737a0ed3",
     },
-    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true, dotnsDiscovery: false },
   },
 };
 
