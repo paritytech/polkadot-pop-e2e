@@ -153,8 +153,9 @@ jobs:
       - name: Point the load at the fork
         run: |
           echo "STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json" >> "$GITHUB_ENV"
-          # People is para 1502 on both forkable networks.
-          metrics=$(jq -r '[.parachains["1502"][0].collators[].prometheus_uri] | join(",")' "ppn/data-fork-$PPN_NETWORK/zombie.json" || true)
+          # People is para 1502 on both forkable networks; the data dir name depends on the network.
+          zombie=$(find ppn -maxdepth 2 -path 'ppn/data-fork*/zombie.json' | head -1)
+          metrics=$(jq -r '[.parachains["1502"][0].collators[].prometheus_uri] | join(",")' "$zombie" || true)
           if [ -z "$metrics" ]; then echo "::warning::no People Prometheus endpoint in zombie.json; steps report no node metrics"; fi
           echo "People metrics: $metrics"
           echo "METRICS=$metrics" >> "$GITHUB_ENV"
