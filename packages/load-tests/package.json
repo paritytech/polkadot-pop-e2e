@@ -1,0 +1,31 @@
+{
+  "name": "@pop-e2e/load-tests",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "load": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@novasamatech/sdk-statement": "^0.6.0",
+    "@polkadot-api/substrate-bindings": "^0.21.2",
+    "@polkadot-api/utils": "^0.4.0",
+    "@polkadot-labs/hdkd": "^0.0.28",
+    "@polkadot-labs/hdkd-helpers": "^0.0.34",
+    "@pop-e2e/chain-tests": "workspace:*",
+    "@pop-e2e/papi": "workspace:*",
+    "@scure/sr25519": "^2.4.0",
+    "polkadot-api": "^3.3.0",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
