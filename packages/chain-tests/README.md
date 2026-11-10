@@ -45,6 +45,7 @@ curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/p
 | `storage.test.ts` | LTS allowance claim on People → XCM to Bulletin → upload + IPFS retrieve |
 | `dotns.test.ts` | DotNS resolution on Asset Hub |
 | `game-signup.test.ts` | product-sdk reads the Game draw event ids, a fresh account's sign-up requirement, and a past game's draws and winners on People |
+| `usernames-reads.test.ts` | product-sdk reads a fresh account's usernames, an unowned username's personhood state, and one registered username back to its owner on People |
 | `probes/ib-health.test.ts` | truapi-host attests a fresh account and the backend's search lists it (gates everything else) |
 | `probes/ring-health.test.ts` | People-chain ring-builder produced rebuilds in last 200 blocks |
 
