@@ -53,6 +53,11 @@ jobs:
       - name: Unit tests (stack descriptor mapping)
         run: pnpm --filter @pop-e2e/chain-tests exec vitest run src/tests/unit/stack-config.test.ts
 
+      - name: Typecheck and unit-test the load tests
+        run: |
+          pnpm --filter @pop-e2e/load-tests typecheck
+          pnpm --filter @pop-e2e/load-tests test
+
       # The manifests are the gate's input; a malformed one should fail here in
       # seconds rather than after a runner has spent 25 minutes forking a network.
       - name: Every manifest resolves
