@@ -35,11 +35,24 @@ export async function rpc(url, method, params = []) {
   try {
     return await new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`${method} timed out after ${RPC_TIMEOUT_MS}ms`)), RPC_TIMEOUT_MS);
-      ws.onopen = () => ws.send(JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }));
+      ws.onopen = () => {
+        try {
+          ws.send(JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }));
+        } catch (err) {
+          clearTimeout(t);
+          reject(new Error(`${method}: send failed: ${err.message}`));
+        }
+      };
       ws.onmessage = (m) => {
         clearTimeout(t);
-        const body = JSON.parse(m.data);
-        body.error ? reject(new Error(`${method}: ${JSON.stringify(body.error)}`)) : resolve(body.result);
+        // A malformed frame must reject this call. Thrown from the socket callback it
+        // would escape as an uncaught exception and change the CLI's exit code.
+        try {
+          const body = JSON.parse(m.data);
+          body.error ? reject(new Error(`${method}: ${JSON.stringify(body.error)}`)) : resolve(body.result);
+        } catch (err) {
+          reject(new Error(`${method}: malformed response: ${err.message}`));
+        }
       };
       ws.onerror = () => {
         clearTimeout(t);

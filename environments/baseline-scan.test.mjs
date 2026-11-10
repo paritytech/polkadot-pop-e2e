@@ -1,6 +1,53 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { attribute, scanManifest, applyDrift, renderSummary } from './baseline-scan.mjs';
+import { attribute, scanManifest, applyDrift, renderSummary, rpc } from './baseline-scan.mjs';
+
+// A WebSocket stand-in: every request is answered with `frame()`, delivered the way
+// the real socket delivers it (from a later tick, through onmessage).
+async function withFakeSocket(frame, body) {
+  class FakeSocket {
+    constructor(url) {
+      this.url = url;
+      setImmediate(() => this.onopen?.());
+    }
+    send() {
+      setImmediate(() => this.onmessage?.({ data: frame }));
+    }
+    close() {}
+  }
+  const original = globalThis.WebSocket;
+  globalThis.WebSocket = FakeSocket;
+  try {
+    return await body();
+  } finally {
+    globalThis.WebSocket = original;
+  }
+}
+
+describe('rpc', () => {
+  it('resolves with the result of a well-formed response', async () => {
+    const result = await withFakeSocket('{"id":1,"jsonrpc":"2.0","result":"ok"}', () =>
+      rpc('wss://fake', 'system_version')
+    );
+    assert.equal(result, 'ok');
+  });
+
+  it('rejects, not throws out of the socket callback, on a malformed frame', async () => {
+    await withFakeSocket('{not json', () =>
+      assert.rejects(rpc('wss://fake', 'system_version'), /system_version: malformed response/)
+    );
+  });
+
+  it('rejects on a null frame, which has no error field to read', async () => {
+    await withFakeSocket('null', () => assert.rejects(rpc('wss://fake', 'system_version'), /malformed response/));
+  });
+
+  it('rejects on a JSON-RPC error object', async () => {
+    await withFakeSocket('{"id":1,"jsonrpc":"2.0","error":{"code":-1,"message":"nope"}}', () =>
+      assert.rejects(rpc('wss://fake', 'system_version'), /nope/)
+    );
+  });
+});
 
 const CODE_LIVE = Buffer.from('live-runtime-bytes');
 const CODE_OLD = Buffer.from('old-runtime-bytes!');
