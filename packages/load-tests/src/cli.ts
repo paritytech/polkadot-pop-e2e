@@ -19,7 +19,7 @@ Commands:
   summary     Merge the shard results in --out into summary.json and summary.md
 
 Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
-  --rpc <ws,...>        People RPC endpoints instead of a stack; repeatable
+  --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People endpoint
   --network <key>       previewnet | paseo-next-v2 (descriptors; with --rpc, default previewnet)
   --sudo <uri>          Root key URI; default SUDO_URI, else //Alice on a PPN fork
   --metrics <url,...>   Prometheus endpoints of the People nodes; repeatable

@@ -38,8 +38,9 @@ function descriptorNetwork(network: string): DescriptorNetwork {
 
 /**
  * The stack `STACK` selects, else the network `NETWORK` (or `network`) selects, read the way the
- * chain-tests read it; `rpc` adds People endpoints to it, such as a fork's second node. Without
- * `STACK`, `rpc` alone is the whole target, such as a local dev node.
+ * chain-tests read it. `rpc` replaces the stack's People endpoint for ghosts and hosts alike,
+ * such as a fork's node port in place of the dashboard proxy in front of it. Without `STACK`,
+ * `rpc` alone is the whole target, such as a local dev node.
  */
 export async function resolveTarget(options: TargetOptions): Promise<Target> {
   if (options.rpc.length > 0 && !process.env.STACK) {
@@ -58,14 +59,15 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
   const { getNetworkConfig, networkKey } = await import("@pop-e2e/chain-tests/src/config/networks.js");
   const config = getNetworkConfig();
   const sudoUri = options.sudoUri ?? config.testAccountUri;
+  const rpc = options.rpc.length > 0 ? options.rpc : [config.people.ws];
   return {
     label: config.name,
-    rpc: [config.people.ws, ...options.rpc],
+    rpc,
     network: descriptorNetwork(networkKey()),
     sudo: sudoUri ? keypairFromUri(sudoUri) : undefined,
     metrics: options.metrics,
     hostEnv: {
-      HOST_CLI_PEOPLE_WS: config.people.ws,
+      HOST_CLI_PEOPLE_WS: rpc[0],
       HOST_CLI_ASSET_HUB_WS: config.assetHub.ws,
       HOST_CLI_BULLETIN_WS: config.bulletin.ws,
       ...(config.identityBackend && { HOST_CLI_IDENTITY_BACKEND_BASE: config.identityBackend }),

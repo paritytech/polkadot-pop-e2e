@@ -159,13 +159,15 @@ jobs:
           if [ -z "$metrics" ]; then echo "::warning::no People Prometheus endpoint in zombie.json; steps report no node metrics"; fi
           echo "People metrics: $metrics"
           echo "METRICS=$metrics" >> "$GITHUB_ENV"
+          # The stack's People endpoint is the dashboard proxy; the load goes to the node itself.
+          echo "PEOPLE_RPC=$(jq -r '[.parachains["1502"][0].collators[].ws_uri] | join(",")' "$zombie")" >> "$GITHUB_ENV"
 
       - name: Play the load
         run: |
           set -euo pipefail
           largest=$(tr ',' '\n' <<< "$STEPS" | sort -n | tail -1)
           read -ra extra <<< "$ARGS"
-          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" "${extra[@]}"; }
+          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" --rpc "$PEOPLE_RPC" "${extra[@]}"; }
           if [ "$LAYER" = chain ]; then
             load chain --players "$largest" --take-over
             exit 0

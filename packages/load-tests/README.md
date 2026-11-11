@@ -57,8 +57,10 @@ and `bun` on `PATH`. Against a stack the hosts get its endpoints; against a dev 
 `HOST_CLI_LOCAL_NETWORK_CONFIG` at a [local network file](https://github.com/paritytech/trinity-user-agents/blob/main/docs/local-network.md)
 that lists People, Asset Hub and Bulletin nodes.
 
-Against a fork or a live network, set `STACK` or `NETWORK` as for the chain-tests and leave out
-`--rpc`; `--rpc` then adds People endpoints to the stack's.
+Against a fork or a live network, set `STACK` or `NETWORK` as for the chain-tests. `--rpc` then
+replaces the stack's People endpoint: a PPN fork's stack points at the dashboard's proxy on port
+8090, a single process that loses deliveries at a few hundred players, so fork runs pass the
+People node's own port (`ws://127.0.0.1:10010`).
 
 In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
 and plays the layer there, or plays it against the live network with one runner per process.
