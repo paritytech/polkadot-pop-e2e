@@ -6,6 +6,9 @@ import type { HostGhostPlan } from "./host.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt } from "./profile.js";
 import { probePayload, readProbe, topicOf, type Hex } from "./statement.js";
 import { SignallingStats, bump, countDeliveryGap } from "./stats.js";
+import { seatOf } from "./seating.js";
+
+type Seat = ReturnType<typeof seatOf>;
 
 interface Result<T> {
   isErr(): boolean;
@@ -48,12 +51,12 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
   ]);
 }
 
-async function send(ghost: number, index: number, channel: Hex, sequence: number, connecting: boolean): Promise<void> {
+async function send(ghost: number, index: number, channel: Hex, seat: Seat, sequence: number, connecting: boolean): Promise<void> {
   const sentAt = Date.now();
   const statement: HostStatement = {
     expiry: (BigInt(Math.floor(sentAt / 1000) + profile.ttlSeconds) << 32n) | BigInt(sequence),
     channel,
-    topics: [plan.room],
+    topics: seat.topics,
     data: toHex(probePayload({ sender: index, sequence, sentAt }, bundleBytes(profile, connecting))) as Hex,
   };
   try {
@@ -64,7 +67,10 @@ async function send(ghost: number, index: number, channel: Hex, sequence: number
     stats.submitRtt.add(Date.now() - sentAt);
     if (submitted.isErr()) return bump(stats.submits, `submit:${describe(submitted.error)}`);
     bump(stats.submits, "new");
-    if (sentAt >= window.start && sentAt < window.end) stats.acceptedInWindow++;
+    if (sentAt >= window.start && sentAt < window.end) {
+      stats.acceptedInWindow++;
+      stats.expectedDeliveries += seat.recipients;
+    }
   } catch (error) {
     bump(stats.submits, `error:${(error as Error).message}`);
   }
@@ -74,9 +80,10 @@ async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
   const inbox = topicOf(`${plan.namespace}/inbox/${index}`);
   const channel = topicOf(`${plan.namespace}/bundle/${index}`);
+  const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
   let lastDeliveryAt = 0;
-  const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: [inbox, plan.room] } }).subscribe({
+  const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: [inbox, ...seat.topics] } }).subscribe({
     next(page) {
       const now = Date.now();
       for (const statement of page.statements) {
@@ -101,7 +108,7 @@ async function play(ghost: number): Promise<void> {
     if (inflight >= profile.maxInflight) stats.skippedInflight++;
     else {
       inflight++;
-      void send(ghost, index, channel, sequence++, connecting).finally(() => inflight--);
+      void send(ghost, index, channel, seat, sequence++, connecting).finally(() => inflight--);
     }
     next = nextSendAt(profile, plan.phase, plan.gameStart, next, connecting);
   }

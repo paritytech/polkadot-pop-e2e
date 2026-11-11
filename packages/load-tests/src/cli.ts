@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
+import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { signUpForAllowance, waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
@@ -42,6 +43,8 @@ Signalling:
   --profile <name>      ${Object.keys(PROFILES).join(" | ")} (default jollity)
   --phase <name>        sync: every ghost opens the room at the same instant and re-sends on one
                         beat from it, as the app does (default); random: each at its own phase
+  --rooms <name>        game: one room for the whole game, as the app does (default); tables: one
+                        topic per table of each round, so a player receives only its co-players' bundles
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
 
@@ -88,6 +91,7 @@ const { positionals, values } = parseArgs({
     drain: { type: "string", default: "10" },
     cooldown: { type: "string", default: "10" },
     profile: { type: "string", default: "jollity" },
+    rooms: { type: "string", default: "game" },
     phase: { type: "string", default: "sync" },
     "run-id": { type: "string", default: `local-${Date.now()}` },
     out: { type: "string" },
@@ -204,6 +208,7 @@ switch (values.help ? undefined : command) {
     let seed = values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
+    if (!ROOMS.includes(values.rooms as Rooms)) throw new Error(`--rooms must be one of ${ROOMS.join(", ")}, not '${values.rooms}'`);
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
       seed = gameSeed(target, steps[0]);
@@ -223,6 +228,7 @@ switch (values.help ? undefined : command) {
       timing,
       profile,
       phase: values.phase as Phase,
+      rooms: values.rooms as Rooms,
       target,
       outDir,
     };

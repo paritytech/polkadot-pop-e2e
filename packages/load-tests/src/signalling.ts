@@ -6,7 +6,7 @@ import { derivePlayer, type Player } from "./keys.js";
 import { gameMs, type Phase, type SignallingProfile } from "./profile.js";
 import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
-import { topicOf } from "./statement.js";
+import type { Rooms } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
 import type { Target } from "./target.js";
 
@@ -33,6 +33,7 @@ export interface StepRun {
   profile: SignallingProfile;
   /** How the ghosts' bundles line up: `sync` as the app sends them, or `random`. */
   phase: Phase;
+  rooms: Rooms;
   target: Target;
   outDir: string;
 }
@@ -121,7 +122,8 @@ async function runStep(
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
   const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
-  const room: GhostRoom = { profile, phase: run.phase, namespace, room: topicOf(`${namespace}/room`), gameStart: windowStart, window, stats };
+  const seating = { rooms: run.rooms, players: count };
+  const room: GhostRoom = { profile, phase: run.phase, namespace, seating, gameStart: windowStart, window, stats };
 
   await sleepUntil(stepStart);
   const players = await startPlayers({ count, stepStart, room });

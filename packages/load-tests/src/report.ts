@@ -79,7 +79,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   const stats = new SignallingStats();
   for (const result of results) stats.add(result.stats);
   const clientLagP99Ms = Math.max(...results.map((result) => result.clientLoopDelayMs.p99));
-  const expectedDeliveries = stats.acceptedInWindow * (players - 1);
+  const { expectedDeliveries } = stats;
   const loss = expectedDeliveries > 0 ? Math.max(0, 1 - stats.deliveredInWindow / expectedDeliveries) : 1;
   const nodes: Record<string, NodeSummary> = {};
   const metered = results.find((result) => result.metrics);

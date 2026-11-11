@@ -34,6 +34,8 @@ export class SignallingStats {
   skippedInflight = 0;
   /** Statements the node accepted as new whose probe time falls in the measurement window. */
   acceptedInWindow = 0;
+  /** Deliveries those statements owe: for each, the ghosts that listen on its topics. */
+  expectedDeliveries = 0;
   /** Deliveries to this shard's ghosts of statements from other ghosts sent in the window. */
   deliveredInWindow = 0;
   bytesSubmitted = 0;

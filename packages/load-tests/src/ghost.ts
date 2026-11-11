@@ -2,6 +2,7 @@ import type { Player } from "./keys.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection, RpcError } from "./rpc.js";
 import { probePayload, readProbe, signStatement, topicOf, type Hex } from "./statement.js";
+import { seatOf, type Seating } from "./seating.js";
 import { bump, countDeliveryGap, type SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
@@ -9,7 +10,7 @@ export interface GhostRoom {
   phase: Phase;
   /** Prefix of every topic and channel of this step, so steps and runs never share one. */
   namespace: string;
-  room: Hex;
+  seating: Seating;
   gameStart: number;
   window: { start: number; end: number };
   stats: SignallingStats;
@@ -25,6 +26,7 @@ const UNSUBSCRIBE = "statement_unsubscribeStatement";
 export class Ghost {
   private readonly inbox: Hex;
   private readonly channel: Hex;
+  private readonly seat: { topics: Hex[]; recipients: number };
   private subscription: string | undefined;
   private timer: NodeJS.Timeout | undefined;
   private nextAt = 0;
@@ -41,12 +43,13 @@ export class Ghost {
   ) {
     this.inbox = topicOf(`${game.namespace}/inbox/${player.index}`);
     this.channel = topicOf(`${game.namespace}/bundle/${player.index}`);
+    this.seat = seatOf(game.namespace, game.seating, game.profile, player.index);
   }
 
   async join(): Promise<void> {
     const { stats, profile } = this.game;
     try {
-      this.subscription = await this.connection.subscribe(SUBSCRIBE, [{ matchAny: [this.inbox, this.game.room] }], profile.submitTimeoutMs, {
+      this.subscription = await this.connection.subscribe(SUBSCRIBE, [{ matchAny: [this.inbox, ...this.seat.topics] }], profile.submitTimeoutMs, {
         onNotification: (result) => this.receive(result),
         onEnd: (reason) => bump(stats.subscriptionsEnded, reason),
       });
@@ -95,7 +98,7 @@ export class Ghost {
     const sequence = this.sequence++;
     try {
       const statement = await signStatement(this.player, {
-        topics: [this.game.room],
+        topics: this.seat.topics,
         channel: this.channel,
         expirySeconds: Math.floor(sentAt / 1000) + profile.ttlSeconds,
         sequence,
@@ -105,7 +108,10 @@ export class Ghost {
       const result = (await this.connection.request("statement_submit", [statement], profile.submitTimeoutMs)) as { status: string; reason?: string };
       stats.submitRtt.add(Date.now() - sentAt);
       bump(stats.submits, result.reason ? `${result.status}:${result.reason}` : result.status);
-      if (result.status === "new" && sentAt >= window.start && sentAt < window.end) stats.acceptedInWindow++;
+      if (result.status === "new" && sentAt >= window.start && sentAt < window.end) {
+        stats.acceptedInWindow++;
+        stats.expectedDeliveries += this.seat.recipients;
+      }
     } catch (error) {
       bump(stats.submits, error instanceof RpcError ? `rpc-error:${error.code}` : `error:${(error as Error).message}`);
     } finally {

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
-import type { Hex } from "./statement.js";
+import type { Seating } from "./seating.js";
 import { sleepUntil, type HostUsage, type StartPlayers, type StepRun } from "./signalling.js";
 import { bump, type SignallingStats } from "./stats.js";
 
@@ -18,7 +18,7 @@ export interface HostGhostPlan {
   profile: SignallingProfile;
   phase: Phase;
   namespace: string;
-  room: Hex;
+  seating: Seating;
   gameStart: number;
   window: { start: number; end: number };
   /** Ghost `k` of the host is player `firstPlayer + k` and its product account `k`. */
@@ -93,7 +93,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const plan: HostGhostPlan = {
         profile: room.profile,
         namespace: room.namespace,
-        room: room.room,
+        seating: room.seating,
         phase: room.phase,
         gameStart: room.gameStart,
         window: room.window,
