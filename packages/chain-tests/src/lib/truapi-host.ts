@@ -1,14 +1,14 @@
 /**
  * The host side of the tests, run through the truapi-host CLI so the gate
  * exercises the same truapi core hosts ship: attestation, and the statement
- * allowance and PGAS claims. The CLI's preset chains are pointed at the stack's
- * endpoints and its identity backend.
+ * allowance and PGAS claims. The CLI runs against the stack the tests read: the
+ * `STACK` descriptor when set, such as a gate fork's, else the network's built-in one.
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
-import { getNetworkConfig, networkKey } from "../config/networks.js";
+import { getNetworkConfig, networkKey, stackOverride } from "../config/networks.js";
 import { ATTEST_TIMEOUT_MS } from "./attestation-budget.js";
 
 const run = promisify(execFile);
@@ -21,21 +21,6 @@ const binary = () => process.env.TRUAPI_HOST_BIN ?? "truapi-host";
 
 /** The dotNS TLD truapi derives the person's identities under on this network. */
 export const networkSuffix = () => getNetworkConfig().tld;
-
-function hostEnv(mnemonic: string): NodeJS.ProcessEnv {
-  const network = getNetworkConfig();
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HOST_CLI_SIGNER_MNEMONIC: mnemonic,
-    TRUAPI_HOST_NO_UPDATE: "1",
-    // The preset's genesis hashes stay, so this only works on the preset's network or a fork of it.
-    HOST_CLI_PEOPLE_WS: network.people.ws,
-    HOST_CLI_ASSET_HUB_WS: network.assetHub.ws,
-    HOST_CLI_BULLETIN_WS: network.bulletin.ws,
-  };
-  if (network.identityBackend) env.HOST_CLI_IDENTITY_BACKEND_BASE = `${network.identityBackend}/api/v1`;
-  return env;
-}
 
 let pinnedCheck: Promise<void> | undefined;
 
@@ -66,9 +51,10 @@ async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): 
     throw new Error(`[truapi-host-setup] truapi-host doesn't have a CLI preset for network ${networkKey()}`);
   }
   const bin = binary();
+  const stack = stackOverride();
   try {
-    const { stdout } = await run(bin, [...args, "--network", networkKey()], {
-      env: hostEnv(mnemonic),
+    const { stdout } = await run(bin, [...args, ...(stack ? ["--stack", stack] : ["--network", networkKey()])], {
+      env: { ...process.env, HOST_CLI_SIGNER_MNEMONIC: mnemonic, TRUAPI_HOST_NO_UPDATE: "1" },
       timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,
     });
