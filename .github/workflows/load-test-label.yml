@@ -1,7 +1,8 @@
 name: Load test (PR label)
 
-# Temporary, until load-test.yml is on main and can be dispatched: the `load-test` label on a
-# pull request plays a chain game of 200 players, NFT claims included, on a previewnet fork.
+# Temporary, until load-test.yml is on main and can be dispatched: on a pull request, the
+# `load-test` label plays a chain game of 200 players, NFT claims included, on a previewnet fork,
+# and `load-test-previewnet` has 200 players join the closest game on previewnet itself.
 
 on:
   pull_request:
@@ -11,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  load:
+  fork:
     # Self-hosted runners: never for pull requests from forks.
     if: github.event.label.name == 'load-test' && github.event.pull_request.head.repo.full_name == github.repository
     uses: ./.github/workflows/load-test.yml
@@ -20,3 +21,13 @@ jobs:
       layer: chain
       steps: "200"
       args: "--registration 120 --reporting 300"
+
+  previewnet:
+    if: github.event.label.name == 'load-test-previewnet' && github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/load-test.yml
+    with:
+      target: previewnet
+      layer: chain
+      steps: "200"
+    secrets:
+      TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}

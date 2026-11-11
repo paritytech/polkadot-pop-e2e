@@ -14,6 +14,8 @@ on:
       ppn_ref: { type: string, default: "" }
       runs_on: { type: string, default: parity-large }
       game_at: { type: string, default: "" }
+    secrets:
+      TEST_MNEMONIC: { required: false }
   workflow_dispatch:
     inputs:
       target:
