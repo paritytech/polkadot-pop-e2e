@@ -53,7 +53,8 @@ Live networks (no root key): players join a scheduled game as regular players
   --game-at <s|iso>     Play time of the game to join (default: the closest scheduled one).
                         TEST_MNEMONIC tops each player up to 3 UNIT; the same players are reused
                         from game to game, so each pays its 2 UNIT play deposit once
-  --registration-wait <min>  How long to wait for that game to open registration (default 120)
+  --registration-wait <min>  How long the run may wait for its game: to open sign-ups, and for the
+                        chain layer to play (default 120); a game further away fails at once
 
 Chain (phases default to the chain's own):
   --registration <s> --shuffle <s> --margin <s> --reporting <s> --player-process <s>

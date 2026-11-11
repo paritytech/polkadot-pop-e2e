@@ -84,8 +84,9 @@ People node's own port (`ws://127.0.0.1:10010`).
 
 In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
 and plays the layer there, or plays it against the live network with one runner per process.
-A live run needs `TEST_MNEMONIC` and joins the closest scheduled game, or the one in `game_at`; it
-waits up to 4 hours for that game to open registration, and fails at once when it opens later.
+A live run needs `TEST_MNEMONIC` and joins the closest scheduled game, or the one in `game_at`.
+Players sign up as soon as that game takes sign-ups; the run waits up to 4 hours for it, and
+fails at once when the game is further away.
 
 ## Reading the results
 

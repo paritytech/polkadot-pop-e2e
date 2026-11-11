@@ -260,8 +260,8 @@ jobs:
     name: live · mint or chain game
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
-    # Up to 4 h for the game to open registration, then the game, its reporting and its player
-    # processing; GitHub-hosted jobs stop at 6 h.
+    # Up to 4 h until the game, then its reporting and player processing; GitHub-hosted jobs stop
+    # at 6 h.
     timeout-minutes: 360
     env:
       NETWORK: ${{ inputs.target }}

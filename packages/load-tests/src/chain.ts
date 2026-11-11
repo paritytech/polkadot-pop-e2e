@@ -69,9 +69,6 @@ export interface ChainResult {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** How long before registration closes a joining run sends its sign-ups, beyond signing them. */
-const SIGN_UP_LEAD_MS = 300_000;
-
 function stateLabel(game: { state: { type: string; value?: unknown } } | undefined): string {
   if (!game) return "None";
   const step = (game.state.value as { step?: { type: string } } | undefined)?.step;
@@ -214,18 +211,13 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       await waitFor((state) => state === "Registration", 120_000, "Registration");
       game = (await api.query.Game.Game.getValue({ at: "best" }))!;
     } else {
-      // Registration can open many hours before the game, so the players sign up in its last
-      // minutes, keeping the run as long as the time to the game. Signing waits until then too:
-      // signatures are mortal. Reused accounts sign at their chain nonce, and a player already
-      // in this game from an earlier try skips its sign-up.
-      const signingMs = 120_000 + run.players * SIGNING_MS;
-      game = await waitForGame(api, run.gameAt, signingMs, run.registrationWaitMs);
-      const signAt = game.registration_ends * 1000 - signingMs - SIGN_UP_LEAD_MS;
-      if (signAt - (await chainNow()) > run.registrationWaitMs) {
-        throw new Error(`game ${game.index} at ${new Date(game.game_date * 1000).toISOString()} plays later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
+      // The players sign up as soon as the game takes sign-ups and report after it, so the run
+      // lasts until the game: one further away than the run's wait fails at once. Reused
+      // accounts sign at their chain nonce, and a player already in this game skips its sign-up.
+      game = await waitForGame(api, run.gameAt, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
+      if (game.game_date * 1000 - (await chainNow()) > run.registrationWaitMs) {
+        throw new Error(`game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}, later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
       }
-      if ((await chainNow()) < signAt) console.log(`[chain] game ${game.index} is open; signing up at ${new Date(signAt).toISOString()}`);
-      while ((await chainNow()) < signAt) await sleep(10_000);
       signedSignUps = await signEntries(signUpEntries(api, await playersNotRegistered(api, players)), "sign-up");
     }
     gameIndex = game.index;
