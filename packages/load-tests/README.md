@@ -10,12 +10,19 @@ carries and which part fails first. Three layers, each adding one piece of the r
 | `chain` | funded accounts | one game: sudo schedules it, every player signs up at once, the chain shuffles, every player reports at once after the game | sign-ups after registration closed, a shuffle that ends in `Cancelling`, reports outside the report window, block fullness, dispatch and pool errors |
 
 A signalling ghost behaves like a player's statement transport: it subscribes with
-`matchAny: [inbox, room]` on one game-wide room topic, and submits a bundle on its own channel
-every 8 s while a round's links are negotiated and every 16 s once they are up, with at most two
-submits waiting. Every ghost receives every other ghost's bundle, so deliveries grow with the
-square of the players. The bundle sizes come from a Chrome video and data-channel offer (about
-4.9 KB of SDP, 1.7 KB of candidates), sealed for each of the 5 group peers; see `PROFILES` in
-`src/profile.ts`.
+`matchAny: [inbox, room]` on one game-wide room topic and submits a bundle on its own channel,
+with at most two submits waiting. As in the app, every ghost opens the room at the same instant,
+64 s before the first round (the pre-connect), negotiates every co-player of every round then,
+and re-sends on one beat from that instant: every 8 s while links are negotiated, every 16 s once
+they are up. A room's re-sends therefore land in the same second, which is where a node first
+drops subscribers; `--phase random` gives each ghost its own phase instead, as an app with
+jittered re-sends would. Every ghost receives every other ghost's bundle, so deliveries grow with
+the square of the players.
+
+The bundle sizes come from Chrome's data-channel-only offer (about 1 KB of SDP, 1.7 KB of
+candidates), sealed for each of the 10 co-players of a 2-round game in groups of 6; the store
+carries only that first negotiation, and the video offer goes down the data channel. See
+`PROFILES` in `src/profile.ts`.
 
 Each bundle carries the time it was sent, so every receiver measures delivery latency, and the
 accepted statements times `players - 1` is how many deliveries a step expects.
@@ -38,8 +45,8 @@ groups as the real players of that game.
 
 ## Running it
 
-A step plays one game (151 s) with that many players, after a ramp over which they join and a
-warmup; steps run one after the other. `--shard i/n` splits the players over processes or
+A step plays one room (215 s: the 64 s pre-connect and 151 s of play) with that many players, after
+a ramp over which they connect and a warmup; steps run one after the other. `--shard i/n` splits the players over processes or
 machines that share `--start-at`; `summary` merges their result files.
 
 On a local dev People node:

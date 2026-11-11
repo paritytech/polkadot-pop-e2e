@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Ghost, type GhostRoom } from "./ghost.js";
 import { derivePlayer, type Player } from "./keys.js";
-import { gameMs, type SignallingProfile } from "./profile.js";
+import { gameMs, type Phase, type SignallingProfile } from "./profile.js";
 import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
 import { topicOf } from "./statement.js";
@@ -31,6 +31,8 @@ export interface StepRun {
   startAt: number;
   timing: StepTiming;
   profile: SignallingProfile;
+  /** How the ghosts' bundles line up: `sync` as the app sends them, or `random`. */
+  phase: Phase;
   target: Target;
   outDir: string;
 }
@@ -119,7 +121,7 @@ async function runStep(
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
   const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
-  const room: GhostRoom = { profile, namespace, room: topicOf(`${namespace}/room`), gameStart: windowStart, window, stats };
+  const room: GhostRoom = { profile, phase: run.phase, namespace, room: topicOf(`${namespace}/room`), gameStart: windowStart, window, stats };
 
   await sleepUntil(stepStart);
   const players = await startPlayers({ count, stepStart, room });

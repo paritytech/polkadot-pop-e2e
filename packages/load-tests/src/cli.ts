@@ -2,7 +2,7 @@ import { appendFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer } from "./keys.js";
-import { gameMs, PROFILES } from "./profile.js";
+import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { signUpForAllowance } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
@@ -38,6 +38,8 @@ Signalling:
   --ghosts-per-connection <k>  Ghosts sharing one WebSocket (default 1, as on phones)
   --ramp <s> --warmup <s> --drain <s> --cooldown <s>  Step phases (default 30, 10, 10, 10)
   --profile <name>      ${Object.keys(PROFILES).join(" | ")} (default jollity)
+  --phase <name>        sync: every ghost opens the room at the same instant and re-sends on one
+                        beat from it, as the app does (default); random: each at its own phase
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
 
@@ -77,6 +79,7 @@ const { positionals, values } = parseArgs({
     drain: { type: "string", default: "10" },
     cooldown: { type: "string", default: "10" },
     profile: { type: "string", default: "jollity" },
+    phase: { type: "string", default: "sync" },
     "run-id": { type: "string", default: `local-${Date.now()}` },
     out: { type: "string" },
     registration: { type: "string" },
@@ -145,6 +148,7 @@ switch (values.help ? undefined : command) {
     const target = await resolveTarget(targetOptions);
     const profile = PROFILES[values.profile];
     if (!profile) throw new Error(`unknown --profile ${values.profile}`);
+    if (!PHASES.includes(values.phase as Phase)) throw new Error(`--phase must be one of ${PHASES.join(", ")}, not '${values.phase}'`);
     const [shardIndex, shardCount] = values.shard.split("/").map(Number);
     if (!(shardIndex >= 0 && shardIndex < shardCount)) throw new Error(`--shard must be i/n with 0 <= i < n, not '${values.shard}'`);
     const startText = values["start-at"];
@@ -162,6 +166,7 @@ switch (values.help ? undefined : command) {
         cooldownMs: seconds("cooldown", values.cooldown),
       },
       profile,
+      phase: values.phase as Phase,
       target,
       outDir,
     };
@@ -196,7 +201,7 @@ switch (values.help ? undefined : command) {
       phases,
       rounds: positiveInteger("rounds", values.rounds),
       maxGroupSize: positiveInteger("group-size", values["group-size"]),
-      playMs: gameMs(PROFILES[values.profile]),
+      playMs: playMs(PROFILES[values.profile]),
       reportWindowMs: seconds("report-window", values["report-window"]),
       connections: positiveInteger("connections", values.connections),
       takeOver: values["take-over"],

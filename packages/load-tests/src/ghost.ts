@@ -1,11 +1,12 @@
 import type { Player } from "./keys.js";
-import { bundleBytes, isConnecting, type SignallingProfile } from "./profile.js";
+import { bundleBytes, firstSendAt, isConnecting, nextSendAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection, RpcError } from "./rpc.js";
 import { probePayload, readProbe, signStatement, topicOf, type Hex } from "./statement.js";
 import { bump, type SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
+  phase: Phase;
   /** Prefix of every topic and channel of this step, so steps and runs never share one. */
   namespace: string;
   room: Hex;
@@ -26,6 +27,7 @@ export class Ghost {
   private readonly channel: Hex;
   private subscription: string | undefined;
   private timer: NodeJS.Timeout | undefined;
+  private nextAt = 0;
   private sequence = 0;
   private inflight = 0;
   private stopped = false;
@@ -52,8 +54,8 @@ export class Ghost {
       bump(stats.subscribeFailures, (error as Error).message);
       return;
     }
-    // A random phase, so the ghosts' bundles spread over the period like players' do.
-    this.schedule(Math.random() * profile.connectingIntervalMs);
+    this.nextAt = firstSendAt(profile, this.game.phase, this.game.gameStart, Date.now());
+    this.schedule();
   }
 
   /** Stops sending; the subscription stays until `leave`, so late deliveries still count. */
@@ -69,14 +71,16 @@ export class Ghost {
     await this.connection.unsubscribe(UNSUBSCRIBE, this.subscription, this.game.profile.submitTimeoutMs).catch(() => {});
   }
 
-  private schedule(delayMs: number): void {
+  private schedule(): void {
     if (this.stopped) return;
     this.timer = setTimeout(() => {
-      const connecting = isConnecting(this.game.profile, Date.now() - this.game.gameStart);
+      const { profile, phase, gameStart } = this.game;
+      const at = this.nextAt;
+      const connecting = isConnecting(profile, at - gameStart);
       void this.send(connecting);
-      const { connectingIntervalMs, linkedIntervalMs } = this.game.profile;
-      this.schedule(connecting ? connectingIntervalMs : linkedIntervalMs);
-    }, delayMs);
+      this.nextAt = nextSendAt(profile, phase, gameStart, at, connecting);
+      this.schedule();
+    }, Math.max(0, this.nextAt - Date.now()));
   }
 
   private async send(connecting: boolean): Promise<void> {

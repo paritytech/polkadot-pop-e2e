@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { hostMnemonic } from "./keys.js";
-import type { SignallingProfile } from "./profile.js";
+import type { Phase, SignallingProfile } from "./profile.js";
 import type { Hex } from "./statement.js";
 import { sleepUntil, type HostUsage, type StartPlayers, type StepRun } from "./signalling.js";
 import { bump, type SignallingStats } from "./stats.js";
@@ -16,6 +16,7 @@ export const PRODUCT_IDS = { previewnet: "dim2.testnet", "paseo-next-v2": "dim2.
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
   profile: SignallingProfile;
+  phase: Phase;
   namespace: string;
   room: Hex;
   gameStart: number;
@@ -93,6 +94,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         profile: room.profile,
         namespace: room.namespace,
         room: room.room,
+        phase: room.phase,
         gameStart: room.gameStart,
         window: room.window,
         firstPlayer: host * ghostsPerHost,

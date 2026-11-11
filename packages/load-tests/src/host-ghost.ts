@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { toHex } from "@polkadot-api/utils";
 import type { HostGhostPlan } from "./host.js";
-import { bundleBytes, isConnecting } from "./profile.js";
+import { bundleBytes, firstSendAt, isConnecting, nextSendAt } from "./profile.js";
 import { probePayload, readProbe, topicOf, type Hex } from "./statement.js";
 import { SignallingStats, bump } from "./stats.js";
 
@@ -93,17 +93,17 @@ async function play(ghost: number): Promise<void> {
   stats.subscribed++;
   let inflight = 0;
   let sequence = 0;
-  let next = Date.now() + Math.random() * profile.connectingIntervalMs;
+  let next = firstSendAt(profile, plan.phase, plan.gameStart, Date.now());
   for (;;) {
     await sleepUntil(next);
     if (Date.now() >= plan.stopAt) break;
-    const connecting = isConnecting(profile, Date.now() - plan.gameStart);
+    const connecting = isConnecting(profile, next - plan.gameStart);
     if (inflight >= profile.maxInflight) stats.skippedInflight++;
     else {
       inflight++;
       void send(ghost, index, channel, sequence++, connecting).finally(() => inflight--);
     }
-    next += connecting ? profile.connectingIntervalMs : profile.linkedIntervalMs;
+    next = nextSendAt(profile, plan.phase, plan.gameStart, next, connecting);
   }
   await sleepUntil(plan.leaveAt);
   if (delivered === 0) stats.silentSubscriptions++;
