@@ -13,11 +13,12 @@ import { connectPeople, resolveTarget } from "./target.js";
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
-  mint        Give players 0..players-1 of --layer a statement allowance: as root, or with
-              --game-at by signing them up to a load game the root key holder scheduled
+  mint        Give players 0..players-1 of --layer a statement allowance: as root on a fork,
+              else by signing them up to the closest scheduled game (or --game-at)
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
-  chain       Play one game on chain: schedule it as root, sign up and report with every player at once
+  chain       Play one game on chain, signing up and reporting with every player at once: on a
+              fork a game this run schedules as root, else the closest scheduled game (or --game-at)
   summary     Merge the shard results in --out into summary.json and summary.md
 
 Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
@@ -48,10 +49,10 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
 
-Load game (live networks, where this run holds no root key):
-  --game-at <s|iso>     Play time of a game the network's root key holder scheduled for the load:
-                        players sign up to it, TEST_MNEMONIC paying each 3 UNIT. Never point it
-                        at a real game: its players would get co-players who never connect
+Live networks (no root key): players join a scheduled game as regular players
+  --game-at <s|iso>     Play time of the game to join (default: the closest scheduled one).
+                        TEST_MNEMONIC tops each player up to 3 UNIT; the same players are reused
+                        from game to game, so each pays its 2 UNIT play deposit once
   --registration-wait <min>  How long to wait for that game to open registration (default 120)
 
 Chain (phases default to the chain's own):
@@ -145,11 +146,10 @@ switch (values.help ? undefined : command) {
       values.layer === "host"
         ? indices.map((index) => hostGhostPlayer(values.seed, productId, ghostsPerHost, index))
         : derivePlayers(values.seed, indices);
-    if (gameAt !== undefined) {
+    if (!target.sudo || gameAt !== undefined) {
       await signUpForAllowance(target, players, gameAt, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       break;
     }
-    if (!target.sudo) throw new Error(`${target.label}: no root key to write allowances; set --sudo or SUDO_URI, or pass --game-at for a scheduled load game`);
     const { client, api } = connectPeople(target);
     try {
       // The allowance a game sign-up grants (next-people-paseo `PlayerStatementLimit`).
@@ -224,8 +224,9 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      // Fresh accounts per game, also between games of one run: the sign-up uses nonce 0.
-      seed: `${values.seed}/${values["run-id"]}/n${values.players}`,
+      // On a fork, fresh accounts per game, so the sign-up is each one's first transaction. On a
+      // live network the same accounts every game, so each pays its play deposit once.
+      seed: target.sudo ? `${values.seed}/${values["run-id"]}/n${values.players}` : `${values.seed}/${target.network}`,
       players: positiveInteger("players", values.players),
       target,
       outDir,

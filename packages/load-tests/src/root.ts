@@ -91,14 +91,3 @@ export async function fundPlayers(api: PeopleApi, sudo: Keypair, players: Player
   );
   await dispatchAsRoot(api, sudo, calls, 1000, "fund");
 }
-
-/** Transfers `planck` to each player from `funder`, 500 transfers to a batch. */
-export async function transferToPlayers(api: PeopleApi, funder: Keypair, players: Player[], planck: bigint): Promise<void> {
-  for (let start = 0; start < players.length; start += 500) {
-    const calls = players
-      .slice(start, start + 500)
-      .map((player) => api.tx.Balances.transfer_keep_alive({ dest: { type: "Id", value: player.address }, value: planck }).decodedCall);
-    const included = await submitToBestBlock(api.tx.Utility.batch_all({ calls }), funder);
-    console.log(`[fund] ${Math.min(start + 500, players.length)}/${players.length} in #${included.block.number}`);
-  }
-}

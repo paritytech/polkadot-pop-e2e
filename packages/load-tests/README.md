@@ -37,13 +37,16 @@ on a PPN fork, `--sudo` or `SUDO_URI` elsewhere):
 - the `chain` layer funds fresh accounts with `Balances.force_set_balance` and schedules its own
   short game, after clearing the chain's game and schedule with `--take-over`.
 
-Without a root key, as on live previewnet and paseo-next-v2, players sign up to a load game: a
-game the network's root key holder scheduled for the load, named by its play time with
-`--game-at`. The `TEST_MNEMONIC` account pays each player 3 UNIT, and each signs up with
-`Game.sign_up_with_account`, which also grants its statement allowance for good: `mint` signs up
-only the players without one, so a seed is minted once. Never point `--game-at` at a real game:
-signalling players never join that game's room, so its real players would get co-players who
-never connect, and the `chain` layer would vote `Person` for people it never saw.
+Without a root key, as on live previewnet and paseo-next-v2, players are regular players: they
+sign up to the closest scheduled game, or the one at `--game-at`, with `Game.sign_up_with_account`,
+which also grants their statement allowance for good. The `TEST_MNEMONIC` account tops each
+player up to 3 UNIT on the People chain, and the run fails first, saying how much to send to
+which address, when it holds too little. The same players are used from game to game, so each
+pays its 2 UNIT play deposit once, and `mint` signs up only the players without an allowance.
+
+These players share groups with the game's real players. Signalling players never join the
+game's room, so to real players they are seats that never connect; the `chain` layer's players
+vote `Person` for every co-player, real ones included.
 
 ## Running it
 
@@ -81,8 +84,8 @@ People node's own port (`ws://127.0.0.1:10010`).
 
 In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
 and plays the layer there, or plays it against the live network with one runner per process.
-A live run needs `TEST_MNEMONIC` and the play time of a load game (`--game-at`); it waits up to
-`--registration-wait` minutes for that game to open registration.
+A live run needs `TEST_MNEMONIC` and joins the closest scheduled game, or the one in `game_at`; it
+waits up to 4 hours for that game to open registration, and fails at once when it opens later.
 
 ## Reading the results
 

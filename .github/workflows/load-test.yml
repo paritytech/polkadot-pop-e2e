@@ -48,7 +48,7 @@ on:
         default: parity-large
         options: [parity-large, ubuntu-latest]
       game_at:
-        description: Live only, required there. Play time (ISO or unix seconds) of a game the network's root key holder scheduled for the load; never a real game
+        description: Live only. Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
         type: string
         default: ""
 
@@ -253,15 +253,15 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # A live network has no root key here: players sign up to a load game the network's root key
-  # holder scheduled (game_at), which also grants their statement allowance, paid for by the
-  # TEST_MNEMONIC account. A skipped job shows its name unevaluated, so these names are static.
+  # A live network has no root key here: players join a scheduled game as regular players, which
+  # also grants their statement allowance, paid for by the TEST_MNEMONIC account. A skipped job
+  # shows its name unevaluated, so these names are static.
   live-prepare:
     name: live · mint or chain game
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
-    # Up to 2 h for the load game to open registration, then the game, its reporting and its
-    # player processing.
+    # Up to 4 h for the game to open registration, then the game, its reporting and its player
+    # processing; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
     env:
       NETWORK: ${{ inputs.target }}
@@ -282,15 +282,13 @@ jobs:
         id: mint
         run: |
           set -euo pipefail
-          if [ -z "$GAME_AT" ]; then
-            echo "::error::a live run needs game_at: the play time of a game the network's root key holder scheduled for the load"
-            exit 1
-          fi
           largest=$(tr ',' '\n' <<< "$STEPS" | sort -n | tail -1)
           read -ra extra <<< "$ARGS"
-          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --game-at "$GAME_AT" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"; }
+          game=(--registration-wait 240)
+          if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
+          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" "${game[@]}" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"; }
           if [ "$LAYER" = chain ]; then
-            # One load game, one chain step: its largest player count.
+            # One game, one chain step: its largest player count.
             load chain --players "$largest"
             echo "shards=[]" >> "$GITHUB_OUTPUT"
             exit 0

@@ -2,9 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Enum } from "polkadot-api";
 import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
-import { PLAYER_FUNDS, requireFunder, signUpEntries, waitForLoadGame, type OpenGame } from "./join.js";
+import { playersNotRegistered, signUpEntries, topUpPlayers, waitForGame, PLAYER_FUNDS, type OpenGame } from "./join.js";
 import { derivePlayers, type Keypair, type Player } from "./keys.js";
-import { dispatchAsRoot, fundPlayers, transferToPlayers } from "./root.js";
+import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
 export interface Phases {
@@ -22,9 +22,9 @@ export interface ChainRun {
   target: Target;
   outDir: string;
   /**
-   * The play time (chain seconds) of a game the network's root key holder scheduled for the
-   * load, which the players sign up to. Undefined: this run schedules its own game as root,
-   * after clearing the chain when `takeOver`.
+   * With a root key (a fork), this run schedules its own game, after clearing the chain when
+   * `takeOver`. Without one (a live network), the players join a scheduled game like any
+   * player: the one playing at `gameAt` (chain seconds), or else the closest.
    */
   gameAt: number | undefined;
   /** Seconds overriding the chain's phase durations for an own game. */
@@ -39,7 +39,7 @@ export interface ChainRun {
   connections: number;
   /** Cancels a running game and removes scheduled ones instead of failing on them. */
   takeOver: boolean;
-  /** How long a run waits for the load game to open registration. */
+  /** How long a joining run waits for its game to open registration. */
   registrationWaitMs: number;
 }
 
@@ -68,6 +68,9 @@ export interface ChainResult {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** How long before registration closes a joining run sends its sign-ups, beyond signing them. */
+const SIGN_UP_LEAD_MS = 300_000;
 
 function stateLabel(game: { state: { type: string; value?: unknown } } | undefined): string {
   if (!game) return "None";
@@ -142,10 +145,10 @@ async function buildReports(api: PeopleApi, players: Player[], playerCount: numb
 
 /**
  * Plays one game with `players` funded accounts: every player signs up at once, the chain
- * shuffles, and every player reports at once after the game's length. The game is one this run
- * schedules as root, or one the root key holder scheduled for the load; never a real game,
- * whose players would get co-players who never connect. Every deadline is the chain's clock,
- * which a dev node runs at its own pace.
+ * shuffles, and every player reports at once after the game's length. With a root key the game
+ * is one this run schedules; without one the players join a scheduled game, reusing the same
+ * accounts from game to game, so each pays its play deposit once. Every deadline is the chain's
+ * clock, which a dev node runs at its own pace.
  */
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
@@ -161,20 +164,19 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
   try {
     const players = derivePlayers(run.seed, Array.from({ length: run.players }, (_, i) => i));
-    // Fresh accounts: the sign-up is each player's first transaction, the report its second.
-    const signUps = () => signEntries(signUpEntries(api, players, 0), "sign-up");
+    const ownGame = target.sudo !== undefined && run.gameAt === undefined;
     let phases: Phases;
     let signedSignUps: string[] = [];
-    if (run.gameAt === undefined) {
-      if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --game-at for a scheduled load game`);
-      await clearAndFund(api, run, target.sudo, players);
-      // Signed before the game exists, so none of registration goes to signing.
-      signedSignUps = await signUps();
-      const scheduled = await scheduleOwnGame(api, run, target.sudo);
+    if (ownGame) {
+      await clearAndFund(api, run, target.sudo!, players);
+      // Fresh accounts, signed before the game exists, so none of registration goes to signing:
+      // the sign-up is each player's first transaction, the report its second.
+      signedSignUps = await signEntries(signUpEntries(api, players, 0), "sign-up");
+      const scheduled = await scheduleOwnGame(api, run, target.sudo!);
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
     } else {
-      await transferToPlayers(api, requireFunder(target), players, PLAYER_FUNDS);
+      await topUpPlayers(target, api, players);
       phases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     }
 
@@ -208,21 +210,32 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     };
 
     let game: OpenGame;
-    if (run.gameAt === undefined) {
+    if (ownGame) {
       await waitFor((state) => state === "Registration", 120_000, "Registration");
       game = (await api.query.Game.Game.getValue({ at: "best" }))!;
     } else {
-      // The load game may be hours away, past the signatures' mortality, so this signs once its
-      // registration is open, with room for the signing.
-      game = await waitForLoadGame(api, run.gameAt, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
-      signedSignUps = await signUps();
+      // Registration can open many hours before the game, so the players sign up in its last
+      // minutes, keeping the run as long as the time to the game. Signing waits until then too:
+      // signatures are mortal. Reused accounts sign at their chain nonce, and a player already
+      // in this game from an earlier try skips its sign-up.
+      const signingMs = 120_000 + run.players * SIGNING_MS;
+      game = await waitForGame(api, run.gameAt, signingMs, run.registrationWaitMs);
+      const signAt = game.registration_ends * 1000 - signingMs - SIGN_UP_LEAD_MS;
+      if (signAt - (await chainNow()) > run.registrationWaitMs) {
+        throw new Error(`game ${game.index} at ${new Date(game.game_date * 1000).toISOString()} plays later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
+      }
+      if ((await chainNow()) < signAt) console.log(`[chain] game ${game.index} is open; signing up at ${new Date(signAt).toISOString()}`);
+      while ((await chainNow()) < signAt) await sleep(10_000);
+      signedSignUps = await signEntries(signUpEntries(api, await playersNotRegistered(api, players)), "sign-up");
     }
     gameIndex = game.index;
 
-    console.log(`[chain] game ${game.index}: ${run.players} players sign up`);
+    console.log(`[chain] game ${game.index}: ${signedSignUps.length} players sign up`);
     const signUp = await submitBurst(signedSignUps, api, client, target.rpc, run.connections, () => game.registration_ends * 1000);
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
-    if (signUp.inTime < run.players) findings.push(`sign-up: ${run.players - signUp.inTime} of ${run.players} not in before registration ended`);
+    if (signUp.inTime < signedSignUps.length) {
+      findings.push(`sign-up: ${signedSignUps.length - signUp.inTime} of ${signedSignUps.length} not in before registration ended`);
+    }
 
     const untilGame = game.game_date * 1000 - (await chainNow());
     await waitFor((state) => state.startsWith("Reporting") || state === "None" || state.startsWith("Cancelling"), Math.max(0, untilGame) + 600_000, "Reporting");
@@ -236,7 +249,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (current.state.type !== "Reporting") throw new Error(`game left Reporting before the reports: ${stateLabel(current)}`);
       const reports = await buildReports(api, players, current.state.value.player_count, current.max_group_size, current.rounds);
       const signedReports = await signEntries(
-        reports.map(({ player, fullReport }) => ({ signer: player, tx: api.tx.Game.report({ full_report: fullReport }), nonce: 1 })),
+        reports.map(({ player, fullReport }) => ({ signer: player, tx: api.tx.Game.report({ full_report: fullReport }), nonce: ownGame ? 1 : undefined })),
         "report",
       );
       while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
