@@ -13,6 +13,7 @@ on:
       args: { type: string, default: "" }
       ppn_ref: { type: string, default: "" }
       runs_on: { type: string, default: parity-large }
+      game_at: { type: string, default: "" }
   workflow_dispatch:
     inputs:
       target:
@@ -46,6 +47,10 @@ on:
         type: choice
         default: parity-large
         options: [parity-large, ubuntu-latest]
+      game_at:
+        description: Live only, required there. Play time (ISO or unix seconds) of a game the network's root key holder scheduled for the load; never a real game
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -62,6 +67,7 @@ env:
   RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
   RESULTS: ${{ github.workspace }}/load-results
   TRUAPI_HOST_NO_UPDATE: "1"
+  GAME_AT: ${{ inputs.game_at }}
 
 jobs:
   # One runner and one fork per player count: a fork binds fixed ports, so a runner carries one,
@@ -227,14 +233,15 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # A live network has no root key here: players sign up to its next real game, which also
-  # grants their statement allowance, paid for by the TEST_MNEMONIC account.
+  # A live network has no root key here: players sign up to a load game the network's root key
+  # holder scheduled (game_at), which also grants their statement allowance, paid for by the
+  # TEST_MNEMONIC account.
   live-prepare:
     name: ${{ inputs.target }} · ${{ inputs.layer == 'chain' && format('chain · {0} players', inputs.steps) || format('mint {0} players', inputs.steps) }}
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
-    # Up to 2 h for a game to open registration, then the real game, its hour of reporting and
-    # its player processing.
+    # Up to 2 h for the load game to open registration, then the game, its reporting and its
+    # player processing.
     timeout-minutes: 360
     env:
       NETWORK: ${{ inputs.target }}
@@ -255,17 +262,20 @@ jobs:
         id: mint
         run: |
           set -euo pipefail
+          if [ -z "$GAME_AT" ]; then
+            echo "::error::a live run needs game_at: the play time of a game the network's root key holder scheduled for the load"
+            exit 1
+          fi
           largest=$(tr ',' '\n' <<< "$STEPS" | sort -n | tail -1)
           read -ra extra <<< "$ARGS"
+          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --game-at "$GAME_AT" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"; }
           if [ "$LAYER" = chain ]; then
-            # Each step plays the next real game, so steps are a real game's interval apart.
-            for players in ${STEPS//,/ }; do
-              pnpm --silent --filter @pop-e2e/load-tests load chain --players "$players" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
-            done
+            # One load game, one chain step: its largest player count.
+            load chain --players "$largest"
             echo "shards=[]" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          pnpm --silent --filter @pop-e2e/load-tests load mint --layer "$LAYER" --players "$largest" "${extra[@]}"
+          load mint --layer "$LAYER" --players "$largest"
           # Time for the shard runners to start and install before the first step.
           echo "start_at=$(( ($(date +%s) + 300) * 1000 ))" >> "$GITHUB_OUTPUT"
           echo "shards=$(seq -s, 0 $((PROCESSES - 1)) | sed 's/^/[/;s/$/]/')" >> "$GITHUB_OUTPUT"

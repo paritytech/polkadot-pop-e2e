@@ -37,11 +37,13 @@ on a PPN fork, `--sudo` or `SUDO_URI` elsewhere):
 - the `chain` layer funds fresh accounts with `Balances.force_set_balance` and schedules its own
   short game, after clearing the chain's game and schedule with `--take-over`.
 
-Without a root key, as on live previewnet and paseo-next-v2, or with `--join`, players join the
-next real game instead. The `TEST_MNEMONIC` account pays each player 3 UNIT, and each signs up
-with `Game.sign_up_with_account`, which also grants its statement allowance for good: `mint`
-signs up only the players without one, so a seed is minted once. The bots end up in the same
-groups as the real players of that game.
+Without a root key, as on live previewnet and paseo-next-v2, players sign up to a load game: a
+game the network's root key holder scheduled for the load, named by its play time with
+`--game-at`. The `TEST_MNEMONIC` account pays each player 3 UNIT, and each signs up with
+`Game.sign_up_with_account`, which also grants its statement allowance for good: `mint` signs up
+only the players without one, so a seed is minted once. Never point `--game-at` at a real game:
+signalling players never join that game's room, so its real players would get co-players who
+never connect, and the `chain` layer would vote `Person` for people it never saw.
 
 ## Running it
 
@@ -79,8 +81,8 @@ People node's own port (`ws://127.0.0.1:10010`).
 
 In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
 and plays the layer there, or plays it against the live network with one runner per process.
-A live run joins the network's next real game and needs only `TEST_MNEMONIC`; it waits up to
-`--registration-wait` minutes for a game to open registration.
+A live run needs `TEST_MNEMONIC` and the play time of a load game (`--game-at`); it waits up to
+`--registration-wait` minutes for that game to open registration.
 
 ## Reading the results
 

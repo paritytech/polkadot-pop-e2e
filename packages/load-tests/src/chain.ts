@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Enum } from "polkadot-api";
 import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
-import { PLAYER_FUNDS, requireFunder, signUpEntries, waitForOpenRegistration, type OpenGame } from "./join.js";
+import { PLAYER_FUNDS, requireFunder, signUpEntries, waitForLoadGame, type OpenGame } from "./join.js";
 import { derivePlayers, type Keypair, type Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers, transferToPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
@@ -22,10 +22,11 @@ export interface ChainRun {
   target: Target;
   outDir: string;
   /**
-   * `own`: schedule a game as root with `phases`, after clearing the chain when `takeOver`.
-   * `next`: sign up to the next real game in registration, funded by the target's funder.
+   * The play time (chain seconds) of a game the network's root key holder scheduled for the
+   * load, which the players sign up to. Undefined: this run schedules its own game as root,
+   * after clearing the chain when `takeOver`.
    */
-  game: "own" | "next";
+  gameAt: number | undefined;
   /** Seconds overriding the chain's phase durations for an own game. */
   phases: Partial<Phases>;
   rounds: number;
@@ -38,7 +39,7 @@ export interface ChainRun {
   connections: number;
   /** Cancels a running game and removes scheduled ones instead of failing on them. */
   takeOver: boolean;
-  /** How long a `next` run waits for a game to open registration. */
+  /** How long a run waits for the load game to open registration. */
   registrationWaitMs: number;
 }
 
@@ -81,7 +82,7 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
   const schedules = await api.query.Game.GameSchedules.getValue();
   if (existing || schedules.length > 0) {
     if (!run.takeOver) {
-      throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --join to play it`);
+      throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --game-at to play a load game`);
     }
     // The schedules go first, so no copied game starts once the current one ends. Only a game in
     // registration or the shuffle can be cancelled; reporting can be ended at once on a testnet;
@@ -142,8 +143,9 @@ async function buildReports(api: PeopleApi, players: Player[], playerCount: numb
 /**
  * Plays one game with `players` funded accounts: every player signs up at once, the chain
  * shuffles, and every player reports at once after the game's length. The game is one this run
- * schedules as root, or the next real game. Every deadline is the chain's clock, which a dev
- * node runs at its own pace.
+ * schedules as root, or one the root key holder scheduled for the load; never a real game,
+ * whose players would get co-players who never connect. Every deadline is the chain's clock,
+ * which a dev node runs at its own pace.
  */
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
@@ -163,8 +165,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const signUps = () => signEntries(signUpEntries(api, players, 0), "sign-up");
     let phases: Phases;
     let signedSignUps: string[] = [];
-    if (run.game === "own") {
-      if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --join`);
+    if (run.gameAt === undefined) {
+      if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --game-at for a scheduled load game`);
       await clearAndFund(api, run, target.sudo, players);
       // Signed before the game exists, so none of registration goes to signing.
       signedSignUps = await signUps();
@@ -206,13 +208,13 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     };
 
     let game: OpenGame;
-    if (run.game === "own") {
+    if (run.gameAt === undefined) {
       await waitFor((state) => state === "Registration", 120_000, "Registration");
       game = (await api.query.Game.Game.getValue({ at: "best" }))!;
     } else {
-      // A real game may be hours away, past the signatures' mortality, so this signs once its
+      // The load game may be hours away, past the signatures' mortality, so this signs once its
       // registration is open, with room for the signing.
-      game = await waitForOpenRegistration(api, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
+      game = await waitForLoadGame(api, run.gameAt, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
       signedSignUps = await signUps();
     }
     gameIndex = game.index;

@@ -35,19 +35,25 @@ export function signUpEntries(api: PeopleApi, players: Player[], nonce?: number)
 }
 
 /**
- * The game in registration with at least `minRemainingMs` of it left by chain time, waiting
- * for the next one when the current game is past that. Fails after `timeoutMs`.
+ * The game playing at `gameAt` (chain seconds), once it is in registration with at least
+ * `minRemainingMs` of it left by chain time. Fails after `timeoutMs`, or when that game's
+ * registration has passed.
  */
-export async function waitForOpenRegistration(api: PeopleApi, minRemainingMs: number, timeoutMs: number): Promise<OpenGame> {
+export async function waitForLoadGame(api: PeopleApi, gameAt: number, minRemainingMs: number, timeoutMs: number): Promise<OpenGame> {
   const until = Date.now() + timeoutMs;
   let reported: string | undefined;
   for (;;) {
     const [game, now] = await Promise.all([api.query.Game.Game.getValue({ at: "best" }), api.query.Timestamp.Now.getValue({ at: "best" })]);
-    if (game?.state.type === "Registration" && game.registration_ends * 1000 - Number(now) >= minRemainingMs) return game;
-    const state = game ? `game ${game.index} is in ${game.state.type}` : "no game is running";
-    if (state !== reported) console.log(`[join] ${state}; waiting for a game in registration`);
+    if (game?.game_date === gameAt) {
+      if (game.state.type !== "Registration" || game.registration_ends * 1000 - Number(now) < minRemainingMs) {
+        throw new Error(`game ${game.index} at ${new Date(gameAt * 1000).toISOString()} is past its registration (${game.state.type})`);
+      }
+      return game;
+    }
+    const state = game ? `game ${game.index} at ${new Date(game.game_date * 1000).toISOString()} is in ${game.state.type}` : "no game is running";
+    if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${new Date(gameAt * 1000).toISOString()}`);
     reported = state;
-    if (Date.now() > until) throw new Error(`no game opened registration within ${timeoutMs / 60_000} min; ${state}`);
+    if (Date.now() > until) throw new Error(`the game at ${new Date(gameAt * 1000).toISOString()} did not open registration within ${timeoutMs / 60_000} min; ${state}`);
     await sleep(5_000);
   }
 }
@@ -58,11 +64,11 @@ export function requireFunder(target: Target): Keypair {
 }
 
 /**
- * Gives every player without a statement allowance one by signing it up to the game in
- * registration, which grants the player's allowance for good. The funded account pays each
- * signing player's play deposit and fees.
+ * Gives every player without a statement allowance one by signing it up to the load game at
+ * `gameAt`, which grants the player's allowance for good. The funded account pays each signing
+ * player's play deposit and fees.
  */
-export async function signUpForAllowance(target: Target, players: Player[], waitMs: number): Promise<void> {
+export async function signUpForAllowance(target: Target, players: Player[], gameAt: number, waitMs: number): Promise<void> {
   const funder = requireFunder(target);
   const { client, api } = connectPeople(target);
   try {
@@ -70,7 +76,7 @@ export async function signUpForAllowance(target: Target, players: Player[], wait
     console.log(`[mint] ${players.length - missing.length} of ${players.length} players have an allowance; ${missing.length} sign up`);
     if (missing.length === 0) return;
     await transferToPlayers(api, funder, missing, PLAYER_FUNDS);
-    const game = await waitForOpenRegistration(api, 120_000 + missing.length * SIGNING_MS, waitMs);
+    const game = await waitForLoadGame(api, gameAt, 120_000 + missing.length * SIGNING_MS, waitMs);
     const signed = await signEntries(signUpEntries(api, missing), "mint");
     const burst = await submitBurst(signed, api, client, target.rpc, 8, () => game.registration_ends * 1000);
     console.log(`[mint] ${burst.ok}/${burst.submitted} signed up to game ${game.index}`);

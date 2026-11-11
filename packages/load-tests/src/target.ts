@@ -16,7 +16,7 @@ export interface Target {
   network: DescriptorNetwork;
   /** Root's key: `//Alice` on a PPN fork, `SUDO_URI` elsewhere; none on a live network by default. */
   sudo: Keypair | undefined;
-  /** Pays players who join a real game: root's key when there is one, else `TEST_MNEMONIC`. */
+  /** Pays players who sign up to a load game: root's key when there is one, else `TEST_MNEMONIC`. */
   funder: Keypair | undefined;
   /** Prometheus endpoints of the People nodes behind `rpc`, scraped around each step. */
   metrics: string[];

@@ -13,8 +13,8 @@ import { connectPeople, resolveTarget } from "./target.js";
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
-  mint        Give players 0..players-1 of --layer a statement allowance: as root, or with --join
-              (or without a root key) by signing them up to the next real game
+  mint        Give players 0..players-1 of --layer a statement allowance: as root, or with
+              --game-at by signing them up to a load game the root key holder scheduled
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain: schedule it as root, sign up and report with every player at once
@@ -47,10 +47,11 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
 
-Real games (the default without a root key, as on a live network):
-  --join                Sign players up to the next real game instead of writing state or
-                        scheduling a game as root; TEST_MNEMONIC pays each player 3 UNIT
-  --registration-wait <min>  How long to wait for a game to open registration (default 120)
+Load game (live networks, where this run holds no root key):
+  --game-at <s|iso>     Play time of a game the network's root key holder scheduled for the load:
+                        players sign up to it, TEST_MNEMONIC paying each 3 UNIT. Never point it
+                        at a real game: its players would get co-players who never connect
+  --registration-wait <min>  How long to wait for that game to open registration (default 120)
 
 Chain (phases default to the chain's own):
   --registration <s> --shuffle <s> --margin <s> --reporting <s> --player-process <s>
@@ -92,7 +93,7 @@ const { positionals, values } = parseArgs({
     "report-window": { type: "string", default: "35" },
     connections: { type: "string", default: "8" },
     "take-over": { type: "boolean", default: false },
-    join: { type: "boolean", default: false },
+    "game-at": { type: "string" },
     "registration-wait": { type: "string", default: "120" },
     layer: { type: "string", default: "signalling" },
     "ghosts-per-host": { type: "string", default: "10" },
@@ -115,9 +116,18 @@ function seconds(name: string, text: string): number {
   return value * 1000;
 }
 
+/** A game's play time in chain seconds, from unix seconds or an ISO date. */
+function gameTime(text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const value = /^\d+$/.test(text) ? Number(text) : Date.parse(text) / 1000;
+  if (!Number.isInteger(value)) throw new Error(`--game-at must be unix seconds or an ISO date on a whole second, not '${text}'`);
+  return value;
+}
+
 const command = positionals[0];
 const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
+const gameAt = gameTime(values["game-at"]);
 
 switch (values.help ? undefined : command) {
   case "mint": {
@@ -130,10 +140,11 @@ switch (values.help ? undefined : command) {
       values.layer === "host"
         ? indices.map((index) => hostGhostPlayer(values.seed, productId, ghostsPerHost, index))
         : derivePlayers(values.seed, indices);
-    if (values.join || !target.sudo) {
-      await signUpForAllowance(target, players, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
+    if (gameAt !== undefined) {
+      await signUpForAllowance(target, players, gameAt, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       break;
     }
+    if (!target.sudo) throw new Error(`${target.label}: no root key to write allowances; set --sudo or SUDO_URI, or pass --game-at for a scheduled load game`);
     const { client, api } = connectPeople(target);
     try {
       // The allowance a game sign-up grants (next-people-paseo `PlayerStatementLimit`).
@@ -205,7 +216,7 @@ switch (values.help ? undefined : command) {
       reportWindowMs: seconds("report-window", values["report-window"]),
       connections: positiveInteger("connections", values.connections),
       takeOver: values["take-over"],
-      game: values.join || !target.sudo ? "next" : "own",
+      gameAt,
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
     });
     const text = chainMarkdown(result);
