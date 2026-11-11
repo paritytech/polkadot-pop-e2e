@@ -255,9 +255,9 @@ jobs:
 
   # A live network has no root key here: players sign up to a load game the network's root key
   # holder scheduled (game_at), which also grants their statement allowance, paid for by the
-  # TEST_MNEMONIC account.
+  # TEST_MNEMONIC account. A skipped job shows its name unevaluated, so these names are static.
   live-prepare:
-    name: ${{ inputs.target }} · ${{ inputs.layer == 'chain' && format('chain · {0} players', inputs.steps) || format('mint {0} players', inputs.steps) }}
+    name: live · mint or chain game
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
     # Up to 2 h for the load game to open registration, then the game, its reporting and its
@@ -310,7 +310,7 @@ jobs:
           if-no-files-found: ignore
 
   live-shard:
-    name: ${{ inputs.target }} · ${{ inputs.layer }} · ${{ inputs.steps }} players · shard ${{ matrix.shard }}
+    name: live · shard
     needs: live-prepare
     if: ${{ needs.live-prepare.outputs.shards != '' && needs.live-prepare.outputs.shards != '[]' }}
     runs-on: ubuntu-latest
@@ -353,6 +353,7 @@ jobs:
           if-no-files-found: ignore
 
   live-summary:
+    name: live · summary
     needs: live-shard
     if: always() && needs.live-shard.result != 'skipped'
     runs-on: ubuntu-latest
