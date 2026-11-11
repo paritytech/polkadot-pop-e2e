@@ -230,6 +230,7 @@ jobs:
   # A live network has no root key here: players sign up to its next real game, which also
   # grants their statement allowance, paid for by the TEST_MNEMONIC account.
   live-prepare:
+    name: ${{ inputs.target }} · ${{ inputs.layer == 'chain' && format('chain · {0} players', inputs.steps) || format('mint {0} players', inputs.steps) }}
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
     # Up to 2 h for a game to open registration, then the real game, its hour of reporting and
@@ -279,6 +280,7 @@ jobs:
           if-no-files-found: ignore
 
   live-shard:
+    name: ${{ inputs.target }} · ${{ inputs.layer }} · ${{ inputs.steps }} players · shard ${{ matrix.shard }}
     needs: live-prepare
     if: ${{ needs.live-prepare.outputs.shards != '' && needs.live-prepare.outputs.shards != '[]' }}
     runs-on: ubuntu-latest
