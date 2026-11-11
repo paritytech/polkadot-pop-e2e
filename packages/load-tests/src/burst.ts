@@ -4,7 +4,7 @@ import { toHex } from "@polkadot-api/utils";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import type { Keypair } from "./keys.js";
-import type { RpcConnection } from "./rpc.js";
+import { RpcConnection } from "./rpc.js";
 import { bump } from "./stats.js";
 import type { PeopleApi } from "./target.js";
 
@@ -91,20 +91,15 @@ function blockReader(api: PeopleApi, client: PolkadotClient): (hash: string) => 
   return (hash) => cache.get(hash) ?? cache.set(hash, read(hash)).get(hash)!;
 }
 
+/** An upper bound of polkadot-api's time to sign one transaction on a CI runner. */
+export const SIGNING_MS = 150;
+
 /**
- * Signs every entry, then submits them all at once over `connections` with
- * `author_submitAndWatchExtrinsic`, and resolves when each is in a best block, rejected or
- * timed out. Signing comes first, so the burst's timing is the chain's, not the signer's.
- * `deadline` maps the chain time the burst starts at to the latest in-time block timestamp.
+ * Each entry as a signed extrinsic in hex, mortal for 256 blocks. polkadot-api takes tens of
+ * milliseconds per transaction, so a burst's transactions are signed before its window opens.
  */
-export async function submitBurst(
-  entries: BurstEntry[],
-  api: PeopleApi,
-  client: PolkadotClient,
-  connections: RpcConnection[],
-  deadline: (chainStart: number) => number,
-): Promise<Burst> {
-  const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
+export async function signEntries(entries: BurstEntry[], label: string): Promise<string[]> {
+  const started = Date.now();
   const signed: string[] = [];
   for (let start = 0; start < entries.length; start += 200) {
     const chunk = entries.slice(start, start + 200).map(async ({ signer, tx, nonce }) => {
@@ -114,6 +109,26 @@ export async function submitBurst(
     });
     signed.push(...(await Promise.all(chunk)));
   }
+  console.log(`[${label}] ${signed.length} transactions signed in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  return signed;
+}
+
+/**
+ * Submits every signed extrinsic at once over `connections` fresh connections to `urls` with
+ * `author_submitAndWatchExtrinsic`, and resolves when each is in a best block, rejected or
+ * timed out. `deadline` maps the chain time the burst starts at to the latest in-time block
+ * timestamp.
+ */
+export async function submitBurst(
+  signed: string[],
+  api: PeopleApi,
+  client: PolkadotClient,
+  urls: string[],
+  connectionCount: number,
+  deadline: (chainStart: number) => number,
+): Promise<Burst> {
+  const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
+  const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
   const readBlock = blockReader(api, client);
   const latest = deadline(Number(await api.query.Timestamp.Now.getValue({ at: "best" })));
   const start = Date.now();
@@ -166,6 +181,7 @@ export async function submitBurst(
     ),
   );
   burst.durationMs = Date.now() - start;
+  for (const connection of connections) connection.close();
   return burst;
 }
 

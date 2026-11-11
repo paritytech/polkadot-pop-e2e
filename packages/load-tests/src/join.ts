@@ -1,10 +1,9 @@
 import type { PolkadotClient, SizedHex } from "polkadot-api";
 import { toHex } from "@polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { submitBurst, type BurstEntry } from "./burst.js";
+import { SIGNING_MS, signEntries, submitBurst, type BurstEntry } from "./burst.js";
 import type { Keypair, Player } from "./keys.js";
 import { statementAllowanceKey, transferToPlayers } from "./root.js";
-import { RpcConnection } from "./rpc.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
 /** Free balance per player: the default 2 UNIT play deposit, existential deposit and fees. */
@@ -66,18 +65,17 @@ export function requireFunder(target: Target): Keypair {
 export async function signUpForAllowance(target: Target, players: Player[], waitMs: number): Promise<void> {
   const funder = requireFunder(target);
   const { client, api } = connectPeople(target);
-  const connections = await Promise.all(Array.from({ length: 8 }, (_, i) => RpcConnection.open(target.rpc[i % target.rpc.length], 15_000)));
   try {
     const missing = await playersWithoutAllowance(client, players);
     console.log(`[mint] ${players.length - missing.length} of ${players.length} players have an allowance; ${missing.length} sign up`);
     if (missing.length === 0) return;
     await transferToPlayers(api, funder, missing, PLAYER_FUNDS);
-    const game = await waitForOpenRegistration(api, 120_000, waitMs);
-    const burst = await submitBurst(signUpEntries(api, missing), api, client, connections, () => game.registration_ends * 1000);
+    const game = await waitForOpenRegistration(api, 120_000 + missing.length * SIGNING_MS, waitMs);
+    const signed = await signEntries(signUpEntries(api, missing), "mint");
+    const burst = await submitBurst(signed, api, client, target.rpc, 8, () => game.registration_ends * 1000);
     console.log(`[mint] ${burst.ok}/${burst.submitted} signed up to game ${game.index}`);
     if (burst.ok < missing.length) throw new Error(`${missing.length - burst.ok} sign-ups failed: ${JSON.stringify(burst.failures)}`);
   } finally {
-    for (const connection of connections) connection.close();
     client.destroy();
   }
 }
