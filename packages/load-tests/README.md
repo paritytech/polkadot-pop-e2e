@@ -7,7 +7,7 @@ carries and which part fails first. Three layers, each adding one piece of the r
 |---|---|---|---|
 | `signalling` | ghosts on direct People RPC, signing their own statements | statement store and RPC | delivery latency and loss, rejected or dropped connections, subscriptions the node ends, node submit time and CPU |
 | `host` | ghosts inside `truapi-host signing-host --script`, `--ghosts-per-host` to a process | the same, through the host's proof, submit and per-subscription connections | the above, plus host CPU and memory per ghost |
-| `chain` | funded accounts | one game: sudo schedules it, every player signs up at once, the chain shuffles, every player reports at once after the game | sign-ups after registration closed, a shuffle that ends in `Cancelling`, reports outside the report window, block fullness, dispatch and pool errors |
+| `chain` | funded accounts | one game: on a fork sudo schedules it, on a live network the players join the closest one; every player signs up at once, the chain shuffles, every player reports at once after the game, then claims the credits its co-players' votes awarded it as NFTs on Asset Hub (always on a fork, with `--claim` on a live network, where the NFTs come out of real collections) | sign-ups after registration closed, a shuffle that ends in `Cancelling`, reports outside the report window, credits that don't reach Asset Hub, failed claims, block fullness, dispatch and pool errors |
 
 A signalling ghost behaves like a player's statement transport: it subscribes with
 `matchAny: [inbox, room]` on one game-wide room topic and submits a bundle on its own channel,
