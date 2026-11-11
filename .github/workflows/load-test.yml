@@ -1,56 +1,40 @@
 name: Load test
 
-# Plays Jollity-shaped load against the People chain: signalling-only ghosts on direct RPC,
-# ghosts inside truapi-host, or one whole game on chain. See packages/load-tests/README.md.
+# Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
+# sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
+# See packages/load-tests/README.md.
 
 on:
   workflow_call:
     inputs:
-      target: { type: string, default: fork-previewnet }
-      layer: { type: string, default: signalling }
-      steps: { type: string, default: "25,50,100,250,500" }
-      processes: { type: string, default: "4" }
-      args: { type: string, default: "" }
-      ppn_ref: { type: string, default: "" }
-      runs_on: { type: string, default: parity-large }
+      network: { type: string, default: previewnet }
+      players: { type: string, default: "300" }
+      bots_per_machine: { type: string, default: "1000" }
       game_at: { type: string, default: "" }
+      args: { type: string, default: "" }
     secrets:
-      TEST_MNEMONIC: { required: false }
+      TEST_MNEMONIC: { required: true }
   workflow_dispatch:
     inputs:
-      target:
-        description: A local fork of a network (on the runner), or the live network itself
+      network:
+        description: Network whose closest scheduled game the bots join
         type: choice
-        default: fork-previewnet
-        options: [fork-previewnet, fork-paseo-next-v2, previewnet, paseo-next-v2]
-      layer:
-        description: signalling and host play one game per step with that many ghosts; chain plays one game per step with that many players
-        type: choice
-        default: signalling
-        options: [signalling, host, chain]
-      steps:
-        description: Player counts, comma-separated, up to 5000
+        default: previewnet
+        options: [previewnet, paseo-next-v2]
+      players:
+        description: Bots in the game, up to 5000
         type: string
-        default: "25,50,100,250,500"
-      processes:
-        description: Load processes; on a fork they share the runner, on a live network each gets a runner
+        default: "300"
+      bots_per_machine:
+        description: Bots one parity-large machine sends messages for
         type: string
-        default: "4"
-      args:
-        description: More load CLI options, such as "--ghosts-per-host 20" or "--registration 120"
-        type: string
-        default: ""
-      ppn_ref:
-        description: previewnet-engine ref for a fork (default the release gate's)
-        type: string
-        default: ""
-      runs_on:
-        description: Runner for a fork
-        type: choice
-        default: parity-large
-        options: [parity-large, ubuntu-latest]
+        default: "1000"
       game_at:
-        description: Live only. Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
+        description: Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
+        type: string
+        default: ""
+      args:
+        description: More load CLI options, such as "--skip-claim" or "--ghosts-per-host 1"
         type: string
         default: ""
 
@@ -58,219 +42,45 @@ permissions:
   contents: read
 
 concurrency:
-  group: load-test-${{ inputs.target }}
+  group: load-test-${{ inputs.network }}
   cancel-in-progress: false
 
 env:
-  LAYER: ${{ inputs.layer }}
-  STEPS: ${{ inputs.steps }}
-  PROCESSES: ${{ inputs.processes }}
+  NETWORK: ${{ inputs.network }}
+  PLAYERS: ${{ inputs.players }}
   ARGS: ${{ inputs.args }}
+  GAME_AT: ${{ inputs.game_at }}
   RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
   RESULTS: ${{ github.workspace }}/load-results
   TRUAPI_HOST_NO_UPDATE: "1"
-  GAME_AT: ${{ inputs.game_at }}
 
 jobs:
-  # One runner and one fork per player count: a fork binds fixed ports, so a runner carries one,
-  # and no game plays on a chain an earlier game loaded.
-  fork:
-    if: startsWith(inputs.target, 'fork-')
-    name: ${{ inputs.target }} · ${{ inputs.layer }} · ${{ matrix.players }} players
-    runs-on: ${{ inputs.runs_on }}
-    # A fresh paseo-next-v2 bite takes up to ~30 minutes before the load starts.
-    timeout-minutes: 240
-    strategy:
-      fail-fast: false
-      matrix:
-        players: ${{ fromJSON(format('[{0}]', inputs.steps)) }}
-    env:
-      MANIFEST: environments/networks/${{ inputs.target == 'fork-previewnet' && 'previewnet' || 'paseo-next-v2' }}.json
-      PLAYERS: ${{ matrix.players }}
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      machines: ${{ steps.plan.outputs.machines }}
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Pick the engine ref
-        id: engine
+      - id: plan
         env:
-          PPN_REF: ${{ inputs.ppn_ref }}
-        run: |
-          echo "ref=${PPN_REF:-$(sed -nE 's/^  PPN_REF_DEFAULT: (.+)$/\1/p' .github/workflows/release-gate.yml)}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout the engine (previewnet-engine)
-        uses: actions/checkout@v4
-        with:
-          repository: paritytech/previewnet-engine
-          ref: ${{ steps.engine.outputs.ref }}
-          path: ppn
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Install make and jq
-        run: |
-          which make || (apt-get update && apt-get install -y make)
-          which jq || (apt-get update && apt-get install -y jq)
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - if: inputs.layer == 'host'
-        uses: ./.github/actions/install-truapi-host
-
-      - if: inputs.layer == 'host'
-        uses: oven-sh/setup-bun@v2
-
-      - name: Resolve the manifest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node environments/resolve.mjs overrides "$MANIFEST" | tee -a "$GITHUB_ENV"
-
-      # The same bring-up as the release gate: the bite can hang, so each attempt is capped.
-      - name: Ensure engine dependencies and fetch the fork bundle
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 1800 make -C ppn ensure-deps FORK=1; then exit 0; fi
-            echo "::warning::ensure-deps attempt $attempt failed or hung; cleaning up for a retry"
-            make -C ppn kill || true
-            pkill -f doppelganger || true
-            rm -rf "ppn/$FORK_DIR_NAME"
-          done
-          echo "::error::no fork bundle after 3 attempts"
-          exit 1
-
-      - name: Start the fork
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          for attempt in 1 2; do
-            make -C ppn kill >/dev/null 2>&1 || true
-            nohup make -C ppn start FORK=1 > /tmp/fork-spawn.log 2>&1 &
-            pid=$!
-            for i in $(seq 1 60); do
-              if ! kill -0 "$pid" 2>/dev/null; then
-                echo "::warning::spawn attempt $attempt exited after $((i * 10))s"
-                tail -20 /tmp/fork-spawn.log
-                break
-              fi
-              if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
-                   -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
-                   http://127.0.0.1:10000 >/dev/null 2>&1; then
-                echo "relay is up after $((i * 10))s (attempt $attempt)"; exit 0
-              fi
-              sleep 10
-            done
-          done
-          echo "::error::the fork did not come up in 2 spawn attempts"; tail -40 /tmp/fork-spawn.log; exit 1
-
-      - name: Wait for every chain to produce and finalize
-        run: node ppn/bin/ppn.mjs fork wait "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" "$FORK_WAIT_SECONDS"
-
-      - name: Verify the fork is healthy
-        run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
-
-      - name: Point the load at the fork
-        run: |
-          echo "STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json" >> "$GITHUB_ENV"
-          # People is para 1502 on both forkable networks; the data dir name depends on the network.
-          zombie=$(find ppn -maxdepth 2 -path 'ppn/data-fork*/zombie.json' | head -1)
-          metrics=$(jq -r '[.parachains["1502"][0].collators[].prometheus_uri] | join(",")' "$zombie" || true)
-          if [ -z "$metrics" ]; then echo "::warning::no People Prometheus endpoint in zombie.json; steps report no node metrics"; fi
-          echo "People metrics: $metrics"
-          echo "METRICS=$metrics" >> "$GITHUB_ENV"
-          # The stack's People endpoint is the dashboard proxy; the load goes to the node itself.
-          echo "PEOPLE_RPC=$(jq -r '[.parachains["1502"][0].collators[].ws_uri] | join(",")' "$zombie")" >> "$GITHUB_ENV"
-
-      # The relay validators, the other collators and the load share the runner with the People
-      # node, and their bursts show up as whole-room drops. The People node gets cores of its
-      # own; everything else of the fork and the load share the rest.
-      - name: Give the People node cores of its own
-        run: |
-          cpus=$(nproc)
-          if [ "$cpus" -lt 16 ]; then
-            echo "::warning::$cpus CPUs: the People node shares them with the fork and the load"
-            echo "People node CPUs: shared, $cpus on the runner" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          others="8-$((cpus - 1))"
-          for pid in $(pgrep -f -- "$GITHUB_WORKSPACE/ppn" || true); do taskset -a -cp "$others" "$pid" >/dev/null || true; done
-          people=$(pgrep -f -- "Collator-1502" || true)
-          if [ -z "$people" ]; then echo "::error::no People collator process found"; exit 1; fi
-          for pid in $people; do taskset -a -cp 0-7 "$pid" >/dev/null; done
-          echo "LOAD_CPUS=$others" >> "$GITHUB_ENV"
-          echo "People node CPUs: 0-7 of its own; the rest of the fork and the load on $others" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Play ${{ matrix.players }} players
+          PER_MACHINE: ${{ inputs.bots_per_machine }}
         run: |
           set -euo pipefail
-          read -ra extra <<< "$ARGS"
-          load() { ${LOAD_CPUS:+taskset -c "$LOAD_CPUS"} pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" --rpc "$PEOPLE_RPC" "${extra[@]}"; }
-          if [ "$LAYER" = chain ]; then
-            load chain --players "$PLAYERS" --take-over
-            exit 0
-          fi
-          load mint --layer "$LAYER" --players "$PLAYERS"
-          start=$(( $(date +%s) * 1000 + 30000 ))
-          pids=()
-          for shard in $(seq 0 $((PROCESSES - 1))); do
-            # The engine runs People with --rpc-max-connections=500.
-            load "$LAYER" --steps "$PLAYERS" --shard "$shard/$PROCESSES" --start-at "$start" --rpc-limit 500 > "/tmp/load-shard-$shard.log" 2>&1 &
-            pids+=($!)
-          done
-          failed=0
-          for shard in "${!pids[@]}"; do
-            wait "${pids[$shard]}" || { echo "::error::shard $shard failed"; failed=1; }
-            cat "/tmp/load-shard-$shard.log"
-          done
-          load summary
-          exit $failed
+          machines=$(( (PLAYERS + PER_MACHINE - 1) / PER_MACHINE ))
+          echo "machines=$machines" >> "$GITHUB_OUTPUT"
+          echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
+          echo "$PLAYERS bots on $machines parity-large machine(s)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-results-${{ inputs.target }}-${{ inputs.layer }}-${{ matrix.players }}
-          path: load-results/
-          retention-days: 14
-          if-no-files-found: ignore
-
-      - name: Stop the network
-        if: always()
-        run: make -C ppn kill || true
-
-      - name: Upload fork logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-fork-logs-${{ inputs.target }}-${{ inputs.layer }}-${{ matrix.players }}
-          path: |
-            /tmp/fork-spawn.log
-            ppn/data*/*/*.log
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # A live network has no root key here: players join a scheduled game as regular players, which
-  # also grants their statement allowance, paid for by the TEST_MNEMONIC account. A skipped job
-  # shows its name unevaluated, so these names are static.
-  live-prepare:
-    name: live · mint or chain game
-    if: ${{ !startsWith(inputs.target, 'fork-') }}
+  # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
+  # them. The TEST_MNEMONIC account pays their play deposits and fees.
+  chain:
+    name: chain · sign-up, reports, NFT claims
     runs-on: ubuntu-latest
-    # Up to 4 h until the game, then its reporting and player processing; GitHub-hosted jobs stop
-    # at 6 h.
+    # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
     env:
-      NETWORK: ${{ inputs.target }}
       TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
-    outputs:
-      start_at: ${{ steps.mint.outputs.start_at }}
-      shards: ${{ steps.mint.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -279,48 +89,34 @@ jobs:
           node-version: "22"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-
-      - name: Mint the players, or play the chain game
-        id: mint
+      - name: Play the game on chain
         run: |
           set -euo pipefail
-          largest=$(tr ',' '\n' <<< "$STEPS" | sort -n | tail -1)
           read -ra extra <<< "$ARGS"
           game=(--registration-wait 240)
           if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
-          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" "${game[@]}" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"; }
-          if [ "$LAYER" = chain ]; then
-            # One game, one chain step: its largest player count.
-            load chain --players "$largest"
-            echo "shards=[]" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          load mint --layer "$LAYER" --players "$largest"
-          # Time for the shard runners to start and install before the first step.
-          echo "start_at=$(( ($(date +%s) + 300) * 1000 ))" >> "$GITHUB_OUTPUT"
-          echo "shards=$(seq -s, 0 $((PROCESSES - 1)) | sed 's/^/[/;s/$/]/')" >> "$GITHUB_OUTPUT"
-
+          pnpm --silent --filter @pop-e2e/load-tests load chain --players "$PLAYERS" "${game[@]}" \
+            --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the chain result
-        if: always() && inputs.layer == 'chain'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: load-results-${{ inputs.target }}-chain
+          name: load-chain
           path: load-results/
           retention-days: 14
           if-no-files-found: ignore
 
-  live-shard:
-    name: live · shard
-    needs: live-prepare
-    if: ${{ needs.live-prepare.outputs.shards != '' && needs.live-prepare.outputs.shards != '[]' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
+  # Each machine waits until the chain job has signed its bots up, then runs them inside
+  # truapi-host from 40 s before the game's room opens until the game ends.
+  messages:
+    name: messages · machine ${{ matrix.shard }}
+    needs: plan
+    runs-on: parity-large
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.live-prepare.outputs.shards) }}
-    env:
-      NETWORK: ${{ inputs.target }}
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -329,33 +125,30 @@ jobs:
           node-version: "22"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-      - if: inputs.layer == 'host'
-        uses: ./.github/actions/install-truapi-host
-      - if: inputs.layer == 'host'
-        uses: oven-sh/setup-bun@v2
-
-      - name: Play shard ${{ matrix.shard }}
+      - uses: ./.github/actions/install-truapi-host
+      - uses: oven-sh/setup-bun@v2
+      - name: Send and receive the game's messages
         env:
-          START_AT: ${{ needs.live-prepare.outputs.start_at }}
           SHARD: ${{ matrix.shard }}
+          MACHINES: ${{ needs.plan.outputs.machines }}
         run: |
+          set -euo pipefail
           read -ra extra <<< "$ARGS"
-          pnpm --silent --filter @pop-e2e/load-tests load "$LAYER" --steps "$STEPS" --shard "$SHARD/$PROCESSES" \
-            --start-at "$START_AT" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
-
-      - name: Upload the shard results
+          pnpm --silent --filter @pop-e2e/load-tests load host --follow-game --steps "$PLAYERS" \
+            --shard "$SHARD/$MACHINES" --registration-wait 240 --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+      - name: Upload the message results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: load-shard-${{ matrix.shard }}
+          name: load-messages-${{ matrix.shard }}
           path: load-results/
           retention-days: 14
           if-no-files-found: ignore
 
-  live-summary:
-    name: live · summary
-    needs: live-shard
-    if: always() && needs.live-shard.result != 'skipped'
+  summary:
+    name: summary
+    needs: [chain, messages]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -367,12 +160,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
-          pattern: load-shard-*
+          pattern: load-*
           path: load-results
           merge-multiple: true
-      - run: pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS"
+      - name: Merge the results
+        run: |
+          set -euo pipefail
+          cat load-results/chain.n*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
+          pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS" || echo "No message results" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: load-results-${{ inputs.target }}-${{ inputs.layer }}
+          name: load-results-${{ inputs.network }}-${{ inputs.players }}
           path: load-results/
           retention-days: 14

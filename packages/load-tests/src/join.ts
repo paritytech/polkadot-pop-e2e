@@ -138,6 +138,29 @@ export async function signUpForAllowance(target: Target, players: Player[], game
   }
 }
 
+/**
+ * The game `player` is signed up to, once it is and that game hasn't started: how a message bot
+ * finds the game a separate chain run signs it up to. Fails after `timeoutMs`.
+ */
+export async function waitForSignUp(target: Target, player: Player, timeoutMs: number): Promise<OpenGame> {
+  const { client, api } = connectPeople(target);
+  const until = Date.now() + timeoutMs;
+  try {
+    for (;;) {
+      const [game, row, now] = await Promise.all([
+        api.query.Game.Game.getValue({ at: "best" }),
+        api.query.Game.Players.getValue(Enum("Account", player.address), { at: "best" }),
+        api.query.Timestamp.Now.getValue({ at: "best" }),
+      ]);
+      if (game && row?.registered && game.game_date * 1000 > Number(now)) return game;
+      if (Date.now() > until) throw new Error(`${player.address} wasn't signed up to a game within ${timeoutMs / 60_000} min`);
+      await sleep(5_000);
+    }
+  } finally {
+    client.destroy();
+  }
+}
+
 async function playersWithoutAllowance(client: PolkadotClient, players: Player[]): Promise<Player[]> {
   const missing: Player[] = [];
   for (let start = 0; start < players.length; start += 200) {

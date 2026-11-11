@@ -1,14 +1,14 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
-import { derivePlayers, hostGhostPlayer } from "./keys.js";
+import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
-import { signUpForAllowance } from "./join.js";
+import { signUpForAllowance, waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, PRODUCT_IDS } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
-import { connectPeople, resolveTarget } from "./target.js";
+import { connectPeople, resolveTarget, type Target } from "./target.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
@@ -48,6 +48,9 @@ Signalling:
 Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
+  --follow-game         Wait until the chain command has signed this run's players up to a game
+                        (same --seed, network and player count), then play one step of --steps
+                        with them, opening the room when the app does, 64 s before that game
 
 Live networks (no root key): players join a scheduled game as regular players
   --game-at <s|iso>     Play time of the game to join (default: the closest scheduled one).
@@ -104,6 +107,7 @@ const { positionals, values } = parseArgs({
     "ghosts-per-host": { type: "string", default: "10" },
     "product-id": { type: "string" },
     "rpc-limit": { type: "string" },
+    "follow-game": { type: "boolean", default: false },
     "skip-claim": { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
   },
@@ -139,6 +143,22 @@ const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
 const gameAt = gameTime(values["game-at"]);
 
+/**
+ * Key seed of a game run's players. On a fork, fresh accounts per game, so the sign-up is each
+ * one's first transaction. On a live network the same accounts every game, so each pays its play
+ * deposit once.
+ */
+function gameSeed(target: Target, count: number): string {
+  return target.sudo ? `${values.seed}/${values["run-id"]}/n${count}` : `${values.seed}/${target.network}`;
+}
+
+/** Players 0..count-1 of a game run, as product accounts of the truapi-hosts that send their messages. */
+function gamePlayers(target: Target, count: number): Player[] {
+  const productId = values["product-id"] ?? PRODUCT_IDS[target.network];
+  const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
+  return Array.from({ length: count }, (_, index) => hostGhostPlayer(gameSeed(target, count), productId, ghostsPerHost, index));
+}
+
 switch (values.help ? undefined : command) {
   case "mint": {
     const target = await resolveTarget(targetOptions);
@@ -171,20 +191,36 @@ switch (values.help ? undefined : command) {
     if (!PHASES.includes(values.phase as Phase)) throw new Error(`--phase must be one of ${PHASES.join(", ")}, not '${values.phase}'`);
     const [shardIndex, shardCount] = values.shard.split("/").map(Number);
     if (!(shardIndex >= 0 && shardIndex < shardCount)) throw new Error(`--shard must be i/n with 0 <= i < n, not '${values.shard}'`);
+    const steps = list([values.steps]).map((step) => positiveInteger("steps", step));
+    const timing = {
+      rampMs: seconds("ramp", values.ramp),
+      warmupMs: seconds("warmup", values.warmup),
+      drainMs: seconds("drain", values.drain),
+      cooldownMs: seconds("cooldown", values.cooldown),
+    };
+    const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
+    const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
+    const productId = values["product-id"] ?? PRODUCT_IDS[target.network];
+    let seed = values.seed;
     const startText = values["start-at"];
-    const startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
+    let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
+    if (values["follow-game"]) {
+      if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
+      seed = gameSeed(target, steps[0]);
+      // Hosts are dealt to shards in turn, so this shard's first host is its index.
+      const firstPlayer = hostGhostPlayer(seed, productId, ghostsPerHost, shardIndex * ghostsPerHost);
+      console.log(`[host] waiting for ${firstPlayer.address} to be signed up to a game`);
+      const game = await waitForSignUp(target, firstPlayer, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
+      startAt = game.game_date * 1000 - profile.preconnectMs - timing.rampMs - timing.warmupMs;
+      console.log(`[host] game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}`);
+    }
     const run: StepRun = {
       runId: values["run-id"],
-      seed: values.seed,
-      steps: list([values.steps]).map((step) => positiveInteger("steps", step)),
+      seed,
+      steps,
       shard: { index: shardIndex, count: shardCount },
       startAt,
-      timing: {
-        rampMs: seconds("ramp", values.ramp),
-        warmupMs: seconds("warmup", values.warmup),
-        drainMs: seconds("drain", values.drain),
-        cooldownMs: seconds("cooldown", values.cooldown),
-      },
+      timing,
       profile,
       phase: values.phase as Phase,
       target,
@@ -193,8 +229,6 @@ switch (values.help ? undefined : command) {
     console.log(
       `[${command}] ${target.label} via ${target.rpc.join(", ")}: steps ${run.steps.join(", ")}, ${stepMs(run) / 1000} s each, shard ${values.shard}, start ${new Date(startAt).toISOString()}`,
     );
-    const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
-    const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
     if (values["rpc-limit"] !== undefined) {
       // A host opens a People connection per subscription, plus its own; ghosts on direct RPC
       // share theirs. A step over the limit measures the limit, not the node.
@@ -210,11 +244,7 @@ switch (values.help ? undefined : command) {
     }
     const players =
       command === "host"
-        ? hostGhosts(run, {
-            ghostsPerHost,
-            productId: values["product-id"] ?? PRODUCT_IDS[target.network],
-            binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
-          })
+        ? hostGhosts(run, { ghostsPerHost, productId, binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host" })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);
     if (shardCount === 1) console.log(await writeSummary(outDir, DEFAULT_THRESHOLDS));
@@ -228,10 +258,7 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      // On a fork, fresh accounts per game, so the sign-up is each one's first transaction. On a
-      // live network the same accounts every game, so each pays its play deposit once.
-      seed: target.sudo ? `${values.seed}/${values["run-id"]}/n${values.players}` : `${values.seed}/${target.network}`,
-      players: positiveInteger("players", values.players),
+      players: gamePlayers(target, positiveInteger("players", values.players)),
       target,
       outDir,
       phases,

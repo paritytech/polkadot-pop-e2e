@@ -4,7 +4,7 @@ import { Enum } from "polkadot-api";
 import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { playersNotRegistered, signUpEntries, topUpPlayers, waitForGame, PLAYER_FUNDS, type OpenGame } from "./join.js";
-import { derivePlayers, type Keypair, type Player } from "./keys.js";
+import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
@@ -18,8 +18,8 @@ export interface Phases {
 
 export interface ChainRun {
   runId: string;
-  seed: string;
-  players: number;
+  /** The accounts that play, the same ones a run's message bots sign with. */
+  players: Player[];
   target: Target;
   outDir: string;
   /**
@@ -165,7 +165,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   let gameIndex: number | undefined;
 
   try {
-    const players = derivePlayers(run.seed, Array.from({ length: run.players }, (_, i) => i));
+    const { players } = run;
     const ownGame = target.sudo !== undefined && run.gameAt === undefined;
     let phases: Phases;
     let signedSignUps: string[] = [];
@@ -219,7 +219,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       // The players sign up as soon as the game takes sign-ups and report after it, so the run
       // lasts until the game: one further away than the run's wait fails at once. Reused
       // accounts sign at their chain nonce, and a player already in this game skips its sign-up.
-      game = await waitForGame(api, run.gameAt, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
+      game = await waitForGame(api, run.gameAt, 120_000 + players.length * SIGNING_MS, run.registrationWaitMs);
       if (game.game_date * 1000 - (await chainNow()) > run.registrationWaitMs) {
         throw new Error(`game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}, later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
       }
@@ -286,7 +286,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const result: ChainResult = {
       layer: "chain",
       runId: run.runId,
-      players: run.players,
+      players: players.length,
       target: target.label,
       verdict: findings.length === 0 ? "pass" : "fail",
       findings,
@@ -299,7 +299,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       blocks: blocks.sort((a, b) => a.number - b.number),
     };
     await mkdir(run.outDir, { recursive: true });
-    await writeFile(join(run.outDir, `chain.n${run.players}.json`), JSON.stringify(result, null, 2));
+    await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));
     return result;
   } finally {
     watching = false;

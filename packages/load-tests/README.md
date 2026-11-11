@@ -82,10 +82,13 @@ replaces the stack's People endpoint: a PPN fork's stack points at the dashboard
 8090, a single process that loses deliveries at a few hundred players, so fork runs pass the
 People node's own port (`ws://127.0.0.1:10010`).
 
-In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
-and plays the layer there, or plays it against the live network with one runner per process.
-A live run needs `TEST_MNEMONIC` and joins the closest scheduled game, or the one in `game_at`.
-Players sign up as soon as that game takes sign-ups; the run waits up to 4 hours for it, and
+In CI, **Actions → Load test → Run workflow** plays the closest scheduled game on previewnet or
+paseo-next-v2 with `players` bots, or the game at `game_at`; it needs `TEST_MNEMONIC`. One job
+runs `chain`: it signs every bot up as soon as the game takes sign-ups, reports and claims for
+them. Alongside it, `players / bots_per_machine` parity-large machines each run
+`host --follow-game` for their share: they wait until the chain job has signed their bots up,
+then send the game's messages through truapi-host from the moment the app opens the room. The
+chain and message bots are the same accounts. The run waits up to 4 hours for the game, and
 fails at once when the game is further away.
 
 ## Reading the results
