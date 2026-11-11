@@ -66,8 +66,8 @@ importers:
         specifier: 0.5.9
         version: 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/trinity-stack':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@polkadot-api/metadata-builders':
         specifier: ^0.15.2
         version: 0.15.2
@@ -118,8 +118,8 @@ importers:
         version: 2.57.17(typescript@7.0.2)
     devDependencies:
       '@parity/truapi':
-        specifier: 0.29.0
-        version: 0.29.0
+        specifier: 0.30.0
+        version: 0.30.0
       solc:
         specifier: ^0.8.38
         version: 0.8.38
@@ -464,13 +464,16 @@ packages:
   '@parity/result@0.2.0':
     resolution: {integrity: sha512-QCrhYPeVVaPIjnlsfBIk5GHPRqfuCjy6MjqKkoCP4kwS1LIo5YtJCSFeB5mGtvMG7hiaRNl4lHQcd5YqDfJ1tQ==}
 
-  '@parity/trinity-stack@0.2.0':
-    resolution: {integrity: sha512-BGRC4Zml/KZUcFKPBsxPYx111eNj6iZb5lhTEIovu7Bq/N7RBDf0jOeEiw2Zgy6hBEOIYwvGhrucnd8tlI39zg==}
+  '@parity/trinity-stack@0.2.1':
+    resolution: {integrity: sha512-X6bWZ0qOOj0n+AwkLpYv5C9axTvRLXJxEbuLdP+bLHtpTJ1gvRDhUbC7k4SAqpigBfLXKgHmYGXkst1fA4015A==}
     engines: {node: '>=22.3'}
     hasBin: true
 
   '@parity/truapi@0.29.0':
     resolution: {integrity: sha512-+AVyOygAcewybCHYZQDhxLzf6qcL4BRusHLMPE8UPJBMWDh5xzs9iU6YVUrEm1OvSHh/Oahk+vU8jzc3IOQk8Q==}
+
+  '@parity/truapi@0.30.0':
+    resolution: {integrity: sha512-th4puHU2z0LYwkLBEXJxbsLgZhBASSWN7/NKfGdz1T15b+Z7GfrPq9J62QfJxrkpRvNDYQGF7QGbKJ1m7ZsOkQ==}
 
   '@polkadot-api/cli@0.21.10':
     resolution: {integrity: sha512-i2Z1Xv6BJOAhdzRKfTGao4WMo+Zv2UsHiKz9CDcaYL290ueYM6T9k32l043opBDQT1EdcUQH7I7hDiwP125neA==}
@@ -1005,12 +1008,6 @@ packages:
 
   '@rollup/rollup-linux-x64-gnu@4.65.1':
     resolution: {integrity: sha512-44IKzBPqXXVm0kt1O+F5eW4juR5FyIxGNlFkpP8qwIDzucBsjM1HCbdYUQrQw8rU/g6HRl/tfBm0+Qq4H4Ro3w==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@rollup/rollup-linux-x64-gnu@4.67.5':
-    resolution: {integrity: sha512-HmEfNh5Cdd/NHxgqwMzKnjlvicQQA+D+w+vQXDJSV0x/aHiQSjVwh1Th5RoA7QsMieIaxibt/5iJq68BraTSUg==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
@@ -2474,9 +2471,15 @@ snapshots:
 
   '@parity/result@0.2.0': {}
 
-  '@parity/trinity-stack@0.2.0': {}
+  '@parity/trinity-stack@0.2.1': {}
 
   '@parity/truapi@0.29.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+      neverthrow: 8.2.0
+      scale-ts: 1.6.1
+
+  '@parity/truapi@0.30.0':
     dependencies:
       '@noble/hashes': 2.4.0
       neverthrow: 8.2.0
@@ -3241,9 +3244,6 @@ snapshots:
   '@rollup/rollup-linux-x64-gnu@4.65.1':
     optional: true
 
-  '@rollup/rollup-linux-x64-gnu@4.67.5':
-    optional: true
-
   '@rollup/rollup-linux-x64-gnu@4.68.2':
     optional: true
 
@@ -3693,7 +3693,7 @@ snapshots:
 
   neverthrow@8.2.0:
     optionalDependencies:
-      '@rollup/rollup-linux-x64-gnu': 4.67.5
+      '@rollup/rollup-linux-x64-gnu': 4.68.2
 
   node-domexception@1.0.0: {}
 
