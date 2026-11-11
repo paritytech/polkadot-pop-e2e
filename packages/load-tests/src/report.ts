@@ -196,7 +196,7 @@ export function chainMarkdown(result: ChainResult): string {
     ...(result.claim ? [phaseRow("NFT claim", result.claim.burst)] : []),
     "",
     ...(result.claim
-      ? [`Credits: ${result.claim.claimable} of ${result.claim.awarded} claimable on Asset Hub ${seconds(result.claim.claimableAfterMs)} after the reports, into collections ${result.claim.collections.join(", ") || "–"}.`, ""]
+      ? [`Credits: ${result.claim.claimable} of ${result.claim.awarded} claimable on Asset Hub ${seconds(result.claim.claimableAfterMs)} after the game ended, into collections ${result.claim.collections.join(", ") || "–"}.`, ""]
       : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
