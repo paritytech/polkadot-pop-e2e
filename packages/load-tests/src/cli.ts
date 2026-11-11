@@ -188,8 +188,8 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      // Fresh accounts per run: a player signs up once per game, and its nonce starts at 0.
-      seed: `${values.seed}/${values["run-id"]}`,
+      // Fresh accounts per game, also between games of one run: the sign-up uses nonce 0.
+      seed: `${values.seed}/${values["run-id"]}/n${values.players}`,
       players: positiveInteger("players", values.players),
       target,
       outDir,

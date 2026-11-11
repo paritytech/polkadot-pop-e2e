@@ -4,6 +4,15 @@ name: Load test
 # ghosts inside truapi-host, or one whole game on chain. See packages/load-tests/README.md.
 
 on:
+  workflow_call:
+    inputs:
+      target: { type: string, default: fork-previewnet }
+      layer: { type: string, default: signalling }
+      steps: { type: string, default: "25,50,100,250,500" }
+      processes: { type: string, default: "4" }
+      args: { type: string, default: "" }
+      ppn_ref: { type: string, default: "" }
+      runs_on: { type: string, default: parity-large }
   workflow_dispatch:
     inputs:
       target:
@@ -12,7 +21,7 @@ on:
         default: fork-previewnet
         options: [fork-previewnet, fork-paseo-next-v2, previewnet, paseo-next-v2]
       layer:
-        description: signalling and host play one game per step; chain plays one game with the largest step
+        description: signalling and host play one game per step with that many ghosts; chain plays one game per step with that many players
         type: choice
         default: signalling
         options: [signalling, host, chain]
@@ -169,7 +178,7 @@ jobs:
           read -ra extra <<< "$ARGS"
           load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" --rpc "$PEOPLE_RPC" "${extra[@]}"; }
           if [ "$LAYER" = chain ]; then
-            load chain --players "$largest" --take-over
+            for players in ${STEPS//,/ }; do load chain --players "$players" --take-over; done
             exit 0
           fi
           load mint --layer "$LAYER" --players "$largest"
@@ -241,7 +250,10 @@ jobs:
           largest=$(tr ',' '\n' <<< "$STEPS" | sort -n | tail -1)
           read -ra extra <<< "$ARGS"
           if [ "$LAYER" = chain ]; then
-            pnpm --silent --filter @pop-e2e/load-tests load chain --players "$largest" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+            # Each step plays the next real game, so steps are a real game's interval apart.
+            for players in ${STEPS//,/ }; do
+              pnpm --silent --filter @pop-e2e/load-tests load chain --players "$players" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+            done
             echo "shards=[]" >> "$GITHUB_OUTPUT"
             exit 0
           fi
