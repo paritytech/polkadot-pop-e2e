@@ -1,11 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Enum, type SizedHex } from "polkadot-api";
-import { toHex } from "@polkadot-api/utils";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
+import { Enum } from "polkadot-api";
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { PLAYER_FUNDS, requireFunder, signUpEntries, waitForOpenRegistration, type OpenGame } from "./join.js";
 import { derivePlayers, type Player } from "./keys.js";
-import { dispatchAsRoot, fundPlayers } from "./root.js";
+import { dispatchAsRoot, fundPlayers, transferToPlayers } from "./root.js";
 import { RpcConnection } from "./rpc.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
@@ -23,7 +22,12 @@ export interface ChainRun {
   players: number;
   target: Target;
   outDir: string;
-  /** Seconds overriding the chain's phase durations for this game. */
+  /**
+   * `own`: schedule a game as root with `phases`, after clearing the chain when `takeOver`.
+   * `next`: sign up to the next real game in registration, funded by the target's funder.
+   */
+  game: "own" | "next";
+  /** Seconds overriding the chain's phase durations for an own game. */
   phases: Partial<Phases>;
   rounds: number;
   maxGroupSize: number;
@@ -35,6 +39,8 @@ export interface ChainRun {
   connections: number;
   /** Cancels a running game and removes scheduled ones instead of failing on them. */
   takeOver: boolean;
+  /** How long a `next` run waits for a game to open registration. */
+  registrationWaitMs: number;
 }
 
 export interface BlockLoad {
@@ -61,9 +67,6 @@ export interface ChainResult {
   blocks: BlockLoad[];
 }
 
-/** Free balance per player: the default 2 UNIT play deposit, existential deposit and fees. */
-const PLAYER_FUNDS = 30_000_000_000n;
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function stateLabel(game: { state: { type: string; value?: unknown } } | undefined): string {
@@ -72,10 +75,35 @@ function stateLabel(game: { state: { type: string; value?: unknown } } | undefin
   return step ? `${game.state.type}.${step.type}` : game.state.type;
 }
 
-/** A deterministic stand-in for the player's P-256 communication key, which the chain only stores. */
-function identifierKey(player: Player): SizedHex<65> {
-  const seed = blake2b256(player.publicKey);
-  return toHex(new Uint8Array([4, ...seed, ...blake2b256(seed)])) as SizedHex<65>;
+/** Schedules one game as root `phases` from now, after clearing the chain when `takeOver`. */
+async function scheduleOwnGame(api: PeopleApi, run: ChainRun, players: Player[]): Promise<{ phases: Phases; previous: Phases | undefined }> {
+  const { target } = run;
+  if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --join`);
+  const sudo = target.sudo;
+  const existing = await api.query.Game.Game.getValue();
+  const schedules = await api.query.Game.GameSchedules.getValue();
+  if (existing || schedules.length > 0) {
+    if (!run.takeOver) {
+      throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --join to play it`);
+    }
+    const calls = [
+      ...(existing ? [api.tx.Game.cancel_game().decodedCall] : []),
+      ...schedules.map((schedule) => api.tx.Game.remove_scheduled_game({ game_play_time: schedule.game_play_time }).decodedCall),
+    ];
+    await dispatchAsRoot(api, sudo, calls, calls.length, "take-over");
+    while (await api.query.Game.Game.getValue({ at: "best" })) await sleep(2_000);
+  }
+  await fundPlayers(api, sudo, players, PLAYER_FUNDS);
+  const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+  const phases: Phases = { ...chainPhases, ...run.phases };
+  const now = Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
+  // Slack of a few blocks: the chain starts the game only before its registration start.
+  const gamePlayTime = Math.ceil(now / 1000) + phases.registration + phases.shuffle + phases.post_shuffle_margin + 30;
+  const schedule = api.tx.Game.schedule_games({
+    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [] }],
+  });
+  await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases }).decodedCall, schedule.decodedCall], 2, "schedule");
+  return { phases, previous: Object.keys(run.phases).length > 0 ? chainPhases : undefined };
 }
 
 /**
@@ -98,14 +126,13 @@ async function buildReports(api: PeopleApi, players: Player[], playerCount: numb
 }
 
 /**
- * Plays one game with `players` funded accounts: sudo schedules it, every player signs up at
- * once, the chain shuffles, and every player reports at once after the game's length. Every
- * deadline is the chain's clock, which a dev node runs at its own pace.
+ * Plays one game with `players` funded accounts: every player signs up at once, the chain
+ * shuffles, and every player reports at once after the game's length. The game is one this run
+ * schedules as root, or the next real game. Every deadline is the chain's clock, which a dev
+ * node runs at its own pace.
  */
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
-  if (!target.sudo) throw new Error(`${target.label}: no root key; set --sudo or SUDO_URI`);
-  const sudo = target.sudo;
   const { client, api } = connectPeople(target);
   const connections = await Promise.all(
     Array.from({ length: run.connections }, (_, i) => RpcConnection.open(target.rpc[i % target.rpc.length], 15_000)),
@@ -116,34 +143,20 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   const chainNow = async () => Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
   let previousPhases: Phases | undefined;
   let watching = true;
+  // On a live network the next game starts as soon as this one ends, so the end is a new index.
+  let gameIndex: number | undefined;
 
   try {
-    const existing = await api.query.Game.Game.getValue();
-    const schedules = await api.query.Game.GameSchedules.getValue();
-    if (existing || schedules.length > 0) {
-      if (!run.takeOver) {
-        throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it`);
-      }
-      const calls = [
-        ...(existing ? [api.tx.Game.cancel_game().decodedCall] : []),
-        ...schedules.map((schedule) => api.tx.Game.remove_scheduled_game({ game_play_time: schedule.game_play_time }).decodedCall),
-      ];
-      await dispatchAsRoot(api, sudo, calls, calls.length, "take-over");
-      while (await api.query.Game.Game.getValue({ at: "best" })) await sleep(2_000);
-    }
-
     const players = derivePlayers(run.seed, Array.from({ length: run.players }, (_, i) => i));
-    await fundPlayers(api, sudo, players, PLAYER_FUNDS);
-
-    const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
-    const phases: Phases = { ...chainPhases, ...run.phases };
-    if (Object.keys(run.phases).length > 0) previousPhases = chainPhases;
-    // Slack of a few blocks: the chain starts the game only before its registration start.
-    const gamePlayTime = Math.ceil((await chainNow()) / 1000) + phases.registration + phases.shuffle + phases.post_shuffle_margin + 30;
-    const schedule = api.tx.Game.schedule_games({
-      games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [] }],
-    });
-    await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases }).decodedCall, schedule.decodedCall], 2, "schedule");
+    let phases: Phases;
+    if (run.game === "own") {
+      const scheduled = await scheduleOwnGame(api, run, players);
+      phases = scheduled.phases;
+      previousPhases = scheduled.previous;
+    } else {
+      await transferToPlayers(api, requireFunder(target), players, PLAYER_FUNDS);
+      phases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+    }
 
     const maxNormal = (await api.constants.System.BlockWeights()).per_class.normal.max_total!;
     const blockSubscription = client.finalizedBlock$.subscribe(async (block) => {
@@ -157,7 +170,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     });
     void (async () => {
       while (watching) {
-        const label = stateLabel(await api.query.Game.Game.getValue({ at: "best" }).catch(() => undefined));
+        const current = await api.query.Game.Game.getValue({ at: "best" }).catch(() => undefined);
+        const label = gameIndex !== undefined && current && current.index !== gameIndex ? "None" : stateLabel(current);
         if (timeline.at(-1)?.state !== label) {
           timeline.push({ state: label, at: Date.now() });
           console.log(`[chain] game: ${label}`);
@@ -173,25 +187,23 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       }
     };
 
-    await waitFor((state) => state === "Registration", 120_000, "Registration");
-    const game = (await api.query.Game.Game.getValue({ at: "best" }))!;
+    let game: OpenGame;
+    if (run.game === "own") {
+      await waitFor((state) => state === "Registration", 120_000, "Registration");
+      game = (await api.query.Game.Game.getValue({ at: "best" }))!;
+    } else {
+      game = await waitForOpenRegistration(api, 120_000, run.registrationWaitMs);
+    }
+    gameIndex = game.index;
+
     console.log(`[chain] game ${game.index}: ${run.players} players sign up`);
     // Fresh accounts: the sign-up is each player's first transaction, the report its second.
-    const signUp = await submitBurst(
-      players.map((player) => ({
-        signer: player,
-        tx: api.tx.Game.sign_up_with_account({ identifier_key: identifierKey(player), airdrops: undefined }),
-        nonce: 0,
-      })),
-      api,
-      client,
-      connections,
-      () => game.registration_ends * 1000,
-    );
+    const signUp = await submitBurst(signUpEntries(api, players, 0), api, client, connections, () => game.registration_ends * 1000);
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
     if (signUp.inTime < run.players) findings.push(`sign-up: ${run.players - signUp.inTime} of ${run.players} not in before registration ended`);
 
-    await waitFor((state) => state.startsWith("Reporting") || state === "None" || state.startsWith("Cancelling"), 3_600_000, "Reporting");
+    const untilGame = game.game_date * 1000 - (await chainNow());
+    await waitFor((state) => state.startsWith("Reporting") || state === "None" || state.startsWith("Cancelling"), Math.max(0, untilGame) + 600_000, "Reporting");
     const reached = timeline.at(-1)!.state;
     let report: BurstSummary | null = null;
     if (!reached.startsWith("Reporting")) {
@@ -243,8 +255,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   } finally {
     watching = false;
     // The phases apply to every later game, so a run on a shared network sets them back.
-    if (previousPhases) {
-      await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases: previousPhases }).decodedCall], 1, "restore phases").catch(
+    if (previousPhases && target.sudo) {
+      await dispatchAsRoot(api, target.sudo, [api.tx.Game.set_game_phases({ phases: previousPhases }).decodedCall], 1, "restore phases").catch(
         (error: Error) => console.warn(`[chain] phases not restored: ${error.message}`),
       );
     }

@@ -14,8 +14,10 @@ export interface Target {
   /** People RPC endpoints; ghosts spread their connections over all of them. */
   rpc: string[];
   network: DescriptorNetwork;
-  /** Root's key: `//Alice` on a PPN fork, `SUDO_URI` elsewhere. */
+  /** Root's key: `//Alice` on a PPN fork, `SUDO_URI` elsewhere; none on a live network by default. */
   sudo: Keypair | undefined;
+  /** Pays players who join a real game: root's key when there is one, else `TEST_MNEMONIC`. */
+  funder: Keypair | undefined;
   /** Prometheus endpoints of the People nodes behind `rpc`, scraped around each step. */
   metrics: string[];
   /** truapi-host environment that routes a host to this target's chains and identity backend. */
@@ -36,6 +38,11 @@ function descriptorNetwork(network: string): DescriptorNetwork {
   return network as DescriptorNetwork;
 }
 
+function funderOf(sudoUri: string | undefined): Keypair | undefined {
+  const uri = sudoUri ?? process.env.TEST_MNEMONIC;
+  return uri ? keypairFromUri(uri) : undefined;
+}
+
 /**
  * The stack `STACK` selects, else the network `NETWORK` (or `network`) selects, read the way the
  * chain-tests read it. `rpc` replaces the stack's People endpoint for ghosts and hosts alike,
@@ -49,6 +56,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
       rpc: options.rpc,
       network: descriptorNetwork(options.network ?? process.env.NETWORK ?? "previewnet"),
       sudo: options.sudoUri ? keypairFromUri(options.sudoUri) : undefined,
+      funder: funderOf(options.sudoUri),
       metrics: options.metrics,
       // A host connects to a dev node through HOST_CLI_LOCAL_NETWORK_CONFIG, which it inherits.
       hostEnv: {},
@@ -65,6 +73,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
     rpc,
     network: descriptorNetwork(networkKey()),
     sudo: sudoUri ? keypairFromUri(sudoUri) : undefined,
+    funder: funderOf(sudoUri),
     metrics: options.metrics,
     hostEnv: {
       HOST_CLI_PEOPLE_WS: rpc[0],

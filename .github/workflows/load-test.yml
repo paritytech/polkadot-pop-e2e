@@ -211,15 +211,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # A live network: root is the operator's key, kept in the `load-<network>` environment.
+  # A live network has no root key here: players sign up to its next real game, which also
+  # grants their statement allowance, paid for by the TEST_MNEMONIC account.
   live-prepare:
     if: ${{ !startsWith(inputs.target, 'fork-') }}
     runs-on: ubuntu-latest
-    environment: load-${{ inputs.target }}
-    timeout-minutes: 120
+    # Up to 2 h for a game to open registration, then the real game, its hour of reporting and
+    # its player processing.
+    timeout-minutes: 360
     env:
       NETWORK: ${{ inputs.target }}
-      SUDO_URI: ${{ secrets.SUDO_URI }}
+      TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
     outputs:
       start_at: ${{ steps.mint.outputs.start_at }}
       shards: ${{ steps.mint.outputs.shards }}

@@ -49,6 +49,11 @@ export async function dispatchAsRoot(
 
 const ALLOWANCE_PREFIX = new TextEncoder().encode(":statement_allowance:");
 
+/** The storage key the node reads a player's statement allowance from. */
+export function statementAllowanceKey(player: Player): Uint8Array {
+  return mergeUint8([ALLOWANCE_PREFIX, player.publicKey]);
+}
+
 function u32le(value: number): Uint8Array {
   const bytes = new Uint8Array(4);
   new DataView(bytes.buffer).setUint32(0, value, true);
@@ -71,7 +76,7 @@ export async function grantStatementAllowance(
   allowance: StatementAllowance,
 ): Promise<void> {
   const value = mergeUint8([u32le(allowance.count), u32le(allowance.bytes)]);
-  const items = players.map((player) => [mergeUint8([ALLOWANCE_PREFIX, player.publicKey]), value] as [Uint8Array, Uint8Array]);
+  const items = players.map((player) => [statementAllowanceKey(player), value] as [Uint8Array, Uint8Array]);
   const calls: TxCallData[] = [];
   for (let start = 0; start < items.length; start += 1000) {
     calls.push(api.tx.System.set_storage({ items: items.slice(start, start + 1000) }).decodedCall);
@@ -85,4 +90,15 @@ export async function fundPlayers(api: PeopleApi, sudo: Keypair, players: Player
     (player) => api.tx.Balances.force_set_balance({ who: { type: "Id", value: player.address }, new_free: planck }).decodedCall,
   );
   await dispatchAsRoot(api, sudo, calls, 1000, "fund");
+}
+
+/** Transfers `planck` to each player from `funder`, 500 transfers to a batch. */
+export async function transferToPlayers(api: PeopleApi, funder: Keypair, players: Player[], planck: bigint): Promise<void> {
+  for (let start = 0; start < players.length; start += 500) {
+    const calls = players
+      .slice(start, start + 500)
+      .map((player) => api.tx.Balances.transfer_keep_alive({ dest: { type: "Id", value: player.address }, value: planck }).decodedCall);
+    const included = await submitToBestBlock(api.tx.Utility.batch_all({ calls }), funder);
+    console.log(`[fund] ${Math.min(start + 500, players.length)}/${players.length} in #${included.block.number}`);
+  }
 }

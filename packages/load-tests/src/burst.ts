@@ -11,7 +11,8 @@ import type { PeopleApi } from "./target.js";
 export interface BurstEntry {
   signer: Keypair;
   tx: Transaction;
-  nonce: number;
+  /** The chain's next nonce of the signer when undefined. */
+  nonce?: number;
 }
 
 interface BurstCounts {
@@ -108,7 +109,7 @@ export async function submitBurst(
   for (let start = 0; start < entries.length; start += 200) {
     const chunk = entries.slice(start, start + 200).map(async ({ signer, tx, nonce }) => {
       const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
-      const options = { nonce, mortality: { mortal: true, period: 256 }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
+      const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: true, period: 256 }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
       return toHex(await tx.create(creator, options as never));
     });
     signed.push(...(await Promise.all(chunk)));

@@ -4,15 +4,17 @@ import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer } from "./keys.js";
 import { gameMs, PROFILES } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
+import { signUpForAllowance } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, PRODUCT_IDS } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
-import { connectPeople, resolveTarget, type Target } from "./target.js";
+import { connectPeople, resolveTarget } from "./target.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
-  mint        Give players 0..players-1 of --layer a statement allowance as root
+  mint        Give players 0..players-1 of --layer a statement allowance: as root, or with --join
+              (or without a root key) by signing them up to the next real game
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain: schedule it as root, sign up and report with every player at once
@@ -43,12 +45,18 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
 
+Real games (the default without a root key, as on a live network):
+  --join                Sign players up to the next real game instead of writing state or
+                        scheduling a game as root; TEST_MNEMONIC pays each player 3 UNIT
+  --registration-wait <min>  How long to wait for a game to open registration (default 120)
+
 Chain (phases default to the chain's own):
   --registration <s> --shuffle <s> --margin <s> --reporting <s> --player-process <s>
+                        Phases of a game this run schedules as root
   --rounds <n> --group-size <n>   Game shape (default 2 and 6, as the app plays)
   --report-window <s>   Time after the game within which reports count as in time (default 35)
   --connections <n>     Clients the players' transactions are spread over (default 8)
-  --take-over           Cancel a running game and remove scheduled ones first
+  --take-over           Cancel a running game and remove scheduled ones before scheduling one
 `;
 
 const { positionals, values } = parseArgs({
@@ -81,6 +89,8 @@ const { positionals, values } = parseArgs({
     "report-window": { type: "string", default: "35" },
     connections: { type: "string", default: "8" },
     "take-over": { type: "boolean", default: false },
+    join: { type: "boolean", default: false },
+    "registration-wait": { type: "string", default: "120" },
     layer: { type: "string", default: "signalling" },
     "ghosts-per-host": { type: "string", default: "10" },
     "product-id": { type: "string" },
@@ -102,11 +112,6 @@ function seconds(name: string, text: string): number {
   return value * 1000;
 }
 
-function requireSudo(target: Target) {
-  if (!target.sudo) throw new Error(`${target.label}: no root key; set --sudo or SUDO_URI`);
-  return target.sudo;
-}
-
 const command = positionals[0];
 const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
@@ -122,10 +127,14 @@ switch (values.help ? undefined : command) {
       values.layer === "host"
         ? indices.map((index) => hostGhostPlayer(values.seed, productId, ghostsPerHost, index))
         : derivePlayers(values.seed, indices);
+    if (values.join || !target.sudo) {
+      await signUpForAllowance(target, players, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
+      break;
+    }
     const { client, api } = connectPeople(target);
     try {
       // The allowance a game sign-up grants (next-people-paseo `PlayerStatementLimit`).
-      await grantStatementAllowance(api, requireSudo(target), players, { count: 1_000_000, bytes: 1_000_000 });
+      await grantStatementAllowance(api, target.sudo, players, { count: 1_000_000, bytes: 1_000_000 });
     } finally {
       client.destroy();
     }
@@ -191,6 +200,8 @@ switch (values.help ? undefined : command) {
       reportWindowMs: seconds("report-window", values["report-window"]),
       connections: positiveInteger("connections", values.connections),
       takeOver: values["take-over"],
+      game: values.join || !target.sudo ? "next" : "own",
+      registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
     });
     const text = chainMarkdown(result);
     await writeFile(`${outDir}/chain.n${result.players}.md`, text);

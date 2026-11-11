@@ -22,11 +22,19 @@ accepted statements times `players - 1` is how many deliveries a step expects.
 
 ## Players
 
-Players don't need a person, an alias or an attestation. For `signalling` and `host`, `mint`
-writes each player's statement allowance as root (`System.set_storage` on
-`:statement_allowance:<account>`, the 1,000,000 count / 1 MB a game sign-up grants). For
-`chain`, each run derives fresh accounts and funds them with `Balances.force_set_balance`. Root
-is `//Alice` on a PPN fork and `SUDO_URI` anywhere else.
+Players don't need a person, an alias or an attestation. Where there is a root key (`//Alice`
+on a PPN fork, `--sudo` or `SUDO_URI` elsewhere):
+
+- `mint` writes each player's statement allowance (`System.set_storage` on
+  `:statement_allowance:<account>`, the 1,000,000 count / 1 MB a game sign-up grants);
+- the `chain` layer funds fresh accounts with `Balances.force_set_balance` and schedules its own
+  short game, after clearing the chain's game and schedule with `--take-over`.
+
+Without a root key, as on live previewnet and paseo-next-v2, or with `--join`, players join the
+next real game instead. The `TEST_MNEMONIC` account pays each player 3 UNIT, and each signs up
+with `Game.sign_up_with_account`, which also grants its statement allowance for good: `mint`
+signs up only the players without one, so a seed is minted once. The bots end up in the same
+groups as the real players of that game.
 
 ## Running it
 
@@ -64,8 +72,8 @@ People node's own port (`ws://127.0.0.1:10010`).
 
 In CI, **Actions → Load test → Run workflow** forks previewnet or paseo-next-v2 on one runner
 and plays the layer there, or plays it against the live network with one runner per process.
-A live run needs the network's root key as `SUDO_URI` in the `load-<network>` environment, and
-its `chain` layer cancels any scheduled game unless the operators have cleared the schedule.
+A live run joins the network's next real game and needs only `TEST_MNEMONIC`; it waits up to
+`--registration-wait` minutes for a game to open registration.
 
 ## Reading the results
 
