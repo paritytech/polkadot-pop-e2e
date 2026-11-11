@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Enum } from "polkadot-api";
 import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { claimCredits, type ClaimResult } from "./claim.js";
 import { playersNotRegistered, signUpEntries, topUpPlayers, waitForGame, PLAYER_FUNDS, type OpenGame } from "./join.js";
 import { derivePlayers, type Keypair, type Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
@@ -41,6 +42,8 @@ export interface ChainRun {
   takeOver: boolean;
   /** How long a joining run waits for its game to open registration. */
   registrationWaitMs: number;
+  /** Claims the credits the game awarded as NFTs on Asset Hub once they arrive there. */
+  claim: boolean;
 }
 
 export interface BlockLoad {
@@ -64,6 +67,8 @@ export interface ChainResult {
   timeline: Array<{ state: string; at: number }>;
   signUp: BurstSummary;
   report: BurstSummary | null;
+  /** Claiming the game's credits as NFTs on Asset Hub, when the run claims. */
+  claim: ClaimResult | null;
   blocks: BlockLoad[];
 }
 
@@ -233,6 +238,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     await waitFor((state) => state.startsWith("Reporting") || state === "None" || state.startsWith("Cancelling"), Math.max(0, untilGame) + 600_000, "Reporting");
     const reached = timeline.at(-1)!.state;
     let report: BurstSummary | null = null;
+    let claim: ClaimResult | null = null;
     if (!reached.startsWith("Reporting")) {
       findings.push(`shuffle: the game went to ${reached} instead of Reporting`);
     } else {
@@ -259,6 +265,16 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (burst.inTime < reports.length) {
         findings.push(`report: ${reports.length - burst.inTime} of ${reports.length} not in within ${run.reportWindowMs / 1000} s`);
       }
+      if (run.claim && burst.ok > 0) {
+        // Every vote is `Person`, and each awards its co-player one credit.
+        const awarded = reports.reduce((sum, { fullReport }) => sum + fullReport.flat().length, 0);
+        claim = await claimCredits(target, client, players, game.index, awarded, run.connections);
+        if (claim.claimable < claim.awarded) {
+          findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
+        }
+        if (claim.collections.length === 0) findings.push("claim: no claimable collection on Asset Hub");
+        for (const [failure, count] of Object.entries(claim.burst?.failures ?? {})) findings.push(`claim ${failure}: ${count}`);
+      }
       const remainingMs = (current.report_ends + phases.player_process) * 1000 - (await chainNow());
       await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
       if (timeline.at(-1)!.state !== "None") findings.push(`player processing: the game went to ${timeline.at(-1)!.state}`);
@@ -279,6 +295,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       timeline,
       signUp: summarizeBurst(signUp),
       report,
+      claim,
       blocks: blocks.sort((a, b) => a.number - b.number),
     };
     await mkdir(run.outDir, { recursive: true });

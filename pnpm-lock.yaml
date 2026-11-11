@@ -138,6 +138,9 @@ importers:
       '@novasamatech/sdk-statement':
         specifier: ^0.6.0
         version: 0.6.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-nfts':
+        specifier: 0.4.1
+        version: 0.4.1
       '@polkadot-api/substrate-bindings':
         specifier: ^0.21.2
         version: 0.21.2

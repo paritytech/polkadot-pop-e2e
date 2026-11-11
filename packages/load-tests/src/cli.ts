@@ -63,6 +63,8 @@ Chain (phases default to the chain's own):
   --report-window <s>   Time after the game within which reports count as in time (default 35)
   --connections <n>     Clients the players' transactions are spread over (default 8)
   --take-over           Cancel a running game and remove scheduled ones before scheduling one
+  --claim               Claim the game's credits as NFTs on Asset Hub after the reports; always
+                        on a fork, opt-in on a live network, where the NFTs come out of real collections
 `;
 
 const { positionals, values } = parseArgs({
@@ -102,6 +104,7 @@ const { positionals, values } = parseArgs({
     "ghosts-per-host": { type: "string", default: "10" },
     "product-id": { type: "string" },
     "rpc-limit": { type: "string" },
+    claim: { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -240,6 +243,7 @@ switch (values.help ? undefined : command) {
       takeOver: values["take-over"],
       gameAt,
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
+      claim: target.assetHubRpc !== undefined && (target.sudo !== undefined || values.claim),
     });
     const text = chainMarkdown(result);
     await writeFile(`${outDir}/chain.n${result.players}.md`, text);

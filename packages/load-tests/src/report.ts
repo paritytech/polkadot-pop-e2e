@@ -187,13 +187,17 @@ export function chainMarkdown(result: ChainResult): string {
   return [
     `### Chain game with ${result.players} players on ${result.target}: ${result.verdict}`,
     "",
-    result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up and report was in time",
+    result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up, report and claim was in",
     "",
     "| Burst | Succeeded | In time | Inclusion p50 / p95 / max ms | Burst length | Blocks |",
     "|---|---|---|---|---|---|",
     phaseRow("sign-up", result.signUp),
     phaseRow("report", result.report),
+    ...(result.claim ? [phaseRow("NFT claim", result.claim.burst)] : []),
     "",
+    ...(result.claim
+      ? [`Credits: ${result.claim.claimable} of ${result.claim.awarded} claimable on Asset Hub ${seconds(result.claim.claimableAfterMs)} after the reports, into collections ${result.claim.collections.join(", ") || "–"}.`, ""]
+      : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
     `Fullest block: ${fullest((block) => block.refTime)} of the normal-class ref time, ${fullest((block) => block.proofSize)} of its proof size, ${Math.max(0, ...result.blocks.map((block) => block.extrinsics))} extrinsics.`,

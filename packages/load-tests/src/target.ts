@@ -1,11 +1,13 @@
 import { createClient, type PolkadotClient, type TypedApi } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws";
-import { paseoNextPeople, previewPeople } from "@pop-e2e/papi";
+import { paseoNextAssetHub, paseoNextPeople, previewAssetHub, previewPeople } from "@pop-e2e/papi";
 import { keypairFromUri, type Keypair } from "./keys.js";
 
 export type PeopleApi = TypedApi<typeof previewPeople>;
+export type AssetHubApi = TypedApi<typeof previewAssetHub>;
 
 const PEOPLE_DESCRIPTORS = { previewnet: previewPeople, "paseo-next-v2": paseoNextPeople } as const;
+const ASSET_HUB_DESCRIPTORS = { previewnet: previewAssetHub, "paseo-next-v2": paseoNextAssetHub } as const;
 type DescriptorNetwork = keyof typeof PEOPLE_DESCRIPTORS;
 
 /** The People chain a run loads: where to connect, how to sign as root, what to scrape. */
@@ -20,6 +22,8 @@ export interface Target {
   funder: Keypair | undefined;
   /** Prometheus endpoints of the People nodes behind `rpc`, scraped around each step. */
   metrics: string[];
+  /** Asset Hub RPC endpoint, where game credits are claimed as NFTs; none for a lone dev node. */
+  assetHubRpc: string | undefined;
   /** truapi-host environment that routes a host to this target's chains and identity backend. */
   hostEnv: Record<string, string>;
 }
@@ -58,6 +62,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
       sudo: options.sudoUri ? keypairFromUri(options.sudoUri) : undefined,
       funder: funderOf(options.sudoUri),
       metrics: options.metrics,
+      assetHubRpc: undefined,
       // A host connects to a dev node through HOST_CLI_LOCAL_NETWORK_CONFIG, which it inherits.
       hostEnv: {},
     };
@@ -75,6 +80,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
     sudo: sudoUri ? keypairFromUri(sudoUri) : undefined,
     funder: funderOf(sudoUri),
     metrics: options.metrics,
+    assetHubRpc: config.assetHub.ws,
     hostEnv: {
       HOST_CLI_PEOPLE_WS: rpc[0],
       HOST_CLI_ASSET_HUB_WS: config.assetHub.ws,
@@ -91,4 +97,10 @@ export function peopleApiOf(client: PolkadotClient, target: Target): PeopleApi {
 export function connectPeople(target: Target): { client: PolkadotClient; api: PeopleApi } {
   const client = createClient(getWsProvider(target.rpc[0]));
   return { client, api: peopleApiOf(client, target) };
+}
+
+export function connectAssetHub(target: Target): { client: PolkadotClient; api: AssetHubApi } {
+  if (!target.assetHubRpc) throw new Error(`${target.label}: no Asset Hub endpoint to claim NFTs on; run against a stack`);
+  const client = createClient(getWsProvider(target.assetHubRpc));
+  return { client, api: client.getTypedApi(ASSET_HUB_DESCRIPTORS[target.network]) as AssetHubApi };
 }

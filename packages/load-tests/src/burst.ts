@@ -6,7 +6,10 @@ import { Histogram, type QuantileSummary } from "./histogram.js";
 import type { Keypair } from "./keys.js";
 import { RpcConnection } from "./rpc.js";
 import { bump } from "./stats.js";
-import type { PeopleApi } from "./target.js";
+import type { AssetHubApi, PeopleApi } from "./target.js";
+
+/** A chain a burst goes to: its events and timestamp are read for each block a transaction lands in. */
+type BurstApi = PeopleApi | AssetHubApi;
 
 export interface BurstEntry {
   signer: Keypair;
@@ -58,7 +61,7 @@ export function describeError(error: unknown): string {
 type ChainEvent = { phase: { type: string; value?: unknown }; event: { type: string; value: { type: string; value: unknown } } };
 
 /** A block's extrinsics, events and timestamp, read once however many transactions it contains. */
-function blockReader(api: PeopleApi, client: PolkadotClient): (hash: string) => Promise<BlockView> {
+function blockReader(api: BurstApi, client: PolkadotClient): (hash: string) => Promise<BlockView> {
   const cache = new Map<string, Promise<BlockView>>();
   const read = async (hash: string): Promise<BlockView> => {
     // The node reports the block before papi follows it, so the first reads may miss it.
@@ -121,7 +124,7 @@ export async function signEntries(entries: BurstEntry[], label: string): Promise
  */
 export async function submitBurst(
   signed: string[],
-  api: PeopleApi,
+  api: BurstApi,
   client: PolkadotClient,
   urls: string[],
   connectionCount: number,
