@@ -4,6 +4,15 @@ export function bump(counts: Record<string, number>, key: string, by = 1): void 
   counts[key] = (counts[key] ?? 0) + by;
 }
 
+/** A subscription silent this long before the window's end counts as stalled. */
+const STALL_MS = 30_000;
+
+/** Counts a subscription that delivered nothing, or stopped `STALL_MS` before `windowEnd`. */
+export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number, windowEnd: number): void {
+  if (lastDeliveryAt === 0) stats.silentSubscriptions++;
+  else if (lastDeliveryAt < windowEnd - STALL_MS) stats.stalledSubscriptions++;
+}
+
 /** What the ghosts of one shard observed during one step. */
 export class SignallingStats {
   connections = 0;
@@ -14,6 +23,11 @@ export class SignallingStats {
   subscriptionsEnded: Record<string, number> = {};
   /** Subscriptions open through the game that delivered none of its statements. */
   silentSubscriptions = 0;
+  /**
+   * Subscriptions that delivered some of the game's statements, then none in its last
+   * `STALL_MS`: the statement store ends a subscriber that falls behind without telling it.
+   */
+  stalledSubscriptions = 0;
   /** `statement_submit` answers by status (and reason), or the error the request ended with. */
   submits: Record<string, number> = {};
   /** Bundles not sent because `maxInflight` submits were still waiting, as the app does. */

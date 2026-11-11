@@ -2,7 +2,7 @@ import type { Player } from "./keys.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection, RpcError } from "./rpc.js";
 import { probePayload, readProbe, signStatement, topicOf, type Hex } from "./statement.js";
-import { bump, type SignallingStats } from "./stats.js";
+import { bump, countDeliveryGap, type SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
@@ -31,7 +31,8 @@ export class Ghost {
   private sequence = 0;
   private inflight = 0;
   private stopped = false;
-  private delivered = 0;
+  /** When the subscription last delivered a statement of the window; 0 before the first. */
+  private lastDeliveryAt = 0;
 
   constructor(
     private readonly player: Player,
@@ -67,7 +68,7 @@ export class Ghost {
   async leave(): Promise<void> {
     this.stopSending();
     if (!this.subscription) return;
-    if (this.delivered === 0) this.game.stats.silentSubscriptions++;
+    countDeliveryGap(this.game.stats, this.lastDeliveryAt, this.game.window.end);
     await this.connection.unsubscribe(UNSUBSCRIBE, this.subscription, this.game.profile.submitTimeoutMs).catch(() => {});
   }
 
@@ -121,7 +122,7 @@ export class Ghost {
       if (!probe || probe.sender === this.player.index) continue;
       if (probe.sentAt < window.start || probe.sentAt >= window.end) continue;
       stats.deliveredInWindow++;
-      this.delivered++;
+      this.lastDeliveryAt = now;
       stats.latency.add(now - probe.sentAt);
     }
   }

@@ -5,7 +5,7 @@ import { toHex } from "@polkadot-api/utils";
 import type { HostGhostPlan } from "./host.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt } from "./profile.js";
 import { probePayload, readProbe, topicOf, type Hex } from "./statement.js";
-import { SignallingStats, bump } from "./stats.js";
+import { SignallingStats, bump, countDeliveryGap } from "./stats.js";
 
 interface Result<T> {
   isErr(): boolean;
@@ -75,7 +75,7 @@ async function play(ghost: number): Promise<void> {
   const inbox = topicOf(`${plan.namespace}/inbox/${index}`);
   const channel = topicOf(`${plan.namespace}/bundle/${index}`);
   await sleepUntil(plan.joinAt[ghost]);
-  let delivered = 0;
+  let lastDeliveryAt = 0;
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: [inbox, plan.room] } }).subscribe({
     next(page) {
       const now = Date.now();
@@ -83,7 +83,7 @@ async function play(ghost: number): Promise<void> {
         const probe = statement.data && readProbe(statement.data);
         if (!probe || probe.sender === index || probe.sentAt < window.start || probe.sentAt >= window.end) continue;
         stats.deliveredInWindow++;
-        delivered++;
+        lastDeliveryAt = now;
         stats.latency.add(now - probe.sentAt);
       }
     },
@@ -106,7 +106,7 @@ async function play(ghost: number): Promise<void> {
     next = nextSendAt(profile, plan.phase, plan.gameStart, next, connecting);
   }
   await sleepUntil(plan.leaveAt);
-  if (delivered === 0) stats.silentSubscriptions++;
+  countDeliveryGap(stats, lastDeliveryAt, window.end);
   subscription.unsubscribe();
 }
 
