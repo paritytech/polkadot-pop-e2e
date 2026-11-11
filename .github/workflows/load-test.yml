@@ -185,11 +185,30 @@ jobs:
           # The stack's People endpoint is the dashboard proxy; the load goes to the node itself.
           echo "PEOPLE_RPC=$(jq -r '[.parachains["1502"][0].collators[].ws_uri] | join(",")' "$zombie")" >> "$GITHUB_ENV"
 
+      # The relay validators, the other collators and the load share the runner with the People
+      # node, and their bursts show up as whole-room drops. The People node gets cores of its
+      # own; everything else of the fork and the load share the rest.
+      - name: Give the People node cores of its own
+        run: |
+          cpus=$(nproc)
+          if [ "$cpus" -lt 16 ]; then
+            echo "::warning::$cpus CPUs: the People node shares them with the fork and the load"
+            echo "People node CPUs: shared, $cpus on the runner" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          others="8-$((cpus - 1))"
+          for pid in $(pgrep -f -- "$GITHUB_WORKSPACE/ppn" || true); do taskset -a -cp "$others" "$pid" >/dev/null || true; done
+          people=$(pgrep -f -- "Collator-1502" || true)
+          if [ -z "$people" ]; then echo "::error::no People collator process found"; exit 1; fi
+          for pid in $people; do taskset -a -cp 0-7 "$pid" >/dev/null; done
+          echo "LOAD_CPUS=$others" >> "$GITHUB_ENV"
+          echo "People node CPUs: 0-7 of its own; the rest of the fork and the load on $others" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Play ${{ matrix.players }} players
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
-          load() { pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" --rpc "$PEOPLE_RPC" "${extra[@]}"; }
+          load() { ${LOAD_CPUS:+taskset -c "$LOAD_CPUS"} pnpm --silent --filter @pop-e2e/load-tests load "$@" --run-id "$RUN_ID" --out "$RESULTS" --metrics "$METRICS" --rpc "$PEOPLE_RPC" "${extra[@]}"; }
           if [ "$LAYER" = chain ]; then
             load chain --players "$PLAYERS" --take-over
             exit 0
