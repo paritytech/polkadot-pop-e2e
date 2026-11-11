@@ -43,6 +43,16 @@ async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
   const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
   const short = players.filter((_, position) => accounts[position].data.free < ASSET_HUB_FUNDS);
+  if (!target.sudo && short.length > 0) {
+    if (!target.funder) throw new Error(`${target.label}: no funded account to pay the claims on Asset Hub; set TEST_MNEMONIC`);
+    const needed = BigInt(short.length) * ASSET_HUB_FUNDS + ASSET_HUB_FUNDS;
+    const available = (await api.query.System.Account.getValue(target.funder.address, { at: "best" })).data.free;
+    if (available < needed) {
+      throw new Error(
+        `${target.funder.address} has ${Number(available) / 1e10} UNIT on ${target.label}'s Asset Hub; send it at least ${Math.ceil(Number(needed - available) / 1e10)} UNIT more`,
+      );
+    }
+  }
   for (let start = 0; start < short.length; start += 500) {
     const chunk = short.slice(start, start + 500);
     let tx;
