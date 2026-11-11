@@ -36,6 +36,7 @@ Signalling:
   --shard <i/n>         This process's share of the connections (default 0/1)
   --start-at <ms|iso>   Wall-clock start of the first step, equal in every shard (default now + 5 s)
   --ghosts-per-connection <k>  Ghosts sharing one WebSocket (default 1, as on phones)
+  --rpc-limit <n>       The People node's --rpc-max-connections: fail before a step that would exceed it
   --ramp <s> --warmup <s> --drain <s> --cooldown <s>  Step phases (default 30, 10, 10, 10)
   --profile <name>      ${Object.keys(PROFILES).join(" | ")} (default jollity)
   --phase <name>        sync: every ghost opens the room at the same instant and re-sends on one
@@ -98,6 +99,7 @@ const { positionals, values } = parseArgs({
     layer: { type: "string", default: "signalling" },
     "ghosts-per-host": { type: "string", default: "10" },
     "product-id": { type: "string" },
+    "rpc-limit": { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -115,6 +117,9 @@ function seconds(name: string, text: string): number {
   if (!(value >= 0)) throw new Error(`--${name} must be a number of seconds, not '${text}'`);
   return value * 1000;
 }
+
+/** Connections a step leaves free under `--rpc-limit`: the run's metric and chain clients, others'. */
+const RPC_LIMIT_RESERVE = 10;
 
 /** A game's play time in chain seconds, from unix seconds or an ISO date. */
 function gameTime(text: string | undefined): number | undefined {
@@ -184,14 +189,29 @@ switch (values.help ? undefined : command) {
     console.log(
       `[${command}] ${target.label} via ${target.rpc.join(", ")}: steps ${run.steps.join(", ")}, ${stepMs(run) / 1000} s each, shard ${values.shard}, start ${new Date(startAt).toISOString()}`,
     );
+    const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
+    const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
+    if (values["rpc-limit"] !== undefined) {
+      // A host opens a People connection per subscription, plus its own; ghosts on direct RPC
+      // share theirs. A step over the limit measures the limit, not the node.
+      const limit = positiveInteger("rpc-limit", values["rpc-limit"]);
+      const largest = Math.max(...run.steps);
+      const connections = command === "host" ? largest + Math.ceil(largest / ghostsPerHost) : Math.ceil(largest / ghostsPerConnection);
+      const perNode = Math.ceil(connections / target.rpc.length);
+      if (perNode > limit - RPC_LIMIT_RESERVE) {
+        throw new Error(
+          `a step of ${largest} players needs ${perNode} connections per People node, over its limit of ${limit} less ${RPC_LIMIT_RESERVE} for the run's own clients; raise --ghosts-per-connection or the node's --rpc-max-connections`,
+        );
+      }
+    }
     const players =
       command === "host"
         ? hostGhosts(run, {
-            ghostsPerHost: positiveInteger("ghosts-per-host", values["ghosts-per-host"]),
+            ghostsPerHost,
             productId: values["product-id"] ?? PRODUCT_IDS[target.network],
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
           })
-        : rpcGhosts(run, positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]));
+        : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);
     if (shardCount === 1) console.log(await writeSummary(outDir, DEFAULT_THRESHOLDS));
     break;

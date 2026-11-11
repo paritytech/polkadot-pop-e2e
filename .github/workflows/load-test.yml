@@ -198,7 +198,8 @@ jobs:
           start=$(( $(date +%s) * 1000 + 30000 ))
           pids=()
           for shard in $(seq 0 $((PROCESSES - 1))); do
-            load "$LAYER" --steps "$PLAYERS" --shard "$shard/$PROCESSES" --start-at "$start" > "/tmp/load-shard-$shard.log" 2>&1 &
+            # The engine runs People with --rpc-max-connections=500.
+            load "$LAYER" --steps "$PLAYERS" --shard "$shard/$PROCESSES" --start-at "$start" --rpc-limit 500 > "/tmp/load-shard-$shard.log" 2>&1 &
             pids+=($!)
           done
           failed=0
