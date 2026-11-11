@@ -1,11 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Enum } from "polkadot-api";
-import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { PLAYER_FUNDS, requireFunder, signUpEntries, waitForOpenRegistration, type OpenGame } from "./join.js";
-import { derivePlayers, type Player } from "./keys.js";
+import { derivePlayers, type Keypair, type Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers, transferToPlayers } from "./root.js";
-import { RpcConnection } from "./rpc.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
 export interface Phases {
@@ -75,25 +74,40 @@ function stateLabel(game: { state: { type: string; value?: unknown } } | undefin
   return step ? `${game.state.type}.${step.type}` : game.state.type;
 }
 
-/** Schedules one game as root `phases` from now, after clearing the chain when `takeOver`. */
-async function scheduleOwnGame(api: PeopleApi, run: ChainRun, players: Player[]): Promise<{ phases: Phases; previous: Phases | undefined }> {
+/** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
+async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, players: Player[]): Promise<void> {
   const { target } = run;
-  if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --join`);
-  const sudo = target.sudo;
   const existing = await api.query.Game.Game.getValue();
   const schedules = await api.query.Game.GameSchedules.getValue();
   if (existing || schedules.length > 0) {
     if (!run.takeOver) {
       throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --join to play it`);
     }
+    // The schedules go first, so no copied game starts once the current one ends. Only a game in
+    // registration or the shuffle can be cancelled; reporting can be ended at once on a testnet;
+    // player processing and cancelling finish by themselves within a few blocks.
+    const endCurrent =
+      existing?.state.type === "Registration" || existing?.state.type === "Shuffle"
+        ? [api.tx.Game.cancel_game().decodedCall]
+        : existing?.state.type === "Reporting"
+          ? [api.tx.Game.testnet_force_end_reporting().decodedCall]
+          : [];
     const calls = [
-      ...(existing ? [api.tx.Game.cancel_game().decodedCall] : []),
       ...schedules.map((schedule) => api.tx.Game.remove_scheduled_game({ game_play_time: schedule.game_play_time }).decodedCall),
+      ...endCurrent,
     ];
-    await dispatchAsRoot(api, sudo, calls, calls.length, "take-over");
-    while (await api.query.Game.Game.getValue({ at: "best" })) await sleep(2_000);
+    if (calls.length > 0) await dispatchAsRoot(api, sudo, calls, calls.length, "take-over");
+    const until = Date.now() + 600_000;
+    while (await api.query.Game.Game.getValue({ at: "best" })) {
+      if (Date.now() > until) throw new Error(`${target.label}: the game on chain did not end within 10 min of the take-over`);
+      await sleep(2_000);
+    }
   }
   await fundPlayers(api, sudo, players, PLAYER_FUNDS);
+}
+
+/** As root: schedules one game with `run.phases` from now, returning the phases to set back. */
+async function scheduleOwnGame(api: PeopleApi, run: ChainRun, sudo: Keypair): Promise<{ phases: Phases; previous: Phases | undefined }> {
   const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
   const phases: Phases = { ...chainPhases, ...run.phases };
   const now = Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
@@ -134,9 +148,6 @@ async function buildReports(api: PeopleApi, players: Player[], playerCount: numb
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
   const { client, api } = connectPeople(target);
-  const connections = await Promise.all(
-    Array.from({ length: run.connections }, (_, i) => RpcConnection.open(target.rpc[i % target.rpc.length], 15_000)),
-  );
   const timeline: ChainResult["timeline"] = [];
   const blocks: BlockLoad[] = [];
   const findings: string[] = [];
@@ -148,9 +159,16 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
   try {
     const players = derivePlayers(run.seed, Array.from({ length: run.players }, (_, i) => i));
+    // Fresh accounts: the sign-up is each player's first transaction, the report its second.
+    const signUps = () => signEntries(signUpEntries(api, players, 0), "sign-up");
     let phases: Phases;
+    let signedSignUps: string[] = [];
     if (run.game === "own") {
-      const scheduled = await scheduleOwnGame(api, run, players);
+      if (!target.sudo) throw new Error(`${target.label}: no root key to schedule a game; set --sudo or SUDO_URI, or pass --join`);
+      await clearAndFund(api, run, target.sudo, players);
+      // Signed before the game exists, so none of registration goes to signing.
+      signedSignUps = await signUps();
+      const scheduled = await scheduleOwnGame(api, run, target.sudo);
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
     } else {
@@ -192,13 +210,15 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       await waitFor((state) => state === "Registration", 120_000, "Registration");
       game = (await api.query.Game.Game.getValue({ at: "best" }))!;
     } else {
-      game = await waitForOpenRegistration(api, 120_000, run.registrationWaitMs);
+      // A real game may be hours away, past the signatures' mortality, so this signs once its
+      // registration is open, with room for the signing.
+      game = await waitForOpenRegistration(api, 120_000 + run.players * SIGNING_MS, run.registrationWaitMs);
+      signedSignUps = await signUps();
     }
     gameIndex = game.index;
 
     console.log(`[chain] game ${game.index}: ${run.players} players sign up`);
-    // Fresh accounts: the sign-up is each player's first transaction, the report its second.
-    const signUp = await submitBurst(signUpEntries(api, players, 0), api, client, connections, () => game.registration_ends * 1000);
+    const signUp = await submitBurst(signedSignUps, api, client, target.rpc, run.connections, () => game.registration_ends * 1000);
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
     if (signUp.inTime < run.players) findings.push(`sign-up: ${run.players - signUp.inTime} of ${run.players} not in before registration ended`);
 
@@ -209,17 +229,22 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     if (!reached.startsWith("Reporting")) {
       findings.push(`shuffle: the game went to ${reached} instead of Reporting`);
     } else {
-      // Players report once the last turn is over.
-      while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
+      // Signed now, while the last turns play, and sent once the last turn is over.
       const current = (await api.query.Game.Game.getValue({ at: "best" }))!;
       if (current.state.type !== "Reporting") throw new Error(`game left Reporting before the reports: ${stateLabel(current)}`);
       const reports = await buildReports(api, players, current.state.value.player_count, current.max_group_size, current.rounds);
+      const signedReports = await signEntries(
+        reports.map(({ player, fullReport }) => ({ signer: player, tx: api.tx.Game.report({ full_report: fullReport }), nonce: 1 })),
+        "report",
+      );
+      while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
       console.log(`[chain] ${reports.length} players report`);
       const burst = await submitBurst(
-        reports.map(({ player, fullReport }) => ({ signer: player, tx: api.tx.Game.report({ full_report: fullReport }), nonce: 1 })),
+        signedReports,
         api,
         client,
-        connections,
+        target.rpc,
+        run.connections,
         (chainStart) => Math.min(chainStart + run.reportWindowMs, current.report_ends * 1000),
       );
       report = summarizeBurst(burst);
@@ -260,7 +285,6 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         (error: Error) => console.warn(`[chain] phases not restored: ${error.message}`),
       );
     }
-    for (const connection of connections) connection.close();
     client.destroy();
   }
 }
