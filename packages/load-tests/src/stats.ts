@@ -5,7 +5,7 @@ export function bump(counts: Record<string, number>, key: string, by = 1): void 
 }
 
 /** A subscription silent this long before the window's end counts as stalled. */
-const STALL_MS = 30_000;
+export const STALL_MS = 30_000;
 
 /** Counts a subscription that delivered nothing, or stopped `STALL_MS` before `windowEnd`. */
 export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number, windowEnd: number): void {

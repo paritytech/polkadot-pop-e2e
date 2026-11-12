@@ -26,6 +26,7 @@ const UNSUBSCRIBE = "statement_unsubscribeStatement";
 export class Ghost {
   private readonly channel: Hex;
   private readonly seat: Seat;
+  private readonly received = new Set<string>();
   private subscription: string | undefined;
   private timer: NodeJS.Timeout | undefined;
   private nextAt = 0;
@@ -125,6 +126,10 @@ export class Ghost {
       const probe = readProbe(statement);
       if (!probe || probe.sender === this.player.index) continue;
       if (probe.sentAt < window.start || probe.sentAt >= window.end) continue;
+      // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
+      const key = `${probe.sender}:${probe.sequence}`;
+      if (this.received.has(key)) continue;
+      this.received.add(key);
       stats.deliveredInWindow++;
       this.lastDeliveryAt = now;
       stats.latency.add(now - probe.sentAt);

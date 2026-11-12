@@ -4,7 +4,7 @@ import type { QuantileSummary } from "./histogram.js";
 import type { Sample } from "./prometheus.js";
 import type { ChainResult } from "./chain.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
-import { SignallingStats } from "./stats.js";
+import { STALL_MS, SignallingStats } from "./stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -102,7 +102,10 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.subscriptionsEnded) > 0) findings.push(`statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early`);
   if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
   if (stats.stalledSubscriptions > 0) {
-    findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering 30 s or more before the game ended`);
+    findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
+  }
+  if (stats.deliveredInWindow > expectedDeliveries) {
+    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} hosts failed`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
@@ -112,13 +115,20 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if ((latency.p95 ?? Infinity) > thresholds.maxP95Ms) findings.push(`delivery: p95 ${latency.p95} ms`);
   const clientBound = clientLagP99Ms > thresholds.maxClientLagMs;
   if (clientBound) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);
+  // A machine that sent no result, or started late, makes the target look lossy when it isn't.
+  const shardCount = results[0].shard.count;
+  const missingShards = shardCount - results.length;
+  if (missingShards > 0) findings.push(`client: ${missingShards} of ${shardCount} machines sent no result`);
+  const lateShards = results.filter((result) => result.lateMs > 1_000).length;
+  if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
+  const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
   const { latency: _latency, submitRtt, ...counts } = stats;
   return {
     layer,
     players,
     shards: results.length,
-    verdict: findings.length === 0 ? "pass" : clientBound ? "inconclusive" : "fail",
+    verdict: findings.length === 0 ? "pass" : inconclusive ? "inconclusive" : "fail",
     findings,
     stats: counts,
     expectedDeliveries,

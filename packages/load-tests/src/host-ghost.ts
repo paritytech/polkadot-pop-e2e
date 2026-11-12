@@ -80,12 +80,17 @@ async function play(ghost: number): Promise<void> {
   const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
   let lastDeliveryAt = 0;
+  const received = new Set<string>();
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: seat.listen } }).subscribe({
     next(page) {
       const now = Date.now();
       for (const statement of page.statements) {
         const probe = statement.data && readProbe(statement.data);
         if (!probe || probe.sender === index || probe.sentAt < window.start || probe.sentAt >= window.end) continue;
+        // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
+        const key = `${probe.sender}:${probe.sequence}`;
+        if (received.has(key)) continue;
+        received.add(key);
         stats.deliveredInWindow++;
         lastDeliveryAt = now;
         stats.latency.add(now - probe.sentAt);

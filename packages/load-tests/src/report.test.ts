@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PROFILES } from "./profile.js";
 import { DEFAULT_THRESHOLDS, summarizeStep } from "./report.js";
 import type { SignallingShardResult } from "./signalling.js";
-import { SignallingStats } from "./stats.js";
+import { STALL_MS, SignallingStats, countDeliveryGap } from "./stats.js";
 
 function shard(index: number, accepted: number, delivered: number, lagMs = 10): SignallingShardResult {
   const stats = new SignallingStats();
@@ -46,5 +46,26 @@ describe("summarizeStep", () => {
   it("does not blame the target when a load process fell behind", () => {
     const summary = summarizeStep([shard(0, 10, 990), shard(1, 10, 900, 400)], DEFAULT_THRESHOLDS);
     expect(summary.verdict).toBe("inconclusive");
+  });
+
+  // A machine that died sends no result while the others still expect its bots' deliveries:
+  // without this, a load machine's failure reads as the statement store losing messages.
+  it("does not blame the target when a load machine sent no result", () => {
+    const summary = summarizeStep([shard(0, 10, 500)], DEFAULT_THRESHOLDS);
+    expect(summary.findings).toContain("client: 1 of 2 machines sent no result");
+    expect(summary.verdict).toBe("inconclusive");
+  });
+});
+
+// A subscription that went quiet before the game ended is the store dropping a slow reader;
+// one that never delivered points at the connection or the filter instead.
+describe("countDeliveryGap", () => {
+  const windowEnd = 200_000;
+  it("tells a silent subscription from a stalled one and a live one", () => {
+    const stats = new SignallingStats();
+    countDeliveryGap(stats, 0, windowEnd);
+    countDeliveryGap(stats, windowEnd - STALL_MS - 1, windowEnd);
+    countDeliveryGap(stats, windowEnd - STALL_MS + 1, windowEnd);
+    expect([stats.silentSubscriptions, stats.stalledSubscriptions]).toEqual([1, 1]);
   });
 });
