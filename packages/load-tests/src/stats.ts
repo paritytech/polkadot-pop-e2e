@@ -38,7 +38,7 @@ export class DeliveryCounter {
     this.stats.expectedDeliveries += this.recipients;
   }
 
-  /** A bundle that reached this player; another player's sent in the window counts once. */
+  /** A bundle that arrived at this player; another player's sent in the window counts once. */
   receive(probe: Probe | undefined, now: number): void {
     if (!probe || probe.sender === this.self || probe.sentAt < this.window.start || probe.sentAt >= this.window.end) return;
     // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.

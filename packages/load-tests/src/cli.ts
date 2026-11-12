@@ -14,7 +14,7 @@ import { connectPeople, resolveTarget, type Target } from "./target.js";
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
-  mint        Give players 0..players-1 of --layer a statement allowance as root (a fork or dev node)
+  mint        Write a statement allowance for players 0..players-1 of --layer as root (a fork or dev node)
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain, signing up and reporting with every player at once: on a

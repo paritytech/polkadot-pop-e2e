@@ -16,7 +16,7 @@ export interface ClaimResult {
   /** From the end of the report burst until the last credit was claimable, or the wait ended. */
   claimableAfterMs: number;
   collections: number[];
-  /** Every claim, each timed from its submission to the block it landed in. */
+  /** Every claim, each timed from its submission to its block. */
   burst: BurstSummary | null;
   /** Of the claimable credits, the ones Asset Hub marks as claimed once every player is done. */
   claimed: number;
@@ -26,7 +26,7 @@ export interface ClaimResult {
 
 /** Fees of a player's claims on Asset Hub. */
 const ASSET_HUB_FUNDS = 10_000_000_000n;
-/** How long the run waits for the game's credits to reach Asset Hub. */
+/** How long the run waits for the game's credits to arrive on Asset Hub. */
 const CLAIMABLE_WAIT_MS = 600_000;
 const READ_CONCURRENCY = 100;
 
@@ -79,7 +79,7 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
 }
 
 /**
- * Waits for the credits People awarded the players from `sinceBlock` on to reach Asset Hub, then
+ * Waits for the credits People awarded the players from `sinceBlock` on to arrive on Asset Hub, then
  * has every player claim its own one at a time, each into a claimable collection and to a fresh
  * purse key, as the stash does after the game.
  */
@@ -108,7 +108,7 @@ export async function claimCredits(
     return result.value.claims;
   };
   try {
-    let mine: Array<{ player: Player; claims: Claim[] }> = [];
+    let claimants: Array<{ player: Player; claims: Claim[] }> = [];
     let awarded = 0;
     let claimable = 0;
     for (;;) {
@@ -118,23 +118,23 @@ export async function claimCredits(
         const fresh = (await claimsOf(player)).filter((claim) => claim.awardBlock >= sinceBlock);
         return { player, awarded: fresh.length, claims: fresh.filter((claim) => claim.state === "claimable") };
       });
-      mine = reads.filter((read) => read.claims.length > 0);
+      claimants = reads.filter((read) => read.claims.length > 0);
       awarded = reads.reduce((sum, read) => sum + read.awarded, 0);
-      claimable = mine.reduce((sum, read) => sum + read.claims.length, 0);
+      claimable = claimants.reduce((sum, read) => sum + read.claims.length, 0);
       console.log(`[claim] ${claimable}/${awarded} credits claimable after ${Math.round((Date.now() - started) / 1000)} s`);
       if ((awarded > 0 && claimable === awarded) || Date.now() - started > CLAIMABLE_WAIT_MS) break;
       await sleep(12_000);
     }
     const claimableAfterMs = Date.now() - started;
-    const offered = await getClaimableCollections(chain);
-    if (!offered.ok) throw new Error(`claimable collections: ${offered.error.message}`);
-    const collections = offered.value.collections.map((collection) => collection.id);
+    const claimableCollections = await getClaimableCollections(chain);
+    if (!claimableCollections.ok) throw new Error(`claimable collections: ${claimableCollections.error.message}`);
+    const collections = claimableCollections.value.collections.map((collection) => collection.id);
     if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, claimed: 0, playerMs: null };
 
-    await fundOnAssetHub(api, target, mine.map((read) => read.player));
-    const nonces = await api.query.System.Account.getValues(mine.map((read) => [read.player.address]), { at: "best" });
+    await fundOnAssetHub(api, target, claimants.map((read) => read.player));
+    const nonces = await api.query.System.Account.getValues(claimants.map((read) => [read.player.address]), { at: "best" });
     let position = 0;
-    const txs = mine.map(({ player, claims }) =>
+    const txs = claimants.map(({ player, claims }) =>
       claims.map((claim) =>
         api.tx.NftClaims.claim({
           claimant: Enum("Account"),
@@ -143,14 +143,14 @@ export async function claimCredits(
           leaf_index: claim.leafIndex!,
           proof: claim.proof! as SizedHex<32>[],
           collection: collections[position++ % collections.length],
-          // A purse key holds one NFT, so every claim mints to a key of its own.
+          // A purse key takes one NFT, so every claim mints to a key of its own.
           mint_to: derivePlayer(`${player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
         }),
       ),
     );
     // Signed up front: one process signs for every player, which a phone does for itself only.
     const flat = await signEntries(
-      mine.flatMap(({ player }, index) => txs[index].map((tx, offset) => ({ signer: player, tx, nonce: nonces[index].nonce + offset }))),
+      claimants.flatMap(({ player }, index) => txs[index].map((tx, offset) => ({ signer: player, tx, nonce: nonces[index].nonce + offset }))),
       "claim",
     );
     let taken = 0;
@@ -167,8 +167,8 @@ export async function claimCredits(
       }
     };
     const playerMs = new Histogram();
-    // As the stash claims: one claim at a time, the next once the previous has landed.
-    const lanes = mine.map(
+    // As the stash claims: one claim at a time, the next once the previous is in a block.
+    const lanes = claimants.map(
       ({ player }, index): Lane =>
         async (submit) => {
           const started = Date.now();
@@ -184,16 +184,16 @@ export async function claimCredits(
           playerMs.add(Date.now() - started);
         },
     );
-    console.log(`[claim] ${mine.length} players claim ${claimable} credits, each one at a time`);
+    console.log(`[claim] ${claimants.length} players claim ${claimable} credits, each one at a time`);
     // Each claim counts once it's in a block; which credits were claimed is read from Asset Hub after.
     const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, {
       readBlocks: false,
       progress: "claim",
     });
-    const tried = new Set(mine.flatMap(({ claims }) => claims.map((claim) => claim.hash)));
+    const submittedHashes = new Set(claimants.flatMap(({ claims }) => claims.map((claim) => claim.hash)));
     const after = await readAll(
-      mine.map((read) => read.player),
-      async (player) => (await claimsOf(player)).filter((claim) => claim.state === "claimed" && tried.has(claim.hash)).length,
+      claimants.map((read) => read.player),
+      async (player) => (await claimsOf(player)).filter((claim) => claim.state === "claimed" && submittedHashes.has(claim.hash)).length,
     );
     const claimed = after.reduce((sum, count) => sum + count, 0);
     console.log(`[claim] ${burst.ok}/${burst.submitted} claims in a block in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);

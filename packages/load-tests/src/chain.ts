@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Enum } from "polkadot-api";
 import { SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { playersNotRegistered, signUpEntries, topUpPlayers, waitForGame, PLAYER_FUNDS, type OpenGame } from "./join.js";
+import { findUnregisteredPlayers, signUpEntries, topUpPlayers, waitForGame, PLAYER_FUNDS, type OpenGame } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
@@ -229,7 +229,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       // accounts sign at their chain nonce, and a player already in this game skips its sign-up.
       game = await waitForGame(api, run.gameAt, 120_000 + players.length * SIGNING_MS, run.registrationWaitMs);
       // Funded only now: a deposit of the previous game counts until that game lets it go.
-      const joining = await playersNotRegistered(api, players);
+      const joining = await findUnregisteredPlayers(api, players);
       await topUpPlayers(target, api, joining);
       signedSignUps = await signEntries(signUpEntries(api, joining), "sign-up");
     }
@@ -244,11 +244,11 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
     const untilGame = game.game_date * 1000 - (await chainNow());
     await waitFor((state) => state.startsWith("Reporting") || state === "None" || state.startsWith("Cancelling"), Math.max(0, untilGame) + 600_000, "Reporting");
-    const reached = timeline.at(-1)!.state;
+    const lastState = timeline.at(-1)!.state;
     let report: BurstSummary | null = null;
     let claim: ClaimResult | null = null;
-    if (!reached.startsWith("Reporting")) {
-      findings.push(`shuffle: the game went to ${reached} instead of Reporting`);
+    if (!lastState.startsWith("Reporting")) {
+      findings.push(`shuffle: the game went to ${lastState} instead of Reporting`);
     } else {
       // Signed now, while the last turns play, and sent once the last turn is over.
       const current = (await api.query.Game.Game.getValue({ at: "best" }))!;
@@ -279,7 +279,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         findings.push(`report: ${reports.length - burst.inTime} of ${reports.length} not in within ${run.reportWindowMs / 1000} s`);
       }
       if (run.claim && burst.firstBlock !== null) {
-        // The credits reach Asset Hub while the game still takes reports.
+        // The credits arrive on Asset Hub while the game still takes reports.
         try {
           claim = await claimCredits(target, client, players, burst.firstBlock, run.connections);
           if (claim.claimable < claim.awarded) {

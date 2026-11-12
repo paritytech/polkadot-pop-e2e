@@ -36,7 +36,7 @@ export function signUpEntries(api: PeopleApi, players: Player[], nonce?: number)
 }
 
 /** The players not yet signed up to the game in progress, so a rerun skips the others. */
-export async function playersNotRegistered(api: PeopleApi, players: Player[]): Promise<Player[]> {
+export async function findUnregisteredPlayers(api: PeopleApi, players: Player[]): Promise<Player[]> {
   const rows = await api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" });
   return players.filter((_, position) => !rows[position]?.registered);
 }
@@ -84,8 +84,8 @@ export function requireFunder(target: Target): Keypair {
 
 /**
  * Tops every player up to `PLAYER_FUNDS` from the target's funder, counting a deposit it already
- * holds from an earlier game. Fails before transferring anything when the funder can't cover it,
- * saying how much to send where.
+ * has reserved from an earlier game. Fails before transferring anything when the funder can't
+ * cover it, saying how much to send where.
  */
 export async function topUpPlayers(target: Target, api: PeopleApi, players: Player[]): Promise<void> {
   const funder = requireFunder(target);
@@ -116,7 +116,7 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
  * The game any of `players` is signed up to, once one is and that game hasn't started: how a
  * message machine finds the game a separate chain run signs its bots up to. Fails when the game
  * that was open closes sign-ups without any of them, so a chain run that stopped early doesn't
- * hold the machine for the whole `timeoutMs`, and after `timeoutMs` in any case.
+ * block the machine for the whole `timeoutMs`, and after `timeoutMs` in any case.
  */
 export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
   const { client, api } = connectPeople(target);

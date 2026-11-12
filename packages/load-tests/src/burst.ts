@@ -61,7 +61,7 @@ export function describeError(error: unknown): string {
 type ChainEvent = { phase: { type: string; value?: unknown }; event: { type: string; value: { type: string; value: unknown } } };
 
 /** A block's extrinsics, events and timestamp, read once however many transactions it contains. */
-function blockReader(api: BurstApi, client: PolkadotClient): (hash: string) => Promise<BlockView> {
+function createBlockReader(api: BurstApi, client: PolkadotClient): (hash: string) => Promise<BlockView> {
   const cache = new Map<string, Promise<BlockView>>();
   const read = async (hash: string): Promise<BlockView> => {
     // The node reports the block before papi follows it, so the first reads may miss it.
@@ -99,7 +99,7 @@ export const SIGNING_MS = 150;
 
 /**
  * `entry` as a signed extrinsic in hex. Immortal: a run signs thousands up front, which can take
- * longer than a mortal transaction stays valid; the nonce still keeps each one single-use.
+ * longer than a mortal transaction stays valid; the nonce still makes each one single-use.
  */
 export async function signEntry({ signer, tx, nonce }: BurstEntry): Promise<string> {
   const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
@@ -127,7 +127,7 @@ export async function signEntries(entries: BurstEntry[], label: string): Promise
  */
 export type Submit = (hex: string) => Promise<boolean>;
 
-/** A sender's transactions, each sent through `submit` when the sender decides, such as after the previous one landed. */
+/** A sender's transactions, each sent through `submit` when the sender decides, such as once the previous one is in a block. */
 export type Lane = (submit: Submit) => Promise<void>;
 
 /**
@@ -172,7 +172,7 @@ export async function submitLanes(
 ): Promise<Burst> {
   const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
   const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
-  const readBlock = blockReader(api, client);
+  const readBlock = createBlockReader(api, client);
   const latest = deadline(Number(await api.query.Timestamp.Now.getValue({ at: "best" })));
   const start = Date.now();
   let position = 0;

@@ -188,7 +188,7 @@ export function chainMarkdown(result: ChainResult): string {
   const phaseRow = (name: string, phase: ChainResult["signUp"] | null) =>
     phase
       ? `| ${name} | ${phase.ok}/${phase.submitted} | ${phase.inTime} | ${phase.inclusionMs.p50 ?? "–"} / ${phase.inclusionMs.p95 ?? "–"} / ${phase.inclusionMs.max ?? "–"} | ${seconds(phase.durationMs)} | ${phase.firstBlock ?? "–"}–${phase.lastBlock ?? "–"} |`
-      : `| ${name} | not reached | | | | |`;
+      : `| ${name} | skipped | | | | |`;
   const durations = result.timeline.slice(1).map((entry, i) => `${result.timeline[i].state} ${seconds(entry.at - result.timeline[i].at)}`);
   const fullest = (pick: (block: ChainResult["blocks"][number]) => number) =>
     `${(Math.max(0, ...result.blocks.map(pick)) * 100).toFixed(0)}%`;

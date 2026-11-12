@@ -43,7 +43,7 @@ const EXIT_GRACE_MS = 60_000;
 type ProcessTable = Map<number, { parent: number; cpuSeconds: number; rssKb: number }>;
 
 /** CPU seconds and RSS of every process, keyed by pid, with each process's parent. */
-async function processTable(): Promise<ProcessTable> {
+async function readProcessTable(): Promise<ProcessTable> {
   const { stdout } = await promisify(execFile)("ps", ["-A", "-o", "pid=,ppid=,time=,rss="]);
   const table: ProcessTable = new Map();
   for (const line of stdout.trim().split("\n")) {
@@ -145,7 +145,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     let atWindowStart: Map<number, { cpuSeconds: number; rssKb: number }> | undefined;
     let atWindowEnd: Map<number, { cpuSeconds: number; rssKb: number }> | undefined;
     const sample = async () => {
-      const table = await processTable();
+      const table = await readProcessTable();
       return new Map(processes.flatMap((child) => (child.pid ? [[child.pid, treeUsage(table, child.pid)] as const] : [])));
     };
     const sampling = (async () => {

@@ -74,7 +74,7 @@ export function bundleBytes(profile: SignallingProfile, connecting: boolean): nu
 
 /**
  * How a room's bundles line up in time. `sync` is the app: every player opens the room at the same
- * instant and re-sends on a fixed beat from it, so a room's re-sends land in the same second.
+ * instant and re-sends on a fixed beat from it, so a room's re-sends arrive in the same second.
  * `random` gives each player its own phase, as an app with jittered re-sends would.
  */
 export type Phase = "sync" | "random";

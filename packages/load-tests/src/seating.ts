@@ -2,7 +2,7 @@ import type { SignallingProfile } from "./profile.js";
 import { topicOf, type Hex } from "./statement.js";
 
 /**
- * How a game's signalling reaches its players, as the Jollity app does it:
+ * How a game's signalling arrives at its players, as the Jollity app does it:
  * - `co-players`, the app since individuality-apps#1972 (21c243298): a phone posts under its own
  *   topic and subscribes to its co-players' topics, and a bundle with offers in it goes deflated;
  * - `game`, the app before that: one room topic that every phone posts under and subscribes to,
