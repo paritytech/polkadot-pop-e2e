@@ -91,6 +91,10 @@ then send the game's messages through truapi-host from the moment the app opens 
 chain and message bots are the same accounts. The run waits up to 4 hours for the game, and
 fails at once when the game is further away.
 
+Previewnet's People node accepts 500 RPC connections in total (HTTP 429 beyond), and a bot needs
+about one, so a previewnet run above about 400 bots measures that limit, not the game:
+https://github.com/paritytech/preview-net-v1/issues/191.
+
 ## Reading the results
 
 `summary.md` has one row per step:
