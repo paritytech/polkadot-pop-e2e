@@ -7,18 +7,42 @@ import type { PeopleApi } from "./target.js";
 
 type Included = { ok: boolean; events: Array<{ type: string; value: { type: string; value: unknown } }>; block: { number: number }; dispatchError?: unknown };
 
-/** Signs `tx`, submits it and resolves once a best block includes it; fails if it doesn't execute. */
-export function submitToBestBlock(tx: Transaction, signer: Keypair): Promise<Included> {
+const INCLUSION_TIMEOUT_MS = 90_000;
+
+/**
+ * Signs `tx`, submits it and resolves once a best block includes it; fails if it doesn't execute.
+ * A transaction not in a block within 90 s is signed and sent again, at most three times.
+ */
+export async function submitToBestBlock(tx: Transaction, signer: Keypair): Promise<Included> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await submitOnce(tx, signer);
+    } catch (error) {
+      if (attempt === 3 || !(error as Error).message.startsWith("not in a block")) throw error;
+      console.warn(`[submit] ${(error as Error).message}; sending again`);
+    }
+  }
+}
+
+function submitOnce(tx: Transaction, signer: Keypair): Promise<Included> {
   return new Promise((resolve, reject) => {
     const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
+    const timer = setTimeout(() => {
+      subscription.unsubscribe();
+      reject(new Error(`not in a block within ${INCLUSION_TIMEOUT_MS / 1000} s`));
+    }, INCLUSION_TIMEOUT_MS);
     const subscription = tx.createSubmitAndWatch(creator, { customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS } as never).subscribe({
       next(event) {
         if (event.type !== "inBestBlock") return;
+        clearTimeout(timer);
         subscription.unsubscribe();
         if (event.ok) resolve(event as unknown as Included);
         else reject(new Error(`extrinsic failed in #${event.block.number}: ${JSON.stringify(event.dispatchError)}`));
       },
-      error: reject,
+      error(error) {
+        clearTimeout(timer);
+        reject(error);
+      },
     });
   });
 }
