@@ -96,6 +96,9 @@ jobs:
     runs-on: ubuntu-latest
     # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: write
     env:
       TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
     steps:
@@ -125,6 +128,12 @@ jobs:
           path: load-results/
           retention-days: 14
           if-no-files-found: ignore
+      # A run whose chain job stops early has no game for its message machines: stop them too.
+      - name: Stop the run's other jobs on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   # Each machine waits until the chain job has signed its bots up, then runs them inside
   # truapi-host from 40 s before the game's room opens until the game ends.
