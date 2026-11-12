@@ -63,11 +63,13 @@ describe("Account mapping reads (product-sdk)", () => {
   // Reads one key of the map through the raw `state_getKeysPaged` call, so no full scan is
   // needed. The key ends with the H160 (Identity hasher on this runtime; the trailing 20 bytes
   // are the H160 under any hasher that appends the key), which is then read with getValue.
+  // The key and its value are both read at one finalized block (`at`), so they cannot disagree.
   it("reports an account with an OriginalAccount entry as mapped", async (ctx) => {
-    const [key] = await client._request<string[], [string, number]>("state_getKeysPaged", [
-      ORIGINAL_ACCOUNT_PREFIX,
-      1,
-    ]);
+    const { hash: at } = await client.getFinalizedBlock();
+    const [key] = await client._request<string[], [string, number, null, string]>(
+      "state_getKeysPaged",
+      [ORIGINAL_ACCOUNT_PREFIX, 1, null, at],
+    );
     if (!key) {
       ctx.skip(`Revive.OriginalAccount is empty on ${networkKey()}`);
       return;
@@ -75,7 +77,7 @@ describe("Account mapping reads (product-sdk)", () => {
     expect(key.startsWith(ORIGINAL_ACCOUNT_PREFIX)).toBe(true);
     const h160 = `0x${key.slice(-40)}` as const;
 
-    const mapped = await api.query.Revive.OriginalAccount.getValue(h160);
+    const mapped = await api.query.Revive.OriginalAccount.getValue(h160, { at });
     if (!mapped) throw new Error(`OriginalAccount key ${key} has no value on ${networkKey()}`);
     expect(ss58ToH160(mapped).toLowerCase()).toBe(h160.toLowerCase());
 
