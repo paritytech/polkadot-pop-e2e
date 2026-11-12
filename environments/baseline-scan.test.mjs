@@ -42,6 +42,10 @@ describe('rpc', () => {
     await withFakeSocket('null', () => assert.rejects(rpc('wss://fake', 'system_version'), /malformed response/));
   });
 
+  it('rejects on a frame with no result key', async () => {
+    await withFakeSocket('{}', () => assert.rejects(rpc('wss://fake', 'system_version'), /malformed response/));
+  });
+
   it('rejects on a JSON-RPC error object', async () => {
     await withFakeSocket('{"id":1,"jsonrpc":"2.0","error":{"code":-1,"message":"nope"}}', () =>
       assert.rejects(rpc('wss://fake', 'system_version'), /nope/)

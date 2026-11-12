@@ -49,7 +49,9 @@ export async function rpc(url, method, params = []) {
         // would escape as an uncaught exception and change the CLI's exit code.
         try {
           const body = JSON.parse(m.data);
-          body.error ? reject(new Error(`${method}: ${JSON.stringify(body.error)}`)) : resolve(body.result);
+          if (body.error) reject(new Error(`${method}: ${JSON.stringify(body.error)}`));
+          else if (body.result === undefined) reject(new Error(`${method}: malformed response: no result`));
+          else resolve(body.result);
         } catch (err) {
           reject(new Error(`${method}: malformed response: ${err.message}`));
         }
