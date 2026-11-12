@@ -7,6 +7,7 @@ import { playersNotRegistered, signUpEntries, topUpPlayers, waitForGame, PLAYER_
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
+import { sleep } from "./time.js";
 
 export interface Phases {
   registration: number;
@@ -72,8 +73,6 @@ export interface ChainResult {
   blocks: BlockLoad[];
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 function stateLabel(game: { state: { type: string; value?: unknown } } | undefined): string {
   if (!game) return "None";
   const step = (game.state.value as { step?: { type: string } } | undefined)?.step;
@@ -113,8 +112,7 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
 }
 
 /** As root: schedules one game with `run.phases` from now, returning the phases to set back. */
-async function scheduleOwnGame(api: PeopleApi, run: ChainRun, sudo: Keypair): Promise<{ phases: Phases; previous: Phases | undefined }> {
-  const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+async function scheduleOwnGame(api: PeopleApi, run: ChainRun, sudo: Keypair, chainPhases: Phases): Promise<{ phases: Phases; previous: Phases | undefined }> {
   const phases: Phases = { ...chainPhases, ...run.phases };
   const now = Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
   // Slack of a few blocks: the chain starts the game only before its registration start.
@@ -168,18 +166,17 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   try {
     const { players } = run;
     const ownGame = target.sudo !== undefined && run.gameAt === undefined;
-    let phases: Phases;
+    const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+    let phases = chainPhases;
     let signedSignUps: string[] = [];
     if (ownGame) {
       await clearAndFund(api, run, target.sudo!, players);
       // Fresh accounts, signed before the game exists, so none of registration goes to signing:
       // the sign-up is each player's first transaction, the report its second.
       signedSignUps = await signEntries(signUpEntries(api, players, 0), "sign-up");
-      const scheduled = await scheduleOwnGame(api, run, target.sudo!);
+      const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
-    } else {
-      phases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     }
 
     const maxNormal = (await api.constants.System.BlockWeights()).per_class.normal.max_total!;

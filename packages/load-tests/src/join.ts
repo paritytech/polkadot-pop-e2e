@@ -5,6 +5,7 @@ import type { BurstEntry } from "./burst.js";
 import type { Keypair, Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
+import { sleep } from "./time.js";
 
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
 export const PLAYER_FUNDS = 30_000_000_000n;
@@ -17,7 +18,6 @@ export interface OpenGame {
   report_ends: number;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
 
 /** A deterministic stand-in for the player's P-256 communication key, which the chain only stores. */

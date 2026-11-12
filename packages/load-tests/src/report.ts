@@ -4,7 +4,7 @@ import type { QuantileSummary } from "./histogram.js";
 import type { Sample } from "./prometheus.js";
 import type { ChainResult } from "./chain.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
-import { STALL_MS, SignallingStats } from "./stats.js";
+import { STALL_MS, SignallingStats, bump, total } from "./stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -42,8 +42,6 @@ export interface StepSummary {
   hosts: HostUsage | null;
 }
 
-const total = (counts: Record<string, number>) => Object.values(counts).reduce((sum, count) => sum + count, 0);
-
 function nodeSummary(start: Sample, end: Sample, seconds: number): NodeSummary {
   const delta = (name: string) => (name in end && name in start ? end[name] - start[name] : null);
   const submitSum = delta("substrate_sub_statement_store_submit_duration_seconds_sum");
@@ -62,7 +60,7 @@ function mergeHosts(results: SignallingShardResult[]): HostUsage | null {
   if (usages.length === 0) return null;
   const ghosts = usages.reduce((sum, usage) => sum + usage.ghosts, 0);
   const failures: Record<string, number> = {};
-  for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) failures[key] = (failures[key] ?? 0) + count;
+  for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
   const weighted = (pick: (usage: HostUsage) => number) => usages.reduce((sum, usage) => sum + pick(usage) * usage.ghosts, 0) / ghosts;
   return {
     hosts: usages.reduce((sum, usage) => sum + usage.hosts, 0),

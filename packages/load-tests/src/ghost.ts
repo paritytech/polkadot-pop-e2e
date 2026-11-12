@@ -3,7 +3,7 @@ import { bundleBytes, firstSendAt, isConnecting, nextSendAt, type Phase, type Si
 import { RpcConnection, RpcError } from "./rpc.js";
 import { probePayload, readProbe, signStatement, topicOf, type Hex } from "./statement.js";
 import { seatOf, wireBytes, type Seat, type Seating } from "./seating.js";
-import { bump, countDeliveryGap, type SignallingStats } from "./stats.js";
+import { DeliveryCounter, bump, type SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
@@ -26,15 +26,13 @@ const UNSUBSCRIBE = "statement_unsubscribeStatement";
 export class Ghost {
   private readonly channel: Hex;
   private readonly seat: Seat;
-  private readonly received = new Set<string>();
+  private readonly counter: DeliveryCounter;
   private subscription: string | undefined;
   private timer: NodeJS.Timeout | undefined;
   private nextAt = 0;
   private sequence = 0;
   private inflight = 0;
   private stopped = false;
-  /** When the subscription last delivered a statement of the window; 0 before the first. */
-  private lastDeliveryAt = 0;
 
   constructor(
     private readonly player: Player,
@@ -43,6 +41,7 @@ export class Ghost {
   ) {
     this.channel = topicOf(`${game.namespace}/bundle/${player.index}`);
     this.seat = seatOf(game.namespace, game.seating, game.profile, player.index);
+    this.counter = new DeliveryCounter(game.stats, game.window, player.index, this.seat.recipients);
   }
 
   async join(): Promise<void> {
@@ -70,7 +69,7 @@ export class Ghost {
   async leave(): Promise<void> {
     this.stopSending();
     if (!this.subscription) return;
-    countDeliveryGap(this.game.stats, this.lastDeliveryAt, this.game.window.end);
+    this.counter.finish();
     await this.connection.unsubscribe(UNSUBSCRIBE, this.subscription, this.game.profile.submitTimeoutMs).catch(() => {});
   }
 
@@ -87,7 +86,7 @@ export class Ghost {
   }
 
   private async send(connecting: boolean): Promise<void> {
-    const { stats, profile, window } = this.game;
+    const { stats, profile } = this.game;
     if (this.inflight >= profile.maxInflight) {
       stats.skippedInflight++;
       return;
@@ -107,10 +106,7 @@ export class Ghost {
       const result = (await this.connection.request("statement_submit", [statement], profile.submitTimeoutMs)) as { status: string; reason?: string };
       stats.submitRtt.add(Date.now() - sentAt);
       bump(stats.submits, result.reason ? `${result.status}:${result.reason}` : result.status);
-      if (result.status === "new" && sentAt >= window.start && sentAt < window.end) {
-        stats.acceptedInWindow++;
-        stats.expectedDeliveries += this.seat.recipients;
-      }
+      if (result.status === "new") this.counter.accepted(sentAt);
     } catch (error) {
       bump(stats.submits, error instanceof RpcError ? `rpc-error:${error.code}` : `error:${(error as Error).message}`);
     } finally {
@@ -120,19 +116,7 @@ export class Ghost {
 
   private receive(result: unknown): void {
     const statements = (result as { data?: { statements?: string[] } }).data?.statements ?? [];
-    const { stats, window } = this.game;
     const now = Date.now();
-    for (const statement of statements) {
-      const probe = readProbe(statement);
-      if (!probe || probe.sender === this.player.index) continue;
-      if (probe.sentAt < window.start || probe.sentAt >= window.end) continue;
-      // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
-      const key = `${probe.sender}:${probe.sequence}`;
-      if (this.received.has(key)) continue;
-      this.received.add(key);
-      stats.deliveredInWindow++;
-      this.lastDeliveryAt = now;
-      stats.latency.add(now - probe.sentAt);
-    }
+    for (const statement of statements) this.counter.receive(readProbe(statement), now);
   }
 }

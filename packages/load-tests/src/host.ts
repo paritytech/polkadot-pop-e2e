@@ -7,7 +7,8 @@ import { promisify } from "node:util";
 import { hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { Seating } from "./seating.js";
-import { sleepUntil, type HostUsage, type StartPlayers, type StepRun } from "./signalling.js";
+import type { HostUsage, StartPlayers, StepRun } from "./signalling.js";
+import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
 
 /** The product the Jollity app signs statements as on each network. */
@@ -68,6 +69,16 @@ function treeUsage(table: ProcessTable, root: number): { cpuSeconds: number; rss
   return usage;
 }
 
+/** The hosts of `count` bots that shard `shard` runs, dealt to shards in turn, and their bots. */
+export function shardHosts(count: number, ghostsPerHost: number, shard: { index: number; count: number }): Array<{ host: number; ghosts: number[] }> {
+  return Array.from({ length: Math.ceil(count / ghostsPerHost) }, (_, host) => host)
+    .filter((host) => host % shard.count === shard.index)
+    .map((host) => ({
+      host,
+      ghosts: Array.from({ length: Math.min(ghostsPerHost, count - host * ghostsPerHost) }, (_, ghost) => host * ghostsPerHost + ghost),
+    }));
+}
+
 /**
  * Ghosts inside `truapi-host signing-host --script host-ghost.ts` processes, `ghostsPerHost` to a
  * host, each signing and submitting through its host as the app does. Hosts, not ghosts, are
@@ -76,18 +87,16 @@ function treeUsage(table: ProcessTable, root: number): { cpuSeconds: number; rss
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
   return async ({ count, stepStart, room }) => {
     const { ghostsPerHost } = options;
-    const owned = Array.from({ length: Math.ceil(count / ghostsPerHost) }, (_, host) => host).filter(
-      (host) => host % run.shard.count === run.shard.index,
-    );
-    const ownedGhosts = owned.reduce((sum, host) => sum + Math.min(ghostsPerHost, count - host * ghostsPerHost), 0);
+    const owned = shardHosts(count, ghostsPerHost, run.shard);
+    const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts.length, 0);
     const workDir = resolve(run.outDir, "hosts", `n${count}`);
     await mkdir(workDir, { recursive: true });
     const exits: Array<Promise<string | null>> = [];
     const processes: ChildProcess[] = [];
     const resultPaths: string[] = [];
     let joined = 0;
-    for (const host of owned) {
-      const ghosts = Math.min(ghostsPerHost, count - host * ghostsPerHost);
+    for (const { host, ghosts: own } of owned) {
+      const ghosts = own.length;
       const resultPath = join(workDir, `host${host}.result.json`);
       const planPath = join(workDir, `host${host}.plan.json`);
       const plan: HostGhostPlan = {

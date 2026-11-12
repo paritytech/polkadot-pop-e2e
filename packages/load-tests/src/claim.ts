@@ -3,8 +3,10 @@ import { getClaimableCollections, getClaims, type Claim, type NftsChain, type Nf
 import { signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
+import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
 import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
+import { sleep, withTimeout } from "./time.js";
 
 export interface ClaimResult {
   /** Credits the game awarded the players: the `Person` votes they received. */
@@ -28,17 +30,6 @@ const ASSET_HUB_FUNDS = 10_000_000_000n;
 const CLAIMABLE_WAIT_MS = 600_000;
 const READ_CONCURRENCY = 100;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** `promise`, or a rejection naming `what` after `ms`: one reply that never comes must not hang a lane. */
-function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what}: no answer in ${ms / 1000} s`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
 /** Runs `read` over `items`, `READ_CONCURRENCY` at a time, in order. */
 async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
@@ -58,30 +49,30 @@ async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
   const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
   const short = players.filter((_, position) => accounts[position].data.free < ASSET_HUB_FUNDS);
-  if (!target.sudo && short.length > 0) {
-    if (!target.funder) throw new Error(`${target.label}: no funded account to pay the claims on Asset Hub; set TEST_MNEMONIC`);
+  if (short.length === 0) return;
+  // Without a root key the funder pays, and must cover every player before the first transfer.
+  const funder = target.sudo ? undefined : requireFunder(target);
+  if (funder) {
     const needed = BigInt(short.length) * ASSET_HUB_FUNDS + ASSET_HUB_FUNDS;
-    const available = (await api.query.System.Account.getValue(target.funder.address, { at: "best" })).data.free;
+    const available = (await api.query.System.Account.getValue(funder.address, { at: "best" })).data.free;
     if (available < needed) {
       throw new Error(
-        `${target.funder.address} has ${Number(available) / 1e10} UNIT on ${target.label}'s Asset Hub; send it at least ${Math.ceil(Number(needed - available) / 1e10)} UNIT more`,
+        `${funder.address} has ${Number(available) / 1e10} UNIT on ${target.label}'s Asset Hub; send it at least ${Math.ceil(Number(needed - available) / 1e10)} UNIT more`,
       );
     }
   }
   for (let start = 0; start < short.length; start += 500) {
     const chunk = short.slice(start, start + 500);
-    let tx;
-    let signer: Keypair;
-    if (target.sudo) {
-      const calls = chunk.map((player) => api.tx.Balances.force_set_balance({ who: Enum("Id", player.address), new_free: ASSET_HUB_FUNDS }).decodedCall);
-      tx = api.tx.Sudo.sudo({ call: api.tx.Utility.batch_all({ calls }).decodedCall });
-      signer = target.sudo;
-    } else {
-      if (!target.funder) throw new Error(`${target.label}: no funded account to pay the claims on Asset Hub; set TEST_MNEMONIC`);
-      const calls = chunk.map((player) => api.tx.Balances.transfer_keep_alive({ dest: Enum("Id", player.address), value: ASSET_HUB_FUNDS }).decodedCall);
-      tx = api.tx.Utility.batch_all({ calls });
-      signer = target.funder;
-    }
+    const tx = funder
+      ? api.tx.Utility.batch_all({
+          calls: chunk.map((player) => api.tx.Balances.transfer_keep_alive({ dest: Enum("Id", player.address), value: ASSET_HUB_FUNDS }).decodedCall),
+        })
+      : api.tx.Sudo.sudo({
+          call: api.tx.Utility.batch_all({
+            calls: chunk.map((player) => api.tx.Balances.force_set_balance({ who: Enum("Id", player.address), new_free: ASSET_HUB_FUNDS }).decodedCall),
+          }).decodedCall,
+        });
+    const signer: Keypair = funder ?? target.sudo!;
     const included = await submitToBestBlock(tx, signer);
     console.log(`[claim] funded ${Math.min(start + 500, short.length)}/${short.length} on Asset Hub in #${included.block.number}`);
   }

@@ -8,6 +8,7 @@ import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
 import type { Rooms } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
+import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
 
 export interface Shard {
@@ -87,8 +88,6 @@ export function stepMs(run: Pick<StepRun, "timing" | "profile">): number {
   const { rampMs, warmupMs, drainMs, cooldownMs } = run.timing;
   return rampMs + warmupMs + gameMs(run.profile) + drainMs + cooldownMs;
 }
-
-export const sleepUntil = (at: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, at - Date.now())));
 
 /**
  * Plays each step's game with that many ghosts in total over all shards, one step after the

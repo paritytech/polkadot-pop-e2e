@@ -5,7 +5,8 @@ import { toHex } from "@polkadot-api/utils";
 import type { HostGhostPlan } from "./host.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt } from "./profile.js";
 import { probePayload, readProbe, topicOf, type Hex } from "./statement.js";
-import { SignallingStats, bump, countDeliveryGap } from "./stats.js";
+import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
+import { sleepUntil, withTimeout } from "./time.js";
 import { seatOf, wireBytes, type Seat } from "./seating.js";
 
 interface Result<T> {
@@ -39,17 +40,9 @@ declare const host: { productAccount(index: number): unknown };
 const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGhostPlan;
 const { profile, window } = plan;
 const stats = new SignallingStats();
-const sleepUntil = (at: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, at - Date.now())));
 const describe = (error: unknown) => JSON.stringify(error, (_, value) => (typeof value === "bigint" ? String(value) : value))?.slice(0, 160);
 
-function withTimeout<T>(promise: Promise<T>): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), profile.submitTimeoutMs)),
-  ]);
-}
-
-async function send(ghost: number, index: number, channel: Hex, seat: Seat, sequence: number, connecting: boolean): Promise<void> {
+async function send(ghost: number, index: number, channel: Hex, seat: Seat, counter: DeliveryCounter, sequence: number, connecting: boolean): Promise<void> {
   const sentAt = Date.now();
   const statement: HostStatement = {
     expiry: (BigInt(Math.floor(sentAt / 1000) + profile.ttlSeconds) << 32n) | BigInt(sequence),
@@ -58,17 +51,14 @@ async function send(ghost: number, index: number, channel: Hex, seat: Seat, sequ
     data: toHex(probePayload({ sender: index, sequence, sentAt }, wireBytes(seat, bundleBytes(profile, connecting)))) as Hex,
   };
   try {
-    const proof = await withTimeout(truapi.statementStore.createProof({ productAccountId: host.productAccount(ghost), statement }));
+    const proof = await withTimeout(truapi.statementStore.createProof({ productAccountId: host.productAccount(ghost), statement }), profile.submitTimeoutMs, "proof");
     if (proof.isErr()) return bump(stats.submits, `proof:${describe(proof.error)}`);
     stats.bytesSubmitted += (statement.data.length - 2) / 2;
-    const submitted = await withTimeout(truapi.statementStore.submit({ ...statement, proof: proof.value.proof }));
+    const submitted = await withTimeout(truapi.statementStore.submit({ ...statement, proof: proof.value.proof }), profile.submitTimeoutMs, "submit");
     stats.submitRtt.add(Date.now() - sentAt);
     if (submitted.isErr()) return bump(stats.submits, `submit:${describe(submitted.error)}`);
     bump(stats.submits, "new");
-    if (sentAt >= window.start && sentAt < window.end) {
-      stats.acceptedInWindow++;
-      stats.expectedDeliveries += seat.recipients;
-    }
+    counter.accepted(sentAt);
   } catch (error) {
     bump(stats.submits, `error:${(error as Error).message}`);
   }
@@ -79,22 +69,11 @@ async function play(ghost: number): Promise<void> {
   const channel = topicOf(`${plan.namespace}/bundle/${index}`);
   const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
-  let lastDeliveryAt = 0;
-  const received = new Set<string>();
+  const counter = new DeliveryCounter(stats, window, index, seat.recipients);
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: seat.listen } }).subscribe({
     next(page) {
       const now = Date.now();
-      for (const statement of page.statements) {
-        const probe = statement.data && readProbe(statement.data);
-        if (!probe || probe.sender === index || probe.sentAt < window.start || probe.sentAt >= window.end) continue;
-        // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
-        const key = `${probe.sender}:${probe.sequence}`;
-        if (received.has(key)) continue;
-        received.add(key);
-        stats.deliveredInWindow++;
-        lastDeliveryAt = now;
-        stats.latency.add(now - probe.sentAt);
-      }
+      for (const statement of page.statements) counter.receive(statement.data ? readProbe(statement.data) : undefined, now);
     },
     error: (error) => bump(stats.subscriptionsEnded, describe(error)),
     complete: () => bump(stats.subscriptionsEnded, "completed"),
@@ -110,12 +89,12 @@ async function play(ghost: number): Promise<void> {
     if (inflight >= profile.maxInflight) stats.skippedInflight++;
     else {
       inflight++;
-      void send(ghost, index, channel, seat, sequence++, connecting).finally(() => inflight--);
+      void send(ghost, index, channel, seat, counter, sequence++, connecting).finally(() => inflight--);
     }
     next = nextSendAt(profile, plan.phase, plan.gameStart, next, connecting);
   }
   await sleepUntil(plan.leaveAt);
-  countDeliveryGap(stats, lastDeliveryAt, window.end);
+  counter.finish();
   subscription.unsubscribe();
 }
 

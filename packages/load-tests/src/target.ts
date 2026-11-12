@@ -90,13 +90,9 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
   };
 }
 
-export function peopleApiOf(client: PolkadotClient, target: Target): PeopleApi {
-  return client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi;
-}
-
 export function connectPeople(target: Target): { client: PolkadotClient; api: PeopleApi } {
   const client = createClient(getWsProvider(target.rpc[0]));
-  return { client, api: peopleApiOf(client, target) };
+  return { client, api: client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi };
 }
 
 export function connectAssetHub(target: Target): { client: PolkadotClient; api: AssetHubApi } {

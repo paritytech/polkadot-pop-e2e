@@ -7,7 +7,7 @@ import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, PRODUCT_IDS } from "./host.js";
+import { hostGhosts, PRODUCT_IDS, shardHosts } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, resolveTarget, type Target } from "./target.js";
 
@@ -146,6 +146,8 @@ const command = positionals[0];
 const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
 const gameAt = gameTime(values["game-at"]);
+const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
+const productIdOf = (target: Target) => values["product-id"] ?? PRODUCT_IDS[target.network];
 
 /**
  * Key seed of a game run's players. On a fork, fresh accounts per game, so the sign-up is each
@@ -158,9 +160,7 @@ function gameSeed(target: Target, count: number): string {
 
 /** Players 0..count-1 of a game run, as product accounts of the truapi-hosts that send their messages. */
 function gamePlayers(target: Target, count: number): Player[] {
-  const productId = values["product-id"] ?? PRODUCT_IDS[target.network];
-  const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
-  return Array.from({ length: count }, (_, index) => hostGhostPlayer(gameSeed(target, count), productId, ghostsPerHost, index));
+  return Array.from({ length: count }, (_, index) => hostGhostPlayer(gameSeed(target, count), productIdOf(target), ghostsPerHost, index));
 }
 
 switch (values.help ? undefined : command) {
@@ -168,11 +168,9 @@ switch (values.help ? undefined : command) {
     const target = await resolveTarget(targetOptions);
     const count = positiveInteger("players", values.players);
     const indices = Array.from({ length: count }, (_, i) => i);
-    const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
-    const productId = values["product-id"] ?? PRODUCT_IDS[target.network];
     const players =
       values.layer === "host"
-        ? indices.map((index) => hostGhostPlayer(values.seed, productId, ghostsPerHost, index))
+        ? indices.map((index) => hostGhostPlayer(values.seed, productIdOf(target), ghostsPerHost, index))
         : derivePlayers(values.seed, indices);
     if (!target.sudo) throw new Error(`${target.label}: mint writes allowances as root; on a live network the chain command signs players up instead`);
     const { client, api } = connectPeople(target);
@@ -199,9 +197,8 @@ switch (values.help ? undefined : command) {
       drainMs: seconds("drain", values.drain),
       cooldownMs: seconds("cooldown", values.cooldown),
     };
-    const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
     const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
-    const productId = values["product-id"] ?? PRODUCT_IDS[target.network];
+    const productId = productIdOf(target);
     let seed = values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
@@ -209,12 +206,8 @@ switch (values.help ? undefined : command) {
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
       seed = gameSeed(target, steps[0]);
-      // Hosts are dealt to shards in turn: this shard's are its index, plus the shard count, and so on.
-      const hosts = Math.ceil(steps[0] / ghostsPerHost);
-      const own = Array.from({ length: Math.ceil((hosts - shardIndex) / shardCount) }, (_, turn) => shardIndex + turn * shardCount).flatMap((host) =>
-        Array.from({ length: ghostsPerHost }, (_, ghost) => host * ghostsPerHost + ghost).filter((index) => index < steps[0]),
-      );
-      if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill ${hosts} hosts of ${ghostsPerHost}, fewer than ${shardCount} machines`);
+      const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ ghosts }) => ghosts);
+      if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${ghostsPerHost} than ${shardCount} machines`);
       const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, ghostsPerHost, index));
       console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to a game`);
       const game = await waitForSignUp(target, watched, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);

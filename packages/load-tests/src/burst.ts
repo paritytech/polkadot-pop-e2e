@@ -5,7 +5,8 @@ import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-cla
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import type { Keypair } from "./keys.js";
 import { RpcConnection } from "./rpc.js";
-import { bump } from "./stats.js";
+import { bump, total } from "./stats.js";
+import { sleep } from "./time.js";
 import type { AssetHubApi, PeopleApi } from "./target.js";
 
 /** A chain a burst goes to: its events and timestamp are read for each block a transaction lands in. */
@@ -46,7 +47,6 @@ interface BlockView {
 }
 
 const TX_TIMEOUT_MS = 300_000;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function describeError(error: unknown): string {
   const parts: string[] = [];
@@ -227,8 +227,7 @@ export async function submitLanes(
     });
   const progressTimer = progress
     ? setInterval(() => {
-        const failed = Object.values(burst.failures).reduce((sum, count) => sum + count, 0);
-        console.log(`[${progress}] ${burst.submitted} sent, ${burst.ok} in a block, ${failed} failed ${JSON.stringify(burst.failures)}`);
+        console.log(`[${progress}] ${burst.submitted} sent, ${burst.ok} in a block, ${total(burst.failures)} failed ${JSON.stringify(burst.failures)}`);
       }, 30_000)
     : undefined;
   // A lane that throws, such as on a read after a failed transaction, sends nothing more.
