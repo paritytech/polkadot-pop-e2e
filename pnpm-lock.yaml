@@ -133,6 +133,58 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
 
+  packages/load-tests:
+    dependencies:
+      '@novasamatech/sdk-statement':
+        specifier: ^0.6.0
+        version: 0.6.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-nfts':
+        specifier: 0.4.1
+        version: 0.4.1
+      '@polkadot-api/substrate-bindings':
+        specifier: ^0.21.2
+        version: 0.21.2
+      '@polkadot-api/utils':
+        specifier: ^0.4.0
+        version: 0.4.0
+      '@polkadot-labs/hdkd':
+        specifier: ^0.0.28
+        version: 0.0.28
+      '@polkadot-labs/hdkd-helpers':
+        specifier: ^0.0.34
+        version: 0.0.34
+      '@pop-e2e/chain-tests':
+        specifier: workspace:*
+        version: link:../chain-tests
+      '@pop-e2e/papi':
+        specifier: workspace:*
+        version: link:../papi
+      '@scure/sr25519':
+        specifier: ^2.4.0
+        version: 2.4.0
+      polkadot-api:
+        specifier: ^3.3.0
+        version: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+      ws:
+        specifier: ^8.22.2
+        version: 8.22.2
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.2
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.1.0
+        version: 5.1.0(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+
   packages/papi:
     dependencies:
       '@polkadot-api/descriptors':
@@ -1166,6 +1218,9 @@ packages:
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -2508,8 +2563,8 @@ snapshots:
       fs.promises.exists: 1.1.4
       ora: 9.4.1
       read-pkg: 10.1.0
-      rollup: 4.65.1
-      rollup-plugin-esbuild: 6.2.1(esbuild@0.28.2)(rollup@4.65.1)
+      rollup: 4.68.2
+      rollup-plugin-esbuild: 6.2.1(esbuild@0.28.2)(rollup@4.68.2)
       rxjs: 7.8.2
       tsc-prog: 2.3.0(typescript@6.0.3)
       typescript: 6.0.3
@@ -3383,6 +3438,10 @@ snapshots:
 
   '@types/normalize-package-data@2.4.4': {}
 
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 26.6.6
+
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
 
@@ -3873,6 +3932,17 @@ snapshots:
       esbuild: 0.28.2
       get-tsconfig: 4.14.3
       rollup: 4.65.1
+      unplugin-utils: 0.2.5
+    transitivePeerDependencies:
+      - supports-color
+
+  rollup-plugin-esbuild@6.2.1(esbuild@0.28.2)(rollup@4.68.2):
+    dependencies:
+      debug: 4.4.3
+      es-module-lexer: 1.7.0
+      esbuild: 0.28.2
+      get-tsconfig: 4.14.3
+      rollup: 4.68.2
       unplugin-utils: 0.2.5
     transitivePeerDependencies:
       - supports-color

@@ -1,0 +1,200 @@
+name: Load test
+
+# Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
+# sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
+# See packages/load-tests/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Network whose closest scheduled game the bots join
+        type: choice
+        default: previewnet
+        options: [previewnet, paseo-next-v2]
+      players:
+        description: Bots in the game, up to 5000
+        type: string
+        default: "300"
+      bots_per_machine:
+        description: Bots one parity-large machine sends messages for
+        type: string
+        default: "1000"
+      signalling:
+        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before individuality-apps#1972"
+        type: choice
+        default: co-players
+        options: [co-players, game]
+      timing:
+        description: "sync: every bot re-sends on the app's one shared beat. random: each bot on a beat of its own, to see what spreading the burst does"
+        type: choice
+        default: sync
+        options: [sync, random]
+      claim:
+        description: Claim the NFT credits on Asset Hub after the reports
+        type: boolean
+        default: true
+      game_at:
+        description: Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
+        type: string
+        default: ""
+      args:
+        description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test-${{ inputs.network }}
+  cancel-in-progress: false
+
+env:
+  NETWORK: ${{ inputs.network }}
+  PLAYERS: ${{ inputs.players }}
+  ARGS: ${{ inputs.args }}
+  GAME_AT: ${{ inputs.game_at }}
+  RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  RESULTS: ${{ github.workspace }}/load-results
+  TRUAPI_HOST_NO_UPDATE: "1"
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      machines: ${{ steps.plan.outputs.machines }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - id: plan
+        env:
+          PER_MACHINE: ${{ inputs.bots_per_machine }}
+        run: |
+          set -euo pipefail
+          machines=$(( (PLAYERS + PER_MACHINE - 1) / PER_MACHINE ))
+          echo "machines=$machines" >> "$GITHUB_OUTPUT"
+          echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
+          echo "$PLAYERS bots on $machines parity-large machine(s), signalling ${{ inputs.signalling }}, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
+  # them. The TEST_MNEMONIC account pays their play deposits and fees.
+  chain:
+    name: chain · sign-up, reports, NFT claims
+    runs-on: ubuntu-latest
+    # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Play the game on chain
+        env:
+          CLAIM: ${{ inputs.claim }}
+        run: |
+          set -euo pipefail
+          read -ra extra <<< "$ARGS"
+          game=(--registration-wait 240)
+          if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
+          if [ "$CLAIM" != true ]; then game+=(--skip-claim); fi
+          pnpm --silent --filter @pop-e2e/load-tests load chain --players "$PLAYERS" "${game[@]}" \
+            --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+      - name: Upload the chain result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-chain
+          path: load-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # A run whose chain job stops early has no game for its message machines: stop them too.
+  cancel:
+    name: cancel the run when the chain job fails
+    needs: chain
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  # Each machine waits until the chain job has signed its bots up, then runs them inside
+  # truapi-host from 40 s before the game's room opens until the game ends.
+  messages:
+    name: messages · machine ${{ matrix.shard }}
+    needs: plan
+    runs-on: parity-large
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install-truapi-host
+      - uses: oven-sh/setup-bun@v2
+      - name: Send and receive the game's messages
+        env:
+          SHARD: ${{ matrix.shard }}
+          MACHINES: ${{ needs.plan.outputs.machines }}
+          ROOMS: ${{ inputs.signalling }}
+          PHASE: ${{ inputs.timing }}
+        run: |
+          set -euo pipefail
+          read -ra extra <<< "$ARGS"
+          pnpm --silent --filter @pop-e2e/load-tests load host --follow-game --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
+            --shard "$SHARD/$MACHINES" --registration-wait 240 --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+      - name: Upload the message results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-messages-${{ matrix.shard }}
+          path: load-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  summary:
+    name: summary
+    needs: [chain, messages]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: load-*
+          path: load-results
+          merge-multiple: true
+      - name: Merge the results
+        run: |
+          set -euo pipefail
+          compgen -G "load-results/chain.n*.md" >/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
+          pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS" || echo "No message results" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: load-results-${{ inputs.network }}-${{ inputs.players }}
+          path: load-results/
+          retention-days: 14

@@ -143,9 +143,10 @@ When a runtime change breaks product-sdk or truapi on purpose:
 
 ```
 packages/chain-tests/   the suite — vitest, endpoint-agnostic
+packages/load-tests/    Jollity-shaped load on the People chain: statement store, host, chain
 packages/papi/          generated PAPI descriptors, refreshed daily
 environments/           release map, resolver, and one manifest per network
-.github/workflows/      release gate, baseline scan, PAPI refresh
+.github/workflows/      release gate, baseline scan, PAPI refresh, load test
 ```
 
 Two workflows keep the repo honest without anyone tending it: **baseline scan**
