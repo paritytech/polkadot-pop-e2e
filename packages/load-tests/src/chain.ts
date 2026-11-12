@@ -178,7 +178,6 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
     } else {
-      await topUpPlayers(target, api, players);
       phases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     }
 
@@ -223,7 +222,10 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (game.game_date * 1000 - (await chainNow()) > run.registrationWaitMs) {
         throw new Error(`game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}, later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
       }
-      signedSignUps = await signEntries(signUpEntries(api, await playersNotRegistered(api, players)), "sign-up");
+      // Funded only now: a deposit of the previous game counts until that game lets it go.
+      const joining = await playersNotRegistered(api, players);
+      await topUpPlayers(target, api, joining);
+      signedSignUps = await signEntries(signUpEntries(api, joining), "sign-up");
     }
     gameIndex = game.index;
 
