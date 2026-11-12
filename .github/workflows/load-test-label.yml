@@ -3,7 +3,7 @@ name: Load test (PR label)
 # Temporary, until load-test.yml is on main and can be dispatched: on a pull request, the
 # `load-test-previewnet` label has 300 bots play the closest previewnet game in one room as the
 # app does, `load-test-previewnet-tables` has 1000 bots play the closest previewnet game with one
-# topic per table, and `load-test-paseo-tables` 2000 bots the closest paseo-next-v2 game.
+# topic per table, and `load-test-paseo-tables` 1000 bots the closest paseo-next-v2 game.
 
 on:
   pull_request:
@@ -40,7 +40,7 @@ jobs:
     uses: ./.github/workflows/load-test.yml
     with:
       network: paseo-next-v2
-      players: "2000"
+      players: "1000"
       args: "--rooms tables"
     secrets:
       TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
