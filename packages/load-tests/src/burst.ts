@@ -148,6 +148,14 @@ export function submitBurst(
   return submitLanes(lanes, api, client, urls, connectionCount, deadline);
 }
 
+/** How `submitLanes` counts its transactions. */
+export interface LaneOptions {
+  /** Reads each transaction's block for its outcome and time (default); without, one in a block counts as succeeded. */
+  readBlocks?: boolean;
+  /** Logs the counts under this label every 30 s while the lanes run. */
+  progress?: string;
+}
+
 /**
  * Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all
  * their transactions. Without `readBlocks` a transaction counts as succeeded once it is in a
@@ -160,7 +168,7 @@ export async function submitLanes(
   urls: string[],
   connectionCount: number,
   deadline: (chainStart: number) => number,
-  readBlocks = true,
+  { readBlocks = true, progress }: LaneOptions = {},
 ): Promise<Burst> {
   const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
   const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
@@ -217,8 +225,15 @@ export async function submitLanes(
         })
         .catch((error: Error) => finish(`submit: ${error.message}`));
     });
+  const progressTimer = progress
+    ? setInterval(() => {
+        const failed = Object.values(burst.failures).reduce((sum, count) => sum + count, 0);
+        console.log(`[${progress}] ${burst.submitted} sent, ${burst.ok} in a block, ${failed} failed ${JSON.stringify(burst.failures)}`);
+      }, 30_000)
+    : undefined;
   // A lane that throws, such as on a read after a failed transaction, sends nothing more.
   await Promise.all(lanes.map((lane) => lane(submit).catch((error: Error) => bump(burst.failures, `stopped: ${error.message}`))));
+  clearInterval(progressTimer);
   burst.durationMs = Date.now() - start;
   for (const connection of connections) connection.close();
   return burst;

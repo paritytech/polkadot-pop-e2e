@@ -30,6 +30,15 @@ const READ_CONCURRENCY = 100;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** `promise`, or a rejection naming `what` after `ms`: one reply that never comes must not hang a lane. */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: no answer in ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Runs `read` over `items`, `READ_CONCURRENCY` at a time, in order. */
 async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
@@ -154,7 +163,7 @@ export async function claimCredits(
     const readNonce = async (address: SS58String): Promise<number> => {
       for (let attempt = 1; ; attempt++) {
         try {
-          return await client._request<number, [string]>("system_accountNextIndex", [address]);
+          return await withTimeout(client._request<number, [string]>("system_accountNextIndex", [address]), 15_000, "nonce read");
         } catch (error) {
           if (attempt === 3) throw error;
           await sleep(2_000);
@@ -173,7 +182,7 @@ export async function claimCredits(
             // A failed claim leaves the following ones at the wrong nonce: sign them again at the chain's.
             const nonce = await readNonce(player.address);
             for (let later = next + 1; later < own.length; later++) {
-              own[later] = await signEntry({ signer: player, tx: txs[index][later], nonce: nonce + later - next - 1 });
+              own[later] = await withTimeout(signEntry({ signer: player, tx: txs[index][later], nonce: nonce + later - next - 1 }), 30_000, "signing");
             }
           }
           playerMs.add(Date.now() - started);
@@ -182,7 +191,10 @@ export async function claimCredits(
     console.log(`[claim] ${mine.length} players claim ${claimable} credits, each one at a time`);
     // Blocks aren't read per claim: polkadot-api failed reading thousands of them. What landed is
     // read from the claimed-leaves afterwards instead.
-    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, false);
+    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, {
+      readBlocks: false,
+      progress: "claim",
+    });
     const tried = new Set(mine.flatMap(({ claims }) => claims.map((claim) => claim.hash)));
     const after = await readAll(
       mine.map((read) => read.player),
