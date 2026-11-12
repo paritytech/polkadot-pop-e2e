@@ -53,6 +53,9 @@ jobs:
       - name: Unit tests (stack descriptor mapping)
         run: pnpm --filter @pop-e2e/chain-tests exec vitest run src/tests/unit/stack-config.test.ts
 
+      - name: People plugin protocol tests
+        run: node --import tsx --test packages/chain-tests/src/stress/*.test.ts
+
       # The manifests are the gate's input; a malformed one should fail here in
       # seconds rather than after a runner has spent 25 minutes forking a network.
       - name: Every manifest resolves

@@ -16,7 +16,7 @@ import { compact } from "@polkadot-api/substrate-bindings";
 
 /** 32-byte ASCII identifiers for the on-chain Members collections. */
 export const PEOPLE_IDENTIFIER = new TextEncoder().encode(
-  "people                          ",
+  "pop:polkadot.network/people     ",
 );
 export const LITE_PEOPLE_IDENTIFIER = new TextEncoder().encode(
   "pop:polkadot.network/people-lite",
