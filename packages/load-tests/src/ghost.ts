@@ -2,7 +2,7 @@ import type { Player } from "./keys.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection, RpcError } from "./rpc.js";
 import { probePayload, readProbe, signStatement, topicOf, type Hex } from "./statement.js";
-import { seatOf, type Seating } from "./seating.js";
+import { seatOf, wireBytes, type Seat, type Seating } from "./seating.js";
 import { bump, countDeliveryGap, type SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
@@ -20,13 +20,12 @@ const SUBSCRIBE = "statement_subscribeStatement";
 const UNSUBSCRIBE = "statement_unsubscribeStatement";
 
 /**
- * A player that only signals: it subscribes to its inbox and the room as the app does, and
+ * A player that only signals: it listens where the app's version of `seating` listens, and
  * submits a bundle of the profile's size on its own channel at the profile's period.
  */
 export class Ghost {
-  private readonly inbox: Hex;
   private readonly channel: Hex;
-  private readonly seat: { topics: Hex[]; recipients: number };
+  private readonly seat: Seat;
   private subscription: string | undefined;
   private timer: NodeJS.Timeout | undefined;
   private nextAt = 0;
@@ -41,7 +40,6 @@ export class Ghost {
     private readonly connection: RpcConnection,
     private readonly game: GhostRoom,
   ) {
-    this.inbox = topicOf(`${game.namespace}/inbox/${player.index}`);
     this.channel = topicOf(`${game.namespace}/bundle/${player.index}`);
     this.seat = seatOf(game.namespace, game.seating, game.profile, player.index);
   }
@@ -49,7 +47,7 @@ export class Ghost {
   async join(): Promise<void> {
     const { stats, profile } = this.game;
     try {
-      this.subscription = await this.connection.subscribe(SUBSCRIBE, [{ matchAny: [this.inbox, ...this.seat.topics] }], profile.submitTimeoutMs, {
+      this.subscription = await this.connection.subscribe(SUBSCRIBE, [{ matchAny: this.seat.listen }], profile.submitTimeoutMs, {
         onNotification: (result) => this.receive(result),
         onEnd: (reason) => bump(stats.subscriptionsEnded, reason),
       });
@@ -98,11 +96,11 @@ export class Ghost {
     const sequence = this.sequence++;
     try {
       const statement = await signStatement(this.player, {
-        topics: this.seat.topics,
+        topics: this.seat.post,
         channel: this.channel,
         expirySeconds: Math.floor(sentAt / 1000) + profile.ttlSeconds,
         sequence,
-        data: probePayload({ sender: this.player.index, sequence, sentAt }, bundleBytes(profile, connecting)),
+        data: probePayload({ sender: this.player.index, sequence, sentAt }, wireBytes(this.seat, bundleBytes(profile, connecting))),
       });
       stats.bytesSubmitted += (statement.length - 2) / 2;
       const result = (await this.connection.request("statement_submit", [statement], profile.submitTimeoutMs)) as { status: string; reason?: string };

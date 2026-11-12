@@ -43,8 +43,9 @@ Signalling:
   --profile <name>      ${Object.keys(PROFILES).join(" | ")} (default jollity)
   --phase <name>        sync: every ghost opens the room at the same instant and re-sends on one
                         beat from it, as the app does (default); random: each at its own phase
-  --rooms <name>        game: one room for the whole game, as the app does (default); tables: one
-                        topic per table of each round, so a player receives only its co-players' bundles
+  --rooms <name>        co-players: each phone posts under its own topic and listens to its
+                        co-players', bundles with offers deflated, as the app does since
+                        individuality-apps#1972 (default); game: one room for the whole game, the app before it
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
 
@@ -91,7 +92,7 @@ const { positionals, values } = parseArgs({
     drain: { type: "string", default: "10" },
     cooldown: { type: "string", default: "10" },
     profile: { type: "string", default: "jollity" },
-    rooms: { type: "string", default: "game" },
+    rooms: { type: "string", default: "co-players" },
     phase: { type: "string", default: "sync" },
     "run-id": { type: "string", default: `local-${Date.now()}` },
     out: { type: "string" },

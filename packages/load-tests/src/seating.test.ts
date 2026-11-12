@@ -1,37 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { PROFILES } from "./profile.js";
-import { seatOf } from "./seating.js";
+import { seatOf, type Rooms } from "./seating.js";
 
 const profile = PROFILES.jollity;
+const seats = (rooms: Rooms, players: number) => Array.from({ length: players }, (_, index) => seatOf("n", { rooms, players }, profile, index));
 
-// The loss a `tables` step reports divides deliveries by the recipients each sender counts, so a
-// count that disagrees with who actually listens reads as loss on a healthy target, or hides it.
-describe("seatOf with tables", () => {
-  for (const players of [7, 36, 300, 301]) {
-    it(`counts as recipients exactly the players listening on a sender's topics, ${players} players`, () => {
-      const seats = Array.from({ length: players }, (_, index) => seatOf("n", { rooms: "tables", players }, profile, index));
-      seats.forEach((seat, sender) => {
-        const listeners = seats.filter((other, index) => index !== sender && other.topics.some((topic) => seat.topics.includes(topic)));
-        expect(seat.recipients).toBe(listeners.length);
+// The loss a step reports divides deliveries by the recipients each sender counts, so a count that
+// disagrees with who actually listens reads as loss on a healthy target, or hides it.
+describe("seatOf", () => {
+  for (const rooms of ["co-players", "game"] as const) {
+    for (const players of [7, 36, 301]) {
+      it(`counts as recipients exactly the others listening on a sender's topics, ${rooms}, ${players} players`, () => {
+        const all = seats(rooms, players);
+        all.forEach((seat, sender) => {
+          const listeners = all.filter((other, index) => index !== sender && other.listen.some((topic) => seat.post.includes(topic)));
+          expect(seat.recipients).toBe(listeners.length);
+        });
       });
-    });
-
-    it(`seats at most a group per table in every round, ${players} players`, () => {
-      for (let round = 0; round < profile.rounds; round++) {
-        const sizes = new Map<string, number>();
-        for (let index = 0; index < players; index++) {
-          const topic = seatOf("n", { rooms: "tables", players }, profile, index).topics[round];
-          sizes.set(topic, (sizes.get(topic) ?? 0) + 1);
-        }
-        expect(Math.max(...sizes.values())).toBeLessThanOrEqual(profile.groupSize);
-      }
-    });
+    }
   }
 
-  it("gives a player new co-players in the second round", () => {
-    const players = 300;
-    const seats = Array.from({ length: players }, (_, index) => seatOf("n", { rooms: "tables", players }, profile, index));
-    const sharedBoth = seats.filter((seat, index) => seats.some((other, otherIndex) => otherIndex !== index && seat.topics.every((topic) => other.topics.includes(topic))));
-    expect(sharedBoth.length).toBe(0);
+  // Two rounds at tables of 6, as the app plays: each player meets 10 different co-players, so a
+  // table never seats more than 6 and no pair meets twice.
+  it("gives every player 10 different co-players when the tables fill", () => {
+    for (const seat of seats("co-players", 300)) expect(seat.recipients).toBe(2 * (profile.groupSize - 1));
   });
 });

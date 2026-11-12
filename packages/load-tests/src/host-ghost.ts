@@ -6,9 +6,7 @@ import type { HostGhostPlan } from "./host.js";
 import { bundleBytes, firstSendAt, isConnecting, nextSendAt } from "./profile.js";
 import { probePayload, readProbe, topicOf, type Hex } from "./statement.js";
 import { SignallingStats, bump, countDeliveryGap } from "./stats.js";
-import { seatOf } from "./seating.js";
-
-type Seat = ReturnType<typeof seatOf>;
+import { seatOf, wireBytes, type Seat } from "./seating.js";
 
 interface Result<T> {
   isErr(): boolean;
@@ -56,8 +54,8 @@ async function send(ghost: number, index: number, channel: Hex, seat: Seat, sequ
   const statement: HostStatement = {
     expiry: (BigInt(Math.floor(sentAt / 1000) + profile.ttlSeconds) << 32n) | BigInt(sequence),
     channel,
-    topics: seat.topics,
-    data: toHex(probePayload({ sender: index, sequence, sentAt }, bundleBytes(profile, connecting))) as Hex,
+    topics: seat.post,
+    data: toHex(probePayload({ sender: index, sequence, sentAt }, wireBytes(seat, bundleBytes(profile, connecting)))) as Hex,
   };
   try {
     const proof = await withTimeout(truapi.statementStore.createProof({ productAccountId: host.productAccount(ghost), statement }));
@@ -78,12 +76,11 @@ async function send(ghost: number, index: number, channel: Hex, seat: Seat, sequ
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
-  const inbox = topicOf(`${plan.namespace}/inbox/${index}`);
   const channel = topicOf(`${plan.namespace}/bundle/${index}`);
   const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
   let lastDeliveryAt = 0;
-  const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: [inbox, ...seat.topics] } }).subscribe({
+  const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: seat.listen } }).subscribe({
     next(page) {
       const now = Date.now();
       for (const statement of page.statements) {

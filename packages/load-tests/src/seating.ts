@@ -2,17 +2,33 @@ import type { SignallingProfile } from "./profile.js";
 import { topicOf, type Hex } from "./statement.js";
 
 /**
- * Where a player's bundles go: `game`, one room for the whole game, as the app does, so every
- * player receives every bundle; `tables`, one topic per table of each round, so a player receives
- * only its co-players' bundles.
+ * How a game's signalling reaches its players, as the Jollity app does it:
+ * - `co-players`, the app since individuality-apps#1972 (21c243298): a phone posts under its own
+ *   topic and subscribes to its co-players' topics, and a bundle with offers in it goes deflated;
+ * - `game`, the app before that: one room topic that every phone posts under and subscribes to,
+ *   next to its inbox, so every phone receives every bundle of the game.
  */
-export const ROOMS = ["game", "tables"] as const;
+export const ROOMS = ["co-players", "game"] as const;
 export type Rooms = (typeof ROOMS)[number];
 
 export interface Seating {
   rooms: Rooms;
   players: number;
 }
+
+/** Where one player's bundles go and where it listens, and how many others receive each bundle. */
+export interface Seat {
+  post: Hex[];
+  listen: Hex[];
+  recipients: number;
+  /** Bundles of `DEFLATE_FROM_BYTES` or more go deflated. */
+  deflate: boolean;
+}
+
+/** The app deflates a bundle this long or longer; a hello alone stays plain. */
+const DEFLATE_FROM_BYTES = 1_024;
+/** What deflating leaves of a bundle for 10 co-players: about 45% smaller, per individuality-apps#1972. */
+const DEFLATED_SHARE = 0.55;
 
 function greatestCommonDivisor(left: number, right: number): number {
   return right === 0 ? left : greatestCommonDivisor(right, left % right);
@@ -28,14 +44,30 @@ function tableOf(index: number, round: number, players: number, groupSize: numbe
   return Math.floor(((index * stride) % players) / groupSize);
 }
 
-/** The topics player `index` listens to and posts its bundles on, and how many others receive them. */
-export function seatOf(namespace: string, seating: Seating, profile: SignallingProfile, index: number): { topics: Hex[]; recipients: number } {
-  if (seating.rooms === "game") return { topics: [topicOf(`${namespace}/room`)], recipients: seating.players - 1 };
+/** The players `index` shares a table with in any round. */
+function coPlayersOf(index: number, players: number, profile: SignallingProfile): number[] {
   const rounds = Array.from({ length: profile.rounds }, (_, round) => round);
-  const tables = rounds.map((round) => tableOf(index, round, seating.players, profile.groupSize));
-  let recipients = 0;
-  for (let other = 0; other < seating.players; other++) {
-    if (other !== index && rounds.some((round) => tableOf(other, round, seating.players, profile.groupSize) === tables[round])) recipients++;
+  const tables = rounds.map((round) => tableOf(index, round, players, profile.groupSize));
+  return Array.from({ length: players }, (_, other) => other).filter(
+    (other) => other !== index && rounds.some((round) => tableOf(other, round, players, profile.groupSize) === tables[round]),
+  );
+}
+
+export function seatOf(namespace: string, seating: Seating, profile: SignallingProfile, index: number): Seat {
+  if (seating.rooms === "game") {
+    const room = topicOf(`${namespace}/room`);
+    return { post: [room], listen: [topicOf(`${namespace}/inbox/${index}`), room], recipients: seating.players - 1, deflate: false };
   }
-  return { topics: tables.map((table, round) => topicOf(`${namespace}/r${round}/t${table}`)), recipients };
+  const coPlayers = coPlayersOf(index, seating.players, profile);
+  return {
+    post: [topicOf(`${namespace}/from/${index}`)],
+    listen: coPlayers.map((other) => topicOf(`${namespace}/from/${other}`)),
+    recipients: coPlayers.length,
+    deflate: true,
+  };
+}
+
+/** The bytes a bundle of `bytes` takes on the wire from `seat`. */
+export function wireBytes(seat: Seat, bytes: number): number {
+  return seat.deflate && bytes >= DEFLATE_FROM_BYTES ? Math.round(bytes * DEFLATED_SHARE) : bytes;
 }

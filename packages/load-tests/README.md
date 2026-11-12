@@ -9,23 +9,26 @@ carries and which part fails first. Three layers, each adding one piece of the r
 | `host` | ghosts inside `truapi-host signing-host --script`, `--ghosts-per-host` to a process | the same, through the host's proof, submit and per-subscription connections | the above, plus host CPU and memory per ghost |
 | `chain` | funded accounts | one game: on a fork sudo schedules it, on a live network the players join the closest one; every player signs up at once, the chain shuffles, every player reports at once after the game, then claims the credits its co-players' votes awarded it as NFTs on Asset Hub (`--skip-claim` leaves this out) | sign-ups after registration closed, a shuffle that ends in `Cancelling`, reports outside the report window, credits that don't reach Asset Hub, failed claims, block fullness, dispatch and pool errors |
 
-A signalling ghost behaves like a player's statement transport: it subscribes with
-`matchAny: [inbox, room]` on one game-wide room topic and submits a bundle on its own channel,
-with at most two submits waiting. As in the app, every ghost opens the room at the same instant,
-64 s before the first round (the pre-connect), negotiates every co-player of every round then,
-and re-sends on one beat from that instant: every 8 s while links are negotiated, every 16 s once
-they are up. A room's re-sends therefore land in the same second, which is where a node first
-drops subscribers; `--phase random` gives each ghost its own phase instead, as an app with
-jittered re-sends would. Every ghost receives every other ghost's bundle, so deliveries grow with
-the square of the players.
+A signalling ghost behaves like a player's statement transport in the Jollity app since
+individuality-apps#1972: it posts its bundle under a topic of its own and subscribes to the
+topics of its co-players, the 10 players it shares a table with over two rounds of 6, so a
+bundle reaches only them. A bundle with offers in it goes deflated, about 45% smaller, as the app
+sends it. `--rooms game` plays the app before #1972 instead: one room topic every ghost posts
+under and subscribes to, so every ghost receives every bundle and deliveries grow with the square
+of the players.
+
+As in the app, every ghost opens its subscription at the same instant, 64 s before the first round
+(the pre-connect), negotiates every co-player of every round then, and re-sends on one beat from
+that instant: every 8 s while links are negotiated, every 16 s once they are up, with at most two
+submits waiting. A game's re-sends therefore land in the same second; `--phase random` gives each
+ghost its own beat instead, the experiment for spreading that burst.
 
 The bundle sizes come from Chrome's data-channel-only offer (about 1 KB of SDP, 1.7 KB of
-candidates), sealed for each of the 10 co-players of a 2-round game in groups of 6; the store
-carries only that first negotiation, and the video offer goes down the data channel. See
-`PROFILES` in `src/profile.ts`.
+candidates), sealed for each of the 10 co-players; the store carries only that first
+negotiation, and the video offer goes down the data channel. See `PROFILES` in `src/profile.ts`.
 
-Each bundle carries the time it was sent, so every receiver measures delivery latency, and the
-accepted statements times `players - 1` is how many deliveries a step expects.
+Each bundle carries the time it was sent, so every receiver measures delivery latency, and each
+sender counts how many ghosts listen on its topic, which is how many deliveries a step expects.
 
 ## Players
 
