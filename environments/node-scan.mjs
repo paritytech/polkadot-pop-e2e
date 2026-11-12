@@ -1,7 +1,6 @@
 // Node and eth-rpc release attribution (#53). REPORT ONLY: nothing here rewrites a
 // pin, fails the job or changes an exit code. baseline-scan.mjs prints scanNodes'
 // rows after each manifest's runtime summary and ignores them for every decision.
-// Docs follow once #87 has merged.
 //
 // Per chain the scan reads system_version over RPC (system_name is operator-set, so it
 // is shown raw and never used). Per eth-rpc, web3_clientVersion over HTTP. The commit
@@ -17,6 +16,7 @@
 //   unparsed     the version string carries no recognisable commit.
 //   unreachable  the endpoint failed.
 //   no-endpoint  no scan endpoint is mapped.
+//   not-scanned  a pinned service other than eth-rpc, which this scan does not observe.
 // Chains on one slot that report different commits are annotated separately (splitSlots).
 
 import { execFile } from 'node:child_process';
@@ -350,18 +350,21 @@ async function scan(manifest, known, deps, loadTags) {
     Object.assign(r, classify(r.commit, r.releases, pin));
   }
 
-  // Availability of each matched pin's release, checked once per pinned tag.
+  // Availability of each resolved pin's release, checked once per pinned tag whatever the verdict.
   const checks = new Map();
   await Promise.all(
     rows
-      .filter((r) => r.verdict === 'match')
+      .filter((r) => r.pin?.repo && r.pin?.tag)
       .map(async (r) => {
         const key = `${r.pin.repo}@${r.pin.tag}`;
         if (!checks.has(key)) checks.set(key, checkRelease(r.pin.repo, r.pin.tag, deps));
         r.release = await checks.get(key);
       })
   );
-  return rows;
+  const notScanned = Object.keys(manifest.services ?? {})
+    .filter((name) => name !== 'eth-rpc')
+    .map((name) => ({ kind: 'service', name, slot: name, verdict: 'not-scanned', raw: manifest.services[name] }));
+  return [...rows, ...notScanned];
 }
 
 // ── rendering ────────────────────────────────────────────────────────────────
@@ -391,11 +394,11 @@ function groupLine(group) {
     case 'match':
       return `- ${who}: pinned ${pinLabel(pin)}, live ${first.attributed} (${first.version}), match${releaseNote(first.release)}, report only${names}`;
     case 'drift':
-      return `- ${who}: pinned ${pinLabel(pin)}, live ${first.attributed} (${first.version}), report only${names}`;
+      return `- ${who}: pinned ${pinLabel(pin)}${releaseNote(first.release)}, live ${first.attributed} (${first.version}), report only${names}`;
     case 'unreleased':
-      return `- ${who}: pinned ${pinLabel(pin)}, live commit ${group.commit} (${first.version}), no polkadot-sdk tag points at this commit, report only${names}`;
+      return `- ${who}: pinned ${pinLabel(pin)}${releaseNote(first.release)}, live commit ${group.commit} (${first.version}), no polkadot-sdk tag points at this commit, report only${names}`;
     case 'pin-unknown':
-      return `- ${who}: pin ${pin.raw ?? '(none)'} ${pin.reason}, live ${first.version}, report only${names}`;
+      return `- ${who}: pin ${pin.raw ?? '(none)'} ${pin.reason}${releaseNote(first.release)}, live ${first.version}, report only${names}`;
     default:
       return `- ${who}: ${first.verdict}, report only`;
   }
@@ -404,6 +407,7 @@ function groupLine(group) {
 /** A row with no commit: one line per chain or service. */
 function failureLine(r) {
   const who = r.kind === 'service' ? r.name : `${r.name} (${r.slot})`;
+  if (r.verdict === 'not-scanned') return `- ${who}: pinned ${r.raw}, not scanned, report only`;
   if (r.verdict === 'unreachable') return `- ${who}: endpoint unreachable: ${r.error}, report only`;
   if (r.verdict === 'unparsed') return `- ${who}: unrecognised version "${r.version}", report only`;
   return `- ${who}: no scan endpoint mapped, report only`;

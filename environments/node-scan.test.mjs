@@ -386,6 +386,16 @@ describe('release availability', () => {
     assert.match(text, /match \(release missing in paritytech\/release-automation\), report only/);
   });
 
+  it('a drift row whose pinned release is missing shows the missing note', async () => {
+    const versions = { [PREV('relay')]: '1.25.1-6ab53982513' };
+    const io = fakeIo({ versions, releases: { 'paritytech/release-automation@polkadot-weekly2026w33-rc2': 404 } });
+    const rows = byChain(await scanNodes(previewnet(), io));
+    assert.equal(rows.relay.verdict, 'drift');
+    assert.equal(rows.relay.release.state, 'missing');
+    const text = renderNodeSummary('previewnet', Object.values(rows));
+    assert.match(text, /pinned release-automation@polkadot-weekly2026w33-rc2 \(release missing in paritytech\/release-automation\), live polkadot-stable2609-1/);
+  });
+
   it('an unreachable GitHub is unverified, never missing, and does not fail the scan', async () => {
     const rows = byChain(await scanNodes(previewnet(), fakeIo({ releaseFail: 'ECONNRESET' })));
     assert.equal(rows.relay.verdict, 'match');
@@ -538,6 +548,15 @@ describe('renderNodeSummary', () => {
   it('one line for each unreachable endpoint', async () => {
     const text = renderNodeSummary('previewnet', await scanNodes(previewnet(), fakeIo({ fail: { [PREV('asset-hub')]: 'timed out' } })));
     assert.match(text, /^- asset-hub \(polkadot-omni-node\): endpoint unreachable: wss:\/\/previewnet\.substrate\.dev\/asset-hub: timed out, report only$/m);
+  });
+
+  it('lists each pinned service the scan does not observe as one not-scanned line', async () => {
+    const services = { 'eth-rpc': PINNED, 'storage-provider-node': 'paritytech/web3-storage@v0.4.1-paseo', kubo: 'ipfs/kubo@v0.39.0' };
+    const text = renderNodeSummary('previewnet', await scanNodes(previewnet({ services }), fakeIo()));
+    assert.match(text, /^- storage-provider-node: pinned paritytech\/web3-storage@v0\.4\.1-paseo, not scanned, report only$/m);
+    assert.match(text, /^- kubo: pinned ipfs\/kubo@v0\.39\.0, not scanned, report only$/m);
+    assert.equal(text.split('\n').filter((l) => l.includes('not scanned')).length, 2);
+    assert.match(text, /^- eth-rpc: pinned/m, 'eth-rpc is still scanned, not listed as not scanned');
   });
 });
 
