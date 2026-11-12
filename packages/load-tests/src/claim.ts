@@ -1,6 +1,6 @@
 import { Enum, type PolkadotClient, type SizedHex } from "polkadot-api";
 import { getClaimableCollections, getClaims, type Claim, type NftsChain, type NftsCreditsChain } from "@parity/product-sdk-nfts";
-import { signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
+import { signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
@@ -77,16 +77,15 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
 }
 
 /**
- * Waits for the credits `gameIndex` awarded the players to reach Asset Hub, then claims every
- * one at once, each into a claimable collection and to a fresh purse key, as a player does
- * after the game. `awarded` is how many credits to expect.
+ * Waits for the credits People awarded the players from `sinceBlock` on to reach Asset Hub, then
+ * has every player claim its own one at a time, each into a claimable collection and to a fresh
+ * purse key, as the stash does after the game.
  */
 export async function claimCredits(
   target: Target,
   people: PolkadotClient,
   players: Player[],
-  gameIndex: number,
-  awarded: number,
+  sinceBlock: number,
   connections: number,
 ): Promise<ClaimResult> {
   const { client, api } = connectAssetHub(target);
@@ -98,17 +97,22 @@ export async function claimCredits(
   const started = Date.now();
   try {
     let mine: Array<{ player: Player; claims: Claim[] }> = [];
+    let awarded = 0;
     let claimable = 0;
     for (;;) {
+      // Every credit People awarded the players from the reports' block on, claimable or not
+      // yet: the bots play no other game meanwhile.
       const reads = await readAll(players, async (player) => {
         const result = await getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" });
         if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-        return { player, claims: result.value.claims.filter((claim) => claim.gameIndex === gameIndex && claim.state === "claimable") };
+        const fresh = result.value.claims.filter((claim) => claim.awardBlock >= sinceBlock);
+        return { player, awarded: fresh.length, claims: fresh.filter((claim) => claim.state === "claimable") };
       });
       mine = reads.filter((read) => read.claims.length > 0);
+      awarded = reads.reduce((sum, read) => sum + read.awarded, 0);
       claimable = mine.reduce((sum, read) => sum + read.claims.length, 0);
       console.log(`[claim] ${claimable}/${awarded} credits claimable after ${Math.round((Date.now() - started) / 1000)} s`);
-      if (claimable >= awarded || Date.now() - started > CLAIMABLE_WAIT_MS) break;
+      if ((awarded > 0 && claimable === awarded) || Date.now() - started > CLAIMABLE_WAIT_MS) break;
       await sleep(12_000);
     }
     const claimableAfterMs = Date.now() - started;
@@ -119,28 +123,42 @@ export async function claimCredits(
 
     await fundOnAssetHub(api, target, mine.map((read) => read.player));
     const nonces = await api.query.System.Account.getValues(mine.map((read) => [read.player.address]), { at: "best" });
-    const playerMs = new Histogram();
     let position = 0;
-    // As the stash claims: one claim at a time, the next once the previous has landed, at the
-    // following nonce, or at the chain's after a failure.
+    const txs = mine.map(({ player, claims }) =>
+      claims.map((claim) =>
+        api.tx.NftClaims.claim({
+          claimant: Enum("Account"),
+          block: claim.awardBlock,
+          credit: claim.hash as SizedHex<32>,
+          leaf_index: claim.leafIndex!,
+          proof: claim.proof! as SizedHex<32>[],
+          collection: collections[position++ % collections.length],
+          // A purse key holds one NFT, so every claim mints to a key of its own.
+          mint_to: derivePlayer(`${player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
+        }),
+      ),
+    );
+    // Signed up front: one process signs for every player, which a phone does for itself only.
+    const flat = await signEntries(
+      mine.flatMap(({ player }, index) => txs[index].map((tx, offset) => ({ signer: player, tx, nonce: nonces[index].nonce + offset }))),
+      "claim",
+    );
+    let taken = 0;
+    const signed = txs.map((own) => flat.slice(taken, (taken += own.length)));
+    const playerMs = new Histogram();
+    // As the stash claims: one claim at a time, the next once the previous has landed.
     const lanes = mine.map(
-      ({ player, claims }, index): Lane =>
+      ({ player }, index): Lane =>
         async (submit) => {
           const started = Date.now();
-          let nonce = nonces[index].nonce;
-          for (const claim of claims) {
-            const tx = api.tx.NftClaims.claim({
-              claimant: Enum("Account"),
-              block: claim.awardBlock,
-              credit: claim.hash as SizedHex<32>,
-              leaf_index: claim.leafIndex!,
-              proof: claim.proof! as SizedHex<32>[],
-              collection: collections[position++ % collections.length],
-              // A purse key holds one NFT, so every claim mints to a key of its own.
-              mint_to: derivePlayer(`${player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
-            });
-            if (await submit(await signEntry({ signer: player, tx, nonce }))) nonce++;
-            else nonce = (await api.query.System.Account.getValue(player.address, { at: "best" })).nonce;
+          const own = signed[index];
+          for (let next = 0; next < own.length; next++) {
+            if (await submit(own[next])) continue;
+            // A failed claim leaves the following ones at the wrong nonce: sign them again at the chain's.
+            const nonce = (await api.query.System.Account.getValue(player.address, { at: "best" })).nonce;
+            for (let later = next + 1; later < own.length; later++) {
+              own[later] = await signEntry({ signer: player, tx: txs[index][later], nonce: nonce + later - next - 1 });
+            }
           }
           playerMs.add(Date.now() - started);
         },

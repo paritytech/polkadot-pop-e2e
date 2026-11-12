@@ -265,12 +265,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (burst.inTime < reports.length) {
         findings.push(`report: ${reports.length - burst.inTime} of ${reports.length} not in within ${run.reportWindowMs / 1000} s`);
       }
-      if (run.claim) {
-        // Each `Person` vote a player has received so far awards it one credit, other players'
-        // votes included; the credits reach Asset Hub while the game still takes reports.
-        const rows = await api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" });
-        const received = rows.reduce((sum, row) => sum + (row?.yes_person ?? 0), 0);
-        claim = await claimCredits(target, client, players, game.index, received, run.connections);
+      if (run.claim && burst.firstBlock !== null) {
+        // The credits reach Asset Hub while the game still takes reports.
+        claim = await claimCredits(target, client, players, burst.firstBlock, run.connections);
         if (claim.claimable < claim.awarded) {
           findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
         }
