@@ -33,6 +33,8 @@ const ORDER = [
   "probes/ib-health.test.ts",
   "probes/ring-inclusion.test.ts",
   "core.test.ts",
+  "accounts.test.ts",
+  "teleport.test.ts",
   "allowances.test.ts",
   "alias-claim.test.ts",
   "pop-gate.test.ts",

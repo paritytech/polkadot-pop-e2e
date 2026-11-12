@@ -1,4 +1,5 @@
 import { Keyring } from "@polkadot/keyring";
+import type { KeyringPair } from "@polkadot/keyring/types";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { getTxCreator } from "polkadot-api/tx-creator";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
@@ -9,6 +10,7 @@ let ready = false;
 export interface TestAccount {
   signer: CommonSignerTxCreator;
   address: string;
+  publicKey: Uint8Array;
 }
 
 function requireMnemonic(): string {
@@ -28,27 +30,25 @@ async function ensureReady(): Promise<void> {
   }
 }
 
-function buildSigner(account: ReturnType<Keyring["addFromMnemonic"]>): TestAccount {
+function buildSigner(account: KeyringPair): TestAccount {
   const signer = getTxCreator(
     account.publicKey,
     "Sr25519",
     async (input) => account.sign(input),
   );
-  return { signer, address: account.address };
+  return { signer, address: account.address, publicKey: account.publicKey };
 }
 
 /**
  * Funded test account. If the network config sets `testAccountUri`
  * (`//Alice` on local forks), uses that; otherwise falls back to
- * `TEST_MNEMONIC` env.
+ * `TEST_MNEMONIC` env. A `derivationPath` such as `//proxy` returns that
+ * child of the test account instead, which the test funds itself.
  */
-export async function createTestAccount(): Promise<TestAccount> {
+export async function createTestAccount(derivationPath = ""): Promise<TestAccount> {
   await ensureReady();
   const keyring = new Keyring({ type: "sr25519" });
-  const uri = getNetworkConfig().testAccountUri;
-  const account = uri
-    ? keyring.addFromUri(uri)
-    : keyring.addFromMnemonic(requireMnemonic());
-  return buildSigner(account);
+  const uri = getNetworkConfig().testAccountUri ?? requireMnemonic();
+  return buildSigner(keyring.addFromUri(`${uri}${derivationPath}`));
 }
 

@@ -160,7 +160,7 @@ describe("Chain Health", () => {
     console.log(`[chain-health] Network: ${network.name}`);
     console.log(`[chain-health] People: ${network.people.ws}`);
     console.log(`[chain-health] Asset Hub: ${network.assetHub.ws}`);
-    console.log(`[chain-health] Bulletin: ${network.bulletin.ws}`);
+    console.log(`[chain-health] Bulletin: ${network.bulletin?.ws ?? "none"}`);
 
     const people = createPeopleClient(network.people.ws);
     peopleClient = people.client;
@@ -170,9 +170,11 @@ describe("Chain Health", () => {
     assetHubClient = ah.client;
     assetHubApi = ah.api;
 
-    const bulletin = createBulletinClient(network.bulletin.ws);
-    bulletinClient = bulletin.client;
-    bulletinApi = bulletin.api;
+    if (network.bulletin) {
+      const bulletin = createBulletinClient(network.bulletin.ws);
+      bulletinClient = bulletin.client;
+      bulletinApi = bulletin.api;
+    }
   });
 
   afterAll(() => {
@@ -223,7 +225,7 @@ describe("Chain Health", () => {
     FINALIZED_BLOCK_PROBE_MS,
   );
 
-  it(
+  it.skipIf(!getNetworkConfig().bulletin)(
     "Bulletin chain is producing finalized blocks",
     async () => {
       try {
