@@ -97,10 +97,13 @@ function blockReader(api: BurstApi, client: PolkadotClient): (hash: string) => P
 /** An upper bound of polkadot-api's time to sign one transaction on a CI runner. */
 export const SIGNING_MS = 150;
 
-/** `entry` as a signed extrinsic in hex, mortal for 256 blocks. */
+/**
+ * `entry` as a signed extrinsic in hex. Immortal: a run signs thousands up front, which can take
+ * longer than a mortal transaction stays valid; the nonce still keeps each one single-use.
+ */
 export async function signEntry({ signer, tx, nonce }: BurstEntry): Promise<string> {
   const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
-  const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: true, period: 256 }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
+  const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: false }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
   return toHex(await tx.create(creator, options as never));
 }
 
