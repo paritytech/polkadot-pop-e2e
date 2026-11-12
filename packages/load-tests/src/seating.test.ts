@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PROFILES } from "./profile.js";
-import { seatOf, type Rooms } from "./seating.js";
+import { seatOf, wireBytes, type Rooms } from "./seating.js";
 
 const profile = PROFILES.jollity;
 const seats = (rooms: Rooms, players: number) => Array.from({ length: players }, (_, index) => seatOf("n", { rooms, players }, profile, index));
@@ -24,5 +24,17 @@ describe("seatOf", () => {
   // table never seats more than 6 and no pair meets twice.
   it("gives every player 10 different co-players when the tables fill", () => {
     for (const seat of seats("co-players", 300)) expect(seat.recipients).toBe(2 * (profile.groupSize - 1));
+  });
+});
+
+// The app deflates a bundle that carries offers and leaves a hello alone plain; getting either
+// wrong changes the bytes every bot pushes through the RPC by about half.
+describe("wireBytes", () => {
+  const [coPlayers] = seats("co-players", 36);
+  const [game] = seats("game", 36);
+  it("shrinks only the app's bundles with offers in them", () => {
+    expect(wireBytes(coPlayers, 1_023)).toBe(1_023);
+    expect(wireBytes(coPlayers, 20_000)).toBeLessThan(20_000);
+    expect(wireBytes(game, 20_000)).toBe(20_000);
   });
 });
