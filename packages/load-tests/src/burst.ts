@@ -121,7 +121,10 @@ export async function signEntries(entries: BurstEntry[], label: string): Promise
   return signed;
 }
 
-/** Submits one signed extrinsic; true once it succeeded in a best block, false when it failed or timed out. */
+/**
+ * Submits one signed extrinsic; true once it is in a best block and, when the run reads blocks,
+ * succeeded there; false when it failed or timed out.
+ */
 export type Submit = (hex: string) => Promise<boolean>;
 
 /** A sender's transactions, each sent through `submit` when the sender decides, such as after the previous one landed. */
@@ -145,7 +148,11 @@ export function submitBurst(
   return submitLanes(lanes, api, client, urls, connectionCount, deadline);
 }
 
-/** Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all their transactions. */
+/**
+ * Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all
+ * their transactions. Without `readBlocks` a transaction counts as succeeded once it is in a
+ * block, unread: for thousands of transactions a caller checks the outcome on chain afterwards.
+ */
 export async function submitLanes(
   lanes: Lane[],
   api: BurstApi,
@@ -153,6 +160,7 @@ export async function submitLanes(
   urls: string[],
   connectionCount: number,
   deadline: (chainStart: number) => number,
+  readBlocks = true,
 ): Promise<Burst> {
   const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
   const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
@@ -177,6 +185,11 @@ export async function submitLanes(
       const timer = setTimeout(() => finish("timeout"), TX_TIMEOUT_MS);
       const included = async (hash: string) => {
         burst.inclusionMs.add(Date.now() - submittedAt);
+        if (!readBlocks) {
+          burst.ok++;
+          burst.inTime++;
+          return finish();
+        }
         const block = await readBlock(hash);
         burst.firstBlock = Math.min(burst.firstBlock ?? Infinity, block.number);
         burst.lastBlock = Math.max(burst.lastBlock ?? 0, block.number);

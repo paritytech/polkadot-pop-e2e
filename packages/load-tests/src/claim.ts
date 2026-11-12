@@ -14,8 +14,10 @@ export interface ClaimResult {
   /** From the end of the report burst until the last credit was claimable, or the wait ended. */
   claimableAfterMs: number;
   collections: number[];
-  /** Every claim, each timed from its submission to its block. */
+  /** Every claim, each timed from its submission to the block it landed in. */
   burst: BurstSummary | null;
+  /** Of the claimable credits, the ones Asset Hub marks as claimed once every player is done. */
+  claimed: number;
   /** Per player, from its first claim's submission until its last claim finished. */
   playerMs: QuantileSummary | null;
 }
@@ -95,6 +97,11 @@ export async function claimCredits(
     raw: { individuality: people, assetHub: client },
   } as unknown as NftsChain & NftsCreditsChain;
   const started = Date.now();
+  const claimsOf = async (player: Player): Promise<Claim[]> => {
+    const result = await getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" });
+    if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
+    return result.value.claims;
+  };
   try {
     let mine: Array<{ player: Player; claims: Claim[] }> = [];
     let awarded = 0;
@@ -103,9 +110,7 @@ export async function claimCredits(
       // Every credit People awarded the players from the reports' block on, claimable or not
       // yet: the bots play no other game meanwhile.
       const reads = await readAll(players, async (player) => {
-        const result = await getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" });
-        if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-        const fresh = result.value.claims.filter((claim) => claim.awardBlock >= sinceBlock);
+        const fresh = (await claimsOf(player)).filter((claim) => claim.awardBlock >= sinceBlock);
         return { player, awarded: fresh.length, claims: fresh.filter((claim) => claim.state === "claimable") };
       });
       mine = reads.filter((read) => read.claims.length > 0);
@@ -119,7 +124,7 @@ export async function claimCredits(
     const offered = await getClaimableCollections(chain);
     if (!offered.ok) throw new Error(`claimable collections: ${offered.error.message}`);
     const collections = offered.value.collections.map((collection) => collection.id);
-    if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, playerMs: null };
+    if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, claimed: 0, playerMs: null };
 
     await fundOnAssetHub(api, target, mine.map((read) => read.player));
     const nonces = await api.query.System.Account.getValues(mine.map((read) => [read.player.address]), { at: "best" });
@@ -145,10 +150,11 @@ export async function claimCredits(
     );
     let taken = 0;
     const signed = txs.map((own) => flat.slice(taken, (taken += own.length)));
+    // The pool's next nonce, as a raw call: polkadot-api's storage reads failed under thousands of lanes.
     const readNonce = async (address: SS58String): Promise<number> => {
       for (let attempt = 1; ; attempt++) {
         try {
-          return (await api.query.System.Account.getValue(address, { at: "best" })).nonce;
+          return await client._request<number, [string]>("system_accountNextIndex", [address]);
         } catch (error) {
           if (attempt === 3) throw error;
           await sleep(2_000);
@@ -174,9 +180,17 @@ export async function claimCredits(
         },
     );
     console.log(`[claim] ${mine.length} players claim ${claimable} credits, each one at a time`);
-    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY);
-    console.log(`[claim] claims: ${burst.ok}/${burst.submitted} in ${burst.durationMs} ms`);
-    return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), playerMs: playerMs.summary() };
+    // Blocks aren't read per claim: polkadot-api failed reading thousands of them. What landed is
+    // read from the claimed-leaves afterwards instead.
+    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, false);
+    const tried = new Set(mine.flatMap(({ claims }) => claims.map((claim) => claim.hash)));
+    const after = await readAll(
+      mine.map((read) => read.player),
+      async (player) => (await claimsOf(player)).filter((claim) => claim.state === "claimed" && tried.has(claim.hash)).length,
+    );
+    const claimed = after.reduce((sum, count) => sum + count, 0);
+    console.log(`[claim] ${burst.ok}/${burst.submitted} claims in a block in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
+    return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), claimed, playerMs: playerMs.summary() };
   } finally {
     client.destroy();
   }

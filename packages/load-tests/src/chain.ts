@@ -275,6 +275,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
             findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
           }
           if (claim.collections.length === 0) findings.push("claim: no claimable collection on Asset Hub");
+          if (claim.burst && claim.claimed < claim.claimable) findings.push(`claim: ${claim.claimable - claim.claimed} of ${claim.claimable} credits not claimed on chain`);
           for (const [failure, count] of Object.entries(claim.burst?.failures ?? {})) findings.push(`claim ${failure}: ${count}`);
         } catch (error) {
           findings.push(`claim: stopped on ${(error as Error).message}`);
