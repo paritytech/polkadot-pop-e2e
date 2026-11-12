@@ -33,10 +33,12 @@ describe("sync phase", () => {
     expect(nextSendAt(jollity, "sync", openAt, openAt + 24_000, false)).toBe(openAt + 32_000);
   });
 
-  it("spreads the first sends over a period in random", () => {
+  // A ghost that joined before the room opened would otherwise send connecting bundles the app
+  // never sends, and `random` would measure extra load instead of a spread-out burst.
+  it("spreads the first sends over a period from the room's opening in random", () => {
     const first = firstSendAt(jollity, "random", openAt, openAt - 25_000);
-    expect(first).toBeGreaterThanOrEqual(openAt - 25_000);
-    expect(first).toBeLessThan(openAt - 25_000 + jollity.connectingIntervalMs);
+    expect(first).toBeGreaterThanOrEqual(openAt);
+    expect(first).toBeLessThan(openAt + jollity.connectingIntervalMs);
     expect(nextSendAt(jollity, "random", openAt, openAt + 3_100, true)).toBe(openAt + 11_100);
   });
 });

@@ -82,7 +82,8 @@ export const PHASES: Phase[] = ["sync", "random"];
 
 /** When a player that joined at `joinedAt` sends its first bundle, the room opening at `openAt`. */
 export function firstSendAt(profile: SignallingProfile, phase: Phase, openAt: number, joinedAt: number): number {
-  return phase === "sync" ? Math.max(openAt, joinedAt) : joinedAt + Math.random() * profile.connectingIntervalMs;
+  const opened = Math.max(openAt, joinedAt);
+  return phase === "sync" ? opened : opened + Math.random() * profile.connectingIntervalMs;
 }
 
 /** When the bundle after one sent at `sentAt` goes: on the room's beat from `openAt` in `sync`. */
