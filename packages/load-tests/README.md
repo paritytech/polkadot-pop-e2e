@@ -85,16 +85,11 @@ People node's own port (`ws://127.0.0.1:10010`).
 In CI, **Actions → Load test → Run workflow** plays the closest scheduled game on previewnet or
 paseo-next-v2 with `players` bots, or the game at `game_at`; it needs `TEST_MNEMONIC`. One job
 runs `chain`: it signs every bot up as soon as the game takes sign-ups, reports and claims for
-them. Alongside it, `players / bots_per_machine` message machines (`machine`) each run
+them. Alongside it, `players / bots_per_machine` parity-large machines each run
 `host --follow-game` for their share: they wait until the chain job has signed their bots up,
 then send the game's messages through truapi-host from the moment the app opens the room. The
 chain and message bots are the same accounts. The run waits up to 4 hours for the game, and
 fails at once when the game is further away.
-
-Previewnet's public People address refuses more than about 455 connections from one internet
-address (HTTP 429), and a bot needs about one. parity-large machines all reach it from the same
-address, so a previewnet run above about 400 bots needs GitHub's own `ubuntu-latest` machines,
-400 bots each.
 
 ## Reading the results
 

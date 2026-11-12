@@ -29,10 +29,8 @@ jobs:
     with:
       network: previewnet
       players: "1000"
-      # previewnet's public RPC refuses more than about 455 connections from one internet address,
-      # and parity-large machines all share one: GitHub's own machines have an address each.
+      # previewnet's public RPC refuses more than about 455 connections from one address.
       bots_per_machine: "400"
-      machine: ubuntu-latest
       args: "--rooms tables"
     secrets:
       TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}

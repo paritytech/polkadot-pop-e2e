@@ -10,7 +10,6 @@ on:
       network: { type: string, default: previewnet }
       players: { type: string, default: "300" }
       bots_per_machine: { type: string, default: "1000" }
-      machine: { type: string, default: parity-large }
       game_at: { type: string, default: "" }
       args: { type: string, default: "" }
     secrets:
@@ -27,14 +26,9 @@ on:
         type: string
         default: "300"
       bots_per_machine:
-        description: Bots one message machine sends messages for
+        description: Bots one parity-large machine sends messages for
         type: string
         default: "1000"
-      machine:
-        description: Message machines. parity-large share one internet address; GitHub's own have one each
-        type: choice
-        default: parity-large
-        options: [parity-large, ubuntu-latest]
       game_at:
         description: Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
         type: string
@@ -117,7 +111,7 @@ jobs:
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
-    runs-on: ${{ inputs.machine }}
+    runs-on: parity-large
     timeout-minutes: 360
     strategy:
       fail-fast: false
