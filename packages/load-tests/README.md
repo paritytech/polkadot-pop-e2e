@@ -1,63 +1,120 @@
 # @pop-e2e/load-tests
 
-Load shaped like the Jollity game, played against a People chain to find how many players it
-carries and which part fails first. Three layers, each adding one piece of the real path:
+Plays a real scheduled Jollity game on previewnet or paseo-next-v2 with N bots, to find how many
+players a game carries and which part fails first: the People chain, its statement store, the RPC
+path in front of it, or Asset Hub.
 
-| Layer | Players | What it loads | Where a limit shows |
-|---|---|---|---|
-| `signalling` | ghosts on direct People RPC, signing their own statements | statement store and RPC | delivery latency and loss, rejected or dropped connections, subscriptions the node ends, node submit time and CPU |
-| `host` | ghosts inside `truapi-host signing-host --script`, `--ghosts-per-host` to a process | the same, through the host's proof, submit and per-subscription connections | the above, plus host CPU and memory per ghost |
-| `chain` | funded accounts | one game: on a fork sudo schedules it, on a live network the players join the closest one; every player signs up at once, the chain shuffles, every player reports at once after the game, then claims the credits its co-players' votes awarded it as NFTs on Asset Hub (`--skip-claim` leaves this out) | sign-ups after registration closed, a shuffle that ends in `Cancelling`, reports outside the report window, credits that don't reach Asset Hub, failed claims, block fullness, dispatch and pool errors |
+## Running it in CI
 
-A signalling ghost behaves like a player's statement transport in the Jollity app since
-individuality-apps#1972: it posts its bundle under a topic of its own and subscribes to the
-topics of its co-players, the 10 players it shares a table with over two rounds of 6, so a
-bundle reaches only them. A bundle with offers in it goes deflated, about 45% smaller, as the app
-sends it. `--rooms game` plays the app before #1972 instead: one room topic every ghost posts
-under and subscribes to, so every ghost receives every bundle and deliveries grow with the square
-of the players.
+**Actions → Load test → Run workflow**, with `TEST_MNEMONIC` set as a repository secret:
 
-As in the app, every ghost opens its subscription at the same instant, 64 s before the first round
-(the pre-connect), negotiates every co-player of every round then, and re-sends on one beat from
-that instant: every 8 s while links are negotiated, every 16 s once they are up, with at most two
-submits waiting. A game's re-sends therefore land in the same second; `--phase random` gives each
-ghost its own beat instead, the experiment for spreading that burst.
+| Input | What it sets |
+|---|---|
+| `network` | previewnet or paseo-next-v2 |
+| `players` | bots in the game, up to 5000 |
+| `bots_per_machine` | bots one parity-large machine runs (default 1000) |
+| `signalling` | `co-players`, as the app does now (default), or `game`, the app before individuality-apps#1972 |
+| `timing` | `sync`, the app's one shared re-send beat (default), or `random`, each bot on a beat of its own |
+| `claim` | whether the bots claim their NFTs after the reports |
+| `game_at` | the play time of the game to join; empty joins the closest scheduled one |
+| `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots |
+
+A run has three parts:
+
+- **`chain`** waits for the game to open sign-ups, tops every bot up to 3 UNIT from
+  `TEST_MNEMONIC`, signs them all up at once, sends every bot's report at once after the game, and
+  claims the NFT credits its co-players' votes awarded it on Asset Hub, one claim at a time per bot
+  as the stash app does. It fails at once when the game plays more than 4 hours away, and when the
+  funder holds too little it says how much to send to which address. When it fails, it cancels the
+  rest of the run.
+- **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up,
+  then runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
+  opens its signalling, until the end of play. A machine fails when the game closes sign-ups
+  without its bots.
+- **`summary`** merges every machine's result into one table.
+
+The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play
+deposit once. They don't need a person, an alias or an attestation: they sign up with
+`Game.sign_up_with_account`, share groups with the game's real players, and vote `Person` for
+every co-player. They never join the video call, so to a real player they are seats that don't
+connect.
+
+Two limits outside the test decide what a run can show:
+
+- previewnet's People node accepts 500 RPC connections in total (HTTP 429 beyond) and a bot needs
+  about one, so a previewnet run above about 400 bots measures that limit:
+  https://github.com/paritytech/preview-net-v1/issues/191;
+- paseo-next-v2's People and Asset Hub RPC share a 1 Gbps load balancer with the Polkadot and
+  Kusama public RPC, and 1,000 bots already brought it close to that limit:
+  https://github.com/paritytech/devops/issues/5868.
+
+## How a bot signals
+
+A bot behaves like a player's statement transport in the Jollity app since individuality-apps#1972:
+it posts its bundle under a topic of its own and subscribes to the topics of its co-players, the
+10 players it shares a table with over two rounds of 6, so a bundle reaches only them. A bundle
+with offers in it goes deflated, about 45% smaller, as the app sends it. `signalling: game` plays
+the app before #1972: one room topic every bot posts under and subscribes to, so every bot
+receives every bundle and deliveries grow with the square of the players.
+
+Every bot opens its subscription at the same instant, 64 s before the first round (the
+pre-connect), negotiates every co-player of every round then, and re-sends on one beat from that
+instant: every 8 s while links are negotiated, every 16 s once they are up, with at most two
+submits waiting. A game's re-sends therefore land in the same second; `timing: random` gives each
+bot its own beat instead.
 
 The bundle sizes come from Chrome's data-channel-only offer (about 1 KB of SDP, 1.7 KB of
 candidates), sealed for each of the 10 co-players; the store carries only that first
 negotiation, and the video offer goes down the data channel. See `PROFILES` in `src/profile.ts`.
-
 Each bundle carries the time it was sent, so every receiver measures delivery latency, and each
-sender counts how many ghosts listen on its topic, which is how many deliveries a step expects.
+sender counts how many bots listen on its topic, which is how many deliveries a run expects.
 
-## Players
+## Reading the results
 
-Players don't need a person, an alias or an attestation. Where there is a root key (`//Alice`
-on a PPN fork, `--sudo` or `SUDO_URI` elsewhere):
+The `chain` table has one row per burst: sign-up, report and NFT claim.
 
-- `mint` writes each player's statement allowance (`System.set_storage` on
-  `:statement_allowance:<account>`, the 1,000,000 count / 1 MB a game sign-up grants);
-- the `chain` layer funds fresh accounts with `Balances.force_set_balance` and schedules its own
-  short game, after clearing the chain's game and schedule with `--take-over`.
+- **Succeeded** counts the transactions that executed; **In time** those in a block before the
+  deadline: sign-ups before registration closed, reports within `--report-window` of the game.
+- **Inclusion p50 / p95 / max ms** runs from submitting a transaction to its block.
+- **Credits** says how many of the credits People awarded the bots reached Asset Hub and how long
+  that took, and how many were claimed on chain once every bot was done.
+- **A player's claims** is the time one bot took for all of its claims, one after another.
+- **Fullest block** is the fullest People block of the game, by weight and proof size.
 
-Without a root key, as on live previewnet and paseo-next-v2, players are regular players: they
-sign up to the closest scheduled game, or the one at `--game-at`, with `Game.sign_up_with_account`,
-which also grants their statement allowance for good. The `TEST_MNEMONIC` account tops each
-player up to 3 UNIT on the People chain, and the run fails first, saying how much to send to
-which address, when it holds too little. The same players are used from game to game, so each
-pays its 2 UNIT play deposit once, and `mint` signs up only the players without an allowance.
+The messages table has one row per run:
 
-These players share groups with the game's real players. Signalling players never join the
-game's room, so to real players they are seats that never connect; the `chain` layer's players
-vote `Person` for every co-player, real ones included.
+- **Delivery p50 / p95 / p99** and **Lost** are what the players see; the run fails above 2 s at
+  p95 or 1% lost.
+- **Submit p95** is the `statement_submit` round trip through truapi-host.
+- **Host CPU / RSS per ghost** is what a bot costs its machine.
+- **Client lag p99** is a load process's event-loop delay. Above 250 ms, or when a machine sent no
+  result or started late, the verdict is `inconclusive`: the load, not the target, fell behind.
+- **Node submit avg** and **Node CPU cores** need `--metrics` with the People nodes' Prometheus
+  endpoints, which a live network doesn't expose; they show `–` in CI.
+- **Findings** list what failed: rejected or dropped connections, subscriptions the node ended (a
+  subscriber that falls 128 statements behind is dropped), submits not accepted.
 
-## Running it
+`summary.json` and the per-machine files contain the full counts and histograms.
 
-A step plays one room (215 s: the 64 s pre-connect and 151 s of play) with that many players, after
-a ramp over which they connect and a warmup; steps run one after the other. `--shard i/n` splits the players over processes or
-machines that share `--start-at`; `summary` merges their result files.
+## Running it locally
 
-On a local dev People node:
+Against a live network, set `NETWORK` as for the chain-tests, and `TEST_MNEMONIC`:
+
+```bash
+cd packages/load-tests
+NETWORK=paseo-next-v2 pnpm load chain --players 300
+NETWORK=paseo-next-v2 pnpm load host --follow-game --steps 300
+```
+
+The `host` command needs `truapi-host` at the version `chain-tests` pins (or `TRUAPI_HOST_BIN`) and
+`bun` on `PATH`.
+
+On a dev People node, a root key (`//Alice`) stands in for the sign-ups: `mint` writes each
+player's statement allowance (`System.set_storage` on `:statement_allowance:<account>`, the
+1,000,000 count / 1 MB a game sign-up grants), and `chain` funds fresh accounts and schedules its
+own short game, after clearing the chain's game and schedule with `--take-over`. The `signalling`
+command runs bots that sign their own statements over direct RPC, without truapi-host, and `--steps`
+plays one game per player count:
 
 ```bash
 B=path/to/previewnet-engine/bin
@@ -72,47 +129,8 @@ pnpm load signalling --rpc ws://127.0.0.1:9944 --metrics http://127.0.0.1:9615/m
 pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registration 120 --reporting 1500
 ```
 
-A dev node's chain clock does not follow the wall clock; the `chain` layer reads every deadline
-from the chain, so set a long `--reporting` there.
-
-The `host` layer needs `truapi-host` at the version `chain-tests` pins (or `TRUAPI_HOST_BIN`)
-and `bun` on `PATH`. Against a stack the hosts get its endpoints; against a dev node, point
+A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
+from the chain, so set a long `--reporting` there. For `host` against a dev node, point
 `HOST_CLI_LOCAL_NETWORK_CONFIG` at a [local network file](https://github.com/paritytech/trinity-user-agents/blob/main/docs/local-network.md)
-that lists People, Asset Hub and Bulletin nodes.
-
-Against a fork or a live network, set `STACK` or `NETWORK` as for the chain-tests. `--rpc` then
-replaces the stack's People endpoint: a PPN fork's stack points at the dashboard's proxy on port
-8090, a single process that loses deliveries at a few hundred players, so fork runs pass the
-People node's own port (`ws://127.0.0.1:10010`).
-
-In CI, **Actions → Load test → Run workflow** plays the closest scheduled game on previewnet or
-paseo-next-v2 with `players` bots, or the game at `game_at`; it needs `TEST_MNEMONIC`. One job
-runs `chain`: it signs every bot up as soon as the game takes sign-ups, reports and claims for
-them. Alongside it, `players / bots_per_machine` parity-large machines each run
-`host --follow-game` for their share: they wait until the chain job has signed their bots up,
-then send the game's messages through truapi-host from the moment the app opens the room. The
-chain and message bots are the same accounts. The run waits up to 4 hours for the game, and
-fails at once when the game is further away.
-
-Previewnet's People node accepts 500 RPC connections in total (HTTP 429 beyond), and a bot needs
-about one, so a previewnet run above about 400 bots measures that limit, not the game:
-https://github.com/paritytech/preview-net-v1/issues/191.
-
-## Reading the results
-
-`summary.md` has one row per step:
-
-- **Delivery p50 / p95 / p99** and **Lost** are what the players see; a step fails above 2 s at
-  p95 or 1% lost.
-- **Submit p95** is the `statement_submit` round trip. When it grows while **Node submit avg**
-  (the statement store's own time) stays flat, the time goes to the RPC server or the path to it.
-- **Node CPU cores** is the People node's CPU over the game; a node near its core count is the
-  limit.
-- **Client lag p99** is the load process's event-loop delay. Above 250 ms the step is
-  `inconclusive`: the ghosts, not the target, fell behind, and more `--shard` processes are
-  needed.
-- **Findings** list what failed: rejected or dropped RPC connections (the node's
-  `--rpc-max-connections`; 500 on a PPN fork), subscriptions the node ended (a subscriber that
-  falls 128 statements behind is dropped), or submits the store rejected.
-
-`summary.json` and the per-shard files contain the full counts, histograms and node metrics.
+that lists People, Asset Hub and Bulletin nodes. `--shard i/n` splits the bots over processes or
+machines that share `--start-at`, and `summary` merges their result files.

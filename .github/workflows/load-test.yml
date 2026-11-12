@@ -39,7 +39,7 @@ on:
         type: string
         default: ""
       args:
-        description: More load CLI options, such as "--ghosts-per-host 1"
+        description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
         type: string
         default: ""
 
