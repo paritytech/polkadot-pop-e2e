@@ -5,18 +5,6 @@ name: Load test
 # See packages/load-tests/README.md.
 
 on:
-  workflow_call:
-    inputs:
-      network: { type: string, default: previewnet }
-      players: { type: string, default: "300" }
-      bots_per_machine: { type: string, default: "1000" }
-      signalling: { type: string, default: co-players }
-      timing: { type: string, default: sync }
-      claim: { type: boolean, default: true }
-      game_at: { type: string, default: "" }
-      args: { type: string, default: "" }
-    secrets:
-      TEST_MNEMONIC: { required: true }
   workflow_dispatch:
     inputs:
       network:
