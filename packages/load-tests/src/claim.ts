@@ -10,7 +10,7 @@ export interface ClaimResult {
   awarded: number;
   /** Of those, the ones Asset Hub had a root for, and so could be claimed, when the wait ended. */
   claimable: number;
-  /** From the game's end until the last credit was claimable, or the wait ended. */
+  /** From the end of the report burst until the last credit was claimable, or the wait ended. */
   claimableAfterMs: number;
   collections: number[];
   burst: BurstSummary | null;
@@ -75,7 +75,7 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
 /**
  * Waits for the credits `gameIndex` awarded the players to reach Asset Hub, then claims every
  * one at once, each into a claimable collection and to a fresh purse key, as a player does
- * after the game. Call it once the game has ended; `awarded` is how many credits to expect.
+ * after the game. `awarded` is how many credits to expect.
  */
 export async function claimCredits(
   target: Target,

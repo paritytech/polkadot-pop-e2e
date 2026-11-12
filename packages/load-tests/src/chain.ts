@@ -265,22 +265,11 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (burst.inTime < reports.length) {
         findings.push(`report: ${reports.length - burst.inTime} of ${reports.length} not in within ${run.reportWindowMs / 1000} s`);
       }
-      // Each `Person` vote a player receives awards it one credit, real players' votes included.
-      // The game clears the votes as it ends, so they are read for as long as it reports.
-      const personVotes = async () => {
+      if (run.claim) {
+        // Each `Person` vote a player has received so far awards it one credit, other players'
+        // votes included; the credits reach Asset Hub while the game still takes reports.
         const rows = await api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" });
-        return rows.reduce((sum, row) => sum + (row?.yes_person ?? 0), 0);
-      };
-      let received = 0;
-      while (timeline.at(-1)!.state.startsWith("Reporting")) {
-        received = Math.max(received, await personVotes());
-        await sleep(10_000);
-      }
-      received = Math.max(received, await personVotes());
-      const remainingMs = (current.report_ends + phases.player_process) * 1000 - (await chainNow());
-      await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
-      if (timeline.at(-1)!.state !== "None") findings.push(`player processing: the game went to ${timeline.at(-1)!.state}`);
-      if (run.claim && received > 0) {
+        const received = rows.reduce((sum, row) => sum + (row?.yes_person ?? 0), 0);
         claim = await claimCredits(target, client, players, game.index, received, run.connections);
         if (claim.claimable < claim.awarded) {
           findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
@@ -288,6 +277,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         if (claim.collections.length === 0) findings.push("claim: no claimable collection on Asset Hub");
         for (const [failure, count] of Object.entries(claim.burst?.failures ?? {})) findings.push(`claim ${failure}: ${count}`);
       }
+      const remainingMs = (current.report_ends + phases.player_process) * 1000 - (await chainNow());
+      await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
+      if (timeline.at(-1)!.state !== "None") findings.push(`player processing: the game went to ${timeline.at(-1)!.state}`);
     }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
