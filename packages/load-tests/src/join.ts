@@ -1,9 +1,9 @@
-import { Enum, type PolkadotClient, type SizedHex } from "polkadot-api";
+import { Enum, type SizedHex } from "polkadot-api";
 import { toHex } from "@polkadot-api/utils";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { SIGNING_MS, signEntries, submitBurst, type BurstEntry } from "./burst.js";
+import type { BurstEntry } from "./burst.js";
 import type { Keypair, Player } from "./keys.js";
-import { statementAllowanceKey, submitToBestBlock } from "./root.js";
+import { submitToBestBlock } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
@@ -44,18 +44,17 @@ export async function playersNotRegistered(api: PeopleApi, players: Player[]): P
 /**
  * The game players sign up to, once it is in registration with at least `minRemainingMs` of it
  * left by chain time: the one playing at `gameAt` (chain seconds), or else the closest one
- * scheduled. Fails at once when that game opens registration later than `timeoutMs` from now,
- * and after `timeoutMs` in any case.
+ * scheduled. Fails at once when that game plays later than `timeoutMs` from now, and after
+ * `timeoutMs` in any case.
  */
 export async function waitForGame(api: PeopleApi, gameAt: number | undefined, minRemainingMs: number, timeoutMs: number): Promise<OpenGame> {
   const until = Date.now() + timeoutMs;
   let reported: string | undefined;
   for (;;) {
-    const [game, now, schedules, stored] = await Promise.all([
+    const [game, now, schedules] = await Promise.all([
       api.query.Game.Game.getValue({ at: "best" }),
       api.query.Timestamp.Now.getValue({ at: "best" }),
       api.query.Game.GameSchedules.getValue({ at: "best" }),
-      api.query.Game.StoredPhaseDurations.getValue({ at: "best" }),
     ]);
     const nowSeconds = Number(now) / 1000;
     const open = game?.state.type === "Registration" && game.registration_ends - nowSeconds >= minRemainingMs / 1000;
@@ -63,15 +62,12 @@ export async function waitForGame(api: PeopleApi, gameAt: number | undefined, mi
     if (gameAt !== undefined && game?.game_date === gameAt) {
       throw new Error(`game ${game.index} at ${iso(gameAt)} UTC is past its registration (${game.state.type})`);
     }
-    // A scheduled game starts, and opens registration, once the game before it has ended.
-    const phases = stored ?? (await api.constants.Game.DefaultPhaseDurations());
     const position = gameAt === undefined ? 0 : schedules.findIndex((schedule) => schedule.game_play_time === gameAt);
     if (!schedules[position]) throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)} UTC`);
     const next = schedules[position].game_play_time;
-    const before = position > 0 ? schedules[position - 1].game_play_time + phases.reporting : game?.report_ends;
-    const opensBy = before === undefined ? nowSeconds : before + phases.player_process;
-    if (opensBy > nowSeconds + (until - Date.now()) / 1000) {
-      throw new Error(`the game at ${iso(next)} UTC opens registration around ${iso(opensBy)} UTC, after this run's ${timeoutMs / 60_000} min wait; start the run later`);
+    // The run lasts until the game is over, so the wait bounds when the game plays, not only when it opens.
+    if (next > nowSeconds + (until - Date.now()) / 1000) {
+      throw new Error(`the game at ${iso(next)} UTC plays after this run's ${timeoutMs / 60_000} min wait; start the run later`);
     }
     const state = game ? `game ${game.index} at ${iso(game.game_date)} UTC is in ${game.state.type}` : "no game is running";
     if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${iso(next)} UTC to open registration`);
@@ -117,58 +113,30 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
 }
 
 /**
- * Gives every player without a statement allowance one by signing it up to a game, `gameAt` or
- * the closest scheduled, which grants the player's allowance for good. The funded account pays
- * each signing player's play deposit and fees.
+ * The game any of `players` is signed up to, once one is and that game hasn't started: how a
+ * message machine finds the game a separate chain run signs its bots up to. Fails when the game
+ * that was open closes sign-ups without any of them, so a chain run that stopped early doesn't
+ * hold the machine for the whole `timeoutMs`, and after `timeoutMs` in any case.
  */
-export async function signUpForAllowance(target: Target, players: Player[], gameAt: number | undefined, waitMs: number): Promise<void> {
-  const { client, api } = connectPeople(target);
-  try {
-    const missing = await playersWithoutAllowance(client, players);
-    console.log(`[mint] ${players.length - missing.length} of ${players.length} players have an allowance; ${missing.length} sign up`);
-    if (missing.length === 0) return;
-    await topUpPlayers(target, api, missing);
-    const game = await waitForGame(api, gameAt, 120_000 + missing.length * SIGNING_MS, waitMs);
-    const signed = await signEntries(signUpEntries(api, missing), "mint");
-    const burst = await submitBurst(signed, api, client, target.rpc, 8, () => game.registration_ends * 1000);
-    console.log(`[mint] ${burst.ok}/${burst.submitted} signed up to game ${game.index}`);
-    if (burst.ok < missing.length) throw new Error(`${missing.length - burst.ok} sign-ups failed: ${JSON.stringify(burst.failures)}`);
-  } finally {
-    client.destroy();
-  }
-}
-
-/**
- * The game `player` is signed up to, once it is and that game hasn't started: how a message bot
- * finds the game a separate chain run signs it up to. Fails after `timeoutMs`.
- */
-export async function waitForSignUp(target: Target, player: Player, timeoutMs: number): Promise<OpenGame> {
+export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
   const { client, api } = connectPeople(target);
   const until = Date.now() + timeoutMs;
+  let openGame: number | undefined;
   try {
     for (;;) {
-      const [game, row, now] = await Promise.all([
+      const [game, rows, now] = await Promise.all([
         api.query.Game.Game.getValue({ at: "best" }),
-        api.query.Game.Players.getValue(Enum("Account", player.address), { at: "best" }),
+        api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" }),
         api.query.Timestamp.Now.getValue({ at: "best" }),
       ]);
-      if (game && row?.registered && game.game_date * 1000 > Number(now)) return game;
-      if (Date.now() > until) throw new Error(`${player.address} wasn't signed up to a game within ${timeoutMs / 60_000} min`);
+      const signedUp = rows.some((row) => row?.registered);
+      if (game && signedUp && game.game_date * 1000 > Number(now)) return game;
+      if (game?.state.type === "Registration") openGame = game.index;
+      else if (game && game.index === openGame) throw new Error(`game ${game.index} closed sign-ups without any of this machine's bots`);
+      if (Date.now() > until) throw new Error(`none of this machine's bots was signed up to a game within ${timeoutMs / 60_000} min`);
       await sleep(5_000);
     }
   } finally {
     client.destroy();
   }
-}
-
-async function playersWithoutAllowance(client: PolkadotClient, players: Player[]): Promise<Player[]> {
-  const missing: Player[] = [];
-  for (let start = 0; start < players.length; start += 200) {
-    const chunk = players.slice(start, start + 200);
-    const values = await Promise.all(
-      chunk.map((player) => client._request<string | null, [string]>("state_getStorage", [toHex(statementAllowanceKey(player))])),
-    );
-    chunk.forEach((player, position) => values[position] === null && missing.push(player));
-  }
-  return missing;
 }

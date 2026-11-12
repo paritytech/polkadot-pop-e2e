@@ -5,7 +5,7 @@ import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
-import { signUpForAllowance, waitForSignUp } from "./join.js";
+import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, PRODUCT_IDS } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
@@ -14,8 +14,7 @@ import { connectPeople, resolveTarget, type Target } from "./target.js";
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
-  mint        Give players 0..players-1 of --layer a statement allowance: as root on a fork,
-              else by signing them up to the closest scheduled game (or --game-at)
+  mint        Give players 0..players-1 of --layer a statement allowance as root (a fork or dev node)
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain, signing up and reporting with every player at once: on a
@@ -175,10 +174,7 @@ switch (values.help ? undefined : command) {
       values.layer === "host"
         ? indices.map((index) => hostGhostPlayer(values.seed, productId, ghostsPerHost, index))
         : derivePlayers(values.seed, indices);
-    if (!target.sudo || gameAt !== undefined) {
-      await signUpForAllowance(target, players, gameAt, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
-      break;
-    }
+    if (!target.sudo) throw new Error(`${target.label}: mint writes allowances as root; on a live network the chain command signs players up instead`);
     const { client, api } = connectPeople(target);
     try {
       // The allowance a game sign-up grants (next-people-paseo `PlayerStatementLimit`).
@@ -213,10 +209,15 @@ switch (values.help ? undefined : command) {
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
       seed = gameSeed(target, steps[0]);
-      // Hosts are dealt to shards in turn, so this shard's first host is its index.
-      const firstPlayer = hostGhostPlayer(seed, productId, ghostsPerHost, shardIndex * ghostsPerHost);
-      console.log(`[host] waiting for ${firstPlayer.address} to be signed up to a game`);
-      const game = await waitForSignUp(target, firstPlayer, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
+      // Hosts are dealt to shards in turn: this shard's are its index, plus the shard count, and so on.
+      const hosts = Math.ceil(steps[0] / ghostsPerHost);
+      const own = Array.from({ length: Math.ceil((hosts - shardIndex) / shardCount) }, (_, turn) => shardIndex + turn * shardCount).flatMap((host) =>
+        Array.from({ length: ghostsPerHost }, (_, ghost) => host * ghostsPerHost + ghost).filter((index) => index < steps[0]),
+      );
+      if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill ${hosts} hosts of ${ghostsPerHost}, fewer than ${shardCount} machines`);
+      const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, ghostsPerHost, index));
+      console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to a game`);
+      const game = await waitForSignUp(target, watched, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       startAt = game.game_date * 1000 - profile.preconnectMs - timing.rampMs - timing.warmupMs;
       console.log(`[host] game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}`);
     }
