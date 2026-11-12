@@ -107,7 +107,11 @@ export async function claimCredits(
   } as unknown as NftsChain & NftsCreditsChain;
   const started = Date.now();
   const claimsOf = async (player: Player): Promise<Claim[]> => {
-    const result = await getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" });
+    const result = await withTimeout(
+      getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" }),
+      60_000,
+      `credits of ${player.address}`,
+    );
     if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
     return result.value.claims;
   };
