@@ -163,6 +163,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   let watching = true;
   // On a live network the next game starts as soon as this one ends, so the end is a new index.
   let gameIndex: number | undefined;
+  let blockSubscription: { unsubscribe(): void } | undefined;
 
   try {
     const { players } = run;
@@ -182,22 +183,33 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     }
 
     const maxNormal = (await api.constants.System.BlockWeights()).per_class.normal.max_total!;
-    const blockSubscription = client.finalizedBlock$.subscribe(async (block) => {
-      const [weight, body] = await Promise.all([api.query.System.BlockWeight.getValue({ at: block.hash }), client.getBlockBody(block.hash)]);
-      blocks.push({
-        number: block.number,
-        extrinsics: body.length,
-        refTime: Number(weight.normal.ref_time) / Number(maxNormal.ref_time),
-        proofSize: Number(weight.normal.proof_size) / Number(maxNormal.proof_size),
-      });
+    blockSubscription = client.finalizedBlock$.subscribe({
+      next: async (block) => {
+        try {
+          const [weight, body] = await Promise.all([api.query.System.BlockWeight.getValue({ at: block.hash }), client.getBlockBody(block.hash)]);
+          blocks.push({
+            number: block.number,
+            extrinsics: body.length,
+            refTime: Number(weight.normal.ref_time) / Number(maxNormal.ref_time),
+            proofSize: Number(weight.normal.proof_size) / Number(maxNormal.proof_size),
+          });
+        } catch (error) {
+          console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
+        }
+      },
+      error: (error: Error) => console.warn(`[chain] finalized blocks no longer followed: ${error.message}`),
     });
     void (async () => {
       while (watching) {
-        const current = await api.query.Game.Game.getValue({ at: "best" }).catch(() => undefined);
-        const label = gameIndex !== undefined && current && current.index !== gameIndex ? "None" : stateLabel(current);
-        if (timeline.at(-1)?.state !== label) {
-          timeline.push({ state: label, at: Date.now() });
-          console.log(`[chain] game: ${label}`);
+        try {
+          const current = await api.query.Game.Game.getValue({ at: "best" });
+          const label = gameIndex !== undefined && current && current.index !== gameIndex ? "None" : stateLabel(current);
+          if (timeline.at(-1)?.state !== label) {
+            timeline.push({ state: label, at: Date.now() });
+            console.log(`[chain] game: ${label}`);
+          }
+        } catch (error) {
+          console.warn(`[chain] game state not read: ${(error as Error).message}`);
         }
         await sleep(1_000);
       }
@@ -219,9 +231,6 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       // lasts until the game: one further away than the run's wait fails at once. Reused
       // accounts sign at their chain nonce, and a player already in this game skips its sign-up.
       game = await waitForGame(api, run.gameAt, 120_000 + players.length * SIGNING_MS, run.registrationWaitMs);
-      if (game.game_date * 1000 - (await chainNow()) > run.registrationWaitMs) {
-        throw new Error(`game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}, later than this run's ${run.registrationWaitMs / 60_000} min wait; start the run later`);
-      }
       // Funded only now: a deposit of the previous game counts until that game lets it go.
       const joining = await playersNotRegistered(api, players);
       await topUpPlayers(target, api, joining);
@@ -248,6 +257,11 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       const current = (await api.query.Game.Game.getValue({ at: "best" }))!;
       if (current.state.type !== "Reporting") throw new Error(`game left Reporting before the reports: ${stateLabel(current)}`);
       const reports = await buildReports(api, players, current.state.value.player_count, current.max_group_size, current.rounds);
+      if (current.rounds !== run.rounds || current.max_group_size !== run.maxGroupSize) {
+        findings.push(
+          `game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`,
+        );
+      }
       const signedReports = await signEntries(
         reports.map(({ player, fullReport }) => ({ signer: player, tx: api.tx.Game.report({ full_report: fullReport }), nonce: ownGame ? 1 : undefined })),
         "report",
@@ -282,12 +296,15 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         }
       }
       const remainingMs = (current.report_ends + phases.player_process) * 1000 - (await chainNow());
-      await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
-      if (timeline.at(-1)!.state !== "None") findings.push(`player processing: the game went to ${timeline.at(-1)!.state}`);
+      try {
+        await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
+        if (timeline.at(-1)!.state !== "None") findings.push(`player processing: the game went to ${timeline.at(-1)!.state}`);
+      } catch (error) {
+        findings.push(`player processing: ${(error as Error).message}`);
+      }
     }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
-    blockSubscription.unsubscribe();
 
     const result: ChainResult = {
       layer: "chain",
@@ -309,6 +326,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     return result;
   } finally {
     watching = false;
+    blockSubscription?.unsubscribe();
     // The phases apply to every later game, so a run on a shared network sets them back.
     if (previousPhases && target.sudo) {
       await dispatchAsRoot(api, target.sudo, [api.tx.Game.set_game_phases({ phases: previousPhases }).decodedCall], 1, "restore phases").catch(

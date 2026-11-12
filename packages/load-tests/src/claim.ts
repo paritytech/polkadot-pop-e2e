@@ -108,7 +108,8 @@ export async function claimCredits(
   const started = Date.now();
   const claimsOf = async (player: Player): Promise<Claim[]> => {
     const result = await withTimeout(
-      getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" }),
+      // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
+      getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" }),
       60_000,
       `credits of ${player.address}`,
     );
@@ -163,7 +164,7 @@ export async function claimCredits(
     );
     let taken = 0;
     const signed = txs.map((own) => flat.slice(taken, (taken += own.length)));
-    // The pool's next nonce, as a raw call: polkadot-api's storage reads failed under thousands of lanes.
+    // `system_accountNextIndex` counts the pool's pending transactions, which a storage read doesn't.
     const readNonce = async (address: SS58String): Promise<number> => {
       for (let attempt = 1; ; attempt++) {
         try {
@@ -193,8 +194,7 @@ export async function claimCredits(
         },
     );
     console.log(`[claim] ${mine.length} players claim ${claimable} credits, each one at a time`);
-    // Blocks aren't read per claim: polkadot-api failed reading thousands of them. What landed is
-    // read from the claimed-leaves afterwards instead.
+    // Each claim counts once it's in a block; which credits were claimed is read from Asset Hub after.
     const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, {
       readBlocks: false,
       progress: "claim",
