@@ -29,8 +29,7 @@ A run has three parts:
   rest of the run.
 - **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up,
   then runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
-  opens its signalling, until the end of play. A machine fails when the game closes sign-ups
-  without its bots.
+  opens its signalling, until the end of play.
 - **`summary`** merges every machine's result into one table.
 
 The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play

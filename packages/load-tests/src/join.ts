@@ -120,14 +120,12 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
 
 /**
  * The game any of `players` is signed up to, once one is and that game hasn't started: how a
- * message machine finds the game a separate chain run signs its bots up to. Fails when the game
- * that was open closes sign-ups without any of them, so a chain run that stopped early doesn't
- * block the machine for the whole `timeoutMs`, and after `timeoutMs` in any case.
+ * message machine finds the game a separate chain run signs its bots up to. Fails after
+ * `timeoutMs`.
  */
 export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
   const { client, api } = connectPeople(target);
   const until = Date.now() + timeoutMs;
-  let openGame: number | undefined;
   try {
     for (;;) {
       const [game, rows, now] = await Promise.all([
@@ -137,8 +135,6 @@ export async function waitForSignUp(target: Target, players: Player[], timeoutMs
       ]);
       const signedUp = rows.some((row) => row?.registered);
       if (game && signedUp && game.game_date * 1000 > Number(now)) return game;
-      if (game?.state.type === "Registration") openGame = game.index;
-      else if (game && game.index === openGame) throw new Error(`game ${game.index} closed sign-ups without any of this machine's bots`);
       if (Date.now() > until) throw new Error(`none of this machine's bots was signed up to a game within ${timeoutMs / 60_000} min`);
       await sleep(5_000);
     }
