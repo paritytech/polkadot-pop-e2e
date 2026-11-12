@@ -21,7 +21,7 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
  * are due, and the ones it received, each counted once, so every kind of ghost measures loss alike.
  */
 export class DeliveryCounter {
-  private readonly seen = new Set<string>();
+  private readonly seen = new Set<number>();
   private lastDeliveryAt = 0;
 
   constructor(
@@ -42,7 +42,8 @@ export class DeliveryCounter {
   receive(probe: Probe | undefined, now: number): void {
     if (!probe || probe.sender === this.self || probe.sentAt < this.window.start || probe.sentAt >= this.window.end) return;
     // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
-    const key = `${probe.sender}:${probe.sequence}`;
+    // Both fields are u32; the key is exact while the sender index is below 2^21.
+    const key = probe.sender * 2 ** 32 + probe.sequence;
     if (this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
