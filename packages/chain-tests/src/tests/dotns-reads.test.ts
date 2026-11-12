@@ -74,7 +74,7 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
     expect(name.value).toBeNull();
   });
 
-  // The docs fix only two outcomes, a name or null, so the test asserts the type. The test
+  // The docs fix only two outcomes, a name or null. A name must forward-resolve back to the address. The test
   // reverses the owner when the name has no forward address, a choice of this test. The SDK
   // has no such fallback.
   it("reverse-resolves the known name's address to a name or null", async () => {
@@ -86,7 +86,11 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
 
     const name = await reverseDotNs(target!, { runtime });
     if (!name.ok) throw name.error;
-    if (name.value !== null) expect(name.value.length).toBeGreaterThan(0);
+    if (name.value !== null) {
+      const forward = await resolveDotNs(name.value, { runtime });
+      if (!forward.ok) throw forward.error;
+      expect(forward.value?.address?.toLowerCase()).toBe(target!.toLowerCase());
+    }
   });
 
   // Previewnet's DotnsGateway.DispatcherAddress is the PoP controller, not a RootGatewayDispatcher,
