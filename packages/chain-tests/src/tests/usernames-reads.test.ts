@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, type PolkadotClient } from "polkadot-api";
 import { Bytes } from "@polkadot-api/substrate-bindings";
 import { fromHex } from "@polkadot-api/utils";
+// Not resolvePeopleUsernameOwner (@internal): readPersonhoodState({ username }) reads the same entry.
 import {
   fromPapi,
   lookupUsername,
@@ -89,25 +90,24 @@ describe("Username reads (product-sdk)", () => {
     expect(read.value.tag).toBe("UsernameUnowned");
   });
 
-  // Reads one registered username with a paged raw key read at the finalized block, then
-  // its owner at that same block. Its owner's usernames come from that block too. The test
+  // Reads one registered username with a paged raw key read at the finalized block. Its
+  // owner and their usernames are read at the block readPersonhoodState pinned. The test
   // skips with a reason when the network has no registered username.
   it("reads a registered username back to its owner and their usernames", async (ctx) => {
     const { hash } = await peopleClient.getFinalizedBlock();
     const name = await firstRegisteredUsername(peopleClient, chain.individuality, hash);
     if (name === undefined) return ctx.skip(`no username is registered on ${getNetworkConfig().name}`);
     const username = new TextDecoder().decode(name);
-    const owner = await chain.individuality.query.Resources.UsernameOwnerOf.getValue(name, {
-      at: hash,
-    });
-    if (!owner) throw new Error("a username key at the finalized block has no owner there");
 
     const personhood = await readPersonhoodState(chain, { username });
     if (!personhood.ok) throw personhood.error;
     if (personhood.value.tag === "UsernameUnowned") throw new Error("a registered username read as unowned");
+    const at = personhood.value.at.blockHash;
+    const owner = await chain.individuality.query.Resources.UsernameOwnerOf.getValue(name, { at });
+    if (!owner) throw new Error("a registered username has no owner at the personhood block");
     expect(personhood.value.accountAddress).toBe(owner);
 
-    const usernames = await lookupUsername(chain, { account: owner, at: hash });
+    const usernames = await lookupUsername(chain, { account: owner, at });
     if (!usernames.ok) throw usernames.error;
     expect([usernames.value?.liteUsername, usernames.value?.fullUsername]).toContain(username);
   });
