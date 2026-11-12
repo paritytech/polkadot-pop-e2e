@@ -86,7 +86,6 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
-      actions: write
     env:
       TEST_MNEMONIC: ${{ secrets.TEST_MNEMONIC }}
     steps:
@@ -116,10 +115,17 @@ jobs:
           path: load-results/
           retention-days: 14
           if-no-files-found: ignore
-      # A run whose chain job stops early has no game for its message machines: stop them too.
-      - name: Stop the run's other jobs on failure
-        if: failure()
-        env:
+
+  # A run whose chain job stops early has no game for its message machines: stop them too.
+  cancel:
+    name: cancel the run when the chain job fails
+    needs: chain
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
         run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
