@@ -185,7 +185,7 @@ jobs:
       - name: Merge the results
         run: |
           set -euo pipefail
-          cat load-results/chain.n*.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
+          compgen -G "load-results/chain.n*.md" >/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
           pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS" || echo "No message results" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
