@@ -196,7 +196,13 @@ export function chainMarkdown(result: ChainResult): string {
     ...(result.claim ? [phaseRow("NFT claim", result.claim.burst)] : []),
     "",
     ...(result.claim
-      ? [`Credits: ${result.claim.claimable} of ${result.claim.awarded} claimable on Asset Hub ${seconds(result.claim.claimableAfterMs)} after the reports, into collections ${result.claim.collections.join(", ") || "–"}.`, ""]
+      ? [
+          `Credits: ${result.claim.claimable} of ${result.claim.awarded} claimable on Asset Hub ${seconds(result.claim.claimableAfterMs)} after the reports, into collections ${result.claim.collections.join(", ") || "–"}.`,
+          ...(result.claim.playerMs
+            ? [`A player's claims, one at a time: all done in ${[result.claim.playerMs.p50, result.claim.playerMs.p95, result.claim.playerMs.max].map((ms) => (ms === null ? "–" : seconds(ms))).join(" / ")} (p50 / p95 / max).`]
+            : []),
+          "",
+        ]
       : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",

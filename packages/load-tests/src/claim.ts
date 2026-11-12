@@ -1,6 +1,7 @@
 import { Enum, type PolkadotClient, type SizedHex } from "polkadot-api";
 import { getClaimableCollections, getClaims, type Claim, type NftsChain, type NftsCreditsChain } from "@parity/product-sdk-nfts";
-import { signEntries, submitBurst, summarizeBurst, type BurstEntry, type BurstSummary } from "./burst.js";
+import { signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
+import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
 import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
@@ -13,7 +14,10 @@ export interface ClaimResult {
   /** From the end of the report burst until the last credit was claimable, or the wait ended. */
   claimableAfterMs: number;
   collections: number[];
+  /** Every claim, each timed from its submission to its block. */
   burst: BurstSummary | null;
+  /** Per player, from its first claim's submission until its last claim finished. */
+  playerMs: QuantileSummary | null;
 }
 
 /** Fees of a player's claims on Asset Hub. */
@@ -111,33 +115,40 @@ export async function claimCredits(
     const offered = await getClaimableCollections(chain);
     if (!offered.ok) throw new Error(`claimable collections: ${offered.error.message}`);
     const collections = offered.value.collections.map((collection) => collection.id);
-    if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null };
+    if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, playerMs: null };
 
     await fundOnAssetHub(api, target, mine.map((read) => read.player));
-    // A player's claims go out together, so each takes the next nonce from its current one.
     const nonces = await api.query.System.Account.getValues(mine.map((read) => [read.player.address]), { at: "best" });
+    const playerMs = new Histogram();
     let position = 0;
-    const entries: BurstEntry[] = mine.flatMap((read, index) =>
-      read.claims.map((claim, offset) => ({
-        signer: read.player,
-        nonce: nonces[index].nonce + offset,
-        tx: api.tx.NftClaims.claim({
-          claimant: Enum("Account"),
-          block: claim.awardBlock,
-          credit: claim.hash as SizedHex<32>,
-          leaf_index: claim.leafIndex!,
-          proof: claim.proof! as SizedHex<32>[],
-          collection: collections[position++ % collections.length],
-          // A purse key holds one NFT, so every claim mints to a key of its own.
-          mint_to: derivePlayer(`${read.player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
-        }),
-      })),
+    // As the stash claims: one claim at a time, the next once the previous has landed, at the
+    // following nonce, or at the chain's after a failure.
+    const lanes = mine.map(
+      ({ player, claims }, index): Lane =>
+        async (submit) => {
+          const started = Date.now();
+          let nonce = nonces[index].nonce;
+          for (const claim of claims) {
+            const tx = api.tx.NftClaims.claim({
+              claimant: Enum("Account"),
+              block: claim.awardBlock,
+              credit: claim.hash as SizedHex<32>,
+              leaf_index: claim.leafIndex!,
+              proof: claim.proof! as SizedHex<32>[],
+              collection: collections[position++ % collections.length],
+              // A purse key holds one NFT, so every claim mints to a key of its own.
+              mint_to: derivePlayer(`${player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
+            });
+            if (await submit(await signEntry({ signer: player, tx, nonce }))) nonce++;
+            else nonce = (await api.query.System.Account.getValue(player.address, { at: "best" })).nonce;
+          }
+          playerMs.add(Date.now() - started);
+        },
     );
-    const signed = await signEntries(entries, "claim");
-    console.log(`[claim] ${signed.length} credits claim at once`);
-    const burst = await submitBurst(signed, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY);
+    console.log(`[claim] ${mine.length} players claim ${claimable} credits, each one at a time`);
+    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY);
     console.log(`[claim] claims: ${burst.ok}/${burst.submitted} in ${burst.durationMs} ms`);
-    return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst) };
+    return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), playerMs: playerMs.summary() };
   } finally {
     client.destroy();
   }

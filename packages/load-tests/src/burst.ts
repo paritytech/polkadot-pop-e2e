@@ -97,24 +97,32 @@ function blockReader(api: BurstApi, client: PolkadotClient): (hash: string) => P
 /** An upper bound of polkadot-api's time to sign one transaction on a CI runner. */
 export const SIGNING_MS = 150;
 
+/** `entry` as a signed extrinsic in hex, mortal for 256 blocks. */
+export async function signEntry({ signer, tx, nonce }: BurstEntry): Promise<string> {
+  const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
+  const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: true, period: 256 }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
+  return toHex(await tx.create(creator, options as never));
+}
+
 /**
- * Each entry as a signed extrinsic in hex, mortal for 256 blocks. polkadot-api takes tens of
- * milliseconds per transaction, so a burst's transactions are signed before its window opens.
+ * Every entry signed, before a burst's window opens: polkadot-api takes tens of milliseconds per
+ * transaction.
  */
 export async function signEntries(entries: BurstEntry[], label: string): Promise<string[]> {
   const started = Date.now();
   const signed: string[] = [];
   for (let start = 0; start < entries.length; start += 200) {
-    const chunk = entries.slice(start, start + 200).map(async ({ signer, tx, nonce }) => {
-      const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
-      const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: true, period: 256 }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
-      return toHex(await tx.create(creator, options as never));
-    });
-    signed.push(...(await Promise.all(chunk)));
+    signed.push(...(await Promise.all(entries.slice(start, start + 200).map(signEntry))));
   }
   console.log(`[${label}] ${signed.length} transactions signed in ${((Date.now() - started) / 1000).toFixed(1)} s`);
   return signed;
 }
+
+/** Submits one signed extrinsic; true once it succeeded in a best block, false when it failed or timed out. */
+export type Submit = (hex: string) => Promise<boolean>;
+
+/** A sender's transactions, each sent through `submit` when the sender decides, such as after the previous one landed. */
+export type Lane = (submit: Submit) => Promise<void>;
 
 /**
  * Submits every signed extrinsic at once over `connections` fresh connections to `urls` with
@@ -122,8 +130,21 @@ export async function signEntries(entries: BurstEntry[], label: string): Promise
  * timed out. `deadline` maps the chain time the burst starts at to the latest in-time block
  * timestamp.
  */
-export async function submitBurst(
+export function submitBurst(
   signed: string[],
+  api: BurstApi,
+  client: PolkadotClient,
+  urls: string[],
+  connectionCount: number,
+  deadline: (chainStart: number) => number,
+): Promise<Burst> {
+  const lanes = signed.map((hex): Lane => async (submit) => void (await submit(hex)));
+  return submitLanes(lanes, api, client, urls, connectionCount, deadline);
+}
+
+/** Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all their transactions. */
+export async function submitLanes(
+  lanes: Lane[],
   api: BurstApi,
   client: PolkadotClient,
   urls: string[],
@@ -135,54 +156,52 @@ export async function submitBurst(
   const readBlock = blockReader(api, client);
   const latest = deadline(Number(await api.query.Timestamp.Now.getValue({ at: "best" })));
   const start = Date.now();
-  await Promise.all(
-    signed.map(
-      (hex, position) =>
-        new Promise<void>((resolve) => {
-          const connection = connections[position % connections.length];
-          const submittedAt = Date.now();
-          let id: string | undefined;
-          let finished = false;
-          const finish = (failure?: string) => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            if (id) void connection.unsubscribe("author_unwatchExtrinsic", id, 10_000).catch(() => {});
-            if (failure) bump(burst.failures, failure);
-            resolve();
-          };
-          const timer = setTimeout(() => finish("timeout"), TX_TIMEOUT_MS);
-          const included = async (hash: string) => {
-            burst.inclusionMs.add(Date.now() - submittedAt);
-            const block = await readBlock(hash);
-            burst.firstBlock = Math.min(burst.firstBlock ?? Infinity, block.number);
-            burst.lastBlock = Math.max(burst.lastBlock ?? 0, block.number);
-            const outcome = block.outcome(hex);
-            if (outcome !== "ok") return finish(outcome ?? "not in its block");
-            burst.ok++;
-            if (block.timestamp <= latest) burst.inTime++;
-            finish();
-          };
-          burst.submitted++;
-          connection
-            .subscribe("author_submitAndWatchExtrinsic", [hex], 30_000, {
-              onNotification(status) {
-                if (status === "dropped" || status === "invalid") return finish(`pool: ${status}`);
-                if (typeof status !== "object" || status === null) return;
-                const [kind, value] = Object.entries(status)[0] ?? [];
-                if (kind === "usurped" || kind === "finalityTimeout") finish(`pool: ${kind}`);
-                else if (kind === "inBlock") included(value as string).catch((error: Error) => finish(`block read: ${error.message}`));
-              },
-              onEnd: (reason) => finish(`watch: ${reason}`),
-            })
-            .then((subscription) => {
-              id = subscription;
-              if (finished) void connection.unsubscribe("author_unwatchExtrinsic", subscription, 10_000).catch(() => {});
-            })
-            .catch((error: Error) => finish(`submit: ${error.message}`));
-        }),
-    ),
-  );
+  let position = 0;
+  const submit: Submit = (hex) =>
+    new Promise<boolean>((resolve) => {
+      const connection = connections[position++ % connections.length];
+      const submittedAt = Date.now();
+      let id: string | undefined;
+      let finished = false;
+      const finish = (failure?: string) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        if (id) void connection.unsubscribe("author_unwatchExtrinsic", id, 10_000).catch(() => {});
+        if (failure) bump(burst.failures, failure);
+        resolve(failure === undefined);
+      };
+      const timer = setTimeout(() => finish("timeout"), TX_TIMEOUT_MS);
+      const included = async (hash: string) => {
+        burst.inclusionMs.add(Date.now() - submittedAt);
+        const block = await readBlock(hash);
+        burst.firstBlock = Math.min(burst.firstBlock ?? Infinity, block.number);
+        burst.lastBlock = Math.max(burst.lastBlock ?? 0, block.number);
+        const outcome = block.outcome(hex);
+        if (outcome !== "ok") return finish(outcome ?? "not in its block");
+        burst.ok++;
+        if (block.timestamp <= latest) burst.inTime++;
+        finish();
+      };
+      burst.submitted++;
+      connection
+        .subscribe("author_submitAndWatchExtrinsic", [hex], 30_000, {
+          onNotification(status) {
+            if (status === "dropped" || status === "invalid") return finish(`pool: ${status}`);
+            if (typeof status !== "object" || status === null) return;
+            const [kind, value] = Object.entries(status)[0] ?? [];
+            if (kind === "usurped" || kind === "finalityTimeout") finish(`pool: ${kind}`);
+            else if (kind === "inBlock") included(value as string).catch((error: Error) => finish(`block read: ${error.message}`));
+          },
+          onEnd: (reason) => finish(`watch: ${reason}`),
+        })
+        .then((subscription) => {
+          id = subscription;
+          if (finished) void connection.unsubscribe("author_unwatchExtrinsic", subscription, 10_000).catch(() => {});
+        })
+        .catch((error: Error) => finish(`submit: ${error.message}`));
+    });
+  await Promise.all(lanes.map((lane) => lane(submit)));
   burst.durationMs = Date.now() - start;
   for (const connection of connections) connection.close();
   return burst;
