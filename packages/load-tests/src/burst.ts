@@ -201,7 +201,8 @@ export async function submitLanes(
         })
         .catch((error: Error) => finish(`submit: ${error.message}`));
     });
-  await Promise.all(lanes.map((lane) => lane(submit)));
+  // A lane that throws, such as on a read after a failed transaction, sends nothing more.
+  await Promise.all(lanes.map((lane) => lane(submit).catch((error: Error) => bump(burst.failures, `stopped: ${error.message}`))));
   burst.durationMs = Date.now() - start;
   for (const connection of connections) connection.close();
   return burst;

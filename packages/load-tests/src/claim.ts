@@ -1,4 +1,4 @@
-import { Enum, type PolkadotClient, type SizedHex } from "polkadot-api";
+import { Enum, type PolkadotClient, type SizedHex, type SS58String } from "polkadot-api";
 import { getClaimableCollections, getClaims, type Claim, type NftsChain, type NftsCreditsChain } from "@parity/product-sdk-nfts";
 import { signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
@@ -24,7 +24,7 @@ export interface ClaimResult {
 const ASSET_HUB_FUNDS = 10_000_000_000n;
 /** How long the run waits for the game's credits to reach Asset Hub. */
 const CLAIMABLE_WAIT_MS = 600_000;
-const READ_CONCURRENCY = 20;
+const READ_CONCURRENCY = 100;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -145,6 +145,16 @@ export async function claimCredits(
     );
     let taken = 0;
     const signed = txs.map((own) => flat.slice(taken, (taken += own.length)));
+    const readNonce = async (address: SS58String): Promise<number> => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return (await api.query.System.Account.getValue(address, { at: "best" })).nonce;
+        } catch (error) {
+          if (attempt === 3) throw error;
+          await sleep(2_000);
+        }
+      }
+    };
     const playerMs = new Histogram();
     // As the stash claims: one claim at a time, the next once the previous has landed.
     const lanes = mine.map(
@@ -155,7 +165,7 @@ export async function claimCredits(
           for (let next = 0; next < own.length; next++) {
             if (await submit(own[next])) continue;
             // A failed claim leaves the following ones at the wrong nonce: sign them again at the chain's.
-            const nonce = (await api.query.System.Account.getValue(player.address, { at: "best" })).nonce;
+            const nonce = await readNonce(player.address);
             for (let later = next + 1; later < own.length; later++) {
               own[later] = await signEntry({ signer: player, tx: txs[index][later], nonce: nonce + later - next - 1 });
             }

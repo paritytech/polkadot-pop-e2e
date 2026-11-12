@@ -267,12 +267,16 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       }
       if (run.claim && burst.firstBlock !== null) {
         // The credits reach Asset Hub while the game still takes reports.
-        claim = await claimCredits(target, client, players, burst.firstBlock, run.connections);
-        if (claim.claimable < claim.awarded) {
-          findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
+        try {
+          claim = await claimCredits(target, client, players, burst.firstBlock, run.connections);
+          if (claim.claimable < claim.awarded) {
+            findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
+          }
+          if (claim.collections.length === 0) findings.push("claim: no claimable collection on Asset Hub");
+          for (const [failure, count] of Object.entries(claim.burst?.failures ?? {})) findings.push(`claim ${failure}: ${count}`);
+        } catch (error) {
+          findings.push(`claim: stopped on ${(error as Error).message}`);
         }
-        if (claim.collections.length === 0) findings.push("claim: no claimable collection on Asset Hub");
-        for (const [failure, count] of Object.entries(claim.burst?.failures ?? {})) findings.push(`claim ${failure}: ${count}`);
       }
       const remainingMs = (current.report_ends + phases.player_process) * 1000 - (await chainNow());
       await waitFor((state) => state === "None" || state.startsWith("Cancelling"), Math.max(0, remainingMs) + 600_000, "game end");
