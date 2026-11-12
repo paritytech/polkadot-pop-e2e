@@ -57,18 +57,24 @@ export async function waitForGame(api: PeopleApi, gameAt: number | undefined, mi
       api.query.Game.GameSchedules.getValue({ at: "best" }),
     ]);
     const nowSeconds = Number(now) / 1000;
+    // The run lasts until the game is over, so the wait bounds when the game plays, not only when it opens.
+    const requirePlayWithinWait = (playTime: number) => {
+      if (playTime > nowSeconds + (until - Date.now()) / 1000) {
+        throw new Error(`the game at ${iso(playTime)} UTC plays after this run's ${timeoutMs / 60_000} min wait; start the run later`);
+      }
+    };
     const open = game?.state.type === "Registration" && game.registration_ends - nowSeconds >= minRemainingMs / 1000;
-    if (open && (gameAt === undefined || game.game_date === gameAt)) return game;
+    if (open && (gameAt === undefined || game.game_date === gameAt)) {
+      requirePlayWithinWait(game.game_date);
+      return game;
+    }
     if (gameAt !== undefined && game?.game_date === gameAt) {
       throw new Error(`game ${game.index} at ${iso(gameAt)} UTC is past its registration (${game.state.type})`);
     }
     const position = gameAt === undefined ? 0 : schedules.findIndex((schedule) => schedule.game_play_time === gameAt);
     if (!schedules[position]) throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)} UTC`);
     const next = schedules[position].game_play_time;
-    // The run lasts until the game is over, so the wait bounds when the game plays, not only when it opens.
-    if (next > nowSeconds + (until - Date.now()) / 1000) {
-      throw new Error(`the game at ${iso(next)} UTC plays after this run's ${timeoutMs / 60_000} min wait; start the run later`);
-    }
+    requirePlayWithinWait(next);
     const state = game ? `game ${game.index} at ${iso(game.game_date)} UTC is in ${game.state.type}` : "no game is running";
     if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${iso(next)} UTC to open registration`);
     reported = state;
