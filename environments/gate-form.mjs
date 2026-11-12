@@ -17,9 +17,9 @@
 // asks the fields cannot express — a different `tests` list, a `ppn_ref` — and
 // REPLACES the pin fields when filled.
 //
-// A pin is `owner/repo@tag`, or `artifact:<name>` for a build uploaded in the
-// calling run. One field per chain either way, so what is being tested reads off
-// the call: nothing is inferred from filenames. The two client fields are not pins:
+// A pin is `owner/repo@tag`, or `artifact:<name>` for a runtime or node binary built
+// and uploaded in the calling run. One field per chain or binary slot either way, so
+// what is being tested reads off the call. The two client fields are not pins:
 // they pick the product-sdk packages and truapi release the tests run on, and are
 // split out of the overlay before the overlay is applied to the manifest.
 
@@ -36,6 +36,11 @@ export const FIELDS = [
     id: 'binary_polkadot_omni_node',
     label: 'Node binary: polkadot-omni-node',
     paths: [['binaries', 'polkadot-omni-node']],
+  },
+  {
+    id: 'binary_polkadot_parachain',
+    label: 'Node binary: polkadot-parachain',
+    paths: [['binaries', 'polkadot-parachain']],
   },
   {
     id: 'runtime_relay',

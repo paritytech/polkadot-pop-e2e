@@ -6,12 +6,16 @@
 // what it is called: every runtime carries its spec_name, and the chain we are
 // gating reports the same one. So a caller may name its files anything.
 //
+// A node binary declares nothing we can read, so a binary slot takes the file
+// named after the slot — `binary_polkadot: artifact:node-binaries` finds
+// `polkadot` — together with the slot's siblings from the same directory.
+//
 // `artifact:<name>/<path>` names the file outright, for the rare artifact holding
 // two runtimes that declare the same spec_name.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHAINS, parseReleaseRef } from './release-map.mjs';
+import { CHAINS, NODE_BINARIES, parseReleaseRef } from './release-map.mjs';
 import { rpc } from './baseline-scan.mjs';
 import { runtimeSpecOf, decompressRuntime } from './wasm-spec.mjs';
 
@@ -20,6 +24,7 @@ import { runtimeSpecOf, decompressRuntime } from './wasm-spec.mjs';
  * @param io.list    artifact name -> absolute paths of the files in it.
  * @param io.specOf  file -> { specName, compressed }.
  * @param io.liveSpecName  chain -> spec_name that chain reports, or null.
+ * @param io.makeExecutable  file -> void; download-artifact drops the exec bit.
  * @returns notes describing each resolution, for the log.
  */
 export async function resolveArtifactPins(manifest, io) {
@@ -74,6 +79,32 @@ export async function resolveArtifactPins(manifest, io) {
       `  ${chain.padEnd(14)} <- ${hits[0].file} (declares ${expected}${hits.length > 1 ? ', compressed' : ''})`
     );
   }
+
+  for (const [slot, pin] of Object.entries(manifest.binaries ?? {})) {
+    if (!String(pin).startsWith('artifact:')) continue;
+    const { artifact, within } = parseReleaseRef(pin);
+    const files = io.list(artifact);
+    const hits = files.filter((file) => (within ? file.endsWith(within) : path.basename(file) === slot));
+    if (hits.length !== 1) {
+      throw new Error(
+        `${slot}: "${pin}" needs exactly one file ${within ? `ending in ${within}` : `named ${slot}`} ` +
+          `in artifact ${artifact}, found ${hits.length}. It holds: ` +
+          `${files.map((file) => path.basename(file)).join(', ') || '(nothing)'}`
+      );
+    }
+    const binary = hits[0];
+    const siblings = (NODE_BINARIES[slot]?.siblings ?? []).map((name) => path.join(path.dirname(binary), name));
+    const absent = siblings.filter((file) => !files.includes(file)).map((file) => path.basename(file));
+    if (absent.length) {
+      throw new Error(
+        `${slot}: artifact ${artifact} lacks ${absent.join(' and ')} next to ${path.basename(binary)}; ` +
+          `${slot} runs only with them, built from the same source`
+      );
+    }
+    for (const file of [binary, ...siblings]) io.makeExecutable(file);
+    manifest.binaries[slot] = `file:${binary}`;
+    notes.push(`  ${slot.padEnd(14)} <- ${binary}`);
+  }
   return notes;
 }
 
@@ -88,7 +119,8 @@ function safeSpec(io, file) {
 if (process.argv[1] && import.meta.url === (await import('node:url')).pathToFileURL(process.argv[1]).href) {
   const [manifestPath] = process.argv.slice(2);
   const dirFlag = process.argv.indexOf('--dir');
-  const dir = dirFlag === -1 ? null : process.argv[dirFlag + 1];
+  // Absolute, because the engine reads a binary's file: pin from its own directory.
+  const dir = dirFlag === -1 ? null : path.resolve(process.argv[dirFlag + 1]);
   const namesOnly = process.argv.includes('--names');
   if (!manifestPath || (!dir && !namesOnly)) {
     console.error('usage: artifact-pins.mjs <manifest.json> (--names | --dir <dir>)');
@@ -97,13 +129,14 @@ if (process.argv[1] && import.meta.url === (await import('node:url')).pathToFile
 
   // --names: the download pattern this manifest needs, empty when it needs none.
   // Braces because download-artifact takes one pattern and a caller may pin two
-  // chains to two different artifacts.
+  // chains or binaries to different artifacts.
   if (namesOnly) {
     const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const pins = [...Object.values(m.chains ?? {}).map((c) => c?.runtime), ...Object.values(m.binaries ?? {})];
     const names = [
       ...new Set(
-        Object.values(m.chains ?? {})
-          .map((c) => String(c?.runtime ?? ''))
+        pins
+          .map((pin) => String(pin ?? ''))
           .filter((pin) => pin.startsWith('artifact:'))
           .map((pin) => parseReleaseRef(pin).artifact)
       ),
@@ -144,6 +177,7 @@ if (process.argv[1] && import.meta.url === (await import('node:url')).pathToFile
         return null;
       }
     },
+    makeExecutable: (file) => fs.chmodSync(file, 0o755),
   });
 
   if (notes.length) {

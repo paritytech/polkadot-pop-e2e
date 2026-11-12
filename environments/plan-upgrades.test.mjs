@@ -69,6 +69,37 @@ describe('steady state', () => {
   });
 });
 
+// People on westend has no sudo: the gate cannot apply its runtime, so it has to
+// wait for the engine to enact what the bite authorized instead of trying itself.
+describe('chains the bite authorized', () => {
+  const supplied = (over = {}) =>
+    plan({
+      supplied: ['people'],
+      bite: ['people'],
+      specOf: specs({ 'people.wasm': 1000037 }),
+      ...over,
+    });
+
+  it('are waited for at their new version instead of upgraded by the gate', () => {
+    const result = supplied();
+    assert.deepEqual(result.keep, []);
+    assert.deepEqual(result.enacting, [['people', 1000037]]);
+    assert.deepEqual(result.errors, []);
+  });
+
+  it('still fail a build that does not raise spec_version', () => {
+    const result = supplied({ specOf: specs({ 'people.wasm': 1000036 }) });
+    assert.deepEqual(result.enacting, []);
+    assert.match(result.errors[0], /people: the supplied build declares spec_version 1000036/);
+  });
+
+  it('fail when the authorized blob declares no readable version', () => {
+    const result = supplied({ specOf: specs({}) });
+    assert.deepEqual(result.enacting, []);
+    assert.match(result.errors[0], /people: could not read the spec_version/);
+  });
+});
+
 describe('what fails', () => {
   it('fails a supplied build that would install nothing', () => {
     const { keep, errors } = plan({ supplied: ['people'] });

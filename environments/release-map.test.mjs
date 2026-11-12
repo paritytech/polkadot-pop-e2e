@@ -17,6 +17,7 @@ import {
   allowedSources,
   binaryPlan,
   candidateMatrix,
+  findAsset,
   mergeTarget,
   envTagPins,
   parseReleaseRef,
@@ -531,11 +532,110 @@ describe('file: pins', () => {
   });
 
   it('every checked-in manifest is free of them', () => {
-    for (const net of ['previewnet', 'paseo-next-v2', 'devnet']) {
+    for (const net of ['previewnet', 'paseo-next-v2', 'devnet', 'westend']) {
       const m = JSON.parse(
         fs.readFileSync(path.join(import.meta.dirname, 'networks', `${net}.json`), 'utf8')
       );
       assert.doesNotThrow(() => assertNoLocalPins(m), net);
     }
+  });
+});
+
+const westend = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'networks', 'westend.json'), 'utf8'));
+
+// Westend runtimes are published with the spec version in the asset name, and one
+// release carries a runtime per Westend chain whose names share that suffix.
+describe('asset name patterns', () => {
+  const release = (...names) => ({ tag_name: 'polkadot-weekly2026w46-rc1', assets: names.map((name) => ({ name })) });
+  const relay = 'westend_runtime-v*.compact.compressed.wasm';
+
+  it("finds the one asset a pattern matches, not another chain's", () => {
+    const asset = findAsset(
+      release('asset-hub-westend_runtime-v1025006.compact.compressed.wasm', 'westend_runtime-v1025004.compact.compressed.wasm'),
+      relay
+    );
+    assert.equal(asset.name, 'westend_runtime-v1025004.compact.compressed.wasm');
+  });
+
+  it('finds nothing in a release without the runtime', () => {
+    assert.equal(findAsset(release('polkadot', 'eth-rpc'), relay), null);
+  });
+
+  it('fails when a pattern matches two assets', () => {
+    assert.throws(
+      () =>
+        findAsset(
+          release('westend_runtime-v1025004.compact.compressed.wasm', 'westend_runtime-v1025005.compact.compressed.wasm'),
+          relay
+        ),
+      /polkadot-weekly2026w46-rc1 carries 2 assets matching westend_runtime-v\*/
+    );
+  });
+
+  it('keeps an exact name exact', () => {
+    const paseo = release('paseo_runtime.compressed.wasm', 'paseo_fast_runtime.compressed.wasm');
+    assert.equal(findAsset(paseo, 'paseo_runtime.compressed.wasm').name, 'paseo_runtime.compressed.wasm');
+    assert.equal(findAsset(paseo, 'paseo.wasm'), null);
+  });
+});
+
+describe('westend', () => {
+  it('validates the checked-in manifest and resolves every chain to a pattern', () => {
+    validateManifest(westend);
+    assert.deepEqual(
+      Object.fromEntries(runtimePlan(westend).map((entry) => [entry.chain, entry.asset])),
+      {
+        relay: 'westend_runtime-v*.compact.compressed.wasm',
+        'asset-hub': 'asset-hub-westend_runtime-v*.compact.compressed.wasm',
+        people: 'people-westend_runtime-v*.compact.compressed.wasm',
+      }
+    );
+  });
+
+  // People has no sudo, so only the bite can authorize a People runtime under test.
+  it('routes a moved People runtime to the bite, and nothing else', () => {
+    const bitten = (target) => candidateMatrix(westend, validateManifest(mergeTarget(westend, target)))[0].bite;
+    assert.deepEqual(bitten({ chains: { people: { runtime: 'artifact:westend-runtimes' } } }), ['people']);
+    assert.deepEqual(bitten({ chains: { 'asset-hub': { runtime: 'artifact:westend-runtimes' } } }), []);
+    assert.deepEqual(candidateMatrix(westend, westend)[0].bite, []);
+  });
+
+  it('runs on the engine branch that carries the network, unlike previewnet', () => {
+    assert.equal(candidateMatrix(westend, westend)[0].ppnRef, 'network/westend');
+    assert.equal(candidateMatrix(previewnet, previewnet)[0].ppnRef, '');
+  });
+});
+
+// polkadot-sdk gates its unreleased node binaries: the build arrives as an artifact,
+// becomes a file on the runner, and reaches the engine as a file: override.
+describe('binary builds from the calling run', () => {
+  const built = (pin) => validateManifest(mergeTarget(westend, { binaries: { polkadot: pin } }));
+
+  it('pass validation without a release allow-list', () => {
+    assert.doesNotThrow(() => built('artifact:node-binaries'));
+  });
+
+  it('reach the engine as a file: override once resolved', () => {
+    assert.ok(ppnOverrides(built('file:/work/incoming/node/polkadot')).split(',').includes('polkadot=file:/work/incoming/node/polkadot'));
+  });
+
+  it('never reach the engine unresolved', () => {
+    assert.throws(() => ppnOverrides(built('artifact:node-binaries')), /binaries\.polkadot still pins artifact:node-binaries/);
+  });
+
+  // The shape `ppn show --json` reports for a file: override.
+  it('are what the engine is checked against', async () => {
+    const { assertEngineAgrees } = await import('./assert-engine.mjs');
+    const manifest = built('file:/work/incoming/node/polkadot');
+    const sdk = { repo: 'paritytech/polkadot-sdk', tag: 'polkadot-stable2609-1', overridden: true };
+    const show = {
+      chains: [
+        { key: 'relay', binary: { name: 'polkadot', repo: 'file:/work/incoming/node/polkadot', tag: 'local', overridden: true } },
+        { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...sdk } },
+        { key: 'people', binary: { name: 'polkadot-parachain', ...sdk } },
+      ],
+      binaries: [{ name: 'eth-rpc', ...sdk }],
+    };
+    assert.deepEqual(assertEngineAgrees(manifest, show).errors, []);
   });
 });

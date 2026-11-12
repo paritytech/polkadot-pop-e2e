@@ -85,3 +85,49 @@ describe('when it cannot tell', () => {
     );
   });
 });
+
+// polkadot-sdk ships its unreleased node binaries as an artifact of the calling run;
+// the engine takes them only as `file:` overrides, and polkadot cannot validate a
+// parachain block without its two PVF workers next to it.
+describe('binary artifact: pins', () => {
+  const NODE = [
+    '/in/node/polkadot',
+    '/in/node/polkadot-execute-worker',
+    '/in/node/polkadot-prepare-worker',
+    '/in/node/polkadot-parachain',
+  ];
+  const westend = (binaries) => ({ network: 'westend', chains: {}, binaries });
+  const resolve = async (manifest, files = NODE) => {
+    const executable = [];
+    await resolveArtifactPins(manifest, io({ list: () => files, makeExecutable: (file) => executable.push(file) }));
+    return executable;
+  };
+
+  it('becomes a file: pin on the binary named after the slot, workers made executable with it', async () => {
+    const m = westend({ polkadot: 'artifact:node', 'polkadot-parachain': 'artifact:node' });
+    const executable = await resolve(m);
+    assert.equal(m.binaries.polkadot, 'file:/in/node/polkadot');
+    assert.equal(m.binaries['polkadot-parachain'], 'file:/in/node/polkadot-parachain');
+    assert.deepEqual(executable.sort(), [...NODE].sort());
+  });
+
+  it('leaves release pins alone', async () => {
+    const m = westend({ polkadot: 'paritytech/polkadot-sdk@polkadot-stable2609-1' });
+    await resolve(m);
+    assert.equal(m.binaries.polkadot, 'paritytech/polkadot-sdk@polkadot-stable2609-1');
+  });
+
+  it('fails when polkadot arrives without its PVF workers', async () => {
+    await assert.rejects(
+      () => resolve(westend({ polkadot: 'artifact:node' }), ['/in/node/polkadot', '/in/node/polkadot-execute-worker']),
+      /artifact node lacks polkadot-prepare-worker next to polkadot/
+    );
+  });
+
+  it('fails when the artifact has no file named after the slot', async () => {
+    await assert.rejects(
+      () => resolve(westend({ 'polkadot-parachain': 'artifact:node' }), ['/in/node/polkadot-omni-node']),
+      /needs exactly one file named polkadot-parachain in artifact node, found 0/
+    );
+  });
+});

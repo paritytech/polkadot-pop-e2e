@@ -36,21 +36,31 @@ on:
         default: false
       environment:
         description: >
-          Networks to gate, comma-separated — e.g. `previewnet,paseo-next-v2`.
-          Each gets its own fork, and the same overlay is applied to each.
+          Networks to gate, comma-separated — e.g. `previewnet,paseo-next-v2` or
+          `westend`. Each gets its own fork, and the same overlay is applied to each.
         type: string
         required: true
       binary_polkadot:
         description: >
-          Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it.
-          owner/repo@tag; never a built file. e.g.
-          paritytech/release-automation@polkadot-weekly2026w34-rc1
+          Node binary polkadot (+ its PVF workers) — the fork SPAWNS on it. Either a
+          release or a build uploaded in THIS run: `artifact:<name>[/<path>]`, the
+          artifact carrying polkadot, polkadot-execute-worker and
+          polkadot-prepare-worker side by side. e.g.
+          paritytech/release-automation@polkadot-weekly2026w34-rc1 or artifact:node-binaries
         type: string
         required: false
       binary_polkadot_omni_node:
         description: >
           Node binary polkadot-omni-node — one file every parachain execs, so this
-          moves all of them together. e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
+          moves all of them together. Same two forms as polkadot.
+          e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
+        type: string
+        required: false
+      binary_polkadot_parachain:
+        description: >
+          Node binary polkadot-parachain — what westend's parachains exec instead of
+          polkadot-omni-node. Same two forms as polkadot.
+          e.g. artifact:node-binaries
         type: string
         required: false
       runtime_relay:
@@ -147,7 +157,8 @@ on:
   # they cannot drift. Fill in only what you want tested; every empty field stays
   # at the canonical (deployed) pin from environments/networks/<environment>.json.
   # Every pin is an `owner/repo@tag` release ref; which release ASSET to take is
-  # resolved per network, so you never name files.
+  # resolved per network, so you never name files. A build uploaded in the calling
+  # run is `artifact:<name>`, which only a workflow_call can supply.
   #
   # `@latest` is accepted everywhere and resolves through the repo's GitHub "latest
   # release", with the run log naming the concrete tag it landed on. It is only
@@ -173,6 +184,7 @@ on:
           - previewnet
           - paseo-next-v2
           - devnet
+          - westend
           - previewnet,paseo-next-v2
         default: previewnet
       binary_polkadot:
@@ -188,6 +200,12 @@ on:
           Node binary polkadot-omni-node — one file every parachain execs, so this
           moves all of them together. Same sources as polkadot, `@latest` equally
           safe. e.g. paritytech/polkadot-sdk@polkadot-stable2606-1
+        required: false
+      binary_polkadot_parachain:
+        description: >
+          Node binary polkadot-parachain — what westend's parachains exec. Same
+          sources as polkadot, `@latest` equally safe.
+          e.g. paritytech/release-automation@polkadot-weekly2026w46-rc1
         required: false
       runtime_relay:
         description: >
@@ -322,6 +340,7 @@ jobs:
         env:
           GATE_BINARY_POLKADOT: ${{ inputs.binary_polkadot }}
           GATE_BINARY_POLKADOT_OMNI_NODE: ${{ inputs.binary_polkadot_omni_node }}
+          GATE_BINARY_POLKADOT_PARACHAIN: ${{ inputs.binary_polkadot_parachain }}
           GATE_RUNTIME_RELAY: ${{ inputs.runtime_relay }}
           GATE_RUNTIME_ASSET_HUB: ${{ inputs.runtime_asset_hub }}
           GATE_RUNTIME_PEOPLE: ${{ inputs.runtime_people }}
@@ -456,6 +475,9 @@ jobs:
     env:
       MANIFEST: candidate-manifest.json
       STEADY: ${{ matrix.candidate.steady }}
+      # Chains without sudo whose runtime under test the bite authorizes
+      # (CHAINS upgradeAt in environments/release-map.mjs).
+      BITE_CHAINS: ${{ join(matrix.candidate.bite, ' ') }}
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -491,11 +513,13 @@ jobs:
       # The plan job folded these into the pins; this job needs the bytes. Same
       # relative path, so the `file:` pins in the candidate manifest resolve.
 
+      # A run's own `ppn_ref` first, then the network's engine ref while the
+      # pinned engine release cannot run it (NETWORK_META ppnRef).
       - name: Checkout the engine (previewnet-engine)
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          ref: ${{ needs.plan.outputs.ppn_ref || env.PPN_REF_DEFAULT }}
+          ref: ${{ needs.plan.outputs.ppn_ref || matrix.candidate.ppnRef || env.PPN_REF_DEFAULT }}
           path: ppn
 
       - uses: pnpm/action-setup@v4
@@ -579,13 +603,19 @@ jobs:
       # FORK=1 so this also downloads (or, with FRESH_BITE=1, bites) the fork bundle.
       # The bite sometimes hangs indefinitely — a known zombie-bite issue; when it
       # works it finishes well inside 30 minutes (observed one CI hang past 2h) — so
-      # each attempt is capped and retried from a clean slate.
+      # each attempt is capped and retried from a clean slate. UPGRADES has the bite
+      # authorize the BITE_CHAINS runtimes; the engine applies them after spawn.
       - name: Ensure engine dependencies and fetch the fork bundle
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          upgrades=""
+          for chain in $BITE_CHAINS; do
+            entry=$(grep "^$chain=" upgrade-plan.env) || { echo "::error::no runtime resolved for $chain"; exit 1; }
+            upgrades="$upgrades $entry"
+          done
           for attempt in 1 2 3; do
-            if timeout 1800 make -C ppn ensure-deps FORK=1; then
+            if timeout 1800 make -C ppn ensure-deps FORK=1 UPGRADES="$upgrades"; then
               jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion)"' "ppn/$FORK_DIR_NAME/manifest.json"
               exit 0
             fi
@@ -678,7 +708,7 @@ jobs:
       - name: Decide which runtimes to upgrade
         run: |
           node environments/plan-upgrades.mjs \
-            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" > upgrades.env
+            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" --enacting enacting.env > upgrades.env
           echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
 
       # Before the upgrade: the last point the fork still runs live's code. Diagnosis only,
@@ -689,6 +719,30 @@ jobs:
         run: |
           pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" upgrades.env \
             --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
+
+      # The engine's enact-upgrades process applies what the bite authorized, through
+      # the relay's PVF pre-check and go-ahead, so this waits for the chain to report
+      # the new spec_version. Parachains before the relay, as the engine orders them.
+      - name: Wait for the runtimes the bite authorized
+        if: env.BITE_CHAINS != ''
+        run: |
+          set -uo pipefail
+          while IFS='=' read -r chain spec; do
+            [ -n "$chain" ] || continue
+            if [ "$chain" = relay ]; then port_var=RELAY_ALICE_PORT; else port_var="$(echo "$chain" | tr 'a-z-' 'A-Z_')_PORT"; fi
+            port=$(sed -n "s/^$port_var=//p" ppn/config/ports.env)
+            deadline=$((SECONDS + 7200))
+            until [ "$(curl -sS --max-time 10 -H 'Content-Type: application/json' \
+                       -d '{"jsonrpc":"2.0","id":1,"method":"state_getRuntimeVersion","params":[]}' \
+                       "http://127.0.0.1:$port" | jq -r '.result.specVersion // empty')" = "$spec" ]; do
+              if [ "$SECONDS" -gt "$deadline" ]; then
+                echo "::error::$chain did not enact spec_version $spec, authorized at bite, within 2 hours — see enact-upgrades in the fork logs"
+                exit 1
+              fi
+              sleep 30
+            done
+            echo "- $chain: enacted spec_version $spec (authorized at bite)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done < enacting.env
 
       - name: Upgrade each chain's runtime
         run: |

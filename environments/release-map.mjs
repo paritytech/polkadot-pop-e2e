@@ -2,15 +2,21 @@
 // release-gate workflow. Pure logic, unit-tested in release-map.test.mjs; talking to
 // the GitHub API lives in resolve.mjs.
 //
-// Asset names are exact, not patterns: they are release contracts, and an upstream
-// rename should fail the resolution loudly rather than fuzzy-match the wrong blob
-// into a chain. Adding a network (paseo-next-v2, dev-net, kusama, polkadot) means
-// adding its entry here and a manifest in this directory — nothing else.
+// Asset names are release contracts, and an upstream rename should fail the
+// resolution loudly rather than fuzzy-match the wrong blob into a chain. Most are
+// exact; a source that stamps the spec version into the name gets one `*` for it
+// (see findAsset), and a pattern still has to match exactly one asset. Adding a
+// network (kusama, polkadot) means adding its entry here and a manifest in this
+// directory — nothing else.
 
 /**
  * Per network, per chain: which engine binary slot the chain's nodes run (`node`),
- * and which repos may provide its runtime (`runtime` maps allowed repo → exact asset
- * name in that repo's releases).
+ * and which repos may provide its runtime (`runtime` maps allowed repo → asset name,
+ * or name pattern, in that repo's releases).
+ *
+ * `upgradeAt: 'bite'` marks a chain without sudo: a runtime under test cannot be
+ * applied after spawn, so the fork's bite authorizes it at import and the engine's
+ * `enact-upgrades` process applies it once the fork runs (see biteChains).
  *
  * `node` is engine wiring, read-only here: the engine keeps ONE file per binary slot
  * and every chain naming the same slot execs the same file. The manifest therefore
@@ -134,6 +140,40 @@ export const CHAINS = {
       },
     },
   },
+  // polkadot-sdk's own testnet. Its runtimes ship with the spec version in the
+  // asset name, on release-automation's weekly releases and on polkadot-sdk's
+  // stable and rc releases (not its patch releases). Asset Hub and People run
+  // builds no release publishes byte for byte, so the scan compares declared spec.
+  westend: {
+    relay: {
+      node: 'polkadot',
+      ws: 'wss://westend-rpc.polkadot.io',
+      scanPolicy: 'spec',
+      runtime: {
+        'paritytech/release-automation': 'westend_runtime-v*.compact.compressed.wasm',
+        'paritytech/polkadot-sdk': 'westend_runtime-v*.compact.compressed.wasm',
+      },
+    },
+    'asset-hub': {
+      node: 'polkadot-parachain',
+      ws: 'wss://westend-asset-hub-rpc.polkadot.io',
+      scanPolicy: 'spec',
+      runtime: {
+        'paritytech/release-automation': 'asset-hub-westend_runtime-v*.compact.compressed.wasm',
+        'paritytech/polkadot-sdk': 'asset-hub-westend_runtime-v*.compact.compressed.wasm',
+      },
+    },
+    people: {
+      node: 'polkadot-parachain',
+      ws: 'wss://westend-people-rpc.polkadot.io',
+      scanPolicy: 'spec',
+      upgradeAt: 'bite',
+      runtime: {
+        'paritytech/release-automation': 'people-westend_runtime-v*.compact.compressed.wasm',
+        'paritytech/polkadot-sdk': 'people-westend_runtime-v*.compact.compressed.wasm',
+      },
+    },
+  },
 };
 
 /**
@@ -146,6 +186,9 @@ export const CHAINS = {
  * second — collators author immediately, but parachains finalize nothing for up to
  * ~2 hours (observed live: one boundary alone did not assign cores). Previewnet
  * runs 1-minute epochs, so the same pipeline completes in minutes.
+ * `ppnRef` is the previewnet-engine ref a network's runs use while the engine
+ * release the gate pins (PPN_REF_DEFAULT) cannot run it yet; a run's own
+ * `ppn_ref` still wins.
  */
 export const NETWORK_META = {
   // freshBite until PPN publishes a bundle bitten WITH the transaction-storage wipe:
@@ -169,6 +212,9 @@ export const NETWORK_META = {
     gateable: false,
     blockedBy: 'engine: devnet asset-hub bite fails on the smol spec — needs a full raw chain-spec',
   },
+  // A shared-relay fork like paseo-next-v2's. Drop `ppnRef` once an engine release
+  // carries networks/westend.json.
+  westend: { freshBite: true, waitSeconds: 900, gateable: true, ppnRef: 'network/westend' },
 };
 
 /**
@@ -180,11 +226,16 @@ export const NETWORK_META = {
  *
  * Delivery is the engine's: each slot pin becomes a `PPN_BINARIES` override
  * (`ppnOverrides()`), applied inside PPN's loader so `fetch`, `start` and
- * `show --json` cannot disagree — the PVF workers travel with the polkadot binary
- * because the engine knows its own file set, not because we list them.
+ * `show --json` cannot disagree — the PVF workers travel with a released polkadot
+ * binary because the engine knows its own file set. A build from the calling run
+ * (`artifact:`) has to carry the slot's `siblings` next to the binary itself.
  */
 export const NODE_BINARIES = {
   polkadot: {
+    repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    siblings: ['polkadot-execute-worker', 'polkadot-prepare-worker'],
+  },
+  'polkadot-parachain': {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
   },
   'polkadot-omni-node': {
@@ -230,6 +281,12 @@ export const SERVICES = {
     },
   },
   devnet: {
+    'eth-rpc': {
+      override: 'eth-rpc',
+      repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    },
+  },
+  westend: {
     'eth-rpc': {
       override: 'eth-rpc',
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
@@ -285,10 +342,11 @@ export function platformAssetSuffix(platform = process.platform, arch = process.
  *   artifact:<name>       a build uploaded in the calling run, under that
  *                         artifact name. Which file inside it is this chain's
  *                         runtime is decided by what each blob declares, not by
- *                         its filename. `artifact:<name>/<path>` names the file
+ *                         its filename; a binary slot takes the file named after
+ *                         the slot. `artifact:<name>/<path>` names the file
  *                         outright when a caller ships two for one chain.
- *   file:<path>           a wasm already on disk — what artifact: resolves to
- *                         once downloaded.
+ *   file:<path>           a wasm or binary already on disk — what artifact:
+ *                         resolves to once downloaded.
  *
  * The last two are legal only in a temporary overlay; see assertNoLocalPins.
  */
@@ -449,6 +507,24 @@ export function runtimePlan(manifest) {
 }
 
 /**
+ * The one asset of `release` that `name` means: an exact asset name, or a pattern
+ * whose `*` stands for any run of characters (`westend_runtime-v*.compact.compressed.wasm`).
+ * Returns null when nothing matches; fails when a pattern matches several assets.
+ */
+export function findAsset(release, name) {
+  const parts = name.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`^${parts.join('.*')}$`);
+  const matches = (release.assets ?? []).filter((asset) => pattern.test(asset.name));
+  if (matches.length > 1) {
+    throw new Error(
+      `${release.tag_name} carries ${matches.length} assets matching ${name} ` +
+        `(${matches.map((asset) => asset.name).join(', ')}), the pattern has to match exactly one`
+    );
+  }
+  return matches[0] ?? null;
+}
+
+/**
  * The binary-delivery plan. Slot and `override` service pins are validated here but
  * delivered by the engine (see ppnOverrides); `plan` carries only the release files
  * WE download — services delivered by replacing the engine's copies post-fetch.
@@ -467,6 +543,8 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
       );
     }
     const ref = parseReleaseRef(ref0);
+    // A build from the calling run came from no release, so no allow-list applies.
+    if (ref.artifact || ref.local) continue;
     if (!source.repos.includes(ref.repo)) {
       throw new Error(
         `${manifest.network}: ${slot} may come from ${source.repos.join(' or ')}, manifest says ${ref.repo}`
@@ -505,7 +583,15 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
  */
 export function ppnOverrides(manifest) {
   binaryPlan(manifest, ''); // reject bad slots/repos before emitting anything
-  const entries = Object.entries(manifest.binaries ?? {}).map(([slot, ref]) => `${slot}=${ref}`);
+  const entries = Object.entries(manifest.binaries ?? {}).map(([slot, ref]) => {
+    if (parseReleaseRef(ref).artifact) {
+      throw new Error(
+        `binaries.${slot} still pins ${ref} — environments/artifact-pins.mjs resolves it to a ` +
+          `file before the engine sees it, so the download step did not run`
+      );
+    }
+    return `${slot}=${ref}`;
+  });
   const services = SERVICES[manifest.network] ?? {};
   for (const [name, ref] of Object.entries(manifest.services ?? {})) {
     if (services[name]?.override) entries.push(`${services[name].override}=${ref}`);
@@ -594,6 +680,17 @@ export function transitions(canonical, manifest) {
 }
 
 /**
+ * The chains whose runtime under test the fork's bite has to authorize: those the
+ * map marks `upgradeAt: 'bite'` and whose pin `manifest` moves away from `canonical`.
+ */
+export function biteChains(canonical, manifest) {
+  const wiring = CHAINS[manifest.network];
+  return Object.entries(manifest.chains ?? {})
+    .filter(([chain, entry]) => wiring[chain]?.upgradeAt === 'bite' && canonical.chains?.[chain]?.runtime !== entry.runtime)
+    .map(([chain]) => chain);
+}
+
+/**
  * The candidate matrix for a gate run: which configurations to test, each as a
  * complete synthesized manifest.
  *
@@ -616,6 +713,8 @@ export function candidateMatrix(base, head) {
       ...c,
       steady: pinsOf(base ?? head) === pinsOf(c.manifest),
       transitions: transitions(base ?? head, c.manifest),
+      bite: biteChains(base ?? head, c.manifest),
+      ppnRef: NETWORK_META[head.network]?.ppnRef ?? '',
     }));
   const target = {
     id: 'target',

@@ -86,6 +86,27 @@ Three ways to start one:
   A pin a named network does not carry fails that network's run, naming the chain,
   rather than silently skipping it.
 
+  polkadot-sdk gates its unreleased Westend runtimes and node binaries the same
+  way, pinning each to an artifact its own run uploaded:
+
+  ```yaml
+  uses: paritytech/polkadot-pop-e2e/.github/workflows/release-gate.yml@main
+  with:
+    environment: westend
+    runtime_relay: artifact:westend-runtimes
+    runtime_asset_hub: artifact:westend-runtimes
+    runtime_people: artifact:westend-runtimes
+    # polkadot needs polkadot-execute-worker and polkadot-prepare-worker
+    # in the same artifact, next to it.
+    binary_polkadot: artifact:node-binaries
+    binary_polkadot_parachain: artifact:node-binaries
+  ```
+
+  Each runtime is matched to its chain by the spec_name it declares, so one
+  artifact can carry all three. A binary is the file named after its slot.
+  People on Westend has no sudo, so its runtime is authorized when the fork is
+  bitten and applied by the engine once the fork runs.
+
 When a run fails, its summary also says which runtime change most likely caused
 it. That is a diff of the forked runtime against the candidate, limited to what
 product-sdk uses, with each failing test placed next to the entry its error names.
