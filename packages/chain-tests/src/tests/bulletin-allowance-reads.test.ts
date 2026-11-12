@@ -9,13 +9,18 @@
  */
 import { randomBytes } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { AccountId, type PolkadotClient } from "polkadot-api";
+import { AccountId, Binary, type PolkadotClient } from "polkadot-api";
+import { xxhashAsHex } from "@polkadot/util-crypto";
 import { getBulletinAllowanceStatus, type CloudStorageApi } from "@parity/product-sdk-cloud-storage";
 import { createBulletinClient, type BulletinApi } from "../lib/client.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { getNetworkConfig, networkKey } from "../config/networks.js";
 
 type AuthorizationKey = Parameters<BulletinApi["query"]["TransactionStorage"]["Authorizations"]["getValue"]>[0];
+
+// twox128("TransactionStorage") ++ twox128("Authorizations"): every key of the map starts with this.
+const AUTHORIZATIONS_PREFIX =
+  xxhashAsHex("TransactionStorage", 128) + xxhashAsHex("Authorizations", 128).slice(2);
 
 /** The two reads `getBulletinAllowanceStatus` makes, each forced to the block `at`. */
 function pinnedTo(api: BulletinApi, at: string): CloudStorageApi {
@@ -76,15 +81,34 @@ describe("Bulletin allowance reads (product-sdk)", () => {
     const blockNow = Number(await api.query.System.Number.getValue({ at }));
     expect(blockNow).toBe(finalized.number);
 
-    const entries = await api.query.TransactionStorage.Authorizations.getEntries({ at });
-    const found = entries.find((entry) => entry.keyArgs[0].type === "Account");
-    if (!found) {
+    // Pages through the map's keys at `at` until one is Account-scoped. The key is
+    // prefix ++ hash ++ scope variant (1 byte, Account = 0x00) ++ AccountId32, so the
+    // last 33 bytes hold the variant and the account.
+    const PAGE = 50;
+    let key: string | undefined;
+    let startKey: string | null = null;
+    for (;;) {
+      const page: string[] = await client._request<string[], [string, number, string | null, string]>(
+        "state_getKeysPaged",
+        [AUTHORIZATIONS_PREFIX, PAGE, startKey, at],
+      );
+      key = page.find((k: string) => k.slice(-66, -64) === "00");
+      if (key || page.length < PAGE) break;
+      startKey = page[page.length - 1];
+    }
+    if (!key) {
       ctx.skip(
         `no Account-scoped Bulletin authorization on ${networkKey()} at finalized #${finalized.number}`,
       );
+      return;
     }
-    const address = found!.keyArgs[0].value as string;
-    const { expiration, extent } = found!.value;
+    const address = AccountId().dec(Binary.fromHex(`0x${key.slice(-64)}`));
+    const found = await api.query.TransactionStorage.Authorizations.getValue(
+      { type: "Account", value: address },
+      { at },
+    );
+    if (!found) throw new Error(`Authorizations key ${key} has no value on ${networkKey()}`);
+    const { expiration, extent } = found;
 
     // Raw values from the entry, mirroring the SDK's formulas.
     const rawTransactions = extent.transactions_allowance - extent.transactions;
