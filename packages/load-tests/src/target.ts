@@ -85,7 +85,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
       HOST_CLI_PEOPLE_WS: rpc[0],
       HOST_CLI_ASSET_HUB_WS: config.assetHub.ws,
       HOST_CLI_BULLETIN_WS: config.bulletin.ws,
-      ...(config.identityBackend && { HOST_CLI_IDENTITY_BACKEND_BASE: config.identityBackend }),
+      ...(config.identityBackend && { HOST_CLI_IDENTITY_BACKEND_BASE: `${config.identityBackend}/api/v1` }),
     },
   };
 }
