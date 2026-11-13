@@ -21,6 +21,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { observeChain } from './baseline-scan.mjs';
+import { CHAINS } from './release-map.mjs';
 import { runtimeSpecOf } from './wasm-spec.mjs';
 
 /**
@@ -99,10 +101,64 @@ export function planUpgrades({ plan, running, supplied, specOf, steady = false, 
   return { keep, enacting, notes, errors };
 }
 
-// CLI: emits the surviving `chain=wasm` lines on stdout, the reasoning on stderr.
-// `--enacting <file>` receives `chain=spec_version` for the chains the engine applies
-// from the bite (BITE_CHAINS, space-separated).
+const readPlanFile = (file) =>
+  readFileSync(file, 'utf8')
+    .split('\n')
+    .map((line) => line.trim().split('='))
+    .filter(([chain, wasm]) => chain && wasm);
+
+const suppliedChains = (candidate) =>
+  Object.entries(candidate.chains ?? {})
+    .filter(([, c]) => String(c.runtime ?? '').startsWith('file:'))
+    .map(([chain]) => chain);
+
+const specOf = (wasm) => runtimeSpecOf(readFileSync(wasm)).specVersion;
+
+function report(network, notes, errors) {
+  console.error(`Runtime upgrade plan for ${network}:`);
+  for (const note of notes) console.error(note);
+  for (const error of errors) console.error(`::error::${error}`);
+  if (errors.length) process.exit(1);
+}
+
+// CLI, two modes, the reasoning on stderr:
+//
+//   plan-upgrades.mjs --bite <upgrade-plan.env> <candidate-manifest.json>
+//     Before the fork: of the BITE_CHAINS (space-separated), the `chain=wasm` lines to
+//     authorize at bite, judged against what live runs now by the same rules as below.
+//   plan-upgrades.mjs <upgrade-plan.env> <fork-manifest.json> <candidate-manifest.json> [--enacting <file>]
+//     After the fork: the `chain=wasm` lines to upgrade. `--enacting <file>` receives
+//     `chain=spec_version` for the BITE_CHAINS the engine applies.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const bite = (process.env.BITE_CHAINS ?? '').split(/\s+/).filter(Boolean);
+
+  if (process.argv[2] === '--bite') {
+    const [planFile, candidateManifestFile] = process.argv.slice(3);
+    if (!planFile || !candidateManifestFile) {
+      console.error('usage: plan-upgrades.mjs --bite <upgrade-plan.env> <candidate-manifest.json>');
+      process.exit(2);
+    }
+    const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
+    const plan = readPlanFile(planFile).filter(([chain]) => bite.includes(chain));
+    const running = Object.fromEntries(
+      await Promise.all(
+        plan.map(async ([chain]) => [chain, (await observeChain(CHAINS[candidate.network][chain].ws)).specVersion]),
+      ),
+    );
+    const { enacting, notes, errors } = planUpgrades({
+      plan,
+      running,
+      supplied: suppliedChains(candidate),
+      specOf,
+      steady: process.env.STEADY === 'true',
+      bite,
+    });
+    report(candidate.network, notes, errors);
+    const authorize = new Set(enacting.map(([chain]) => chain));
+    console.log(plan.filter(([chain]) => authorize.has(chain)).map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));
+    process.exit(0);
+  }
+
   const [planFile, forkManifestFile, candidateManifestFile] = process.argv.slice(2);
   const enactingFlag = process.argv.indexOf('--enacting');
   const enactingFile = enactingFlag === -1 ? null : process.argv[enactingFlag + 1];
@@ -112,35 +168,22 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     );
     process.exit(2);
   }
-
-  const fork = JSON.parse(readFileSync(forkManifestFile, 'utf8'));
-  const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
-  const bite = (process.env.BITE_CHAINS ?? '').split(/\s+/).filter(Boolean);
   if (bite.length && !enactingFile) {
-    console.error(`BITE_CHAINS names ${bite.join(', ')}, so --enacting <file> is required`);
+    console.error(`BITE_CHAINS lists ${bite.join(', ')}, so --enacting <file> is required`);
     process.exit(2);
   }
 
+  const fork = JSON.parse(readFileSync(forkManifestFile, 'utf8'));
+  const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
   const { keep, enacting, notes, errors } = planUpgrades({
-    plan: readFileSync(planFile, 'utf8')
-      .split('\n')
-      .map((line) => line.trim().split('='))
-      .filter(([chain, wasm]) => chain && wasm),
-    running: Object.fromEntries(
-      Object.entries(fork.chains ?? {}).map(([chain, c]) => [chain, c.specVersion]),
-    ),
-    supplied: Object.entries(candidate.chains ?? {})
-      .filter(([, c]) => String(c.runtime ?? '').startsWith('file:'))
-      .map(([chain]) => chain),
-    specOf: (wasm) => runtimeSpecOf(readFileSync(wasm)).specVersion,
+    plan: readPlanFile(planFile),
+    running: Object.fromEntries(Object.entries(fork.chains ?? {}).map(([chain, c]) => [chain, c.specVersion])),
+    supplied: suppliedChains(candidate),
+    specOf,
     steady: process.env.STEADY === 'true',
     bite,
   });
-
-  console.error(`Runtime upgrade plan for ${candidate.network}:`);
-  for (const note of notes) console.error(note);
-  for (const error of errors) console.error(`::error::${error}`);
-  if (errors.length) process.exit(1);
+  report(candidate.network, notes, errors);
   console.log(keep.map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));
   if (enactingFile) {
     writeFileSync(enactingFile, enacting.map(([chain, spec]) => `${chain}=${spec}\n`).join(''));

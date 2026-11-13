@@ -476,8 +476,12 @@ jobs:
       MANIFEST: candidate-manifest.json
       STEADY: ${{ matrix.candidate.steady }}
       # Chains without sudo whose runtime under test the bite authorizes
-      # (CHAINS upgradeAt in environments/release-map.mjs).
+      # (CHAINS upgradeAt in environments/release-map.mjs). The fork step narrows it to
+      # the ones the planner would upgrade against live.
       BITE_CHAINS: ${{ join(matrix.candidate.bite, ' ') }}
+      # A parachain enacts validation_upgrade_delay relay blocks after the PVF pre-check:
+      # 100 blocks, 10 minutes, on Westend, which the engine's 10-minute default misses.
+      ENACT_TIMEOUT_MIN: 30
     steps:
       # This workflow's OWN repo. A reusable workflow's `actions/checkout` takes
       # the CALLER's repository by default, so a call from elsewhere would check
@@ -602,18 +606,19 @@ jobs:
       # The bite sometimes hangs indefinitely — a known zombie-bite issue; when it
       # works it finishes well inside 30 minutes (observed one CI hang past 2h) — so
       # each attempt is capped and retried from a clean slate. UPGRADES has the bite
-      # authorize the BITE_CHAINS runtimes; the engine applies them after spawn.
+      # authorize the BITE_CHAINS runtimes the planner would upgrade against live; the
+      # engine applies them after spawn.
       - name: Ensure engine dependencies and fetch the fork bundle
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           upgrades=""
-          for chain in $BITE_CHAINS; do
-            entry=$(grep "^$chain=" upgrade-plan.env) || { echo "::error::no runtime resolved for $chain"; exit 1; }
-            upgrades="$upgrades $entry"
-          done
+          if [ -n "$BITE_CHAINS" ]; then
+            upgrades=$(node environments/plan-upgrades.mjs --bite upgrade-plan.env "$MANIFEST")
+            echo "BITE_CHAINS=$(echo "$upgrades" | sed 's/=.*//' | xargs)" >> "$GITHUB_ENV"
+          fi
           for attempt in 1 2 3; do
-            if timeout 1800 make -C ppn ensure-deps FORK=1 UPGRADES="$upgrades"; then
+            if timeout 1800 make -C ppn ensure-deps FORK=1 UPGRADES="$(echo "$upgrades" | xargs)"; then
               jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion)"' "ppn/$FORK_DIR_NAME/manifest.json"
               exit 0
             fi
@@ -645,8 +650,8 @@ jobs:
         run: make -C ppn kill || true
 
       # Two attempts: fresh-bite spawns have a rare restore hiccup where a validator
-      # never reports up ("Did not finalize blocks in sequential order" family) — a
-      # FORK=1 restart wipes the data dir and re-restores the bundle, which clears it.
+      # never reports up ("Did not finalize blocks in sequential order" family) — CLEAN=1
+      # wipes the data dir so the retry re-restores the bundle, which clears it.
       # FRESH_BITE=0: spawn the bundle the step above bit. Biting again here would drop
       # the runtimes that bite authorized.
       - name: Start the fork on the manifest's binaries
@@ -655,7 +660,7 @@ jobs:
         run: |
           for attempt in 1 2; do
             make -C ppn kill >/dev/null 2>&1 || true
-            nohup make -C ppn start FORK=1 FRESH_BITE=0 > /tmp/fork-spawn.log 2>&1 &
+            nohup make -C ppn start FORK=1 FRESH_BITE=0 CLEAN=1 > /tmp/fork-spawn.log 2>&1 &
             pid=$!
             # Poll for the relay, but move on the moment the spawn dies — otherwise a
             # make failure in the first second still burns the full timeout.
@@ -688,9 +693,10 @@ jobs:
         run: node ppn/bin/ppn.mjs fork verify "$GITHUB_WORKSPACE/ppn/$FORK_DIR_NAME" 60
 
       # Relay first (plan order): parachain upgrades pass through the relay's PVF
-      # pre-check, so the upgraded relay validates its parachains' new code. A blob the
-      # fork already runs is a built-in no-op; each real upgrade exits only after
-      # enactment plus five finalized blocks.
+      # pre-check, so the upgraded relay validates its parachains' new code. A chain the
+      # bite authorized is the exception: the engine applies it at spawn, against the
+      # relay the fork took from live. A blob the fork already runs is a built-in no-op;
+      # each real upgrade exits only after enactment plus five finalized blocks.
       #
       # Downgrades fail the gate: a manifest pin behind what production runs means the
       # manifest is stale, and silently rolling the fork back would gate the wrong
@@ -711,18 +717,20 @@ jobs:
             upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" --enacting enacting.env > upgrades.env
           echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
 
-      # Before the upgrade: the last point the fork still runs live's code. Diagnosis only,
-      # never fails the gate; environments/README.md explains the diff.
+      # Before the upgrade: the last point the fork still runs live's code. The bite's
+      # chains count too: the engine's enactment waits out the relay's upgrade delay.
+      # Diagnosis only, never fails the gate; environments/README.md explains the diff.
       - name: Capture the runtime diff
         continue-on-error: true
         timeout-minutes: 10
         run: |
-          pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" upgrades.env \
+          { cat upgrades.env; for chain in $BITE_CHAINS; do grep "^$chain=" upgrade-plan.env; done; } > diff-plan.env
+          pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" diff-plan.env \
             --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
 
       # The engine's enact-upgrades process applies what the bite authorized, through
       # the relay's PVF pre-check and go-ahead, so this waits for the chain to report
-      # the new spec_version. Parachains before the relay, as the engine orders them.
+      # the new spec_version, against the relay the fork took from live.
       - name: Wait for the runtimes the bite authorized
         if: env.BITE_CHAINS != ''
         run: |
@@ -731,12 +739,13 @@ jobs:
             [ -n "$chain" ] || continue
             if [ "$chain" = relay ]; then port_var=RELAY_ALICE_PORT; else port_var="$(echo "$chain" | tr 'a-z-' 'A-Z_')_PORT"; fi
             port=$(sed -n "s/^$port_var=//p" ppn/config/ports.env)
-            deadline=$((SECONDS + 7200))
+            deadline=$((SECONDS + ENACT_TIMEOUT_MIN * 60))
             until [ "$(curl -sS --max-time 10 -H 'Content-Type: application/json' \
                        -d '{"jsonrpc":"2.0","id":1,"method":"state_getRuntimeVersion","params":[]}' \
                        "http://127.0.0.1:$port" | jq -r '.result.specVersion // empty')" = "$spec" ]; do
               if [ "$SECONDS" -gt "$deadline" ]; then
-                echo "::error::$chain did not enact spec_version $spec, authorized at bite, within 2 hours — see enact-upgrades in the fork logs"
+                echo "::error::$chain did not enact spec_version $spec, authorized at bite, within $ENACT_TIMEOUT_MIN minutes"
+                tail -20 ppn/data*/enact-upgrades/enact-upgrades.log 2>/dev/null || true
                 exit 1
               fi
               sleep 30
@@ -745,10 +754,6 @@ jobs:
           done < enacting.env
 
       - name: Upgrade each chain's runtime
-        env:
-          # A parachain enacts validation_upgrade_delay relay blocks after the PVF pre-check:
-          # 100 blocks, 10 minutes, on Westend, which the engine's 10-minute default misses.
-          ENACT_TIMEOUT_MIN: 30
         run: |
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
           # going against a wedged network.

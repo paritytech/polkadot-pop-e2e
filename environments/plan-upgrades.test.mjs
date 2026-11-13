@@ -80,7 +80,7 @@ describe('chains the bite authorized', () => {
       ...over,
     });
 
-  it('are waited for at their new version instead of upgraded by the gate', () => {
+  it('enact at their new version through the engine, not through the gate', () => {
     const result = supplied();
     assert.deepEqual(result.keep, []);
     assert.deepEqual(result.enacting, [['people', 1000037]]);
