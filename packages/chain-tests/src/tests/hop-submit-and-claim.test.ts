@@ -62,8 +62,13 @@ async function pollClaim(
  * Retry on `HopNetworkError`. hop-sdk connects lazily without retrying, so a
  * single dropped WebSocket handshake would otherwise fail the whole suite.
  * The SDK opens a fresh socket on the next call after an error.
+ * The default budget (~3 min) outlasts a HOP collator restart, during which
+ * the endpoint refuses connections.
  */
-async function withConnectRetry<T>(fn: () => Promise<T>, delaysMs = [2_000, 5_000]): Promise<T> {
+async function withConnectRetry<T>(
+  fn: () => Promise<T>,
+  delaysMs = [2_000, 5_000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000, 30_000],
+): Promise<T> {
   for (const delayMs of delaysMs) {
     try {
       return await fn();
