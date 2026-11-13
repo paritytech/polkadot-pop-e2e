@@ -43,6 +43,7 @@ curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/p
 | `allowances.test.ts` | PGAS claim → Revive contract call paid in PGAS |
 | `statement.test.ts` | Statement Store write + read against People chain after IB attestation |
 | `storage.test.ts` | LTS allowance claim on People → XCM to Bulletin → upload + IPFS retrieve |
+| `bulletin-allowance-reads.test.ts` | product-sdk reads a fresh and an existing account's Bulletin allowance (read-only, no attestation) |
 | `dotns.test.ts` | DotNS resolution on Asset Hub |
 | `game-signup.test.ts` | product-sdk reads the Game draw event ids, a fresh account's sign-up requirement, and a past game's draws and winners on People |
 | `probes/ib-health.test.ts` | truapi-host attests a fresh account and the backend's search lists it (gates everything else) |
