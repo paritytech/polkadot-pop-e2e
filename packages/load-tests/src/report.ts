@@ -31,11 +31,12 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "feedLifetimeMs" | "add">;
   expectedDeliveries: number;
   loss: number;
   latencyMs: QuantileSummary;
   submitRttMs: QuantileSummary;
+  feedLifetimeMs: QuantileSummary;
   clientLagP99Ms: number;
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
@@ -127,7 +128,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, ...counts } = stats;
+  const { latency: _latency, submitRtt, feedLifetimeMs, ...counts } = stats;
   return {
     layer,
     players,
@@ -139,6 +140,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     loss,
     latencyMs: latency,
     submitRttMs: submitRtt.summary(),
+    feedLifetimeMs: feedLifetimeMs.summary(),
     clientLagP99Ms,
     nodes,
     hosts,
