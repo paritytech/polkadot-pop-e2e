@@ -6,7 +6,7 @@ import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
 import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
-import { sleep, withTimeout } from "./time.js";
+import { retry, sleep, withTimeout } from "./time.js";
 
 export interface ClaimResult {
   /** Credits the game awarded the players: the `Person` votes they received. */
@@ -100,17 +100,16 @@ export async function claimCredits(
   const started = Date.now();
   const claimsOf = async (player: Player): Promise<Claim[]> => {
     // One read without an answer would otherwise stop every player's claims.
-    for (let attempt = 1; ; attempt++) {
+    const result = await retry(CREDITS_READ_ATTEMPTS, 0, () =>
       // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
-      const read = getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" });
-      const result = await withTimeout(read, 60_000, `credits of ${player.address}`).catch((error: Error) => {
-        if (attempt === CREDITS_READ_ATTEMPTS) throw error;
-        return undefined;
-      });
-      if (!result) continue;
-      if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-      return result.value.claims;
-    }
+      withTimeout(
+        getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" }),
+        60_000,
+        `credits of ${player.address}`,
+      ),
+    );
+    if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
+    return result.value.claims;
   };
   try {
     let claimants: Array<{ player: Player; claims: Claim[] }> = [];
@@ -161,16 +160,8 @@ export async function claimCredits(
     let taken = 0;
     const signed = txs.map((own) => flat.slice(taken, (taken += own.length)));
     // `system_accountNextIndex` counts the pool's pending transactions, which a storage read doesn't.
-    const readNonce = async (address: SS58String): Promise<number> => {
-      for (let attempt = 1; ; attempt++) {
-        try {
-          return await withTimeout(client._request<number, [string]>("system_accountNextIndex", [address]), 15_000, "nonce read");
-        } catch (error) {
-          if (attempt === 3) throw error;
-          await sleep(2_000);
-        }
-      }
-    };
+    const readNonce = (address: SS58String): Promise<number> =>
+      retry(3, 2_000, () => withTimeout(client._request<number, [string]>("system_accountNextIndex", [address]), 15_000, "nonce read"));
     const playerMs = new Histogram();
     // As the stash claims: one claim at a time, the next once the previous is in a block.
     const lanes = claimants.map(
