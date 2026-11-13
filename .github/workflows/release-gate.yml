@@ -141,6 +141,23 @@ on:
         type: string
         required: false
         default: parity-large
+    outputs:
+      runtime_diff_breaking:
+        description: >
+          Breaking changes, summed over every candidate's runtime diff. Counted: breaking
+          entries, SDK surfaces the candidate no longer has, and, on chains with an SDK
+          descriptor, breaking transaction-extension versions and removed extrinsic
+          versions. Failing-test links are not counted. Every candidate is summed,
+          including non-gating cross-term candidates, so one change can count more than
+          once. Never fails the gate.
+        value: ${{ jobs.runtime-diff-summary.outputs.breaking }}
+      runtime_diff_unknown:
+        description: >
+          Runtime diffs that could not be checked, summed over every candidate. Counted:
+          a diff that was not captured, a chain that could not be diffed, every chain
+          when the SDK could not be read, and a planned candidate that uploaded no diff.
+          Never fails the gate.
+        value: ${{ jobs.runtime-diff-summary.outputs.unknown }}
 
   # One field per override, mirroring the "Release gate request" issue form — the
   # field list lives in environments/gate-form.mjs and both channels read it, so
@@ -809,3 +826,64 @@ jobs:
             ppn/data*/*/*.log
           retention-days: 7
           if-no-files-found: ignore
+
+  # Reads every candidate's runtime diff, whatever the tests did, and reports the
+  # breaking changes as outputs. A caller alerts on them; nothing here gates. Runs
+  # after the gate so a failed or refused candidate's diff is still counted, and is
+  # skipped only when the whole run was cancelled.
+  runtime-diff-summary:
+    needs: [plan, gate]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    outputs:
+      breaking: ${{ steps.sum.outputs.breaking }}
+      unknown: ${{ steps.sum.outputs.unknown }}
+    steps:
+      # The gate repo, as the gate job checks it out, so the summing script matches
+      # the gate's code. Only the directory the script lives in is needed.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-pop-e2e
+          ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && github.repository == 'paritytech/polkadot-pop-e2e') && github.sha || inputs.gate_ref || 'main' }}
+          sparse-checkout: environments/runtime-diff
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Each candidate's artifact lands in its own directory. A directory with no
+      # diff or no report is counted as unknown, and so is a planned candidate with
+      # no directory at all (see the sum step).
+      - name: Download the runtime diffs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-gate-runtime-diff-*
+          path: runtime-diffs
+
+      # Writes breaking=<n> and unknown=<n> to GITHUB_OUTPUT itself. The planned count
+      # is the plan's matrix, a JSON array with one entry per candidate, as the gate
+      # job reads it. An empty or unreadable matrix (the plan failed or was skipped)
+      # is zero candidates. With no artifacts the script writes 0 and 0 and says so.
+      - name: Sum the runtime diffs
+        id: sum
+        env:
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          GATE_RESULT: ${{ needs.gate.result }}
+        run: |
+          set -euo pipefail
+          # A skipped gate ran no candidate (a fork PR, or a plan that gave none), so none
+          # is expected. Otherwise the plan's matrix lists one candidate per gate job.
+          if [ "$GATE_RESULT" = "skipped" ]; then
+            EXPECTED=0
+          else
+            EXPECTED=$(node -e '
+              let n = 0;
+              try { const m = JSON.parse(process.env.MATRIX || "[]"); n = Array.isArray(m) ? m.length : 0; } catch {}
+              console.log(n);
+            ')
+          fi
+          node environments/runtime-diff/sum-reports.mjs runtime-diffs --expected "$EXPECTED" >> "$GITHUB_STEP_SUMMARY"

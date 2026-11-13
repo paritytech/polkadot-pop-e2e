@@ -16,6 +16,7 @@ import { readJson } from "./json.ts";
 import { readFailures } from "./junit.ts";
 import { explainFailures } from "./links.ts";
 import { renderReport, runUrl } from "./markdown.ts";
+import { summarize } from "./summary.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -55,5 +56,6 @@ const markdown = renderReport(diff, explained, { outcome: values.outcome, title:
 const dir = path.dirname(diffFile);
 fs.writeFileSync(path.join(dir, "report.md"), `${markdown}\n`);
 const failingTests = explained.map((t) => ({ ...t, message: t.message.slice(0, 2000) }));
-fs.writeFileSync(path.join(dir, "report.json"), `${JSON.stringify({ ...diff, failingTests }, null, 2)}\n`);
+const summary = summarize(diff);
+fs.writeFileSync(path.join(dir, "report.json"), `${JSON.stringify({ ...diff, failingTests, summary }, null, 2)}\n`);
 console.log(markdown);
