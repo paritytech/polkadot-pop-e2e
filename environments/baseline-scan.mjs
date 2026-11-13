@@ -191,6 +191,7 @@ if (isMain) {
 
   let sawDrift = false;
   let sawBroken = false;
+  let nodeTags; // the run's one polkadot-sdk tag listing, loaded on first use (#53)
   for (const p of manifests) {
     const manifest = validateManifest(JSON.parse(fs.readFileSync(p, 'utf8')));
     const results = await scanManifest(manifest);
@@ -203,6 +204,17 @@ if (isMain) {
         fs.writeFileSync(p, `${JSON.stringify(manifest, null, 2)}\n`);
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
+    }
+    // Report-only (#53): which release the live nodes and eth-rpc run. Its rows feed
+    // the printout and nothing else. sawBroken, sawDrift, writes and exit codes never
+    // see them, and the dynamic import keeps a failure in node-scan.mjs from reaching
+    // the runtime scan at all.
+    try {
+      const { scanNodes, renderNodeSummary, sdkTagLoader } = await import('./node-scan.mjs');
+      nodeTags ??= sdkTagLoader();
+      console.log(renderNodeSummary(manifest.network, await scanNodes(manifest, { rpc, loadTags: nodeTags })));
+    } catch (err) {
+      console.log(`- ${manifest.network} nodes: skipped (${err?.message ?? err}), report only`);
     }
   }
   // Exit contract for the workflow: 0 = record is true (or was just rewritten),
