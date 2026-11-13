@@ -230,7 +230,7 @@ describe('assembled overlays validate against the canonical manifests', () => {
   });
 
   // The call polkadot-sdk makes: every Westend runtime and node binary from its own run.
-  it('merges a westend ask built in the calling run', () => {
+  it('merges a westend request built in the calling run', () => {
     const { target } = parseDispatchInputs(
       dispatch({
         binary_polkadot: 'artifact:node-binaries',

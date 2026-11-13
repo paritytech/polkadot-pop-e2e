@@ -572,7 +572,7 @@ describe('asset name patterns', () => {
     );
   });
 
-  it('keeps an exact name exact', () => {
+  it('matches an exact name exactly', () => {
     const paseo = release('paseo_runtime.compressed.wasm', 'paseo_fast_runtime.compressed.wasm');
     assert.equal(findAsset(paseo, 'paseo_runtime.compressed.wasm').name, 'paseo_runtime.compressed.wasm');
     assert.equal(findAsset(paseo, 'paseo.wasm'), null);
@@ -602,7 +602,7 @@ describe('westend', () => {
 });
 
 // polkadot-sdk gates its unreleased node binaries: the build arrives as an artifact,
-// becomes a file on the runner, and reaches the engine as a file: override.
+// becomes a file on the runner, and goes to the engine as a file: override.
 describe('binary builds from the calling run', () => {
   const built = (pin) => validateManifest(mergeTarget(westend, { binaries: { polkadot: pin } }));
 
@@ -610,11 +610,11 @@ describe('binary builds from the calling run', () => {
     assert.doesNotThrow(() => built('artifact:node-binaries'));
   });
 
-  it('reach the engine as a file: override once resolved', () => {
+  it('go to the engine as a file: override once resolved', () => {
     assert.ok(ppnOverrides(built('file:/work/incoming/node/polkadot')).split(',').includes('polkadot=file:/work/incoming/node/polkadot'));
   });
 
-  it('never reach the engine unresolved', () => {
+  it('never go to the engine unresolved', () => {
     assert.throws(() => ppnOverrides(built('artifact:node-binaries')), /binaries\.polkadot still pins artifact:node-binaries/);
   });
 
