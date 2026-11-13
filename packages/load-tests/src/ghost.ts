@@ -49,9 +49,9 @@ export class Ghost {
     try {
       this.subscription = await this.connection.subscribe(SUBSCRIBE, [{ matchAny: this.seat.listen }], profile.submitTimeoutMs, {
         onNotification: (result) => this.receive(result),
-        onEnd: (reason) => bump(stats.subscriptionsEnded, reason),
+        onEnd: (reason) => this.counter.ended(reason),
       });
-      stats.subscribed++;
+      this.counter.subscribed();
     } catch (error) {
       bump(stats.subscribeFailures, (error as Error).message);
       return;

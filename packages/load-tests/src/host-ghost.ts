@@ -70,15 +70,15 @@ async function play(ghost: number): Promise<void> {
   const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
   const counter = new DeliveryCounter(stats, window, index, seat.recipients);
+  counter.subscribed();
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: seat.listen } }).subscribe({
     next(page) {
       const now = Date.now();
       for (const statement of page.statements) counter.receive(statement.data ? readProbe(statement.data) : undefined, now);
     },
-    error: (error) => bump(stats.subscriptionsEnded, describe(error)),
-    complete: () => bump(stats.subscriptionsEnded, "completed"),
+    error: (error) => counter.ended(describe(error)),
+    complete: () => counter.ended("completed"),
   });
-  stats.subscribed++;
   let inflight = 0;
   let sequence = 0;
   let next = firstSendAt(profile, plan.phase, plan.gameStart, Date.now());
