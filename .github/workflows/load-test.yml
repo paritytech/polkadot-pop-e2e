@@ -60,8 +60,9 @@ on:
 permissions:
   contents: read
 
+# A game run lasts until its game closes; a replay doesn't wait behind it.
 concurrency:
-  group: load-test-${{ inputs.network }}
+  group: load-test-${{ inputs.network }}-${{ inputs.replay_at == '' && 'game' || 'replay' }}
   cancel-in-progress: false
 
 env:
