@@ -27,7 +27,7 @@ export interface NetworkFeatures {
   /**
    * DotnsGateway.DispatcherAddress points at a RootGatewayDispatcher, which product-sdk's address
    * discovery walks (TARGET() → protocolRegistry()). Previewnet's points at the PoP controller
-   * itself, so discovery cannot work there yet.
+   * itself, so discovery cannot work there yet (#116).
    */
   dotnsDiscovery: boolean;
 }
