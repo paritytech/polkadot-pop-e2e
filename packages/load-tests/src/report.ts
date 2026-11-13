@@ -97,7 +97,13 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.connectFailures) > 0) findings.push(`RPC: ${total(stats.connectFailures)} connections rejected`);
   if (total(stats.connectionsLost) > 0) findings.push(`RPC: ${total(stats.connectionsLost)} connections dropped`);
   if (total(stats.subscribeFailures) > 0) findings.push(`RPC: ${total(stats.subscribeFailures)} subscriptions not opened`);
-  if (total(stats.subscriptionsEnded) > 0) findings.push(`statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early`);
+  if (total(stats.subscriptionsEnded) > 0) {
+    const lifetime = stats.feedLifetimeMs.summary();
+    const seconds = (ms: number | null) => (ms === null ? "–" : `${Math.round(ms / 1000)} s`);
+    findings.push(
+      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.feedsEndedEmpty} of them before their first statement, after ${seconds(lifetime.p50)} (p50) / ${seconds(lifetime.max)} (max) open`,
+    );
+  }
   if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
   if (stats.stalledSubscriptions > 0) {
     findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
