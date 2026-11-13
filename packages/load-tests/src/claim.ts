@@ -29,6 +29,7 @@ const ASSET_HUB_FUNDS = 10_000_000_000n;
 /** How long the run waits for the game's credits to arrive on Asset Hub. */
 const CLAIMABLE_WAIT_MS = 600_000;
 const READ_CONCURRENCY = 100;
+const CREDITS_READ_ATTEMPTS = 3;
 
 /** Runs `read` over `items`, `READ_CONCURRENCY` at a time, in order. */
 async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise<R[]> {
@@ -98,14 +99,18 @@ export async function claimCredits(
   } as unknown as NftsChain & NftsCreditsChain;
   const started = Date.now();
   const claimsOf = async (player: Player): Promise<Claim[]> => {
-    const result = await withTimeout(
+    // One read without an answer would otherwise stop every player's claims.
+    for (let attempt = 1; ; attempt++) {
       // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
-      getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" }),
-      60_000,
-      `credits of ${player.address}`,
-    );
-    if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-    return result.value.claims;
+      const read = getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" });
+      const result = await withTimeout(read, 60_000, `credits of ${player.address}`).catch((error: Error) => {
+        if (attempt === CREDITS_READ_ATTEMPTS) throw error;
+        return undefined;
+      });
+      if (!result) continue;
+      if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
+      return result.value.claims;
+    }
   };
   try {
     let claimants: Array<{ player: Player; claims: Claim[] }> = [];
