@@ -22,8 +22,9 @@ export interface HostGhostPlan {
   seating: Seating;
   gameStart: number;
   window: { start: number; end: number };
-  /** Ghost `k` of the host is player `firstPlayer + k` and its product account `k`. */
+  /** Ghost `k` is player `firstPlayer + k`, signing as product account `firstAccount + k` of its host. */
   firstPlayer: number;
+  firstAccount: number;
   ghosts: number;
   joinAt: number[];
   stopAt: number;
@@ -33,6 +34,7 @@ export interface HostGhostPlan {
 
 export interface HostOptions {
   ghostsPerHost: number;
+  botsPerProcess: number;
   productId: string;
   binary: string;
 }
@@ -80,9 +82,10 @@ export function shardHosts(count: number, ghostsPerHost: number, shard: { index:
 }
 
 /**
- * Ghosts inside `truapi-host signing-host --script host-ghost.ts` processes, `ghostsPerHost` to a
- * host, each signing and submitting through its host as the app does. Hosts, not ghosts, are
- * split over shards.
+ * Ghosts inside `truapi-host signing-host --script host-ghost.ts` processes, each signing and
+ * submitting through its host as the app does. A host's `ghostsPerHost` product accounts are
+ * split over processes of `botsPerProcess`, each its own client of People. Hosts, not ghosts,
+ * are split over shards.
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
   return async ({ count, stepStart, room }) => {
@@ -96,50 +99,54 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     const resultPaths: string[] = [];
     let joined = 0;
     for (const { host, ghosts: own } of owned) {
-      const ghosts = own.length;
-      const resultPath = join(workDir, `host${host}.result.json`);
-      const planPath = join(workDir, `host${host}.plan.json`);
-      const plan: HostGhostPlan = {
-        profile: room.profile,
-        namespace: room.namespace,
-        seating: room.seating,
-        phase: room.phase,
-        gameStart: room.gameStart,
-        window: room.window,
-        firstPlayer: host * ghostsPerHost,
-        ghosts,
-        joinAt: Array.from({ length: ghosts }, () => stepStart + (joined++ * run.timing.rampMs) / ownedGhosts),
-        stopAt: room.window.end,
-        leaveAt: room.window.end + run.timing.drainMs,
-        resultPath,
-      };
-      await writeFile(planPath, JSON.stringify(plan));
-      resultPaths.push(resultPath);
-      const log = createWriteStream(join(workDir, `host${host}.log`));
-      const child = spawn(
-        options.binary,
-        ["signing-host", "--network", run.target.network, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
-        {
-          env: {
-            ...process.env,
-            ...run.target.hostEnv,
-            TRUAPI_HOST_NO_UPDATE: "1",
-            TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, `host${host}`),
-            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
-            GHOST_PLAN: planPath,
+      for (let firstAccount = 0; firstAccount < own.length; firstAccount += options.botsPerProcess) {
+        const ghosts = Math.min(options.botsPerProcess, own.length - firstAccount);
+        const name = `host${host}-${firstAccount}`;
+        const resultPath = join(workDir, `${name}.result.json`);
+        const planPath = join(workDir, `${name}.plan.json`);
+        const plan: HostGhostPlan = {
+          profile: room.profile,
+          namespace: room.namespace,
+          seating: room.seating,
+          phase: room.phase,
+          gameStart: room.gameStart,
+          window: room.window,
+          firstPlayer: host * ghostsPerHost + firstAccount,
+          firstAccount,
+          ghosts,
+          joinAt: Array.from({ length: ghosts }, () => stepStart + (joined++ * run.timing.rampMs) / ownedGhosts),
+          stopAt: room.window.end,
+          leaveAt: room.window.end + run.timing.drainMs,
+          resultPath,
+        };
+        await writeFile(planPath, JSON.stringify(plan));
+        resultPaths.push(resultPath);
+        const log = createWriteStream(join(workDir, `${name}.log`));
+        const child = spawn(
+          options.binary,
+          ["signing-host", "--network", run.target.network, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
+          {
+            env: {
+              ...process.env,
+              ...run.target.hostEnv,
+              TRUAPI_HOST_NO_UPDATE: "1",
+              TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, name),
+              HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
+              GHOST_PLAN: planPath,
+            },
+            stdio: ["ignore", "pipe", "pipe"],
           },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      child.stdout!.pipe(log);
-      child.stderr!.pipe(log);
-      processes.push(child);
-      exits.push(
-        new Promise((done) => {
-          child.once("error", (error) => done(`spawn: ${error.message}`));
-          child.once("exit", (code, signal) => done(code === 0 ? null : signal ? `signal ${signal}` : `exit ${code}`));
-        }),
-      );
+        );
+        child.stdout!.pipe(log);
+        child.stderr!.pipe(log);
+        processes.push(child);
+        exits.push(
+          new Promise((done) => {
+            child.once("error", (error) => done(`spawn: ${error.message}`));
+            child.once("exit", (code, signal) => done(code === 0 ? null : signal ? `signal ${signal}` : `exit ${code}`));
+          }),
+        );
+      }
     }
 
     let atWindowStart: Map<number, { cpuSeconds: number; rssKb: number }> | undefined;
