@@ -122,7 +122,6 @@ export function createAssetHubClient(ws: string): {
   return { client, api };
 }
 
-/** Fails on a network without the system flows (`features.systemFlows`). */
 export function createSystemAssetHubClient(ws: string): {
   client: PolkadotClient;
   api: SystemAssetHubApi;
@@ -132,7 +131,6 @@ export function createSystemAssetHubClient(ws: string): {
   return { client, api: client.getTypedApi(westendAssetHub) };
 }
 
-/** Fails on a network without the system flows (`features.systemFlows`). */
 export function createRelayClient(ws: string): {
   client: PolkadotClient;
   api: RelayApi;
@@ -142,7 +140,6 @@ export function createRelayClient(ws: string): {
   return { client, api: client.getTypedApi(westendRelay) };
 }
 
-/** Fails on a network without Bulletin (`features.bulletin`). */
 export function createBulletinClient(ws: string): {
   client: PolkadotClient;
   api: BulletinApi;

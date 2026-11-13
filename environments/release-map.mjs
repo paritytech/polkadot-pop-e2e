@@ -537,7 +537,7 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
       );
     }
     const ref = parseReleaseRef(ref0);
-    // A build from the calling run came from no release, so no allow-list applies.
+    // A build from the calling run doesn't come from a release, so the allow-list doesn't apply.
     if (ref.artifact || ref.local) continue;
     if (!source.repos.includes(ref.repo)) {
       throw new Error(

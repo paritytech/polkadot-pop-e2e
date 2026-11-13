@@ -6,7 +6,7 @@
 // what it is called: every runtime carries its spec_name, and the chain we are
 // gating reports the same one. So a caller may name its files anything.
 //
-// A node binary declares nothing we can read, so a binary slot takes the file
+// A node binary doesn't declare anything we can read, so a binary slot takes the file
 // called after the slot — `binary_polkadot: artifact:node-binaries` finds
 // `polkadot`. The engine copies a local polkadot's PVF workers from the same
 // directory and fails without them.
@@ -87,7 +87,7 @@ export async function resolveArtifactPins(manifest, io) {
     const hits = files.filter((file) => (within ? file.endsWith(within) : path.basename(file) === slot));
     if (hits.length !== 1) {
       throw new Error(
-        `${slot}: "${pin}" needs exactly one file ${within ? `ending in ${within}` : `called ${slot}`} ` +
+        `${slot}: "${pin}" expected exactly one file ${within ? `ending in ${within}` : `called ${slot}`} ` +
           `in artifact ${artifact}, found ${hits.length}. It contains: ` +
           `${files.map((file) => path.basename(file)).join(', ') || '(nothing)'}`
       );
