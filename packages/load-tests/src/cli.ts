@@ -199,13 +199,13 @@ switch (values.help ? undefined : command) {
     };
     const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
     const productId = productIdOf(target);
-    let seed = values.seed;
+    // On a live network only the bots the chain command signed up hold a statement allowance.
+    const seed = values["follow-game"] || !target.sudo ? gameSeed(target, steps[0]) : values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
     if (!ROOMS.includes(values.rooms as Rooms)) throw new Error(`--rooms must be one of ${ROOMS.join(", ")}, not '${values.rooms}'`);
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
-      seed = gameSeed(target, steps[0]);
       const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ ghosts }) => ghosts);
       if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${ghostsPerHost} than ${shardCount} machines`);
       const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, ghostsPerHost, index));
