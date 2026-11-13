@@ -591,14 +591,6 @@ describe('westend', () => {
       }
     );
   });
-
-  // People has no sudo, so only the bite can authorize a People runtime under test.
-  it('routes a moved People runtime to the bite, and nothing else', () => {
-    const bitten = (target) => candidateMatrix(westend, validateManifest(mergeTarget(westend, target)))[0].bite;
-    assert.deepEqual(bitten({ chains: { people: { runtime: 'artifact:westend-runtimes' } } }), ['people']);
-    assert.deepEqual(bitten({ chains: { 'asset-hub': { runtime: 'artifact:westend-runtimes' } } }), []);
-    assert.deepEqual(candidateMatrix(westend, westend)[0].bite, []);
-  });
 });
 
 // polkadot-sdk gates its unreleased node binaries: the build arrives as an artifact,

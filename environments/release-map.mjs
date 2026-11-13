@@ -16,7 +16,7 @@
  *
  * `upgradeAt: 'bite'` marks a chain without sudo: a runtime under test cannot be
  * applied after spawn, so the fork's bite authorizes it at import and the engine's
- * `enact-upgrades` process applies it once the fork runs (see biteChains).
+ * `enact-upgrades` process applies it once the fork runs (see plan-upgrades.mjs).
  *
  * `node` is engine wiring, read-only here: the engine keeps ONE file per binary slot
  * and every chain naming the same slot execs the same file. The manifest therefore
@@ -674,17 +674,6 @@ export function transitions(canonical, manifest) {
 }
 
 /**
- * The chains whose runtime under test the fork's bite has to authorize: those the
- * map marks `upgradeAt: 'bite'` and whose pin `manifest` moves away from `canonical`.
- */
-export function biteChains(canonical, manifest) {
-  const wiring = CHAINS[manifest.network];
-  return Object.entries(manifest.chains ?? {})
-    .filter(([chain, entry]) => wiring[chain]?.upgradeAt === 'bite' && canonical.chains?.[chain]?.runtime !== entry.runtime)
-    .map(([chain]) => chain);
-}
-
-/**
  * The candidate matrix for a gate run: which configurations to test, each as a
  * complete synthesized manifest.
  *
@@ -707,7 +696,6 @@ export function candidateMatrix(base, head) {
       ...c,
       steady: pinsOf(base ?? head) === pinsOf(c.manifest),
       transitions: transitions(base ?? head, c.manifest),
-      bite: biteChains(base ?? head, c.manifest),
     }));
   const target = {
     id: 'target',

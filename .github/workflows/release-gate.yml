@@ -475,10 +475,6 @@ jobs:
     env:
       MANIFEST: candidate-manifest.json
       STEADY: ${{ matrix.candidate.steady }}
-      # Chains without sudo whose runtime under test the bite authorizes
-      # (CHAINS upgradeAt in environments/release-map.mjs). The fork step narrows it to
-      # the ones the planner would upgrade against live.
-      BITE_CHAINS: ${{ join(matrix.candidate.bite, ' ') }}
       # A parachain enacts validation_upgrade_delay relay blocks after the PVF pre-check:
       # 100 blocks, 10 minutes, on Westend, which the engine's 10-minute default misses.
       ENACT_TIMEOUT_MIN: 30
@@ -605,20 +601,16 @@ jobs:
       # FORK=1 so this also downloads (or, with FRESH_BITE=1, bites) the fork bundle.
       # The bite sometimes hangs indefinitely — a known zombie-bite issue; when it
       # works it finishes well inside 30 minutes (observed one CI hang past 2h) — so
-      # each attempt is capped and retried from a clean slate. UPGRADES has the bite
-      # authorize the BITE_CHAINS runtimes the planner would upgrade against live; the
-      # engine applies them after spawn.
+      # each attempt is capped and retried from a clean slate. The bite authorizes the
+      # runtimes of the chains without sudo (`upgradeAt: 'bite'` in release-map.mjs) the
+      # planner would upgrade against live; the engine applies them after spawn.
       - name: Ensure engine dependencies and fetch the fork bundle
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          upgrades=""
-          if [ -n "$BITE_CHAINS" ]; then
-            upgrades=$(node environments/plan-upgrades.mjs --bite upgrade-plan.env "$MANIFEST")
-            echo "BITE_CHAINS=$(echo "$upgrades" | sed 's/=.*//' | xargs)" >> "$GITHUB_ENV"
-          fi
+          node environments/plan-upgrades.mjs --bite upgrade-plan.env "$MANIFEST" > bite-upgrades.env
           for attempt in 1 2 3; do
-            if timeout 1800 make -C ppn ensure-deps FORK=1 UPGRADES="$(echo "$upgrades" | xargs)"; then
+            if timeout 1800 make -C ppn ensure-deps FORK=1 UPGRADES="$(xargs < bite-upgrades.env)"; then
               jq -r '"bundle bitten \(.bittenAt) against \(.nodeVersion)"' "ppn/$FORK_DIR_NAME/manifest.json"
               exit 0
             fi
@@ -714,7 +706,7 @@ jobs:
       - name: Decide which runtimes to upgrade
         run: |
           node environments/plan-upgrades.mjs \
-            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" --enacting enacting.env > upgrades.env
+            upgrade-plan.env "ppn/$FORK_DIR_NAME/manifest.json" "$MANIFEST" enacting.env > upgrades.env
           echo "#### Runtime upgrades" >> "$GITHUB_STEP_SUMMARY"
 
       # Before the upgrade: the last point the fork still runs live's code. The bite's
@@ -724,7 +716,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         run: |
-          { cat upgrades.env; for chain in $BITE_CHAINS; do grep "^$chain=" upgrade-plan.env; done; } > diff-plan.env
+          cat upgrades.env bite-upgrades.env > diff-plan.env
           pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" diff-plan.env \
             --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
 
@@ -732,7 +724,6 @@ jobs:
       # the relay's PVF pre-check and go-ahead, so this waits for the chain to report
       # the new spec_version, against the relay the fork took from live.
       - name: Wait for the runtimes the bite authorized
-        if: env.BITE_CHAINS != ''
         run: |
           set -uo pipefail
           while IFS='=' read -r chain spec; do
