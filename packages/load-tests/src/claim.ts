@@ -99,7 +99,6 @@ export async function claimCredits(
   } as unknown as NftsChain & NftsCreditsChain;
   const started = Date.now();
   const claimsOf = async (player: Player): Promise<Claim[]> => {
-    // One read without an answer would otherwise stop every player's claims.
     const result = await retry(CREDITS_READ_ATTEMPTS, 0, () =>
       // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
       withTimeout(
