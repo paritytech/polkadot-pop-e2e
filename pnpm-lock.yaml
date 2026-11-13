@@ -114,8 +114,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       viem:
-        specifier: ^2.57.18
-        version: 2.57.18(typescript@7.0.2)
+        specifier: ^2.57.19
+        version: 2.57.19(typescript@7.0.2)
     devDependencies:
       '@parity/truapi':
         specifier: 0.30.0
@@ -148,8 +148,8 @@ importers:
         specifier: ^0.4.0
         version: 0.4.0
       '@polkadot-labs/hdkd':
-        specifier: ^0.0.28
-        version: 0.0.28
+        specifier: ^0.0.32
+        version: 0.0.32
       '@polkadot-labs/hdkd-helpers':
         specifier: ^0.0.34
         version: 0.0.34
@@ -714,6 +714,9 @@ packages:
 
   '@polkadot-labs/hdkd@0.0.28':
     resolution: {integrity: sha512-LpdqtQRpcgZQ5Mr8J0ddMA5ZufsbI4W3KuJkVdoYMnSmWs4179LigDb1rTYAOtyCg2jWUjf7rWP0mGxQQvNrHw==}
+
+  '@polkadot-labs/hdkd@0.0.32':
+    resolution: {integrity: sha512-sUDvoCq/Qmrrxh9PpKLY2T0OXd5qQaRm+008BKP1addirVRNy8C56/gRfb+6GoEgK2f7cFqoLHdSG98X4VKZSg==}
 
   '@polkadot-labs/schnorrkel-wasm@0.0.9':
     resolution: {integrity: sha512-MWO28z29OgKihdXjybvbuECASAIu52KZfBMFNZtK7jeyoFvA8ZrpJzYxPgFaBIsk1hHM488q7EXHckaMnZ1xng==}
@@ -1915,8 +1918,8 @@ packages:
   verifiablejs@1.6.0:
     resolution: {integrity: sha512-JFkmQQsf4NHNng10cUl+0G+Hkb0W722r7BbDI7iheXG3o3Ux0XawNKYxh3rXiBmUCbRw3AcZHx+Rcw1a+xW6GQ==}
 
-  viem@2.57.18:
-    resolution: {integrity: sha512-D/nbOPgsHnbZLtsJOsbKzuhsncww1YogB3JNbCBKe9JR8DTSpVGstguRqty5HgoA0WR+UNRcgM98pwBHJlTqSg==}
+  viem@2.57.19:
+    resolution: {integrity: sha512-ULAHSwef42oL1reV41Os40iR34PF9BFNIX/RBapHLAJL1X6VmrgQikS4q4ulZ7/8GqlFLqrRI5GoNms3hcxsHw==}
     peerDependencies:
       mppx: '>=0.17.0'
       typescript: '>=5.0.4'
@@ -2311,7 +2314,7 @@ snapshots:
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd-helpers': 0.0.30
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
-      viem: 2.57.18(typescript@7.0.2)
+      viem: 2.57.19(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2429,7 +2432,7 @@ snapshots:
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
-      viem: 2.57.18(typescript@7.0.2)
+      viem: 2.57.19(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2917,6 +2920,10 @@ snapshots:
       scale-ts: 1.6.1
 
   '@polkadot-labs/hdkd@0.0.28':
+    dependencies:
+      '@polkadot-labs/hdkd-helpers': 0.0.34
+
+  '@polkadot-labs/hdkd@0.0.32':
     dependencies:
       '@polkadot-labs/hdkd-helpers': 0.0.34
 
@@ -4191,7 +4198,7 @@ snapshots:
 
   verifiablejs@1.6.0: {}
 
-  viem@2.57.18(typescript@7.0.2):
+  viem@2.57.19(typescript@7.0.2):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0

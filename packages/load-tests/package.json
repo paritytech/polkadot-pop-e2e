@@ -14,7 +14,7 @@
     "@parity/product-sdk-nfts": "0.4.1",
     "@polkadot-api/substrate-bindings": "^0.21.2",
     "@polkadot-api/utils": "^0.4.0",
-    "@polkadot-labs/hdkd": "^0.0.28",
+    "@polkadot-labs/hdkd": "^0.0.32",
     "@polkadot-labs/hdkd-helpers": "^0.0.34",
     "@pop-e2e/chain-tests": "workspace:*",
     "@pop-e2e/papi": "workspace:*",
