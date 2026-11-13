@@ -38,6 +38,15 @@ on:
         description: Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
         type: string
         default: ""
+      replay_at:
+        description: "Start time (ISO) of a replay without a game: the bots of an earlier game exchange the same messages, with no sign-up, reports or claims; empty plays a game"
+        type: string
+        default: ""
+      chain_backend:
+        description: "How truapi-host reaches People: rpc (WebSocket JSON-RPC) or light-client (embedded smoldot, statements over peer-to-peer gossip)"
+        type: choice
+        default: rpc
+        options: [rpc, light-client]
       args:
         description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
         type: string
@@ -81,6 +90,7 @@ jobs:
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
   chain:
     name: chain · sign-up, reports, NFT claims
+    if: inputs.replay_at == ''
     runs-on: ubuntu-latest
     # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
@@ -156,11 +166,14 @@ jobs:
           MACHINES: ${{ needs.plan.outputs.machines }}
           ROOMS: ${{ inputs.signalling }}
           PHASE: ${{ inputs.timing }}
+          REPLAY_AT: ${{ inputs.replay_at }}
+          TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
-          pnpm --silent --filter @pop-e2e/load-tests load host --follow-game --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
-            --shard "$SHARD/$MACHINES" --registration-wait 240 --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+          if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
+          pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
+            --shard "$SHARD/$MACHINES" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the message results
         if: always()
         uses: actions/upload-artifact@v4
