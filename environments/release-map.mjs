@@ -142,8 +142,8 @@ export const CHAINS = {
   },
   // polkadot-sdk's own testnet. Its runtimes ship with the spec version in the
   // asset name, on release-automation's weekly releases and on polkadot-sdk's
-  // stable and rc releases (not its patch releases). Asset Hub and People run
-  // builds no release publishes byte for byte, so the scan compares declared spec.
+  // stable and rc releases (not its patch releases). Westend runs builds no release
+  // publishes byte for byte, so the scan compares declared spec.
   westend: {
     relay: {
       node: 'polkadot',
@@ -222,14 +222,12 @@ export const NETWORK_META = {
  *
  * Delivery is the engine's: each slot pin becomes a `PPN_BINARIES` override
  * (`ppnOverrides()`), applied inside PPN's loader so `fetch`, `start` and
- * `show --json` cannot disagree — the PVF workers travel with a released polkadot
- * binary because the engine knows its own file set. A build from the calling run
- * (`artifact:`) has to carry the slot's `siblings` next to the binary itself.
+ * `show --json` cannot disagree — the PVF workers travel with polkadot, released or
+ * built in the calling run, because the engine knows its own file set.
  */
 export const NODE_BINARIES = {
   polkadot: {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
-    siblings: ['polkadot-execute-worker', 'polkadot-prepare-worker'],
   },
   'polkadot-parachain': {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
@@ -338,8 +336,8 @@ export function platformAssetSuffix(platform = process.platform, arch = process.
  *   artifact:<name>       a build uploaded in the calling run, under that
  *                         artifact name. Which file inside it is this chain's
  *                         runtime is decided by what each blob declares, not by
- *                         its filename; a binary slot takes the file named after
- *                         the slot. `artifact:<name>/<path>` names the file
+ *                         its filename; a binary slot takes the file called after
+ *                         the slot. `artifact:<name>/<path>` picks the file
  *                         outright when a caller ships two for one chain.
  *   file:<path>           a wasm or binary already on disk — what artifact:
  *                         resolves to once downloaded.

@@ -7,15 +7,16 @@
 // gating reports the same one. So a caller may name its files anything.
 //
 // A node binary declares nothing we can read, so a binary slot takes the file
-// named after the slot — `binary_polkadot: artifact:node-binaries` finds
-// `polkadot` — together with the slot's siblings from the same directory.
+// called after the slot — `binary_polkadot: artifact:node-binaries` finds
+// `polkadot`. The engine copies a local polkadot's PVF workers from the same
+// directory and fails without them.
 //
 // `artifact:<name>/<path>` names the file outright, for the rare artifact holding
 // two runtimes that declare the same spec_name.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHAINS, NODE_BINARIES, parseReleaseRef } from './release-map.mjs';
+import { CHAINS, parseReleaseRef } from './release-map.mjs';
 import { rpc } from './baseline-scan.mjs';
 import { runtimeSpecOf, decompressRuntime } from './wasm-spec.mjs';
 
@@ -24,7 +25,6 @@ import { runtimeSpecOf, decompressRuntime } from './wasm-spec.mjs';
  * @param io.list    artifact name -> absolute paths of the files in it.
  * @param io.specOf  file -> { specName, compressed }.
  * @param io.liveSpecName  chain -> spec_name that chain reports, or null.
- * @param io.makeExecutable  file -> void; download-artifact drops the exec bit.
  * @returns notes describing each resolution, for the log.
  */
 export async function resolveArtifactPins(manifest, io) {
@@ -87,23 +87,13 @@ export async function resolveArtifactPins(manifest, io) {
     const hits = files.filter((file) => (within ? file.endsWith(within) : path.basename(file) === slot));
     if (hits.length !== 1) {
       throw new Error(
-        `${slot}: "${pin}" needs exactly one file ${within ? `ending in ${within}` : `named ${slot}`} ` +
-          `in artifact ${artifact}, found ${hits.length}. It holds: ` +
+        `${slot}: "${pin}" needs exactly one file ${within ? `ending in ${within}` : `called ${slot}`} ` +
+          `in artifact ${artifact}, found ${hits.length}. It contains: ` +
           `${files.map((file) => path.basename(file)).join(', ') || '(nothing)'}`
       );
     }
-    const binary = hits[0];
-    const siblings = (NODE_BINARIES[slot]?.siblings ?? []).map((name) => path.join(path.dirname(binary), name));
-    const absent = siblings.filter((file) => !files.includes(file)).map((file) => path.basename(file));
-    if (absent.length) {
-      throw new Error(
-        `${slot}: artifact ${artifact} lacks ${absent.join(' and ')} next to ${path.basename(binary)}; ` +
-          `${slot} runs only with them, built from the same source`
-      );
-    }
-    for (const file of [binary, ...siblings]) io.makeExecutable(file);
-    manifest.binaries[slot] = `file:${binary}`;
-    notes.push(`  ${slot.padEnd(14)} <- ${binary}`);
+    manifest.binaries[slot] = `file:${hits[0]}`;
+    notes.push(`  ${slot.padEnd(14)} <- ${hits[0]}`);
   }
   return notes;
 }
@@ -177,7 +167,6 @@ if (process.argv[1] && import.meta.url === (await import('node:url')).pathToFile
         return null;
       }
     },
-    makeExecutable: (file) => fs.chmodSync(file, 0o755),
   });
 
   if (notes.length) {
