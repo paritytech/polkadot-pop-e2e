@@ -186,9 +186,6 @@ export const CHAINS = {
  * second — collators author immediately, but parachains finalize nothing for up to
  * ~2 hours (observed live: one boundary alone did not assign cores). Previewnet
  * runs 1-minute epochs, so the same pipeline completes in minutes.
- * `ppnRef` is the previewnet-engine ref a network's runs use while the engine
- * release the gate pins (PPN_REF_DEFAULT) cannot run it yet; a run's own
- * `ppn_ref` still wins.
  */
 export const NETWORK_META = {
   // freshBite until PPN publishes a bundle bitten WITH the transaction-storage wipe:
@@ -212,9 +209,8 @@ export const NETWORK_META = {
     gateable: false,
     blockedBy: 'engine: devnet asset-hub bite fails on the smol spec — needs a full raw chain-spec',
   },
-  // A shared-relay fork like paseo-next-v2's. Drop `ppnRef` once an engine release
-  // carries networks/westend.json.
-  westend: { freshBite: true, waitSeconds: 900, gateable: true, ppnRef: 'network/westend' },
+  // A shared-relay fork like paseo-next-v2's.
+  westend: { freshBite: true, waitSeconds: 900, gateable: true },
 };
 
 /**
@@ -714,7 +710,6 @@ export function candidateMatrix(base, head) {
       steady: pinsOf(base ?? head) === pinsOf(c.manifest),
       transitions: transitions(base ?? head, c.manifest),
       bite: biteChains(base ?? head, c.manifest),
-      ppnRef: NETWORK_META[head.network]?.ppnRef ?? '',
     }));
   const target = {
     id: 'target',

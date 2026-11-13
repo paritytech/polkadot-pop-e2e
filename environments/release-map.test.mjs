@@ -599,11 +599,6 @@ describe('westend', () => {
     assert.deepEqual(bitten({ chains: { 'asset-hub': { runtime: 'artifact:westend-runtimes' } } }), []);
     assert.deepEqual(candidateMatrix(westend, westend)[0].bite, []);
   });
-
-  it('runs on the engine branch that carries the network, unlike previewnet', () => {
-    assert.equal(candidateMatrix(westend, westend)[0].ppnRef, 'network/westend');
-    assert.equal(candidateMatrix(previewnet, previewnet)[0].ppnRef, '');
-  });
 });
 
 // polkadot-sdk gates its unreleased node binaries: the build arrives as an artifact,

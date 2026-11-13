@@ -287,7 +287,7 @@ env:
   # Which previewnet-engine release the gate composes — a tag, so an engine merge
   # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
   # `advanced` overlay overrides it for runs against a branch.
-  PPN_REF_DEFAULT: v0.14.2
+  PPN_REF_DEFAULT: v0.16.0
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
@@ -513,13 +513,11 @@ jobs:
       # The plan job folded these into the pins; this job needs the bytes. Same
       # relative path, so the `file:` pins in the candidate manifest resolve.
 
-      # A run's own `ppn_ref` first, then the network's engine ref while the
-      # pinned engine release cannot run it (NETWORK_META ppnRef).
       - name: Checkout the engine (previewnet-engine)
         uses: actions/checkout@v4
         with:
           repository: paritytech/previewnet-engine
-          ref: ${{ needs.plan.outputs.ppn_ref || matrix.candidate.ppnRef || env.PPN_REF_DEFAULT }}
+          ref: ${{ needs.plan.outputs.ppn_ref || env.PPN_REF_DEFAULT }}
           path: ppn
 
       - uses: pnpm/action-setup@v4
