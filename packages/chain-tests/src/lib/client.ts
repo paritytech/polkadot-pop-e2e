@@ -88,23 +88,22 @@ type PeopleDescriptor =
   | typeof paseoNextPeople
   | typeof previewPeople;
 
-export interface NetworkDescriptors {
-  relay: typeof westendRelay | null;
+export interface DescriptorTriple {
   assetHub: AssetHubDescriptor;
   bulletin: BulletinDescriptor | null;
   people: PeopleDescriptor;
 }
 
-export function descriptorsForNetwork(): NetworkDescriptors {
+export function descriptorsForNetwork(): DescriptorTriple {
   switch (networkKey()) {
     case "previewnet":
-      return { relay: null, assetHub: previewAssetHub, bulletin: previewBulletin, people: previewPeople };
+      return { assetHub: previewAssetHub, bulletin: previewBulletin, people: previewPeople };
     case "paseo-next-v2":
-      return { relay: null, assetHub: paseoNextAssetHub, bulletin: paseoNextBulletin, people: paseoNextPeople };
+      return { assetHub: paseoNextAssetHub, bulletin: paseoNextBulletin, people: paseoNextPeople };
     case "westend":
-      return { relay: westendRelay, assetHub: westendAssetHub, bulletin: null, people: westendPeople };
+      return { assetHub: westendAssetHub, bulletin: null, people: westendPeople };
     default:
-      return { relay: null, assetHub: paseo, bulletin, people };
+      return { assetHub: paseo, bulletin, people };
   }
 }
 
@@ -133,15 +132,14 @@ export function createSystemAssetHubClient(ws: string): {
   return { client, api: client.getTypedApi(westendAssetHub) };
 }
 
-/** Fails on a network without a relay descriptor (`features.systemFlows`). */
+/** Fails on a network without the system flows (`features.systemFlows`). */
 export function createRelayClient(ws: string): {
   client: PolkadotClient;
   api: RelayApi;
 } {
-  const descriptor = descriptorsForNetwork().relay;
-  if (!descriptor) throw new Error(`there is no relay chain descriptor for ${networkKey()}`);
+  if (!getNetworkConfig().features.systemFlows) throw new Error(`${networkKey()} doesn't run the system flows`);
   const client = createClient(getWsProvider(ws));
-  return { client, api: client.getTypedApi(descriptor) };
+  return { client, api: client.getTypedApi(westendRelay) };
 }
 
 /** Fails on a network without Bulletin (`features.bulletin`). */
