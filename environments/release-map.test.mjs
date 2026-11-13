@@ -596,24 +596,24 @@ describe('westend', () => {
 // polkadot-sdk gates its unreleased node binaries: the build arrives as an artifact,
 // becomes a file on the runner, and goes to the engine as a file: override.
 describe('binary builds from the calling run', () => {
-  const built = (pin) => validateManifest(mergeTarget(westend, { binaries: { polkadot: pin } }));
+  const buildWestendManifest = (pin) => validateManifest(mergeTarget(westend, { binaries: { polkadot: pin } }));
 
   it('pass validation without a release allow-list', () => {
-    assert.doesNotThrow(() => built('artifact:node-binaries'));
+    assert.doesNotThrow(() => buildWestendManifest('artifact:node-binaries'));
   });
 
   it('go to the engine as a file: override once resolved', () => {
-    assert.ok(ppnOverrides(built('file:/work/incoming/node/polkadot')).split(',').includes('polkadot=file:/work/incoming/node/polkadot'));
+    assert.ok(ppnOverrides(buildWestendManifest('file:/work/incoming/node/polkadot')).split(',').includes('polkadot=file:/work/incoming/node/polkadot'));
   });
 
   it('never go to the engine unresolved', () => {
-    assert.throws(() => ppnOverrides(built('artifact:node-binaries')), /binaries\.polkadot still pins artifact:node-binaries/);
+    assert.throws(() => ppnOverrides(buildWestendManifest('artifact:node-binaries')), /binaries\.polkadot still pins artifact:node-binaries/);
   });
 
   // The shape `ppn show --json` reports for a file: override.
   it('are what the engine is checked against', async () => {
     const { assertEngineAgrees } = await import('./assert-engine.mjs');
-    const manifest = built('file:/work/incoming/node/polkadot');
+    const manifest = buildWestendManifest('file:/work/incoming/node/polkadot');
     const sdk = { repo: 'paritytech/polkadot-sdk', tag: 'polkadot-stable2609-1', overridden: true };
     const show = {
       chains: [

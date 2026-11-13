@@ -1,5 +1,5 @@
 /**
- * The relay's native token reaches Asset Hub by teleport: the path users take to move funds
+ * The relay's native token arrives on Asset Hub by teleport: the path users take to move funds
  * from the relay to the chain where they spend them. Signs on the relay with the test account and
  * waits for the balance to arrive on an account derived from it on Asset Hub.
  */
@@ -51,7 +51,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
       const beneficiary = await createTestAccount("//pop-e2e-teleport");
       const amount = 10n * (await relayApi.constants.Balances.ExistentialDeposit());
       const assetHubParaId = await assetHubApi.query.ParachainInfo.ParachainId.getValue();
-      const before = (await assetHubApi.query.System.Account.getValue(beneficiary.address)).data.free;
+      const previousBalance = (await assetHubApi.query.System.Account.getValue(beneficiary.address)).data.free;
 
       const result = await submitFinalized(
         relayApi.tx.XcmPallet.limited_teleport_assets({
@@ -79,23 +79,23 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
 
       const startTimestamp = Date.now();
       let subscription: { unsubscribe(): void } | undefined;
-      let deadline: ReturnType<typeof setTimeout> | undefined;
-      const after = await new Promise<bigint>((resolve, reject) => {
+      let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
+      const arrivalBalance = await new Promise<bigint>((resolve, reject) => {
         subscription = assetHubApi.query.System.Account.watchValue(beneficiary.address, { at: "finalized" }).subscribe({
-          next: ({ value }) => value.data.free > before && resolve(value.data.free),
+          next: ({ value }) => value.data.free > previousBalance && resolve(value.data.free),
           error: reject,
         });
-        deadline = setTimeout(
+        arrivalTimer = setTimeout(
           () => reject(new Error(`the teleport didn't arrive on Asset Hub within ${ARRIVAL_TIMEOUT_MS / 1000}s`)),
           ARRIVAL_TIMEOUT_MS,
         );
       }).finally(() => {
         subscription?.unsubscribe();
-        clearTimeout(deadline);
+        clearTimeout(arrivalTimer);
       });
-      console.log(`[teleport] Arrived on Asset Hub after ${Math.round((Date.now() - startTimestamp) / 1000)}s: ${after - before}`);
+      console.log(`[teleport] Arrived on Asset Hub after ${Math.round((Date.now() - startTimestamp) / 1000)}s: ${arrivalBalance - previousBalance}`);
       // Asset Hub takes its execution fee out of the teleported amount.
-      expect(after - before).toBeLessThanOrEqual(amount);
+      expect(arrivalBalance - previousBalance).toBeLessThanOrEqual(amount);
     },
     ARRIVAL_TIMEOUT_MS + 120_000,
   );

@@ -31,17 +31,17 @@ import { runtimeSpecOf } from './wasm-spec.mjs';
  * @param supplied chains whose runtime arrived as a build.
  * @param specOf   wasm path -> declared spec_version.
  * @param steady   no pin moves in this run.
- * @param bite     chains whose runtime the fork's bite authorized.
+ * @param biteChains chains whose runtime the fork's bite authorized.
  * @returns {{keep: [string, string][], enacting: [string, number][], notes: string[], errors: string[]}}
  */
-export function planUpgrades({ plan, running, supplied, specOf, steady = false, bite = [] }) {
+export function planUpgrades({ plan, running, supplied, specOf, steady = false, biteChains = [] }) {
   const keep = [];
   const enacting = [];
   const notes = [];
   const errors = [];
-  const authorized = new Set(bite);
-  const upgrade = (chain, wasm, offered) =>
-    authorized.has(chain) ? enacting.push([chain, offered]) : keep.push([chain, wasm]);
+  const biteChainSet = new Set(biteChains);
+  const upgrade = (chain, wasm, specVersion) =>
+    biteChainSet.has(chain) ? enacting.push([chain, specVersion]) : keep.push([chain, wasm]);
   if (steady) {
     for (const [chain] of plan) {
       notes.push(`  ${chain.padEnd(14)} skip — steady state, left as the fork took it from live (${running[chain] ?? '?'})`);
@@ -63,7 +63,7 @@ export function planUpgrades({ plan, running, supplied, specOf, steady = false, 
     try {
       offered = specOf(wasm);
     } catch (error) {
-      if (authorized.has(chain)) {
+      if (biteChainSet.has(chain)) {
         errors.push(`${chain}: could not read the spec_version of the runtime the bite authorized (${error.message})`);
         continue;
       }
@@ -72,10 +72,10 @@ export function planUpgrades({ plan, running, supplied, specOf, steady = false, 
       keep.push([chain, wasm]);
       continue;
     }
-    const by = authorized.has(chain) ? ', enacted by the engine from the bite' : '';
+    const enactmentNote = biteChainSet.has(chain) ? ', enacted by the engine from the bite' : '';
 
     if (at === undefined) {
-      notes.push(`  ${label} upgrade — fork manifest does not record this chain, offering ${offered}${by}`);
+      notes.push(`  ${label} upgrade — fork manifest does not record this chain, offering ${offered}${enactmentNote}`);
       upgrade(chain, wasm, offered);
     } else if (offered === at && asked.has(chain)) {
       // A supplied build that cannot install tests nothing, so it fails rather
@@ -93,7 +93,7 @@ export function planUpgrades({ plan, running, supplied, specOf, steady = false, 
           `the manifest is behind what this network deployed, so bump the pin.`,
       );
     } else {
-      notes.push(`  ${label} upgrade — ${at} -> ${offered}${by}`);
+      notes.push(`  ${label} upgrade — ${at} -> ${offered}${enactmentNote}`);
       upgrade(chain, wasm, offered);
     }
   }
@@ -144,8 +144,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       process.exit(2);
     }
     const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
-    const bite = biteChainsOf(candidate.network);
-    const plan = readPlanFile(planFile).filter(([chain]) => bite.includes(chain));
+    const biteChains = biteChainsOf(candidate.network);
+    const plan = readPlanFile(planFile).filter(([chain]) => biteChains.includes(chain));
     const running = Object.fromEntries(
       await Promise.all(
         plan.map(async ([chain]) => {
@@ -154,10 +154,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         }),
       ),
     );
-    const { enacting, notes, errors } = planUpgrades({ plan, running, supplied: suppliedChains(candidate), specOf, steady, bite });
+    const { enacting, notes, errors } = planUpgrades({
+      plan,
+      running,
+      supplied: suppliedChains(candidate),
+      specOf,
+      steady,
+      biteChains,
+    });
     report(candidate.network, notes, errors);
-    const authorized = plan.filter(([chain]) => enacting.some(([enactingChain]) => enactingChain === chain));
-    console.log(authorized.map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));
+    const bitePlan = plan.filter(([chain]) => enacting.some(([enactingChain]) => enactingChain === chain));
+    console.log(bitePlan.map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));
     process.exit(0);
   }
 
@@ -177,7 +184,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     supplied: suppliedChains(candidate),
     specOf,
     steady,
-    bite: biteChainsOf(candidate.network),
+    biteChains: biteChainsOf(candidate.network),
   });
   report(candidate.network, notes, errors);
   console.log(keep.map(([chain, wasm]) => `${chain}=${wasm}`).join('\n'));

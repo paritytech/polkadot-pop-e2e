@@ -71,7 +71,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     const recipient = await createTestAccount("//pop-e2e-transfer-recipient");
     const amount = 2n * existentialDeposit;
     await fund(sender, existentialDeposit + amount + feeBudget);
-    const before = await readFreeBalance(recipient.address);
+    const previousBalance = await readFreeBalance(recipient.address);
 
     const result = await submitFinalized(
       api.tx.Balances.transfer_keep_alive({ dest: MultiAddress.Id(recipient.address), value: amount }),
@@ -83,7 +83,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     expect(isSameAccount(transfer.from, sender.address)).toBe(true);
     expect(isSameAccount(transfer.to, recipient.address)).toBe(true);
     expect(transfer.amount).toBe(amount);
-    expect(await readFreeBalance(recipient.address)).toBe(before + amount);
+    expect(await readFreeBalance(recipient.address)).toBe(previousBalance + amount);
   });
 
   it("adds a proxy, makes a call through it and removes it", async () => {
@@ -92,8 +92,8 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     const proxyArgs = { delegate: MultiAddress.Id(delegate.address), proxy_type: { type: "Any" as const, value: undefined }, delay: 0 };
 
     // A run that failed between adding and removing leaves the proxy behind.
-    const [existing] = await api.query.Proxy.Proxies.getValue(funder.address);
-    if (existing.some((entry) => isSameAccount(entry.delegate, delegate.address))) {
+    const [existingProxies] = await api.query.Proxy.Proxies.getValue(funder.address);
+    if (existingProxies.some((entry) => isSameAccount(entry.delegate, delegate.address))) {
       await submitFinalized(api.tx.Proxy.remove_proxy(proxyArgs), funder.signer);
     }
 
@@ -111,7 +111,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     );
     const [{ payload: proxyExecutionEvent }] = api.event.Proxy.ProxyExecuted.filter(proxyCallResult.events);
     expect(proxyExecutionEvent.result.success).toBe(true);
-    // The call ran as the proxied account, not as the delegate that signed it.
+    // The remark's sender is the proxied account.
     const [{ payload: remarkEvent }] = api.event.System.Remarked.filter(proxyCallResult.events);
     expect(isSameAccount(remarkEvent.sender, funder.address)).toBe(true);
     console.log(`[accounts] Proxy call finalized in block #${proxyCallResult.block.number}`);
@@ -121,11 +121,11 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
   });
 
   it("executes a call once two of three multisig signatories approve it", async () => {
-    const second = await createTestAccount("//pop-e2e-multisig-2");
-    const third = await createTestAccount("//pop-e2e-multisig-3");
-    await fund(second, existentialDeposit + feeBudget);
+    const secondSignatory = await createTestAccount("//pop-e2e-multisig-2");
+    const thirdSignatory = await createTestAccount("//pop-e2e-multisig-3");
+    await fund(secondSignatory, existentialDeposit + feeBudget);
     const threshold = 2;
-    const signatories = [funder, second, third];
+    const signatories = [funder, secondSignatory, thirdSignatory];
     const multisig = accountId.dec(
       getMultisigAccountId({ threshold, signatories: signatories.map((account) => account.signer.publicKey) }),
     );
@@ -150,18 +150,18 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     const [{ payload: newMultisigEvent }] = api.event.Multisig.NewMultisig.filter(openMultisigResult.events);
     expect(isSameAccount(newMultisigEvent.multisig, multisig)).toBe(true);
     // The timepoint comes from storage: Asset Hub may count it in relay blocks, not its own.
-    const pending = await api.query.Multisig.Multisigs.getValue(multisig, newMultisigEvent.call_hash);
-    expect(pending).toBeDefined();
+    const pendingMultisig = await api.query.Multisig.Multisigs.getValue(multisig, newMultisigEvent.call_hash);
+    expect(pendingMultisig).toBeDefined();
 
     const approveMultisigResult = await submitFinalized(
       api.tx.Multisig.as_multi({
         threshold,
-        other_signatories: getOtherSignatories(second),
-        maybe_timepoint: pending!.when,
+        other_signatories: getOtherSignatories(secondSignatory),
+        maybe_timepoint: pendingMultisig!.when,
         call: call.decodedCall,
         max_weight: callWeight,
       }),
-      second.signer,
+      secondSignatory.signer,
     );
     const [{ payload: multisigExecutionEvent }] = api.event.Multisig.MultisigExecuted.filter(approveMultisigResult.events);
     expect(multisigExecutionEvent.call_hash).toBe(newMultisigEvent.call_hash);
