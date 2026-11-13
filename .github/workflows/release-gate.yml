@@ -747,6 +747,10 @@ jobs:
           done < enacting.env
 
       - name: Upgrade each chain's runtime
+        env:
+          # A parachain enacts validation_upgrade_delay relay blocks after the PVF pre-check:
+          # 100 blocks, 10 minutes, on Westend, which the engine's 10-minute default misses.
+          ENACT_TIMEOUT_MIN: 30
         run: |
           # pipefail, or a failed upgrade hides behind the tee and the loop keeps
           # going against a wedged network.
