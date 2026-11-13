@@ -10,7 +10,7 @@
       "runtime": "paritytech/polkadot-sdk@polkadot-stable2609"
     },
     "asset-hub": {
-      "runtime": "paritytech/release-automation@polkadot-weekly2026w44-rc1"
+      "runtime": "paritytech/release-automation@polkadot-weekly2026w45-rc1"
     },
     "people": {
       "runtime": "paritytech/release-automation@polkadot-weekly2026w43-rc1"
