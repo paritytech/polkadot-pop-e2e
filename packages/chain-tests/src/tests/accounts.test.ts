@@ -127,10 +127,10 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Accounts: Asset Hub t
     const threshold = 2;
     const signatories = [funder, second, third];
     const multisig = accountId.dec(
-      getMultisigAccountId({ threshold, signatories: signatories.map((account) => account.publicKey) }),
+      getMultisigAccountId({ threshold, signatories: signatories.map((account) => account.signer.publicKey) }),
     );
     const getOtherSignatories = (signer: TestAccount) =>
-      sortMultisigSignatories(signatories.filter((account) => account !== signer).map((account) => account.publicKey))
+      sortMultisigSignatories(signatories.filter((account) => account !== signer).map((account) => account.signer.publicKey))
         .map((publicKey) => accountId.dec(publicKey));
 
     // A distinct remark per run, so a pending operation from a failed run doesn't collide.

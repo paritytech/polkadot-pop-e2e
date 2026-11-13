@@ -4,7 +4,7 @@
  * waits for the balance to arrive on an account derived from it on Asset Hub.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { AccountId, type PolkadotClient } from "polkadot-api";
+import type { PolkadotClient } from "polkadot-api";
 import { toHex } from "@polkadot-api/utils";
 import {
   XcmV3MultiassetFungibility,
@@ -62,7 +62,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
           beneficiary: XcmVersionedLocation.V5({
             parents: 0,
             interior: XcmV5Junctions.X1(
-              XcmV5Junction.AccountId32({ network: undefined, id: toHex(AccountId().enc(beneficiary.address)) }),
+              XcmV5Junction.AccountId32({ network: undefined, id: toHex(beneficiary.signer.publicKey) }),
             ),
           }),
           assets: XcmVersionedAssets.V5([

@@ -10,7 +10,6 @@ let ready = false;
 export interface TestAccount {
   signer: CommonSignerTxCreator;
   address: string;
-  publicKey: Uint8Array;
 }
 
 function requireMnemonic(): string {
@@ -36,7 +35,7 @@ function buildSigner(account: KeyringPair): TestAccount {
     "Sr25519",
     async (input) => account.sign(input),
   );
-  return { signer, address: account.address, publicKey: account.publicKey };
+  return { signer, address: account.address };
 }
 
 /**
