@@ -47,6 +47,11 @@ on:
         type: choice
         default: rpc
         options: [rpc, light-client]
+      host_log:
+        description: "truapi-host log level; debug records why each connection to People ended, in the uploaded host logs"
+        type: choice
+        default: info
+        options: [info, debug]
       args:
         description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
         type: string
@@ -168,6 +173,7 @@ jobs:
           PHASE: ${{ inputs.timing }}
           REPLAY_AT: ${{ inputs.replay_at }}
           TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
+          TRUAPI_HOST_LOG: ${{ inputs.host_log }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
