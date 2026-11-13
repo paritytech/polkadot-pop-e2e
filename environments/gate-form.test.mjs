@@ -229,6 +229,28 @@ describe('assembled overlays validate against the canonical manifests', () => {
     validateManifest(mergeTarget(manifest('previewnet'), target));
   });
 
+  // The call polkadot-sdk makes: every Westend runtime and node binary from its own run.
+  it('merges a westend request built in the calling run', () => {
+    const { target } = parseDispatchInputs(
+      dispatch({
+        binary_polkadot: 'artifact:node-binaries',
+        binary_polkadot_parachain: 'artifact:node-binaries',
+        runtime_relay: 'artifact:westend-runtimes',
+        runtime_asset_hub: 'artifact:westend-runtimes',
+        runtime_people: 'artifact:westend-runtimes',
+      })
+    );
+    const merged = validateManifest(mergeTarget(manifest('westend'), target));
+    assert.equal(merged.binaries['polkadot-parachain'], 'artifact:node-binaries');
+  });
+
+  it('rejects a polkadot-parachain pin on a network whose parachains run omni-node', () => {
+    const { target } = parseDispatchInputs(
+      dispatch({ binary_polkadot_parachain: 'paritytech/polkadot-sdk@polkadot-stable2609-1' })
+    );
+    assert.throws(() => mergeTarget(manifest('previewnet'), target), /binary slot "polkadot-parachain" absent/);
+  });
+
   it('rejects a chain the network does not run', () => {
     const { target } = parseDispatchInputs(
       dispatch({ runtime_web3_storage: 'paritytech/web3-storage@v0.4.2-paseo' })

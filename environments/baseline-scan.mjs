@@ -21,7 +21,7 @@
 // RPCs and GitHub releases; GITHUB_TOKEN is needed for private pinned repos.
 
 import fs from 'node:fs';
-import { CHAINS, runtimePlan, validateManifest } from './release-map.mjs';
+import { CHAINS, findAsset, runtimePlan, validateManifest } from './release-map.mjs';
 import { getRelease, listReleases, downloadAssetBytes } from './github.mjs';
 import { runtimeSpecOf } from './wasm-spec.mjs';
 
@@ -79,7 +79,7 @@ export async function attribute(sources, live, policy = 'bytes', io = { listRele
   for (const [repo, assetName] of Object.entries(sources)) {
     const releases = await io.listReleases(repo, RELEASE_WALK);
     for (const release of releases) {
-      const asset = (release.assets ?? []).find((a) => a.name === assetName);
+      const asset = findAsset(release, assetName);
       if (!asset) continue;
       if (policy === 'bytes' && asset.size !== live.code.length) continue; // cheap pre-filter, exact check below
       const bytes = await io.downloadAssetBytes(asset);
@@ -124,7 +124,7 @@ export async function scanManifest(manifest, io = { observeChain, getRelease, do
     }
     const policy = known[entry.chain].scanPolicy ?? 'bytes';
     const release = await io.getRelease(entry.repo, entry.tag);
-    const asset = (release.assets ?? []).find((a) => a.name === entry.asset);
+    const asset = findAsset(release, entry.asset);
     const pinned = asset ? await io.downloadAssetBytes(asset) : null;
     const base = {
       chain: entry.chain,
