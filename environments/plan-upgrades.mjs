@@ -145,7 +145,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
     const candidate = JSON.parse(readFileSync(candidateManifestFile, 'utf8'));
     const biteChains = biteChainsOf(candidate.network);
-    const plan = readPlanFile(planFile).filter(([chain]) => biteChains.includes(chain));
+    // A steady run authorizes nothing, so it doesn't depend on the live RPC.
+    const plan = steady ? [] : readPlanFile(planFile).filter(([chain]) => biteChains.includes(chain));
     const running = Object.fromEntries(
       await Promise.all(
         plan.map(async ([chain]) => {
