@@ -649,13 +649,15 @@ jobs:
       # Two attempts: fresh-bite spawns have a rare restore hiccup where a validator
       # never reports up ("Did not finalize blocks in sequential order" family) — a
       # FORK=1 restart wipes the data dir and re-restores the bundle, which clears it.
+      # FRESH_BITE=0: spawn the bundle the step above bit. Biting again here would drop
+      # the runtimes that bite authorized.
       - name: Start the fork on the manifest's binaries
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2; do
             make -C ppn kill >/dev/null 2>&1 || true
-            nohup make -C ppn start FORK=1 > /tmp/fork-spawn.log 2>&1 &
+            nohup make -C ppn start FORK=1 FRESH_BITE=0 > /tmp/fork-spawn.log 2>&1 &
             pid=$!
             # Poll for the relay, but move on the moment the spawn dies — otherwise a
             # make failure in the first second still burns the full timeout.
