@@ -51,7 +51,11 @@ async function send(ghost: number, index: number, channel: Hex, seat: Seat, coun
     data: toHex(probePayload({ sender: index, sequence, sentAt }, wireBytes(seat, bundleBytes(profile, connecting)))) as Hex,
   };
   try {
-    const proof = await withTimeout(truapi.statementStore.createProof({ productAccountId: host.productAccount(ghost), statement }), profile.submitTimeoutMs, "proof");
+    const proof = await withTimeout(
+      truapi.statementStore.createProof({ productAccountId: host.productAccount(plan.firstAccount + ghost), statement }),
+      profile.submitTimeoutMs,
+      "proof",
+    );
     if (proof.isErr()) return bump(stats.submits, `proof:${describe(proof.error)}`);
     stats.bytesSubmitted += (statement.data.length - 2) / 2;
     const submitted = await withTimeout(truapi.statementStore.submit({ ...statement, proof: proof.value.proof }), profile.submitTimeoutMs, "submit");

@@ -49,7 +49,9 @@ Signalling:
   --out <dir>           Result directory (default results/<run-id>)
 
 Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
-  --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
+  --ghosts-per-host <k> Ghosts whose keys one host mnemonic holds, as its product accounts 0..k-1 (default 10)
+  --bots-per-process <k>  Ghosts one truapi-host process serves (default --ghosts-per-host); 1 makes
+                        every ghost its own client of People, as a phone is, with the same keys
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
   --follow-game         Wait until the chain command has signed this run's players up to a game
                         (same --seed, network and player count), then play one step of --steps
@@ -109,6 +111,7 @@ const { positionals, values } = parseArgs({
     "registration-wait": { type: "string", default: "120" },
     layer: { type: "string", default: "signalling" },
     "ghosts-per-host": { type: "string", default: "10" },
+    "bots-per-process": { type: "string" },
     "product-id": { type: "string" },
     "rpc-limit": { type: "string" },
     "follow-game": { type: "boolean", default: false },
@@ -245,7 +248,12 @@ switch (values.help ? undefined : command) {
     }
     const players =
       command === "host"
-        ? hostGhosts(run, { ghostsPerHost, productId, binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host" })
+        ? hostGhosts(run, {
+            ghostsPerHost,
+            botsPerProcess: positiveInteger("bots-per-process", values["bots-per-process"] ?? String(ghostsPerHost)),
+            productId,
+            binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
+          })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);
     if (shardCount === 1) console.log(await writeSummary(outDir, DEFAULT_THRESHOLDS));
