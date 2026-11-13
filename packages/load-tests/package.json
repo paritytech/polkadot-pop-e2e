@@ -20,6 +20,7 @@
     "@pop-e2e/papi": "workspace:*",
     "@scure/sr25519": "^2.4.0",
     "polkadot-api": "^3.3.0",
+    "smoldot": "3.8.0",
     "ws": "^8.22.2"
   },
   "devDependencies": {

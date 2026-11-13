@@ -133,3 +133,15 @@ from the chain, so set a long `--reporting` there. For `host` against a dev node
 `HOST_CLI_LOCAL_NETWORK_CONFIG` at a [local network file](https://github.com/paritytech/trinity-user-agents/blob/main/docs/local-network.md)
 that lists People, Asset Hub and Bulletin nodes. `--shard i/n` splits the bots over processes or
 machines that share `--start-at`, and `summary` merges their result files.
+
+## How many light clients a node takes
+
+`light-slots/run.sh <in-peers-light> <nodes> <clients>` starts a local dev chain of 1 to 6
+`polkadot` nodes from `PATH`, each with that `--in-peers-light` and listed as a bootnode, connects
+that many light clients, each its own smoldot, and prints how many got a peer and how many peers
+each holds:
+
+```bash
+cd packages/load-tests/light-slots
+./run.sh 50 2 80
+```

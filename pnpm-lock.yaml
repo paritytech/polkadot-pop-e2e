@@ -165,6 +165,9 @@ importers:
       polkadot-api:
         specifier: ^3.3.0
         version: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+      smoldot:
+        specifier: 3.8.0
+        version: 3.8.0
       ws:
         specifier: ^8.22.2
         version: 8.22.2
@@ -1778,6 +1781,9 @@ packages:
 
   smoldot@3.7.0:
     resolution: {integrity: sha512-49/jSn4hVysTu6SL8wTk6JRedG1GhxgDkxQ9hEC9gKMadZvWIoxgBVS2N8OQn4UTpWAd3hpifiBh8tRYPh8EkQ==}
+
+  smoldot@3.8.0:
+    resolution: {integrity: sha512-6howyfV6laaGTCyThK9AtvAhNYx724xZ0GJTlIfWcIpnye/frzVKKXUwdriY26DxrdZFa9/YqG5eIt3bBWPBog==}
 
   solc@0.8.38:
     resolution: {integrity: sha512-DsDLa7uACQVVkE0DYNnUGC49b/yuCJ9ymWlcCEwmaJGcETPC6pTC+BXaRK9ADW8YVeMyxEKUtJsUwRAIG28jtQ==}
@@ -4045,6 +4051,13 @@ snapshots:
       - utf-8-validate
 
   smoldot@3.7.0:
+    dependencies:
+      ws: 8.22.2
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  smoldot@3.8.0:
     dependencies:
       ws: 8.22.2
     transitivePeerDependencies:
