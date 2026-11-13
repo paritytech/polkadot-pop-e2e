@@ -31,12 +31,12 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "feedLifetimeMs" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "add">;
   expectedDeliveries: number;
   loss: number;
   latencyMs: QuantileSummary;
   submitRttMs: QuantileSummary;
-  feedLifetimeMs: QuantileSummary;
+  subscriptionLifetimeMs: QuantileSummary;
   clientLagP99Ms: number;
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
@@ -99,10 +99,10 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.connectionsLost) > 0) findings.push(`RPC: ${total(stats.connectionsLost)} connections dropped`);
   if (total(stats.subscribeFailures) > 0) findings.push(`RPC: ${total(stats.subscribeFailures)} subscriptions not opened`);
   if (total(stats.subscriptionsEnded) > 0) {
-    const lifetime = stats.feedLifetimeMs.summary();
+    const lifetime = stats.subscriptionLifetimeMs.summary();
     const seconds = (ms: number | null) => (ms === null ? "–" : `${Math.round(ms / 1000)} s`);
     findings.push(
-      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.feedsEndedEmpty} of them before their first statement, after ${seconds(lifetime.p50)} (p50) / ${seconds(lifetime.max)} (max) open`,
+      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.emptySubscriptionEnds} of them before their first statement, after ${seconds(lifetime.p50)} (p50) / ${seconds(lifetime.max)} (max) open`,
     );
   }
   if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
@@ -128,7 +128,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, feedLifetimeMs, ...counts } = stats;
+  const { latency: _latency, submitRtt, subscriptionLifetimeMs, ...counts } = stats;
   return {
     layer,
     players,
@@ -140,7 +140,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     loss,
     latencyMs: latency,
     submitRttMs: submitRtt.summary(),
-    feedLifetimeMs: feedLifetimeMs.summary(),
+    subscriptionLifetimeMs: subscriptionLifetimeMs.summary(),
     clientLagP99Ms,
     nodes,
     hosts,
