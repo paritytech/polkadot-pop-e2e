@@ -14,7 +14,7 @@ import {
   XcmVersionedAssets,
   XcmVersionedLocation,
 } from "@pop-e2e/papi";
-import { createAssetHubClient, createRelayClient, type AssetHubApi, type RelayApi } from "../lib/client.js";
+import { createRelayClient, createSystemAssetHubClient, type RelayApi, type SystemAssetHubApi } from "../lib/client.js";
 import { createTestAccount } from "../lib/signer.js";
 import { submitFinalized } from "../lib/finalized-tx.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
@@ -26,7 +26,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
   let relayClient: PolkadotClient;
   let relayApi: RelayApi;
   let assetHubClient: PolkadotClient;
-  let assetHubApi: AssetHubApi;
+  let assetHubApi: SystemAssetHubApi;
 
   beforeAll(() => {
     assertChainHealthy("asset-hub");
@@ -36,7 +36,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
     console.log(`[teleport] Relay: ${relay.ws}`);
     console.log(`[teleport] Asset Hub: ${network.assetHub.ws}`);
     ({ client: relayClient, api: relayApi } = createRelayClient(relay.ws));
-    ({ client: assetHubClient, api: assetHubApi } = createAssetHubClient(network.assetHub.ws));
+    ({ client: assetHubClient, api: assetHubApi } = createSystemAssetHubClient(network.assetHub.ws));
   });
 
   afterAll(() => {
@@ -73,11 +73,11 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
         }),
         sender.signer,
       );
-      const [{ payload: attempted }] = relayApi.event.XcmPallet.Attempted.filter(result.events);
-      expect(attempted.outcome.type).toBe("Complete");
+      const [{ payload: attemptEvent }] = relayApi.event.XcmPallet.Attempted.filter(result.events);
+      expect(attemptEvent.outcome.type).toBe("Complete");
       console.log(`[teleport] Sent ${amount} to ${beneficiary.address} in relay block #${result.block.number}`);
 
-      const startedAt = Date.now();
+      const startTimestamp = Date.now();
       let subscription: { unsubscribe(): void } | undefined;
       let deadline: ReturnType<typeof setTimeout> | undefined;
       const after = await new Promise<bigint>((resolve, reject) => {
@@ -93,7 +93,7 @@ describe.skipIf(!getNetworkConfig().features.systemFlows)("Teleport: relay → A
         subscription?.unsubscribe();
         clearTimeout(deadline);
       });
-      console.log(`[teleport] Arrived on Asset Hub after ${Math.round((Date.now() - startedAt) / 1000)}s: ${after - before}`);
+      console.log(`[teleport] Arrived on Asset Hub after ${Math.round((Date.now() - startTimestamp) / 1000)}s: ${after - before}`);
       // Asset Hub takes its execution fee out of the teleported amount.
       expect(after - before).toBeLessThanOrEqual(amount);
     },

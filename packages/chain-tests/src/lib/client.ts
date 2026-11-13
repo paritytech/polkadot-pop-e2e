@@ -30,8 +30,9 @@ import { getNetworkConfig, networkKey } from "../config/networks.js";
  *   touch them skip on westend through its features.
  *
  *   AssetHub variants:
- *     `paseo`          — Revive + ReviveApi only.
- *     `westendAssetHub`— Revive + ReviveApi only.
+ *     `paseo`          — no `Pgas`, no `MembersSubscriber`.
+ *     `westendAssetHub`— no `Pgas`, no `MembersSubscriber`; the system-flow tests
+ *                       type it on its own (`SystemAssetHubApi`).
  *     `paseoNext..` —    + Pgas, MembersSubscriber, PgasAllowance, ...
  *     `previewAssetHub`— + Pgas, MembersSubscriber, PgasAllowance, ...
  *     → NOT uniform. We keep the union as a discriminated type and force
@@ -45,9 +46,11 @@ export type PeopleApi = TypedApi<typeof previewPeople>;
 
 /** Asset Hub on networks WITH pallet-pgas (previewnet, paseo-next-v2). */
 export type RichAssetHubApi = TypedApi<typeof previewAssetHub>;
-/** Asset Hub on networks WITHOUT pallet-pgas (devnet, westend). */
+/** Asset Hub where the suite doesn't run the PGAS flows (`features.pgas` false: devnet, westend). */
 export type LegacyAssetHubApi = TypedApi<typeof paseo>;
 export type RelayApi = TypedApi<typeof westendRelay>;
+/** Westend's Asset Hub, which the system-flow tests run on (`features.systemFlows`). */
+export type SystemAssetHubApi = TypedApi<typeof westendAssetHub>;
 /** Union returned by `createAssetHubClient` — narrow with `assertRichAssetHub`. */
 export type AssetHubApi = RichAssetHubApi | LegacyAssetHubApi;
 
@@ -118,6 +121,16 @@ export function createAssetHubClient(ws: string): {
     ? (client.getTypedApi(descriptor) as RichAssetHubApi)
     : (client.getTypedApi(descriptor) as LegacyAssetHubApi);
   return { client, api };
+}
+
+/** Fails on a network without the system flows (`features.systemFlows`). */
+export function createSystemAssetHubClient(ws: string): {
+  client: PolkadotClient;
+  api: SystemAssetHubApi;
+} {
+  if (!getNetworkConfig().features.systemFlows) throw new Error(`${networkKey()} doesn't run the system flows`);
+  const client = createClient(getWsProvider(ws));
+  return { client, api: client.getTypedApi(westendAssetHub) };
 }
 
 /** Fails on a network without a relay descriptor (`features.systemFlows`). */

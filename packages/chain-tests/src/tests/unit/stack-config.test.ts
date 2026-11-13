@@ -134,6 +134,9 @@ describe("a Westend fork", () => {
       features: NETWORKS.westend.features,
       testAccountUri: "//Alice",
     });
+    // These decide what the Westend gate runs: the system flows, and nothing that needs
+    // Bulletin or an identity backend.
+    expect(NETWORKS.westend.features).toMatchObject({ systemFlows: true, bulletin: false, identity: false });
   });
 
   it("fails on a stack without the relay the system flows use", () => {
