@@ -46,6 +46,7 @@ curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/p
 | `dotns.test.ts` | DotNS resolution on Asset Hub |
 | `game-signup.test.ts` | product-sdk reads the Game draw event ids, a fresh account's sign-up requirement, and a past game's draws and winners on People |
 | `game-signup-flow.test.ts` | Fork only (`//Alice` sudo): schedules one game with one prize draw, signs a fresh funded account up through `registerForGame`, and reads the seat back as registered |
+| `map-account-flow.test.ts` | Fork only: a fresh funded account is mapped through `ensureContractAccountMapped` (AutoMap or `Revive.map_account`) and named in `Revive.OriginalAccount` |
 | `probes/ib-health.test.ts` | truapi-host attests a fresh account and the backend's search lists it (gates everything else) |
 | `probes/ring-health.test.ts` | People-chain ring-builder produced rebuilds in last 200 blocks |
 
