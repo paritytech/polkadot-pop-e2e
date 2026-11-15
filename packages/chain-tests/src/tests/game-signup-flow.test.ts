@@ -15,10 +15,9 @@ import { localAirdropVrfSigner } from "@parity/product-sdk-individuality/testing
 import { createPeopleClient, type PeopleApi } from "../lib/client.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { createTestAccount } from "../lib/signer.js";
-import { createFreshSr25519Account, fundAccount, type FreshAccount } from "../lib/fork-account.js";
+import { createFreshSr25519Account, fundAccount, READ_AT, type FreshAccount } from "../lib/fork-account.js";
 import {
   assertSudoKey,
-  playerFunding,
   prepareGameWithDraw,
   readPhases,
   restorePhases,
@@ -51,7 +50,8 @@ describe.skipIf(!getNetworkConfig().testAccountUri || !getNetworkConfig().featur
       game = await prepareGameWithDraw(peopleApi, sudoSigner);
 
       player = createFreshSr25519Account();
-      const funding = await playerFunding(peopleApi);
+      // Three play deposits: one for the sign-up, the rest for its fee.
+      const funding = 3n * (await peopleApi.query.Game.PlayDepositAmount.getValue(READ_AT));
       await fundAccount(peopleApi, sudoSigner, player.address, funding);
       console.log(`[game-signup-flow] ${player.address} funded ${funding} for game ${game.index}`);
     }, 900_000);

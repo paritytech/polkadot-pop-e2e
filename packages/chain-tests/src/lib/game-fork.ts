@@ -305,9 +305,3 @@ export async function restorePhases(
     await sleep(POLL_MS);
   }
 }
-
-/** A fresh player's funding: three play deposits, one for the sign-up and the rest for its fee. */
-export async function playerFunding(api: PeopleApi): Promise<bigint> {
-  const deposit = await api.query.Game.PlayDepositAmount.getValue(READ_AT);
-  return 3n * deposit;
-}
