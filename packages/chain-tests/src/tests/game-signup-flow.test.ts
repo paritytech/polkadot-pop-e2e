@@ -1,10 +1,9 @@
 /**
- * Game sign-up, end to end, on a fork: a fresh, funded account with no personhood signs up
- * for a game this suite schedules, through product-sdk's `registerForGame`. The account's
- * prize draw entry is then read back with `readGameSeat`.
+ * Game sign-up on a fork: a fresh, funded account signs up for a game this suite schedules,
+ * through product-sdk's `registerForGame`, and `readGameSeat` reads back that it is in.
  *
- * Fork only: the setup changes the Game's phases and schedules a game with //Alice's sudo key.
- * The gate is `testAccountUri`, which only a fork sets.
+ * Fork only: the setup sends root calls with //Alice's sudo key, so it runs only when
+ * `testAccountUri` is set.
  */
 import { createECDH } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -16,15 +15,13 @@ import { localAirdropVrfSigner } from "@parity/product-sdk-individuality/testing
 import { createPeopleClient, type PeopleApi } from "../lib/client.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { createTestAccount } from "../lib/signer.js";
+import { createFreshSr25519Account, fundAccount, type FreshAccount } from "../lib/fork-account.js";
 import {
   assertSudoKey,
-  createFreshSr25519Account,
-  fundAccount,
   playerFunding,
   prepareGameWithDraw,
   readPhases,
   restorePhases,
-  type FreshAccount,
   type GameInfo,
   type GamePhases,
 } from "../lib/game-fork.js";
@@ -47,18 +44,16 @@ describe.skipIf(!getNetworkConfig().testAccountUri || !getNetworkConfig().featur
       const sudo = await createTestAccount();
       sudoSigner = sudo.signer;
 
-      // Before the first write: the root key must be //Alice, or the gate's assumption fails.
+      // Before the first write, so a wrong sudo key sends no root call.
       await assertSudoKey(peopleApi, sudo.address);
-
-      // Read before the setup changes anything, so afterAll can put them back even if the
-      // setup fails part way.
+      // Read before any write, so afterAll can restore the phases if the setup fails part way.
       originalPhases = await readPhases(peopleApi);
       game = await prepareGameWithDraw(peopleApi, sudoSigner);
 
       player = createFreshSr25519Account();
       const funding = await playerFunding(peopleApi);
       await fundAccount(peopleApi, sudoSigner, player.address, funding);
-      console.log(`[game-signup-flow] player ${player.address} funded ${funding} for game ${game.index}`);
+      console.log(`[game-signup-flow] ${player.address} funded ${funding} for game ${game.index}`);
     }, 900_000);
 
     afterAll(async () => {
@@ -74,10 +69,12 @@ describe.skipIf(!getNetworkConfig().testAccountUri || !getNetworkConfig().featur
     it(
       "signs a fresh account up for the running game, with its draw entered",
       async () => {
-        if (!peopleApi || !peopleClient || !player || !game) throw new Error("setup did not finish");
+        if (!peopleApi || !peopleClient || !player || !game) {
+          throw new Error("setup did not finish");
+        }
         const chain = fromPapi(peopleClient, peopleApi);
 
-        // A P-256 public key, uncompressed (65 bytes), that co-players reach this player with.
+        // The uncompressed P-256 key that co-players reach this player with.
         const ecdh = createECDH("prime256v1");
         ecdh.generateKeys();
         const identifierKey = new Uint8Array(ecdh.getPublicKey(undefined, "uncompressed"));
