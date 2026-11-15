@@ -36,7 +36,7 @@ const linkKey = (l: Pick<Link, "chain" | "what">): string => `${l.chain}|${l.wha
 const linkText = (l: Link): string => `${code(l.what)} on ${l.chain} (${l.why})`;
 
 /** What breaks the SDK on a chain: breaking entries, and any entry a failing test's error names. */
-function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
+export function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
   return {
     entries: chain.entries.filter((e) => e.severity === "breaking" || named.has(linkKey({ chain: chain.chain, what: e.selector }))),
     // The SDK only signs on chains it has a descriptor for.

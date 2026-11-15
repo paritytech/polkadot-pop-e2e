@@ -3,6 +3,7 @@
 // summary.test.ts keeps the two in step.
 
 import type { Diff } from "./diff.ts";
+import { breakingOf } from "./markdown.ts";
 
 export interface ChainSummary {
   chain: string;
@@ -23,16 +24,13 @@ export interface Summary {
 export function summarize(diff: Diff): Summary {
   const chains = diff.chains.map((chain): ChainSummary => {
     if ("error" in chain) return { chain: chain.chain, breaking: 0, error: chain.error };
-    const entries = chain.entries.filter((e) => e.severity === "breaking").length;
-    // A removed entry is already counted above under its own name.
-    const gone = chain.missingSurfaces.filter(
-      (m) => !m.alsoMissingOnLive && !chain.entries.some((e) => e.change === "removed" && e.selector === m.selector),
-    ).length;
+    // No failing-test names here, so only the diff decides.
+    const b = breakingOf(chain);
     // The SDK only signs on chains with a descriptor.
     const signs = chain.descriptor !== null;
     const versions = signs ? chain.extensions.versions.filter((v) => v.breaking).length : 0;
     const extrinsic = signs ? chain.extensions.extrinsicVersions.removed.length : 0;
-    return { chain: chain.chain, breaking: entries + gone + versions + extrinsic };
+    return { chain: chain.chain, breaking: b.entries.length + b.missing.length + versions + extrinsic };
   });
   const sdkUnreadable = diff.sdkError !== null;
   return {
