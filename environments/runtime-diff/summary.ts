@@ -1,27 +1,22 @@
-// The breaking changes in one runtime diff, counted for the workflow's Matrix alert. It
-// follows the job summary's rule (markdown.ts `isBreaking`): breaking entries, gone SDK
-// surfaces, and removed transaction-extension versions. Extension versions are only
-// counted on a chain the SDK signs for. It reads no junit, so a failing test cannot
-// change the count.
+// The breaking changes in one runtime diff, for the Matrix alert. Same rule as the job
+// summary's `isBreaking` (markdown.ts), with no junit, so a failing test cannot change it.
+// summary.test.ts keeps the two in step.
 
 import type { Diff } from "./diff.ts";
 
 export interface ChainSummary {
   chain: string;
   breaking: number;
-  /** Set when the chain could not be diffed. Its entries were never checked. */
+  /** Set when the chain could not be diffed, so its entries were never checked. */
   error?: string;
 }
 
 export interface Summary {
   breaking: number;
   chains: ChainSummary[];
-  /**
-   * Why the installed SDK could not be read. Then no chain's entries were graded, so
-   * every chain is unknown, not only the ones that errored.
-   */
+  /** Why the SDK could not be read. Then no chain was graded, so every chain is unknown. */
   sdkError: string | null;
-  /** Chains whose breaking changes are not known: each one counted once. */
+  /** Chains whose breaking changes are unknown, each counted once. */
   unknown: number;
 }
 
@@ -33,11 +28,11 @@ export function summarize(diff: Diff): Summary {
     const gone = chain.missingSurfaces.filter(
       (m) => !m.alsoMissingOnLive && !chain.entries.some((e) => e.change === "removed" && e.selector === m.selector),
     ).length;
-    // The SDK only signs on chains it has a descriptor for.
+    // The SDK only signs on chains with a descriptor.
     const signs = chain.descriptor !== null;
     const versions = signs ? chain.extensions.versions.filter((v) => v.breaking).length : 0;
-    const extrinsicVersions = signs ? chain.extensions.extrinsicVersions.removed.length : 0;
-    return { chain: chain.chain, breaking: entries + gone + versions + extrinsicVersions };
+    const extrinsic = signs ? chain.extensions.extrinsicVersions.removed.length : 0;
+    return { chain: chain.chain, breaking: entries + gone + versions + extrinsic };
   });
   const sdkUnreadable = diff.sdkError !== null;
   return {

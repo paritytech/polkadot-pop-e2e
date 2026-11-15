@@ -56,6 +56,5 @@ const markdown = renderReport(diff, explained, { outcome: values.outcome, title:
 const dir = path.dirname(diffFile);
 fs.writeFileSync(path.join(dir, "report.md"), `${markdown}\n`);
 const failingTests = explained.map((t) => ({ ...t, message: t.message.slice(0, 2000) }));
-const summary = summarize(diff);
-fs.writeFileSync(path.join(dir, "report.json"), `${JSON.stringify({ ...diff, failingTests, summary }, null, 2)}\n`);
+fs.writeFileSync(path.join(dir, "report.json"), `${JSON.stringify({ ...diff, failingTests, summary: summarize(diff) }, null, 2)}\n`);
 console.log(markdown);

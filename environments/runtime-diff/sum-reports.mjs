@@ -1,17 +1,13 @@
-// Sum the runtime-diff artifacts of one gate run: the breaking changes they report, and
+// Sums the runtime-diff artifacts of one gate run: the breaking changes they report, and
 // what could not be checked. The workflow downloads every `release-gate-runtime-diff-*`
-// artifact into one directory; download-artifact v4 gives each its own subdirectory.
+// artifact into one directory, each in its own subdirectory.
 //
 //   node environments/runtime-diff/sum-reports.mjs <dir> [--expected <n>]
 //
-// `--expected` is how many candidates the gate planned. A candidate with no artifact
-// directory at all is unknown, so the count is `n` minus the directories found. Without
-// it, nothing is counted as missing.
-//
-// Markdown goes to stdout (the workflow appends it to the job summary). When
-// GITHUB_OUTPUT is set, `breaking=<n>` and `unknown=<n>` are appended to that file.
-// An artifact without a diff.json, without a report.json, or whose report.json has no
-// summary counts as one unknown. A missing <dir> means no artifacts. Plain Node, no deps.
+// `--expected` is how many candidates the gate planned. Each planned candidate with no
+// artifact directory is unknown. Markdown goes to stdout. With GITHUB_OUTPUT set,
+// `breaking=<n>` and `unknown=<n>` are appended to it. An artifact without a diff.json,
+// a report.json, or a report.json summary is one unknown. A missing <dir> means none.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -42,6 +38,7 @@ const walk = (d) =>
     : [];
 
 const isCount = (n) => Number.isInteger(n) && n >= 0;
+const cell = (text) => String(text).replaceAll("|", "\\|").replaceAll("\n", " ").slice(0, 200);
 
 // The summary report.ts writes into report.json, or null when there is none to read.
 function summaryOf(file) {
@@ -53,22 +50,21 @@ function summaryOf(file) {
   }
 }
 
-const cell = (text) => String(text).replaceAll("|", "\\|").replaceAll("\n", " ").slice(0, 200);
-
+// One artifact's totals and table rows. An artifact that cannot be checked is one unknown.
 function artifactOf(artifactDir) {
   const name = path.basename(artifactDir);
   const files = walk(artifactDir);
-  const diff = files.find((f) => path.basename(f) === "diff.json");
-  const report = files.find((f) => path.basename(f) === "report.json");
+  const named = (base) => files.find((f) => path.basename(f) === base);
+  const report = named("report.json");
   const summary = report ? summaryOf(report) : null;
-  const unknownBecause = !diff
+  const why = !named("diff.json")
     ? "no diff.json: the diff was not captured"
     : !report
       ? "diff.json but no report.json: the report step did not run"
       : !summary
         ? "report.json has no summary"
         : null;
-  if (unknownBecause) return { name, breaking: 0, unknown: 1, rows: [["-", 0, unknownBecause]] };
+  if (why) return { name, breaking: 0, unknown: 1, rows: [["-", 0, why]] };
   return {
     name,
     breaking: summary.breaking,
@@ -89,10 +85,8 @@ const artifacts = fs.existsSync(dir)
       .sort((a, b) => a.name.localeCompare(b.name))
   : [];
 
-// Planned candidates whose artifact directory never appeared (the job died before the
-// upload, or uploaded nothing): unknown, with no breaking changes to count.
+// Planned candidates whose artifact directory never appeared (the job died before upload).
 const missing = expected === null ? 0 : Math.max(0, expected - artifacts.length);
-
 const breaking = artifacts.reduce((n, a) => n + a.breaking, 0);
 const unknown = artifacts.reduce((n, a) => n + a.unknown, 0) + missing;
 
@@ -112,7 +106,8 @@ if (artifacts.length === 0) {
   }
 }
 if (missing > 0) {
-  lines.push(`${missing} planned candidate${missing === 1 ? " has" : "s have"} no runtime diff artifact, so ${missing === 1 ? "it is" : "they are"} unknown.`, "");
+  const one = missing === 1;
+  lines.push(`${missing} planned candidate${one ? " has" : "s have"} no runtime diff artifact, so ${one ? "it is" : "they are"} unknown.`, "");
 }
 console.log(lines.join("\n"));
 

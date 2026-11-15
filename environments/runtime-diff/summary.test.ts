@@ -56,6 +56,14 @@ const people: Diffed = {
   pallets: ["PeopleLite", "System"],
 };
 
+// Each helper changes one part of a chain.
+const withVersions = (chain: Diffed, versions: PipelineRow[]): Diffed => ({ ...chain, extensions: { ...chain.extensions, versions } });
+const withRemoved = (chain: Diffed, removed: number[]): Diffed => ({
+  ...chain,
+  extensions: { ...chain.extensions, extrinsicVersions: { removed, added: [] } },
+});
+const noDescriptor = (chain: Diffed): Diffed => ({ ...chain, descriptor: null });
+
 const diffOf = (chains: ChainDiff[], sdkError: string | null = null): Diff => ({
   network: "previewnet",
   sdk: [],
@@ -67,7 +75,7 @@ const diffOf = (chains: ChainDiff[], sdkError: string | null = null): Diff => ({
 
 describe("runtime diff summary", () => {
   it("counts breaking entries and leaves partial and other entries out", () => {
-    const chain: ChainDiff = {
+    const chain: Diffed = {
       ...people,
       entries: [
         entry("tx:PeopleLite.set_alias_account", "breaking"),
@@ -83,29 +91,16 @@ describe("runtime diff summary", () => {
   });
 
   it("counts breaking extension versions on a chain the SDK signs for", () => {
-    const chain: ChainDiff = {
-      ...people,
-      entries: [entry("tx:PeopleLite.set_alias_account", "breaking")],
-      extensions: {
-        ...people.extensions,
-        versions: [row(0, true), row(1, false), row(2, true)],
-      },
-    };
+    const chain = withVersions({ ...people, entries: [entry("tx:PeopleLite.set_alias_account", "breaking")] }, [
+      row(0, true),
+      row(1, false),
+      row(2, true),
+    ]);
     assert.equal(summarize(diffOf([chain])).breaking, 3);
   });
 
-  it("does not count extension breaks on a chain without an SDK descriptor, as the job summary does", () => {
-    const relay: ChainDiff = {
-      ...people,
-      chain: "relay",
-      descriptor: null,
-      extensions: { ...people.extensions, versions: [row(0, true)] },
-    };
-    assert.deepEqual(summarize(diffOf([relay])).chains, [{ chain: "relay", breaking: 0 }]);
-  });
-
   it("counts an SDK surface the candidate lost, but not one live lacked or one already a removed entry", () => {
-    const chain: ChainDiff = {
+    const chain: Diffed = {
       ...people,
       entries: [{ ...entry("constant:Game.airdrop_event_id_base", "breaking"), change: "removed" }],
       missingSurfaces: [
@@ -118,30 +113,13 @@ describe("runtime diff summary", () => {
     assert.deepEqual(summarize(diffOf([chain])).chains, [{ chain: "people", breaking: 2 }]);
   });
 
-  it("counts each removed extrinsic version on a chain the SDK signs for, and not on one without a descriptor", () => {
-    const withRemoved = (descriptor: string | null): ChainDiff => ({
-      ...people,
-      descriptor,
-      extensions: { ...people.extensions, extrinsicVersions: { removed: [4, 5], added: [] } },
-    });
-    assert.equal(summarize(diffOf([withRemoved(people.descriptor)])).breaking, 2);
-    assert.equal(summarize(diffOf([withRemoved(null)])).breaking, 0);
+  it("counts each removed extrinsic version on a chain the SDK signs for", () => {
+    assert.equal(summarize(diffOf([withRemoved(people, [4, 5])])).breaking, 2);
   });
 
-  it("counts a chain that could not be diffed as unknown, with its error and no breaking changes", () => {
-    const failed: ChainDiff = { ...people, chain: "asset-hub", error: "timeout" };
-    const summary = summarize(diffOf([people, failed]));
-    assert.equal(summary.unknown, 1);
-    assert.equal(summary.breaking, 0);
-    assert.deepEqual(summary.chains, [
-      { chain: "people", breaking: 0 },
-      { chain: "asset-hub", breaking: 0, error: "timeout" },
-    ]);
-  });
-
-  it("counts one errored chain as unknown beside breaking chains, and sums only the breaking ones", () => {
+  it("counts an errored chain as unknown beside breaking chains, and sums only the breaking ones", () => {
     const withEntry: ChainDiff = { ...people, entries: [entry("tx:PeopleLite.set_alias_account", "breaking")] };
-    const withVersion: ChainDiff = { ...people, chain: "asset-hub", extensions: { ...people.extensions, versions: [row(0, true)] } };
+    const withVersion: ChainDiff = withVersions({ ...people, chain: "asset-hub" }, [row(0, true)]);
     const errored: ChainDiff = { ...people, chain: "bulletin", error: "no :code" };
     const summary = summarize(diffOf([withEntry, errored, withVersion]));
     assert.equal(summary.breaking, 2);
@@ -155,17 +133,13 @@ describe("runtime diff summary", () => {
 
   it("treats every diffed chain as unknown when the SDK could not be read, each counted once", () => {
     const failed: ChainDiff = { ...people, chain: "asset-hub", error: "timeout" };
-    const versioned: ChainDiff = { ...people, chain: "bulletin", extensions: { ...people.extensions, versions: [row(0, true)] } };
+    const versioned: ChainDiff = withVersions({ ...people, chain: "bulletin" }, [row(0, true)]);
     const summary = summarize(diffOf([people, failed, versioned], "ENOENT: no such file"));
     // Three chains, each unknown exactly once: the errored one is not counted twice.
     assert.equal(summary.unknown, 3);
     assert.equal(summary.sdkError, "ENOENT: no such file");
     // The breaking extension version on bulletin is still a breaking change.
     assert.equal(summary.breaking, 1);
-  });
-
-  it("keeps sdkError as null when the SDK was read", () => {
-    assert.equal(summarize(diffOf([people])).sdkError, null);
   });
 
   it("is zero for an empty diff", () => {
@@ -179,16 +153,15 @@ describe("summary agrees with the job summary", () => {
   const variants: [string, Diffed][] = [
     ["nothing changed", people],
     ["breaking entry", { ...people, entries: [entry("tx:PeopleLite.set_alias_account", "breaking")] }],
-    ["partial entry only", { ...people, entries: [entry("tx:Sudo.sudo", "partial")] }],
-    ["other entry only", { ...people, entries: [entry("event:Game.NewGame", "other")] }],
-    ["breaking extension version", { ...people, extensions: { ...people.extensions, versions: [row(0, true)] } }],
-    ["breaking extension version, no descriptor", { ...people, descriptor: null, extensions: { ...people.extensions, versions: [row(0, true)] } }],
-    ["added extension version", { ...people, extensions: { ...people.extensions, versions: [{ ...row(1, false), status: "added" }] } }],
-    ["removed extrinsic version", { ...people, extensions: { ...people.extensions, extrinsicVersions: { removed: [4], added: [] } } }],
-    ["removed extrinsic version, no descriptor", { ...people, descriptor: null, extensions: { ...people.extensions, extrinsicVersions: { removed: [4], added: [] } } }],
+    ["partial and other entries only", { ...people, entries: [entry("tx:Sudo.sudo", "partial"), entry("event:Game.NewGame", "other")] }],
+    ["breaking extension version", withVersions(people, [row(0, true)])],
+    ["breaking extension version, no descriptor", noDescriptor(withVersions(people, [row(0, true)]))],
+    ["added extension version", withVersions(people, [{ ...row(1, false), status: "added" }])],
+    ["removed extrinsic version", withRemoved(people, [4])],
+    ["removed extrinsic version, no descriptor", noDescriptor(withRemoved(people, [4]))],
     ["gone SDK surface", { ...people, missingSurfaces: [surface("query:NetworkSuffix.NetworkSuffix", false)] }],
     ["gone SDK surface live also lacks", { ...people, missingSurfaces: [surface("query:Old.Gone", true)] }],
-    ["gone SDK surface without descriptor", { ...people, descriptor: null, missingSurfaces: [surface("query:NetworkSuffix.NetworkSuffix", false)] }],
+    ["gone SDK surface without descriptor", noDescriptor({ ...people, missingSurfaces: [surface("query:NetworkSuffix.NetworkSuffix", false)] })],
     [
       "removed entry with its surface gone",
       {
@@ -196,10 +169,6 @@ describe("summary agrees with the job summary", () => {
         entries: [{ ...entry("constant:Game.airdrop_event_id_base", "other"), change: "removed" }],
         missingSurfaces: [surface("constant:Game.airdrop_event_id_base", false)],
       },
-    ],
-    [
-      "breaking entry and breaking extension",
-      { ...people, entries: [entry("tx:PeopleLite.set_alias_account", "breaking")], extensions: { ...people.extensions, versions: [row(0, true)] } },
     ],
   ];
 
@@ -214,4 +183,10 @@ describe("summary agrees with the job summary", () => {
       assert.equal(counted > 0, isBreaking(chain), `summary counts ${counted}`);
     });
   }
+
+  it("does not count an entry only a failing test names, though the job summary links it", () => {
+    const chain = { ...people, entries: [entry("tx:Sudo.sudo", "partial")] };
+    assert.equal(isBreaking(chain, new Set(["people|tx:Sudo.sudo"])), true);
+    assert.equal(summarize(diffOf([chain])).breaking, 0);
+  });
 });

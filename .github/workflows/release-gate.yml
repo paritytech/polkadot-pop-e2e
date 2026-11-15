@@ -827,10 +827,8 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Reads every candidate's runtime diff, whatever the tests did, and reports the
-  # breaking changes as outputs. A caller alerts on them; nothing here gates. Runs
-  # after the gate so a failed or refused candidate's diff is still counted, and is
-  # skipped only when the whole run was cancelled.
+  # Sums every candidate's runtime diff, whatever the tests did, as outputs. Never gates.
+  # Runs after the gate, so a failed candidate's diff still counts; skipped only on cancel.
   runtime-diff-summary:
     needs: [plan, gate]
     if: ${{ !cancelled() }}
@@ -841,8 +839,7 @@ jobs:
       breaking: ${{ steps.sum.outputs.breaking }}
       unknown: ${{ steps.sum.outputs.unknown }}
     steps:
-      # The gate repo, as the gate job checks it out, so the summing script matches
-      # the gate's code. Only the directory the script lives in is needed.
+      # The gate's own code, so the summing script matches the gate.
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -854,9 +851,7 @@ jobs:
         with:
           node-version: "22"
 
-      # Each candidate's artifact lands in its own directory. A directory with no
-      # diff or no report is counted as unknown, and so is a planned candidate with
-      # no directory at all (see the sum step).
+      # Each candidate's artifact is in its own directory. See the sum step for unknowns.
       - name: Download the runtime diffs
         continue-on-error: true
         uses: actions/download-artifact@v4
@@ -864,10 +859,8 @@ jobs:
           pattern: release-gate-runtime-diff-*
           path: runtime-diffs
 
-      # Writes breaking=<n> and unknown=<n> to GITHUB_OUTPUT itself. The planned count
-      # is the plan's matrix, a JSON array with one entry per candidate, as the gate
-      # job reads it. An empty or unreadable matrix (the plan failed or was skipped)
-      # is zero candidates. With no artifacts the script writes 0 and 0 and says so.
+      # The script writes breaking= and unknown= to GITHUB_OUTPUT. The planned count is
+      # the plan's matrix (one entry per candidate); an empty or unreadable one is zero.
       - name: Sum the runtime diffs
         id: sum
         env:
@@ -875,8 +868,7 @@ jobs:
           GATE_RESULT: ${{ needs.gate.result }}
         run: |
           set -euo pipefail
-          # A skipped gate ran no candidate (a fork PR, or a plan that gave none), so none
-          # is expected. Otherwise the plan's matrix lists one candidate per gate job.
+          # A skipped gate ran no candidate, so none is expected.
           if [ "$GATE_RESULT" = "skipped" ]; then
             EXPECTED=0
           else
