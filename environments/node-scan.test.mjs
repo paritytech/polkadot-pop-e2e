@@ -78,8 +78,10 @@ describe('node-scan', () => {
     assert.match(lines[2], /eth-rpc: .*unreachable: HTTP 502$/);
   });
 
-  it('gives up on a network after the deadline', async () => {
-    await assert.rejects(scan({ rpc: () => new Promise(() => {}), deadlineMs: 20 }), /gave up after 0.02s/);
+  it('gives up on a stalled endpoint after the deadline and still reports the rest', async () => {
+    const lines = await scan({ rpc: () => new Promise(() => {}), deadlineMs: 20 });
+    assert.match(lines[0], /relay .*unreachable: gave up after 0.02s$/);
+    assert.match(lines[2], /eth-rpc: .*no polkadot-sdk tag has commit deadbee$/);
   });
 
   it('never imports baseline-scan.mjs, which imports it while still evaluating', () => {

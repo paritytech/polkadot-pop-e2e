@@ -51,6 +51,7 @@ async function ethClientVersion(url, fetchFn) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'web3_clientVersion', params: [] }),
+    signal: AbortSignal.timeout(DEADLINE_MS),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = await res.json();
@@ -60,7 +61,7 @@ async function ethClientVersion(url, fetchFn) {
 
 /**
  * One line per chain the manifest lists, plus eth-rpc when it is pinned, and one for the pinned
- * services it cannot read. A failed read is its own line; the network gives up after the deadline.
+ * services it cannot read. A failed or stalled read is its own line, so the others still report.
  */
 export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch, deadlineMs = DEADLINE_MS }) {
   const known = CHAINS[manifest.network];
@@ -79,8 +80,8 @@ export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetc
   const expired = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`gave up after ${deadlineMs / 1000}s`)), deadlineMs);
   });
-  const work = Promise.all([loadTags(), ...targets.map((t) => t.read().catch((err) => err))]);
-  const [tags, ...versions] = await Promise.race([work, expired]).finally(() => clearTimeout(timer));
+  const work = Promise.all([loadTags(), ...targets.map((t) => Promise.race([t.read(), expired]).catch((err) => err))]);
+  const [tags, ...versions] = await work.finally(() => clearTimeout(timer));
   const lines = targets.map(({ name, pin }, i) => line(name, pin, versions[i], tags));
   return notScanned.length ? [...lines, `- not scanned: ${notScanned.join(', ')}`] : lines;
 }
