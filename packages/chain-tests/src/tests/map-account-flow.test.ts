@@ -5,7 +5,7 @@
  * up mapped, so a runtime that breaks either path fails here. Fork only, since it signs with //Alice.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { PolkadotClient } from "polkadot-api";
+import { AccountId, type PolkadotClient } from "polkadot-api";
 import { formatDispatchError } from "@parity/product-sdk-tx";
 import {
   createContractRuntimeFromClient,
@@ -75,9 +75,11 @@ describe.skipIf(!getNetworkConfig().testAccountUri)("Contract account mapping fl
   });
 
   it("reads the fresh account as mapped in Revive.OriginalAccount", async () => {
-    await waitUntil("the mapping finalizes", async () =>
-      (await api.query.Revive.OriginalAccount.getValue(ss58ToH160(fresh.address))) === fresh.address,
-    );
+    // The chain returns the address in its own SS58 format, so compare it re-encoded.
+    await waitUntil("the mapping finalizes", async () => {
+      const original = await api.query.Revive.OriginalAccount.getValue(ss58ToH160(fresh.address));
+      return original !== undefined && AccountId().dec(AccountId().enc(original)) === fresh.address;
+    });
   });
 
   it("treats a second ensureContractAccountMapped as a no-op", async () => {
