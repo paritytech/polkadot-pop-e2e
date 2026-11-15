@@ -1,40 +1,30 @@
-// Node and eth-rpc release attribution (#53). REPORT ONLY: nothing here rewrites a
-// pin, fails the job or changes an exit code. baseline-scan.mjs prints scanNodes'
-// rows after each manifest's runtime summary and ignores them for every decision.
+// Node and eth-rpc release attribution (#53). REPORT ONLY: nothing here rewrites a pin,
+// fails a job or changes an exit code. baseline-scan.mjs prints renderNodeSummary() after
+// each manifest's runtime summary and ignores its rows for every decision.
 //
-// Per chain the scan reads system_version over RPC (system_name is operator-set, so it
-// is shown raw and never used). Per eth-rpc, web3_clientVersion over HTTP. The commit
-// in each is mapped to the polkadot-sdk tags that carry it: that is source attribution.
-// The pin's own repo is then checked for a published release of the pinned tag: that is
-// availability, reported separately.
+// A chain's system_version (system_name is operator-set: shown raw, never used) and
+// eth-rpc's web3_clientVersion each name a commit, attributed to the polkadot-sdk tags
+// carrying it. The pinned tag's release is checked in the pin's repo, reported apart.
 //
-// Verdicts per chain or service:
-//   match        the live commit is the pinned tag's commit.
-//   drift        the live commit belongs to another polkadot-sdk tag (`attributed`).
-//   unreleased   no polkadot-sdk tag points at the live commit.
-//   pin-unknown  the pin comes from a repo this slot does not allow, or names no tag.
-//   unparsed     the version string carries no recognisable commit.
-//   unreachable  the endpoint failed.
-//   no-endpoint  no scan endpoint is mapped.
-//   not-scanned  a pinned service other than eth-rpc, which this scan does not observe.
-// Chains on one slot that report different commits are annotated separately (splitSlots).
+// Verdicts: match, drift (`attributed` is the live tag), unreleased (no tag has the commit),
+// pin-unknown (repo not allowed for the slot, or no tag), unparsed, unreachable,
+// no-endpoint, not-scanned (a pinned service other than eth-rpc, which is not observed).
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { CHAINS, NODE_BINARIES, SERVICES, parseReleaseRef } from './release-map.mjs';
 import { ghHeaders } from './github.mjs';
 
-// This module must not import baseline-scan.mjs. The CLI imports us dynamically while
-// it is still evaluating, so a static import back would deadlock and leave the top-level
-// await unsettled (exit 13). The CLI passes its own rpc() in as io.rpc instead.
+// Must not import baseline-scan.mjs: the CLI imports this module while it is still
+// evaluating (top-level await), so a static import back deadlocks (exit 13). The CLI
+// passes its own rpc() in as io.rpc.
 
 const SDK_REPO_URL = 'https://github.com/paritytech/polkadot-sdk';
 const GIT_TIMEOUT_MS = 60_000;
 const FETCH_TIMEOUT_MS = 20_000;
-export const NODE_SCAN_DEADLINE_MS = 60_000; // per network, all lookups together
+const DEADLINE_MS = 60_000; // per network, all lookups together
 
-// Public eth-rpc endpoints per network. Kept here, not in release-map.mjs, because only
-// this scan reads them.
+// Public eth-rpc endpoints per network. Only this scan reads them.
 export const ETH_RPC_URLS = {
   previewnet: 'https://previewnet.substrate.dev/eth-rpc',
   'paseo-next-v2': 'https://eth-rpc-paseo-next.polkadot.io',
@@ -43,8 +33,7 @@ export const ETH_RPC_URLS = {
 
 const execFileP = promisify(execFile);
 
-/** One git call. The default runs the real binary; tests inject their own. */
-export async function runGit(args) {
+async function runGit(args) {
   const { stdout } = await execFileP('git', args, {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
@@ -53,110 +42,95 @@ export async function runGit(args) {
   return stdout;
 }
 
-// ── parsing ──────────────────────────────────────────────────────────────────
+// ── parsing: each returns the lowercase commit, or null ─────────────────────
 
 // `<semver>-[<label>-]<commit>`: 1.24.3-weekly2026w38-eeb597f61b9, 1.25.1-6ab53982513.
-const NODE_VERSION = /^(\d+\.\d+\.\d+)(?:-(.+?))?-([0-9a-f]{7,40})$/i;
+const NODE_VERSION = /^\d+\.\d+\.\d+(?:-.+?)?-([0-9a-f]{7,40})$/i;
 
 export function parseNodeVersion(str) {
   const m = typeof str === 'string' ? NODE_VERSION.exec(str.trim()) : null;
-  return m ? { semver: m[1], label: m[2] ?? null, commit: m[3].toLowerCase() } : null;
+  return m ? m[1].toLowerCase() : null;
 }
 
 // `eth-rpc/<ref>[/<target>/rustc<ver>]`: eth-rpc/HEAD-eeb597f/x86_64-unknown-linux-gnu/rustc1.93.0,
 // or a branch build whose ref spans slashes: eth-rpc/mr/eth-rpc-avoid-state-call-fe2ecd3/...
 const ETH_VERSION = /^eth-rpc\/(.+?)(?:\/[^/]+\/rustc\S*)?$/;
+const REF_COMMIT = /-([0-9a-f]{7,40})$/i;
 
 export function parseEthRpcVersion(str) {
   const m = typeof str === 'string' ? ETH_VERSION.exec(str.trim()) : null;
-  if (!m) return null;
-  const c = /-([0-9a-f]{7,40})$/i.exec(m[1]);
-  return c ? { ref: m[1], commit: c[1].toLowerCase() } : null;
+  const c = m ? REF_COMMIT.exec(m[1]) : null;
+  return c ? c[1].toLowerCase() : null;
 }
 
 /**
- * `git ls-remote --tags` output -> Map(peeled commit sha -> sorted tag names).
- * An annotated tag has two lines: the plain one names the tag object, the `^{}` one
- * names the commit. Only the commit counts, so the peeled sha wins when both exist.
+ * `git ls-remote --tags` -> Map(commit sha -> sorted tag names). An annotated tag lists its
+ * tag object, then a `^{}` line naming the commit it points at. Only the commit counts.
  */
 export function parseLsRemoteTags(text) {
-  const direct = new Map(); // tag -> sha as listed (a tag object for annotated tags)
-  const peeled = new Map(); // tag -> the commit it points at (the ^{} line)
+  const commitOf = new Map(); // tag -> sha as listed
+  const peeled = new Map(); // tag -> commit named by its ^{} line
   for (const line of String(text).split('\n')) {
     const m = /^([0-9a-f]{40})\s+refs\/tags\/(\S+)$/.exec(line.trim());
     if (!m) continue;
     const [, sha, ref] = m;
     if (ref.endsWith('^{}')) peeled.set(ref.slice(0, -3), sha);
-    else direct.set(ref, sha);
+    else commitOf.set(ref, sha);
   }
+  for (const [tag, sha] of peeled) commitOf.set(tag, sha);
   const byCommit = new Map();
-  for (const tag of new Set([...direct.keys(), ...peeled.keys()])) {
-    const commit = peeled.get(tag) ?? direct.get(tag);
-    const names = byCommit.get(commit) ?? [];
-    names.push(tag);
-    byCommit.set(commit, names);
+  for (const [tag, commit] of commitOf) {
+    if (!byCommit.has(commit)) byCommit.set(commit, []);
+    byCommit.get(commit).push(tag);
   }
   for (const names of byCommit.values()) names.sort();
   return byCommit;
 }
 
-/** One `git ls-remote` of polkadot-sdk. Throws if git or GitHub fails. */
-export async function loadSdkTags(io = {}) {
-  const git = io.git ?? runGit;
-  return parseLsRemoteTags(await git(['ls-remote', '--tags', SDK_REPO_URL]));
-}
-
 /**
- * A memoised loader: the first call runs the single `git ls-remote`, later calls get the
- * same promise. The CLI makes one per run and hands it to every manifest's scan.
+ * Memoised polkadot-sdk tag listing: the first call runs one `git ls-remote`, later calls
+ * share its promise. The CLI makes one per run and hands it to every manifest's scan.
  */
 export function sdkTagLoader(io = {}) {
+  const git = io.git ?? runGit;
   let pending = null;
-  return () => (pending ??= loadSdkTags(io));
+  return () => (pending ??= git(['ls-remote', '--tags', SDK_REPO_URL]).then(parseLsRemoteTags));
 }
 
 /**
- * Tag names whose commit starts with `prefix`. A live commit is an abbreviation, so
- * it is matched by prefix; anything under 7 hex digits is too short to trust.
+ * A live commit may be an abbreviation. A prefix that matches one commit resolves to it
+ * with that commit's tags. One that matches several keeps the prefix and pools their tags.
  */
-export function tagsForCommit(tags, prefix) {
-  const p = String(prefix).toLowerCase();
-  if (p.length < 7) return [];
-  const out = new Set();
-  for (const [commit, names] of tags) {
-    if (commit.startsWith(p)) for (const name of names) out.add(name);
-  }
-  return [...out].sort();
+export function resolveCommit(tags, prefix) {
+  const hits = [...tags].filter(([commit]) => commit.startsWith(prefix));
+  if (hits.length === 1) return { commit: hits[0][0], releases: hits[0][1] };
+  return { commit: prefix, releases: hits.flatMap(([, names]) => names).sort() };
 }
 
-/** The full commit a tag names, or null. */
-export function commitForTag(tags, tag) {
-  for (const [commit, names] of tags) if (names.includes(tag)) return commit;
-  return null;
+// Tag names to report when several tags name one commit. The pinned tag wins when it is
+// among them. Otherwise a final release beats -rcN, stable and weekly beat v-style tags,
+// then lexical order.
+function rank(tag) {
+  const rc = /-rc\d+$/.test(tag) ? 3 : 0;
+  if (/^polkadot-(stable|weekly)/.test(tag)) return rc;
+  return rc + (/^(polkadot-)?v\d/.test(tag) ? 1 : 2);
+}
+
+export function pickTag(candidates, pinnedTag = null) {
+  if (candidates.length === 0) return null;
+  if (pinnedTag && candidates.includes(pinnedTag)) return pinnedTag;
+  return [...candidates].sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0))[0];
 }
 
 /**
- * The full sha for a commit prefix when the tag map resolves it to exactly one commit,
- * else the prefix unchanged.
- */
-export function canonicalCommit(prefix, tags) {
-  const p = String(prefix).toLowerCase();
-  const hits = [...tags.keys()].filter((c) => c.startsWith(p));
-  return hits.length === 1 ? hits[0] : p;
-}
-
-/** Two commit strings name the same commit when one is a prefix of the other. */
-export const sameCommit = (a, b) => a.startsWith(b) || b.startsWith(a);
-
-/**
- * Rows grouped by commit identity, prefix-aware: 7 and 11 hex of one commit form one
- * group. A group keeps the most specific sha it has seen.
+ * Rows grouped by commit, prefix-aware: 7 and 11 hex of one commit form one group, keyed
+ * by its most specific sha.
  */
 export function commitGroups(rows) {
   const groups = [];
   for (const r of rows) {
     if (!r.commit) continue;
-    const g = groups.find((x) => sameCommit(x.commit, r.commit));
+    const g = groups.find((x) => x.commit.startsWith(r.commit) || r.commit.startsWith(x.commit));
     if (!g) {
       groups.push({ commit: r.commit, rows: [r] });
     } else {
@@ -167,40 +141,11 @@ export function commitGroups(rows) {
   return groups;
 }
 
-/** Slots whose chains report genuinely different commits: Map(slot -> groups). */
-export function splitSlots(rows) {
-  const split = new Map();
-  for (const slot of new Set(rows.map((r) => r.slot))) {
-    const groups = commitGroups(rows.filter((r) => r.slot === slot));
-    if (groups.length > 1) split.set(slot, groups);
-  }
-  return split;
-}
+// ── pins and releases ───────────────────────────────────────────────────────
 
 /**
- * Tag names to report when several tags name the same commit. The pinned tag wins
- * when it is among them. Otherwise: a final release over -rcN, then stable/weekly over
- * the v-style semver tags (`v*` and `polkadot-v*`), then lexical order.
- */
-export function pickTag(candidates, pinnedTag = null) {
-  if (candidates.length === 0) return null;
-  if (pinnedTag && candidates.includes(pinnedTag)) return pinnedTag;
-  const rank = (t) => [
-    /-rc\d+$/.test(t) ? 1 : 0,
-    /^polkadot-(stable|weekly)/.test(t) ? 0 : /^(polkadot-)?v\d/.test(t) ? 1 : 2,
-  ];
-  return [...candidates].sort((a, b) => {
-    const [ra, rb] = [rank(a), rank(b)];
-    return ra[0] - rb[0] || ra[1] - rb[1] || (a < b ? -1 : a > b ? 1 : 0);
-  })[0];
-}
-
-// ── classification ───────────────────────────────────────────────────────────
-
-/**
- * A pin, resolved. `repo` is the pinned repo and `tag` the pinned tag; `commit` is the
- * tag's commit in the polkadot-sdk tag map (source attribution). `reason` says why the
- * pin cannot be compared, and is null when it can.
+ * A pin, resolved. `repo` and `tag` name the pinned release; `commit` is the tag's commit
+ * in the polkadot-sdk listing. `reason` says why the pin cannot be compared, else null.
  */
 function resolvePin(raw, allowedRepos, tags) {
   const pin = { raw: raw ?? null, repo: null, tag: null, commit: null, reason: null };
@@ -212,29 +157,20 @@ function resolvePin(raw, allowedRepos, tags) {
     return { ...pin, reason: 'is not a release reference' };
   }
   if (!ref.repo || !ref.tag || ref.tag === 'latest') return { ...pin, reason: 'is not a published tag' };
-  pin.repo = ref.repo;
-  pin.tag = ref.tag;
+  Object.assign(pin, { repo: ref.repo, tag: ref.tag });
   if (!allowedRepos.includes(ref.repo)) {
     return { ...pin, reason: `comes from ${ref.repo}, not an allowed source for this slot` };
   }
-  pin.commit = commitForTag(tags, ref.tag);
+  for (const [commit, names] of tags) if (names.includes(ref.tag)) pin.commit = commit;
   if (!pin.commit) pin.reason = 'names no polkadot-sdk tag';
   return pin;
 }
 
-/** Compare one live commit with its pin. `releases` are the tags carrying the commit. */
-function classify(commit, releases, pin) {
-  if (releases.length === 0) return { verdict: 'unreleased' };
-  if (!pin.commit) return { verdict: 'pin-unknown' };
-  const attributed = pickTag(releases, pin.tag);
-  return { verdict: pin.commit.startsWith(commit) ? 'match' : 'drift', attributed };
-}
-
 /**
- * Is the pinned tag published in the pinned repo? Bounded by a timeout and never
- * retried. An unreachable GitHub is `unverified`, not `missing`.
+ * Is the pinned tag published in the pinned repo? One bounded request, never retried. An
+ * unreachable GitHub is `unverified`, not `missing`.
  */
-export async function checkRelease(repo, tag, io) {
+async function checkRelease(repo, tag, io) {
   const url = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   try {
     const res = await io.fetch(url, {
@@ -249,82 +185,81 @@ export async function checkRelease(repo, tag, io) {
   }
 }
 
-/** One chain's node: system_version over RPC. Every failure becomes a row, never a throw. */
-async function observeChain(chain, entry, deps) {
-  const row = { kind: 'node', name: chain, slot: entry.node, endpoint: entry.ws };
+// ── observation ─────────────────────────────────────────────────────────────
+
+/** Read one endpoint's version and parse its commit. A failure becomes the row's verdict. */
+async function observe(row, readVersion, parseCommit) {
   try {
-    const [version, systemName] = await Promise.all([
-      deps.rpc(entry.ws, 'system_version'),
-      deps.rpc(entry.ws, 'system_name').catch(() => null), // informational only
-    ]);
-    row.version = version;
-    row.systemName = systemName;
-    const parsed = parseNodeVersion(version);
-    if (parsed) row.commit = parsed.commit;
+    row.version = await readVersion();
+    const commit = parseCommit(row.version);
+    if (commit) row.commit = commit;
     else row.verdict = 'unparsed';
   } catch (err) {
     row.verdict = 'unreachable';
-    row.error = `${entry.ws}: ${err.message}`;
+    row.error = `${row.endpoint}: ${err.message}`;
   }
   return row;
 }
 
-/** eth-rpc's web3_clientVersion over HTTP POST. Every failure becomes a row. */
+async function observeChain(chain, entry, deps) {
+  const row = { kind: 'node', name: chain, slot: entry.node, endpoint: entry.ws };
+  const [, systemName] = await Promise.all([
+    observe(row, () => deps.rpc(entry.ws, 'system_version'), parseNodeVersion),
+    deps.rpc(entry.ws, 'system_name').catch(() => null), // informational only
+  ]);
+  row.systemName = systemName;
+  return row;
+}
+
 async function observeEthRpc(network, deps) {
   const url = ETH_RPC_URLS[network];
   const row = { kind: 'service', name: 'eth-rpc', slot: 'eth-rpc', endpoint: url };
   if (!url) return { ...row, verdict: 'no-endpoint' };
-  try {
-    const res = await deps.fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'web3_clientVersion', params: [] }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
-    if (!body || typeof body !== 'object') throw new Error('malformed response');
-    if (body.error) throw new Error(`web3_clientVersion: ${JSON.stringify(body.error)}`);
-    row.version = body.result;
-    const parsed = parseEthRpcVersion(row.version);
-    if (parsed) row.commit = parsed.commit;
-    else row.verdict = 'unparsed';
-  } catch (err) {
-    row.verdict = 'unreachable';
-    row.error = `${url}: ${err.message}`;
-  }
-  return row;
+  return observe(
+    row,
+    async () => {
+      const res = await deps.fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'web3_clientVersion', params: [] }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      if (!body || typeof body !== 'object') throw new Error('malformed response');
+      if (body.error) throw new Error(`web3_clientVersion: ${JSON.stringify(body.error)}`);
+      return body.result;
+    },
+    parseEthRpcVersion
+  );
 }
 
+/** Rejects with one line if `work` is still running after `ms`. */
 function withDeadline(work, ms, network) {
   let timer;
-  const span = ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`;
   const expired = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${network} node scan exceeded ${span}`)), ms);
+    timer = setTimeout(() => reject(new Error(`${network} node scan exceeded ${ms / 1000}s`)), ms);
   });
-  work.catch(() => {}); // a late failure after the deadline must not surface as unhandled
   return Promise.race([work, expired]).finally(() => clearTimeout(timer));
 }
 
 /**
- * Scan the chains a manifest pins, plus eth-rpc when it pins that. Lookups run
- * concurrently; each has its own try, so one dead endpoint is one row. The whole scan
- * has a deadline and rejects when it passes (the caller reports one line and moves on).
- * The tag listing is shared through io.loadTags, so one run makes one `git ls-remote`.
+ * Scan the chains a manifest lists, plus eth-rpc when it pins it. Lookups run concurrently
+ * and each failure is its own row. The scan rejects when the network's deadline passes.
+ * The tag listing comes from io.loadTags, so one run makes one `git ls-remote`.
  */
 export async function scanNodes(manifest, injected = {}) {
-  const deps = { git: runGit, fetch: (url, opts) => fetch(url, opts), ...injected };
+  const deps = { git: runGit, fetch, ...injected };
   if (typeof deps.rpc !== 'function') throw new Error('scanNodes needs io.rpc (baseline-scan.mjs rpc)');
   const known = CHAINS[manifest.network];
   if (!known) throw new Error(`unknown network "${manifest.network}"`);
   const loadTags = injected.loadTags ?? sdkTagLoader(deps);
-  return withDeadline(scan(manifest, known, deps, loadTags), deps.deadlineMs ?? NODE_SCAN_DEADLINE_MS, manifest.network);
+  return withDeadline(scanRows(manifest, known, deps, loadTags), deps.deadlineMs ?? DEADLINE_MS, manifest.network);
 }
 
-async function scan(manifest, known, deps, loadTags) {
+async function scanRows(manifest, known, deps, loadTags) {
   const tags = await loadTags();
-  const chains = Object.keys(manifest.chains ?? {}); // the chains this manifest lists
-
+  const chains = Object.keys(manifest.chains ?? {});
   const slots = [...new Set(chains.filter((c) => known[c]).map((c) => known[c].node))];
   const pins = Object.fromEntries(
     slots.map((slot) => [slot, resolvePin(manifest.binaries?.[slot], NODE_BINARIES[slot]?.repos ?? [], tags)])
@@ -336,21 +271,27 @@ async function scan(manifest, known, deps, loadTags) {
   const jobs = chains.map((chain) =>
     known[chain]?.ws
       ? observeChain(chain, known[chain], deps)
-      : Promise.resolve({ kind: 'node', name: chain, slot: known[chain]?.node ?? null, verdict: 'no-endpoint' })
+      : { kind: 'node', name: chain, slot: known[chain]?.node ?? null, verdict: 'no-endpoint' }
   );
   if (ethPin) jobs.push(observeEthRpc(manifest.network, deps));
   const rows = await Promise.all(jobs);
 
   for (const r of rows) {
-    if (!r.commit) continue; // unparsed, unreachable or no-endpoint: verdict already set
+    if (!r.commit) continue; // unparsed, unreachable or no-endpoint: the verdict is set
     const pin = r.kind === 'service' ? ethPin : pins[r.slot];
-    r.pin = pin;
-    r.commit = canonicalCommit(r.commit, tags);
-    r.releases = tagsForCommit(tags, r.commit);
-    Object.assign(r, classify(r.commit, r.releases, pin));
+    const { commit, releases } = resolveCommit(tags, r.commit);
+    Object.assign(r, { pin, commit });
+    if (releases.length === 0) {
+      r.verdict = 'unreleased';
+    } else if (!pin.commit) {
+      r.verdict = 'pin-unknown';
+    } else {
+      r.verdict = pin.commit.startsWith(commit) ? 'match' : 'drift';
+      r.attributed = pickTag(releases, pin.tag);
+    }
   }
 
-  // Availability of each resolved pin's release, checked once per pinned tag whatever the verdict.
+  // Each resolved pin's release is checked once per pinned tag, whatever the verdict.
   const checks = new Map();
   await Promise.all(
     rows
@@ -361,21 +302,17 @@ async function scan(manifest, known, deps, loadTags) {
         r.release = await checks.get(key);
       })
   );
+
   const notScanned = Object.keys(manifest.services ?? {})
     .filter((name) => name !== 'eth-rpc')
     .map((name) => ({ kind: 'service', name, slot: name, verdict: 'not-scanned', raw: manifest.services[name] }));
   return [...rows, ...notScanned];
 }
 
-// ── rendering ────────────────────────────────────────────────────────────────
+// ── rendering ───────────────────────────────────────────────────────────────
 
 /** `repo@tag` with the repo's short name, as the manifest writes it; the raw pin when unparsed. */
 const pinLabel = (pin) => (pin.repo ? `${pin.repo.split('/').pop()}@${pin.tag}` : (pin.raw ?? 'none'));
-
-function systemNames(rows) {
-  const named = rows.filter((r) => r.systemName);
-  return named.length ? `; system_name: ${named.map((r) => `${r.name} "${r.systemName}"`).join(', ')}` : '';
-}
 
 function releaseNote(release) {
   if (!release || release.state === 'present') return '';
@@ -388,19 +325,19 @@ function groupLine(group) {
   const first = group.rows[0];
   const who =
     first.kind === 'service' ? first.name : `${first.slot} (${group.rows.map((r) => r.name).join(', ')})`;
-  const names = systemNames(group.rows);
-  const pin = first.pin;
+  const named = group.rows.filter((r) => r.systemName).map((r) => `${r.name} "${r.systemName}"`);
+  const names = named.length ? `; system_name: ${named.join(', ')}` : '';
+  const { pin, version, attributed } = first;
+  const note = releaseNote(first.release);
   switch (first.verdict) {
     case 'match':
-      return `- ${who}: pinned ${pinLabel(pin)}, live ${first.attributed} (${first.version}), match${releaseNote(first.release)}, report only${names}`;
+      return `- ${who}: pinned ${pinLabel(pin)}, live ${attributed} (${version}), match${note}, report only${names}`;
     case 'drift':
-      return `- ${who}: pinned ${pinLabel(pin)}${releaseNote(first.release)}, live ${first.attributed} (${first.version}), report only${names}`;
+      return `- ${who}: pinned ${pinLabel(pin)}${note}, live ${attributed} (${version}), report only${names}`;
     case 'unreleased':
-      return `- ${who}: pinned ${pinLabel(pin)}${releaseNote(first.release)}, live commit ${group.commit} (${first.version}), no polkadot-sdk tag points at this commit, report only${names}`;
+      return `- ${who}: pinned ${pinLabel(pin)}${note}, live commit ${group.commit} (${version}), no polkadot-sdk tag points at this commit, report only${names}`;
     case 'pin-unknown':
-      return `- ${who}: pin ${pin.raw ?? '(none)'} ${pin.reason}${releaseNote(first.release)}, live ${first.version}, report only${names}`;
-    default:
-      return `- ${who}: ${first.verdict}, report only`;
+      return `- ${who}: pin ${pin.raw ?? '(none)'} ${pin.reason}${note}, live ${version}, report only${names}`;
   }
 }
 
@@ -414,9 +351,8 @@ function failureLine(r) {
 }
 
 /**
- * Markdown, so the auto-PR body (scan.out as-is) keeps one bullet per line. Groups rows
- * by slot and live commit, lists each group's chains on one line, and says it is report
- * only. Chains of one slot that report different commits get an extra annotation line.
+ * Markdown, so the auto-PR body (scan.out as-is) keeps one bullet per line: rows grouped by
+ * slot and live commit, each group's chains on one line, and a note for slots that disagree.
  */
 export function renderNodeSummary(network, rows) {
   const out = [`${network} nodes (report only, not rewritten, #53):`, ''];

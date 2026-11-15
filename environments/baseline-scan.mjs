@@ -191,7 +191,7 @@ if (isMain) {
 
   let sawDrift = false;
   let sawBroken = false;
-  let nodeTags; // the run's one polkadot-sdk tag listing, loaded on first use (#53)
+  let nodeTags; // one polkadot-sdk tag listing per run, loaded on first use (#53)
   for (const p of manifests) {
     const manifest = validateManifest(JSON.parse(fs.readFileSync(p, 'utf8')));
     const results = await scanManifest(manifest);
@@ -205,10 +205,8 @@ if (isMain) {
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
     }
-    // Report-only (#53): which release the live nodes and eth-rpc run. Its rows feed
-    // the printout and nothing else. sawBroken, sawDrift, writes and exit codes never
-    // see them, and the dynamic import keeps a failure in node-scan.mjs from reaching
-    // the runtime scan at all.
+    // Report only (#53): the rows feed this printout and nothing else. The dynamic import
+    // and try keep a node-scan failure away from the runtime scan above.
     try {
       const { scanNodes, renderNodeSummary, sdkTagLoader } = await import('./node-scan.mjs');
       nodeTags ??= sdkTagLoader();

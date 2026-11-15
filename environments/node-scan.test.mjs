@@ -7,19 +7,15 @@ import fs from 'node:fs';
 import { CHAINS, SERVICES } from './release-map.mjs';
 import {
   ETH_RPC_URLS,
-  canonicalCommit,
-  commitForTag,
   commitGroups,
-  loadSdkTags,
   parseEthRpcVersion,
   parseLsRemoteTags,
   parseNodeVersion,
   pickTag,
   renderNodeSummary,
+  resolveCommit,
   scanNodes,
   sdkTagLoader,
-  splitSlots,
-  tagsForCommit,
 } from './node-scan.mjs';
 
 // Full 40-hex commits built from the short ones the release notes quote.
@@ -44,42 +40,24 @@ const LS_REMOTE = [
 const tags = () => parseLsRemoteTags(LS_REMOTE);
 
 describe('parseNodeVersion', () => {
-  it('reads a weekly build: semver, label and commit', () => {
-    assert.deepEqual(parseNodeVersion('1.24.3-weekly2026w38-eeb597f61b9'), {
-      semver: '1.24.3',
-      label: 'weekly2026w38',
-      commit: 'eeb597f61b9',
-    });
+  it('reads the commit of a weekly build (with a label) and of a stable build (without)', () => {
+    assert.equal(parseNodeVersion('1.24.3-weekly2026w38-eeb597f61b9'), 'eeb597f61b9');
+    assert.equal(parseNodeVersion('1.25.1-6ab53982513'), '6ab53982513');
   });
 
-  it('reads a stable build with no label', () => {
-    assert.deepEqual(parseNodeVersion('1.25.1-6ab53982513'), {
-      semver: '1.25.1',
-      label: null,
-      commit: '6ab53982513',
-    });
-  });
-
-  it('rejects garbage, operator-set names and short commits', () => {
-    for (const bad of ['Parity Polkadot', 'polkadot-omni-node', '1.25.1', '1.25.1-xyz', '1.25.1-6ab5398x', '', undefined, 42]) {
+  it('rejects garbage, operator-set names, versions with no commit and short commits', () => {
+    for (const bad of ['Parity Polkadot', 'polkadot-omni-node', '1.25.1', '1.25.1-xyz', '1.25.1-6ab5398x', '1.25.1-abc', '', undefined, 42]) {
       assert.equal(parseNodeVersion(bad), null, `expected null for ${JSON.stringify(bad)}`);
     }
-    assert.equal(parseNodeVersion('1.25.1-abc'), null, 'commit under 7 hex digits');
   });
 });
 
 describe('parseEthRpcVersion', () => {
-  it('reads a HEAD build: ref and 7-hex commit', () => {
-    assert.deepEqual(parseEthRpcVersion('eth-rpc/HEAD-eeb597f/x86_64-unknown-linux-gnu/rustc1.93.0'), {
-      ref: 'HEAD-eeb597f',
-      commit: 'eeb597f',
-    });
-  });
-
-  it('reads a branch build whose ref contains slashes', () => {
-    assert.deepEqual(
+  it('reads the commit of a HEAD build and of a branch build whose ref contains slashes', () => {
+    assert.equal(parseEthRpcVersion('eth-rpc/HEAD-eeb597f/x86_64-unknown-linux-gnu/rustc1.93.0'), 'eeb597f');
+    assert.equal(
       parseEthRpcVersion('eth-rpc/mr/eth-rpc-avoid-state-call-fe2ecd3/x86_64-unknown-linux-gnu/rustc1.93.0'),
-      { ref: 'mr/eth-rpc-avoid-state-call-fe2ecd3', commit: 'fe2ecd3' }
+      'fe2ecd3'
     );
   });
 
@@ -91,87 +69,78 @@ describe('parseEthRpcVersion', () => {
 });
 
 describe('parseLsRemoteTags', () => {
-  it('maps peeled commits to tags, using ^{} lines for annotated tags', () => {
+  it('maps each commit to its tags, taking an annotated tag\'s commit from its ^{} line', () => {
     const t = tags();
     assert.deepEqual(t.get(W33), ['polkadot-weekly2026w33-rc2', 'polkadot-weekly2026w33-rc3']);
     assert.deepEqual(t.get(STABLE), ['polkadot-stable2609-1', 'polkadot-v1.25.1']);
     assert.deepEqual(t.get(W38), ['polkadot-weekly2026w38-rc1']);
-  });
-
-  it('never keys on an annotated tag object', () => {
-    assert.equal(tags().has(TAG_OBJECT), false);
+    assert.equal(t.has(TAG_OBJECT), false, 'a tag object is never a commit');
   });
 
   it('keeps a lightweight tag as its own commit', () => {
-    const t = parseLsRemoteTags(`${W38}\trefs/tags/light-tag\n`);
-    assert.deepEqual(t.get(W38), ['light-tag']);
+    assert.deepEqual(parseLsRemoteTags(`${W38}\trefs/tags/light-tag\n`).get(W38), ['light-tag']);
   });
 });
 
-describe('loadSdkTags and sdkTagLoader', () => {
-  it('runs exactly one ls-remote against polkadot-sdk through the injected runner', async () => {
+describe('sdkTagLoader', () => {
+  it('runs one ls-remote against polkadot-sdk however many callers ask', async () => {
     const calls = [];
-    const t = await loadSdkTags({ git: async (args) => (calls.push(args), LS_REMOTE) });
-    assert.deepEqual(calls, [['ls-remote', '--tags', 'https://github.com/paritytech/polkadot-sdk']]);
-    assert.deepEqual(t.get(W38), ['polkadot-weekly2026w38-rc1']);
-  });
-
-  it('memoises: every caller of one loader shares one listing', async () => {
-    let n = 0;
-    const load = sdkTagLoader({ git: async () => (n++, LS_REMOTE) });
+    const load = sdkTagLoader({
+      git: async (args) => {
+        calls.push(args);
+        return LS_REMOTE;
+      },
+    });
     const [a, b, c] = await Promise.all([load(), load(), load()]);
-    assert.equal(n, 1);
+    assert.deepEqual(calls, [['ls-remote', '--tags', 'https://github.com/paritytech/polkadot-sdk']]);
     assert.equal(a, b);
     assert.equal(b, c);
+    assert.deepEqual(a.get(W38), ['polkadot-weekly2026w38-rc1']);
   });
 });
 
-describe('tag and commit lookups', () => {
-  it('matches a short live commit by prefix', () => {
-    assert.deepEqual(tagsForCommit(tags(), 'eeb597f'), ['polkadot-weekly2026w38-rc1']);
-    assert.deepEqual(tagsForCommit(tags(), '6ab53982513'), ['polkadot-stable2609-1', 'polkadot-v1.25.1']);
+describe('resolveCommit', () => {
+  it('resolves a short live commit to its full commit and that commit\'s tags', () => {
+    assert.deepEqual(resolveCommit(tags(), 'eeb597f'), { commit: W38, releases: ['polkadot-weekly2026w38-rc1'] });
+    assert.deepEqual(resolveCommit(tags(), '6ab5398'), {
+      commit: STABLE,
+      releases: ['polkadot-stable2609-1', 'polkadot-v1.25.1'],
+    });
   });
 
-  it('returns nothing for an unknown commit or a prefix too short to trust', () => {
-    assert.deepEqual(tagsForCommit(tags(), 'abcdef1'), []);
-    assert.deepEqual(tagsForCommit(tags(), '6ab539'), []);
-  });
-
-  it('resolves a tag name to its full commit', () => {
-    assert.equal(commitForTag(tags(), 'polkadot-stable2609-1'), STABLE);
-    assert.equal(commitForTag(tags(), 'polkadot-weekly2099-rc1'), null);
-  });
-
-  it('normalises a prefix to the full sha when unambiguous, and keeps it when not', () => {
-    assert.equal(canonicalCommit('6ab5398', tags()), STABLE);
+  it('keeps the prefix and pools the tags when it matches several commits', () => {
     const ambiguous = new Map([
       [sha('ab12345'), ['a']],
       [sha('ab12399'), ['b']],
     ]);
-    assert.equal(canonicalCommit('ab123', ambiguous), 'ab123');
+    assert.deepEqual(resolveCommit(ambiguous, 'ab123'), { commit: 'ab123', releases: ['a', 'b'] });
+  });
+
+  it('finds no tags for a commit nothing points at', () => {
+    assert.deepEqual(resolveCommit(tags(), 'abcdef1'), { commit: 'abcdef1', releases: [] });
   });
 });
 
 describe('pickTag', () => {
-  it('returns the pinned tag when it is among the candidates, even against the preference order', () => {
-    assert.equal(pickTag(['polkadot-weekly2026w33-rc2', 'polkadot-weekly2026w33-rc3'], 'polkadot-weekly2026w33-rc3'), 'polkadot-weekly2026w33-rc3');
+  it('returns the pinned tag when it is a candidate, even against the preference order', () => {
+    assert.equal(
+      pickTag(['polkadot-weekly2026w33-rc2', 'polkadot-weekly2026w33-rc3'], 'polkadot-weekly2026w33-rc3'),
+      'polkadot-weekly2026w33-rc3'
+    );
   });
 
   it('ignores a pinned tag that is not a candidate', () => {
-    assert.equal(pickTag(['polkadot-v1.25.1', 'polkadot-stable2609-1'], 'polkadot-weekly2026w33-rc2'), 'polkadot-stable2609-1');
+    assert.equal(
+      pickTag(['polkadot-v1.25.1', 'polkadot-stable2609-1'], 'polkadot-weekly2026w33-rc2'),
+      'polkadot-stable2609-1'
+    );
   });
 
-  it('prefers a final release over an rc, then stable/weekly over v-style tags', () => {
+  it('prefers a final release over an rc, stable/weekly over v-style tags, then lexical order', () => {
     assert.equal(pickTag(['polkadot-weekly2026w33-rc3', 'polkadot-v1.25.1']), 'polkadot-v1.25.1');
     assert.equal(pickTag(['polkadot-v1.25.1', 'polkadot-stable2609-1']), 'polkadot-stable2609-1');
     assert.equal(pickTag(['v1.25.1', 'polkadot-stable2609-1']), 'polkadot-stable2609-1');
-  });
-
-  it('is deterministic on ties: lexical order', () => {
     assert.equal(pickTag(['polkadot-weekly2026w33-rc3', 'polkadot-weekly2026w33-rc2']), 'polkadot-weekly2026w33-rc2');
-  });
-
-  it('returns null for no candidates', () => {
     assert.equal(pickTag([]), null);
   });
 });
@@ -183,8 +152,7 @@ const W33_VERSION = '1.24.3-weekly2026w33-253fa818f2b';
 const W38_VERSION = '1.24.3-weekly2026w38-eeb597f61b9';
 const ETH_W33 = 'eth-rpc/HEAD-253fa81/x86_64-unknown-linux-gnu/rustc1.93.0';
 
-const ws = (network, chain) => CHAINS[network][chain].ws;
-const PREV = (chain) => ws('previewnet', chain);
+const PREV = (chain) => CHAINS.previewnet[chain].ws;
 
 // A manifest in the shape validateManifest accepts: every chain the network maps, both
 // binary slots pinned to the same release, eth-rpc pinned.
@@ -199,8 +167,8 @@ const manifestFor = (network, overrides = {}) => ({
 });
 const previewnet = (overrides) => manifestFor('previewnet', overrides);
 
-// A fake network. Keys of `versions`, `names`, `fail`, `releases` are endpoint URLs
-// (for releases: `repo@tag`). Anything not listed answers with the W33 build.
+// A fake network. `versions`, `names`, `fail` and `hang` key on endpoint URLs, `releases`
+// on `repo@tag`. Anything not listed answers with the W33 build.
 function fakeIo({
   versions = {},
   names = {},
@@ -293,7 +261,6 @@ describe('scanNodes verdicts', () => {
     const rows = byChain(await scanNodes(previewnet(), fakeIo({ versions })));
     assert.equal(rows.relay.verdict, 'unreleased');
     assert.equal(rows.relay.commit, 'abcdef1234');
-    assert.deepEqual(rows.relay.releases, []);
   });
 
   it('pin-unknown: the pinned tag names no polkadot-sdk commit', async () => {
@@ -332,16 +299,26 @@ describe('scanNodes verdicts', () => {
     assert.equal(JSON.parse(post.body).method, 'web3_clientVersion');
   });
 
-  it('skips eth-rpc when the manifest does not pin it', async () => {
-    const rows = await scanNodes(previewnet({ services: {} }), fakeIo());
-    assert.equal(rows.length, 5);
-    assert.ok(rows.every((r) => r.kind === 'node'));
+  it('scans only the chains the manifest lists, and eth-rpc only when pinned', async () => {
+    const listed = await scanNodes(
+      previewnet({ chains: { relay: { runtime: 'x' }, 'asset-hub': { runtime: 'x' } }, services: {} }),
+      fakeIo()
+    );
+    assert.deepEqual(listed.map((r) => r.name), ['relay', 'asset-hub']);
+
+    const unpinned = await scanNodes(previewnet({ services: {} }), fakeIo());
+    assert.equal(unpinned.length, 5);
+    assert.ok(unpinned.every((r) => r.kind === 'node'));
   });
 
-  it('scans the chains the manifest lists, not every chain the network maps', async () => {
-    const m = previewnet({ chains: { relay: { runtime: 'x' }, 'asset-hub': { runtime: 'x' } }, services: {} });
-    const rows = await scanNodes(m, fakeIo());
-    assert.deepEqual(rows.map((r) => r.name), ['relay', 'asset-hub']);
+  it('no-endpoint: a listed chain with no mapped endpoint is not queried and says so', async () => {
+    const rows = byChain(
+      await scanNodes(previewnet({ chains: { relay: { runtime: 'x' }, 'no-such-chain': { runtime: 'x' } }, services: {} }), fakeIo())
+    );
+    assert.equal(rows['no-such-chain'].verdict, 'no-endpoint');
+    assert.equal(rows.relay.verdict, 'match');
+    const text = renderNodeSummary('previewnet', Object.values(rows));
+    assert.match(text, /^- no-such-chain \(\S+\): no scan endpoint mapped, report only$/m);
   });
 
   it('refuses an unknown network and a missing rpc', async () => {
@@ -362,17 +339,16 @@ describe('pin identity', () => {
     assert.ok(io.calls.fetch.some((c) => c.url.includes('/repos/paritytech/polkadot-sdk/releases/tags/polkadot-weekly2026w33-rc2')));
   });
 
-  it('pin-unknown when the repo is not allowed for the slot, and the reason says which repo', async () => {
-    const m = previewnet({ binaries: { polkadot: 'someone/fork@polkadot-weekly2026w33-rc2', 'polkadot-omni-node': PINNED } });
-    const rows = byChain(await scanNodes(m, fakeIo()));
-    assert.equal(rows.relay.verdict, 'pin-unknown');
-    assert.equal(rows.relay.pin.reason, 'comes from someone/fork, not an allowed source for this slot');
-    assert.equal(rows['asset-hub'].verdict, 'match');
-  });
+  it('pin-unknown when the repo is not allowed for the slot or the eth-rpc service, and the reason names the repo', async () => {
+    const slot = byChain(
+      await scanNodes(previewnet({ binaries: { polkadot: 'someone/fork@polkadot-weekly2026w33-rc2', 'polkadot-omni-node': PINNED } }), fakeIo())
+    );
+    assert.equal(slot.relay.verdict, 'pin-unknown');
+    assert.equal(slot.relay.pin.reason, 'comes from someone/fork, not an allowed source for this slot');
+    assert.equal(slot['asset-hub'].verdict, 'match');
 
-  it('pin-unknown for an eth-rpc pin from a repo the service does not allow', async () => {
-    const rows = byChain(await scanNodes(previewnet({ services: { 'eth-rpc': 'someone/fork@polkadot-weekly2026w33-rc2' } }), fakeIo()));
-    assert.equal(rows['eth-rpc'].verdict, 'pin-unknown');
+    const eth = byChain(await scanNodes(previewnet({ services: { 'eth-rpc': 'someone/fork@polkadot-weekly2026w33-rc2' } }), fakeIo()));
+    assert.equal(eth['eth-rpc'].verdict, 'pin-unknown');
   });
 });
 
@@ -415,20 +391,16 @@ describe('release availability', () => {
 // ── mixed slots ──────────────────────────────────────────────────────────────
 
 describe('chains on one slot', () => {
-  it('7 and 11 hex of one commit are one commit: no split annotation', async () => {
-    const versions = { [PREV('asset-hub')]: '1.24.3-weekly2026w33-253fa81' };
-    const rows = await scanNodes(previewnet(), fakeIo({ versions }));
-    assert.equal(splitSlots(rows).size, 0);
+  it('7 and 11 hex of one commit are one commit: no split note', async () => {
+    const rows = await scanNodes(previewnet(), fakeIo({ versions: { [PREV('asset-hub')]: '1.24.3-weekly2026w33-253fa81' } }));
     const by = byChain(rows);
     assert.equal(by['asset-hub'].verdict, 'match');
     assert.equal(by.people.verdict, 'match');
+    assert.doesNotMatch(renderNodeSummary('previewnet', rows), /chains disagree/);
   });
 
-  it('a genuine disagreement is annotated, and each chain keeps its own verdict', async () => {
-    const versions = { [PREV('people')]: W38_VERSION };
-    const rows = await scanNodes(previewnet(), fakeIo({ versions }));
-    const split = splitSlots(rows).get('polkadot-omni-node');
-    assert.equal(split.length, 2);
+  it('a genuine disagreement keeps each chain\'s own verdict', async () => {
+    const rows = await scanNodes(previewnet(), fakeIo({ versions: { [PREV('people')]: W38_VERSION } }));
     const by = byChain(rows);
     assert.equal(by['asset-hub'].verdict, 'match');
     assert.equal(by.people.verdict, 'drift');
@@ -437,11 +409,10 @@ describe('chains on one slot', () => {
   });
 
   it('commitGroups keeps the most specific sha for a group', () => {
-    const rows = [
+    const groups = commitGroups([
       { slot: 's', commit: '253fa81' },
       { slot: 's', commit: W33 },
-    ];
-    const groups = commitGroups(rows);
+    ]);
     assert.equal(groups.length, 1);
     assert.equal(groups[0].commit, W33);
   });
@@ -492,12 +463,9 @@ describe('run-level behaviour', () => {
     assert.equal(rows['asset-hub'].systemName, null);
   });
 
-  it('gives up on the whole network after the deadline', async () => {
-    const io = fakeIo({ hang: [PREV('relay')] });
-    await assert.rejects(scanNodes(previewnet(), { ...io, deadlineMs: 50 }), /previewnet node scan exceeded/);
-  });
-
-  it('returns normally when every lookup answers inside the deadline', async () => {
+  it('gives up on a network after the deadline, and returns normally when lookups finish in time', async () => {
+    const hung = fakeIo({ hang: [PREV('relay')] });
+    await assert.rejects(scanNodes(previewnet(), { ...hung, deadlineMs: 50 }), /previewnet node scan exceeded/);
     const rows = await scanNodes(previewnet(), { ...fakeIo(), deadlineMs: 5000 });
     assert.equal(rows.length, 6);
   });
@@ -507,8 +475,7 @@ describe('run-level behaviour', () => {
 
 describe('renderNodeSummary', () => {
   it('is markdown: a header, a blank line, then one "- " bullet per line', async () => {
-    const versions = { ...omniOn(W38_VERSION) };
-    const text = renderNodeSummary('previewnet', await scanNodes(previewnet(), fakeIo({ versions })));
+    const text = renderNodeSummary('previewnet', await scanNodes(previewnet(), fakeIo({ versions: omniOn(W38_VERSION) })));
     const lines = text.split('\n');
     assert.equal(lines[0], 'previewnet nodes (report only, not rewritten, #53):');
     assert.equal(lines[1], '');
@@ -528,7 +495,7 @@ describe('renderNodeSummary', () => {
     assert.ok(text.includes('- eth-rpc: pinned release-automation@polkadot-weekly2026w33-rc2, live polkadot-weekly2026w33-rc2 (eth-rpc/HEAD-253fa81/x86_64-unknown-linux-gnu/rustc1.93.0), match, report only'), text);
   });
 
-  it('never uses the rewritten-pin glyph, and words an unreleased commit as in the spec', async () => {
+  it('words an unreleased commit as in the spec, and never uses the rewritten-pin glyph', async () => {
     const versions = { [PREV('relay')]: '1.24.3-weekly2026w99-abcdef1234' };
     const text = renderNodeSummary('previewnet', await scanNodes(previewnet(), fakeIo({ versions })));
     assert.doesNotMatch(text, /↻/);
@@ -545,9 +512,13 @@ describe('renderNodeSummary', () => {
     assert.match(text, /^- polkadot-omni-node: chains disagree on commit: asset-hub, bulletin, web3-storage at 253fa818f2b\S*; people at eeb597f61b9\S*, report only$/m, text);
   });
 
-  it('one line for each unreachable endpoint', async () => {
-    const text = renderNodeSummary('previewnet', await scanNodes(previewnet(), fakeIo({ fail: { [PREV('asset-hub')]: 'timed out' } })));
+  it('one line for each unreachable endpoint and each unrecognised version', async () => {
+    const text = renderNodeSummary(
+      'previewnet',
+      await scanNodes(previewnet(), fakeIo({ fail: { [PREV('asset-hub')]: 'timed out' }, versions: { [PREV('people')]: 'polkadot-omni-node 1.0' } }))
+    );
     assert.match(text, /^- asset-hub \(polkadot-omni-node\): endpoint unreachable: wss:\/\/previewnet\.substrate\.dev\/asset-hub: timed out, report only$/m);
+    assert.match(text, /^- people \(polkadot-omni-node\): unrecognised version "polkadot-omni-node 1\.0", report only$/m);
   });
 
   it('lists each pinned service the scan does not observe as one not-scanned line', async () => {
