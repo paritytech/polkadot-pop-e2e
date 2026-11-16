@@ -499,6 +499,8 @@ jobs:
           ref: ${{ (github.event_name == 'pull_request' && github.repository == 'paritytech/polkadot-pop-e2e') && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && github.repository == 'paritytech/polkadot-pop-e2e') && github.sha || inputs.gate_ref || 'main' }}
 
       - name: Materialize the candidate manifest
+        env:
+          TRANSITIONS: ${{ join(matrix.candidate.transitions, ' · ') }}
         run: |
           cat > candidate-manifest.json <<'MANIFEST_EOF'
           ${{ toJSON(matrix.candidate.manifest) }}
@@ -507,7 +509,7 @@ jobs:
             echo "### gate (${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }})"
             echo "${{ matrix.candidate.purpose }}"
             echo ""
-            echo "**Transitions under test:** ${{ join(matrix.candidate.transitions, ' · ') }}"
+            echo "**Transitions under test:** $TRANSITIONS"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The plan job folded these into the pins; this job needs the bytes. Same
