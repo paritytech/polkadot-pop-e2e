@@ -51,6 +51,7 @@ import {
   envTagPins,
   NETWORK_META,
   CHAINS,
+  findAsset,
 } from './release-map.mjs';
 import { getRelease, downloadAssetBytes } from './github.mjs';
 
@@ -107,7 +108,7 @@ if (mode === 'binaries') {
     const key = `${entry.repo}@${entry.tag}`;
     if (!releases.has(key)) releases.set(key, await getRelease(entry.repo, entry.tag));
     const release = releases.get(key);
-    const asset = (release.assets ?? []).find((a) => a.name === entry.asset);
+    const asset = findAsset(release, entry.asset);
     if (!asset) {
       throw new Error(
         `${entry.repo}@${release.tag_name} does not carry ${entry.asset} (needed for ${entry.component})`
@@ -176,7 +177,7 @@ if (mode === 'binaries') {
       );
     }
     const release = await getRelease(entry.repo, entry.tag);
-    const asset = (release.assets ?? []).find((a) => a.name === entry.asset);
+    const asset = findAsset(release, entry.asset);
     if (!asset) {
       throw new Error(
         `${entry.repo}@${release.tag_name} does not carry ${entry.asset} (needed for ${entry.chain})`
@@ -184,7 +185,7 @@ if (mode === 'binaries') {
     }
     const dest = path.join(outDir, `${entry.chain}.wasm`);
     const bytes = await downloadAsset(asset, dest);
-    console.error(`fetched ${entry.asset} (${entry.repo}@${release.tag_name}) -> ${dest}, ${bytes} bytes`);
+    console.error(`fetched ${asset.name} (${entry.repo}@${release.tag_name}) -> ${dest}, ${bytes} bytes`);
     console.log(`${entry.chain}=${dest}`);
   }
 } else {

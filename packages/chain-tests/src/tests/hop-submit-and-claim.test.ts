@@ -107,7 +107,7 @@ async function waitForHopAuthorization(
 // HOP submission rides an attested account's LTS authorization, so the whole suite
 // needs an identity backend — absent on forks of networks whose engine spawns none
 // (paseo-next-v2, devnet), where every other attestation-dependent file skips too.
-describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => {
+describe.skipIf(!needsAttestation() || !getNetworkConfig().bulletin)("HOP: Submit and Claim on Bulletin", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
   let peopleClient: PolkadotClient | undefined;
@@ -116,12 +116,13 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
 
   beforeAll(async () => {
     network = getNetworkConfig();
+    const bulletin = network.bulletin!;
     // HOP RPCs must hit a collator started with `--enable-hop`. When the
     // network pins a dedicated `bulletin.hopWs`, use it; otherwise assume
     // the public Bulletin RPC is itself a hop collator.
-    const hopWs = network.bulletin.hopWs ?? network.bulletin.ws;
+    const hopWs = bulletin.hopWs ?? bulletin.ws;
     console.log(`[hop] Network: ${network.name}`);
-    console.log(`[hop] Bulletin: ${network.bulletin.ws}`);
+    console.log(`[hop] Bulletin: ${bulletin.ws}`);
     console.log(`[hop] HOP endpoint: ${hopWs}`);
 
     if (!network.features.hop) {
@@ -139,7 +140,7 @@ describe.skipIf(!needsAttestation())("HOP: Submit and Claim on Bulletin", () => 
       );
     }
 
-    ({ client } = createBulletinClient(network.bulletin.ws));
+    ({ client } = createBulletinClient(bulletin.ws));
 
     const creds = await ensureAttested();
     address = creds.address;

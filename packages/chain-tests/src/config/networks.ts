@@ -2,7 +2,7 @@ import "./env.js";
 import { decodeLink, isTrinityStackError, read, type Descriptor, type Pointer } from "@parity/trinity-stack";
 import { NETWORKS, buildNetworkConfig, selectNetwork, type NetworkConfig } from "./stack-config.js";
 
-export type { NetworkConfig } from "./stack-config.js";
+export type { BulletinConfig, NetworkConfig } from "./stack-config.js";
 
 /**
  * The pointer a `STACK` value stands for: a stack link on any scheme or domain, such as
