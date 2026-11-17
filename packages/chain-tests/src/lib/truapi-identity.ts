@@ -47,9 +47,9 @@ export function productAccountKey(entropy: Uint8Array, productId: string, index:
   };
 }
 
-/** The `uid.<suffix>` product account at index 0: the person's identity account. */
+/** The `peopl.<suffix>` product account at index 0: the person's identity account (RFC-0028). */
 export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
-  return productAccountKey(entropy, `uid.${networkSuffix}`, 0);
+  return productAccountKey(entropy, `peopl.${networkSuffix}`, 0);
 }
 
 /** Ring-VRF entropy of the person's `index`th member key under `peopl.<suffix>`. */
