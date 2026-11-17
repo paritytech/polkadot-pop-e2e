@@ -18,10 +18,10 @@ or Asset Hub.
 | `timing` | `sync`, the app's one shared re-send beat (default), or `random`, each bot on a beat of its own |
 | `claim` | whether the bots claim their NFTs after the reports |
 | `game_at` | the play time of the game to join; empty joins the closest scheduled one |
-| `replay_at` | a start time: the bots of an earlier game exchange the same messages then, with no game, sign-up, reports or claims |
+| `replay_at` | a start time: the bots of an earlier game exchange the same messages then, without a game, sign-up, reports or claims |
 | `chain_backend` | how the bots' truapi-host connects to People: `rpc` (default) or `light-client`, its embedded smoldot |
 | `host_log` | truapi-host's log level; `debug` records why each connection ended |
-| `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots; `--bots-per-process 1` gives every bot its own truapi-host, as a phone has |
+| `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots; `--bots-per-process 1` runs every bot in its own truapi-host, as on a phone |
 
 A run has three parts:
 
@@ -29,7 +29,7 @@ A run has three parts:
   `TEST_MNEMONIC`, signs them all up at once, sends every bot's report at once after the game, and
   claims the NFT credits its co-players' votes awarded it on Asset Hub, one claim at a time per bot
   as the stash app does. It fails at once when the game plays more than 4 hours away, and when the
-  funder has too little it says how much to send to which address. When it fails, it cancels the
+  funder has too little it prints how much to send to which address. When it fails, it cancels the
   rest of the run.
 - **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up,
   then runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
@@ -45,14 +45,11 @@ connect.
 A bot that misses games loses score; at 0 the chain archives it and removes its statement
 allowance, so a replay needs bots that played a recent game. A game run signs them up again.
 
-Three limits outside the test decide what a run can show:
+Two limits outside the test decide what a run can show:
 
 - previewnet's People node accepts 500 RPC connections in total (HTTP 429 beyond) and a bot needs
   about one, so a previewnet run above about 400 bots measures that limit:
   https://github.com/paritytech/preview-net-v1/issues/191
-- paseo-next-v2's People and Asset Hub RPC shared a load balancer with the Polkadot and Kusama
-  public RPC until 2026-11-17, when they moved to their own:
-  https://github.com/paritytech/devops/issues/5868
 - paseo-next-v2's collators take about 500 light clients at once, each client taking a slot on
   every collator, so a light-client run above that measures this limit:
   https://github.com/paritytech/devops/issues/5871
@@ -86,7 +83,7 @@ The `chain` table has one row per burst: sign-up, report and NFT claim.
 - **Succeeded** counts the transactions that executed; **In time** those in a block before the
   deadline: sign-ups before registration closed, reports within `--report-window` of the game.
 - **Inclusion p50 / p95 / max ms** runs from submitting a transaction to its block.
-- **Credits** says how many of the credits People awarded the bots arrived on Asset Hub and how
+- **Credits** shows how many of the credits People awarded the bots arrived on Asset Hub and how
   long that took, and how many were claimed on chain once every bot was done.
 - **A player's claims** is the time one bot took for all of its claims, one after another.
 - **Fullest block** is the fullest People block of the game, by weight and proof size.
@@ -121,8 +118,8 @@ NETWORK=paseo-next-v2 pnpm load host --steps 1000 --start-at 2026-11-20T10:00:00
 The last one replays a game's messages without a game; it needs bots that signed up to a recent
 game and so have a statement allowance. The `host` command needs `truapi-host` at the version
 `chain-tests` pins (or `TRUAPI_HOST_BIN`) and `bun` on `PATH`; `TRUAPI_CHAIN_BACKEND=light-client`
-runs it on its light client. The hosts connect to the chains of `STACK`, else of `NETWORK`:
-`--rpc` doesn't change their endpoints.
+runs it on its light client, on a built-in network only, without `STACK`. The hosts connect to
+the chains of `STACK`, else of `NETWORK`: `--rpc` doesn't change their endpoints.
 
 On a dev People node, a root key (`//Alice`) stands in for the sign-ups: `mint` writes each
 player's statement allowance (`System.set_storage` on `:statement_allowance:<account>`, the
@@ -146,9 +143,10 @@ pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registr
 
 A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
 from the chain, so set a long `--reporting` there. `host` runs against a dev node only through
-`STACK`, a stack descriptor that lists its People, Asset Hub and Bulletin nodes, since truapi-host
-connects only to a stack or a built-in network. `--shard i/n` splits the bots over processes or
-machines that share `--start-at`, and `summary` merges their result files.
+`STACK`: a descriptor URL that the chain-tests can read (with an `ipfs-gateway` service, and
+`NETWORK` set unless its id matches the network) and truapi-host accepts (a `dub` service,
+`dotns.popController` and a `dot`, `paseo` or `testnet` TLD). `--shard i/n` splits the bots over
+processes or machines that share `--start-at`, and `summary` merges their result files.
 
 ## How many light clients a node takes
 

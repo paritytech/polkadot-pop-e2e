@@ -40,7 +40,7 @@ on:
         type: string
         default: ""
       replay_at:
-        description: "Start time (ISO) of a replay without a game: the bots of an earlier game exchange the same messages, with no sign-up, reports or claims; empty plays a game"
+        description: "Start time (ISO) of a replay without a game: the bots of an earlier game exchange the same messages, without sign-up, reports or claims; empty plays a game"
         type: string
         default: ""
       chain_backend:
