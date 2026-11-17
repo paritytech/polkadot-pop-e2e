@@ -9,12 +9,12 @@ describe("shardProcesses", () => {
     const ghostsPerHost = 10;
     const bots: number[] = [];
     for (const index of [0, 1, 2]) {
-      for (const owned of shardProcesses(47, ghostsPerHost, botsPerProcess, { index, count: 3 })) {
-        expect(owned.ghosts).toBeLessThanOrEqual(botsPerProcess);
-        for (let ghost = 0; ghost < owned.ghosts; ghost++) {
-          const bot = owned.firstPlayer + ghost;
-          expect(Math.floor(bot / ghostsPerHost)).toBe(owned.host);
-          expect(bot % ghostsPerHost).toBe(owned.firstAccount + ghost);
+      for (const hostProcess of shardProcesses(47, ghostsPerHost, botsPerProcess, { index, count: 3 })) {
+        expect(hostProcess.ghosts).toBeLessThanOrEqual(botsPerProcess);
+        for (let ghost = 0; ghost < hostProcess.ghosts; ghost++) {
+          const bot = hostProcess.firstPlayer + ghost;
+          expect(Math.floor(bot / ghostsPerHost)).toBe(hostProcess.host);
+          expect(bot % ghostsPerHost).toBe(hostProcess.firstAccount + ghost);
           bots.push(bot);
         }
       }

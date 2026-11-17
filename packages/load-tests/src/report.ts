@@ -100,9 +100,9 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.subscribeFailures) > 0) findings.push(`RPC: ${total(stats.subscribeFailures)} subscriptions not opened`);
   if (total(stats.subscriptionsEnded) > 0) {
     const lifetime = stats.subscriptionLifetimeMs.summary();
-    const seconds = (ms: number | null) => (ms === null ? "–" : `${Math.round(ms / 1000)} s`);
+    const formatSeconds = (ms: number | null) => (ms === null ? "–" : `${Math.round(ms / 1000)} s`);
     findings.push(
-      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.emptySubscriptionEnds} of them before their first statement, after ${seconds(lifetime.p50)} (p50) / ${seconds(lifetime.max)} (max) open`,
+      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.emptySubscriptionEnds} of them before their first statement, after ${formatSeconds(lifetime.p50)} (p50) / ${formatSeconds(lifetime.max)} (max) open`,
     );
   }
   if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
