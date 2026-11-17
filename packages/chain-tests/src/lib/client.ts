@@ -10,6 +10,9 @@ import {
   previewAssetHub,
   previewBulletin,
   previewPeople,
+  westendRelay,
+  westendAssetHub,
+  westendPeople,
 } from "@pop-e2e/papi";
 import { getNetworkConfig, networkKey } from "../config/networks.js";
 
@@ -23,22 +26,31 @@ import { getNetworkConfig, networkKey } from "../config/networks.js";
  *   People variants (paseo / paseoNext / preview):
  *     `Members` + `Resources` on all three.
  *     → uniform shape; one alias is honest.
+ *   `westendPeople` has none of the Individuality pallets; the tests that
+ *   touch them skip on westend through its features.
  *
  *   AssetHub variants:
- *     `paseo`          — Revive + ReviveApi only.
+ *     `paseo`          — no `Pgas`, no `MembersSubscriber`.
+ *     `westendAssetHub`— no `Pgas`, no `MembersSubscriber`; the system-flow tests
+ *                       type it on its own (`SystemAssetHubApi`).
  *     `paseoNext..` —    + Pgas, MembersSubscriber, PgasAllowance, ...
  *     `previewAssetHub`— + Pgas, MembersSubscriber, PgasAllowance, ...
  *     → NOT uniform. We keep the union as a discriminated type and force
  *       callers that need PGAS to assert via `assertRichAssetHub` so the
  *       cast is at one auditable site rather than scattered everywhere.
+ *
+ *   Relay: only `westendRelay`, for the networks with `features.systemFlows`.
  */
 export type BulletinApi = TypedApi<typeof previewBulletin>;
 export type PeopleApi = TypedApi<typeof previewPeople>;
 
 /** Asset Hub on networks WITH pallet-pgas (previewnet, paseo-next-v2). */
 export type RichAssetHubApi = TypedApi<typeof previewAssetHub>;
-/** Asset Hub on networks WITHOUT pallet-pgas (paseo-next). */
+/** Asset Hub where the suite doesn't run the PGAS flows (`features.pgas` false: devnet, westend). */
 export type LegacyAssetHubApi = TypedApi<typeof paseo>;
+export type RelayApi = TypedApi<typeof westendRelay>;
+/** Westend's Asset Hub, which the system-flow tests run on (`features.systemFlows`). */
+export type SystemAssetHubApi = TypedApi<typeof westendAssetHub>;
 /** Union returned by `createAssetHubClient` — narrow with `assertRichAssetHub`. */
 export type AssetHubApi = RichAssetHubApi | LegacyAssetHubApi;
 
@@ -63,6 +75,7 @@ export function assertRichAssetHub(api: AssetHubApi): asserts api is RichAssetHu
 
 type AssetHubDescriptor =
   | typeof paseo
+  | typeof westendAssetHub
   | typeof paseoNextAssetHub
   | typeof previewAssetHub;
 type BulletinDescriptor =
@@ -71,12 +84,13 @@ type BulletinDescriptor =
   | typeof previewBulletin;
 type PeopleDescriptor =
   | typeof people
+  | typeof westendPeople
   | typeof paseoNextPeople
   | typeof previewPeople;
 
 export interface DescriptorTriple {
   assetHub: AssetHubDescriptor;
-  bulletin: BulletinDescriptor;
+  bulletin: BulletinDescriptor | null;
   people: PeopleDescriptor;
 }
 
@@ -86,6 +100,8 @@ export function descriptorsForNetwork(): DescriptorTriple {
       return { assetHub: previewAssetHub, bulletin: previewBulletin, people: previewPeople };
     case "paseo-next-v2":
       return { assetHub: paseoNextAssetHub, bulletin: paseoNextBulletin, people: paseoNextPeople };
+    case "westend":
+      return { assetHub: westendAssetHub, bulletin: null, people: westendPeople };
     default:
       return { assetHub: paseo, bulletin, people };
   }
@@ -100,20 +116,39 @@ export function createAssetHubClient(ws: string): {
   // The `as` is honest: we know which descriptor we picked but the union
   // in the return type forces callers to discriminate before reaching for
   // pallet-specific surface.
-  const api =
-    descriptor === paseo
-      ? (client.getTypedApi(descriptor) as LegacyAssetHubApi)
-      : (client.getTypedApi(descriptor) as RichAssetHubApi);
+  const api = getNetworkConfig().features.pgas
+    ? (client.getTypedApi(descriptor) as RichAssetHubApi)
+    : (client.getTypedApi(descriptor) as LegacyAssetHubApi);
   return { client, api };
+}
+
+export function createSystemAssetHubClient(ws: string): {
+  client: PolkadotClient;
+  api: SystemAssetHubApi;
+} {
+  if (!getNetworkConfig().features.systemFlows) throw new Error(`${networkKey()} doesn't run the system flows`);
+  const client = createClient(getWsProvider(ws));
+  return { client, api: client.getTypedApi(westendAssetHub) };
+}
+
+export function createRelayClient(ws: string): {
+  client: PolkadotClient;
+  api: RelayApi;
+} {
+  if (!getNetworkConfig().features.systemFlows) throw new Error(`${networkKey()} doesn't run the system flows`);
+  const client = createClient(getWsProvider(ws));
+  return { client, api: client.getTypedApi(westendRelay) };
 }
 
 export function createBulletinClient(ws: string): {
   client: PolkadotClient;
   api: BulletinApi;
 } {
+  const descriptor = descriptorsForNetwork().bulletin;
+  if (!descriptor) throw new Error(`${networkKey()} doesn't run Bulletin`);
   const client = createClient(getWsProvider(ws));
   // Pallet shape is identical across all three Bulletin variants.
-  const api = client.getTypedApi(descriptorsForNetwork().bulletin) as BulletinApi;
+  const api = client.getTypedApi(descriptor) as BulletinApi;
   return { client, api };
 }
 
@@ -122,7 +157,7 @@ export function createPeopleClient(ws: string): {
   api: PeopleApi;
 } {
   const client = createClient(getWsProvider(ws));
-  // Pallet shape is identical across all three People variants.
+  // Members/Resources are identical across the PoP People variants; westend has neither.
   const api = client.getTypedApi(descriptorsForNetwork().people) as PeopleApi;
   return { client, api };
 }

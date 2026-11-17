@@ -98,6 +98,11 @@ async function main() {
   await cryptoWaitReady();
   const network = getNetworkConfig();
   console.log(`[deploy-counter] Network: ${network.name}`);
+  // Both contracts serve only the PGAS-paid tests, which skip on networks without PGAS.
+  if (!network.features.pgas) {
+    console.log(`[deploy-counter] ${network.name} doesn't run the PGAS tests; skipping`);
+    return;
+  }
   console.log(`[deploy-counter] Counter code_hash: ${toHex(COUNTER_CODE_HASH)}`);
   console.log(`[deploy-counter] PopCounter code_hash: ${toHex(POP_COUNTER_CODE_HASH)}`);
 
