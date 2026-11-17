@@ -2,7 +2,7 @@ import "./env.js";
 import { decodeLink, isTrinityStackError, read, type Descriptor, type Pointer } from "@parity/trinity-stack";
 import { NETWORKS, buildNetworkConfig, selectNetwork, type NetworkConfig } from "./stack-config.js";
 
-export type { NetworkConfig } from "./stack-config.js";
+export type { BulletinConfig, NetworkConfig } from "./stack-config.js";
 
 /**
  * The pointer a `STACK` value stands for: a stack link on any scheme or domain, such as
@@ -44,6 +44,11 @@ const config = buildNetworkConfig(
 /** The `NETWORKS` entry the run tests, such as `previewnet` for a previewnet fork. */
 export function networkKey(): string {
   return network;
+}
+
+/** The truapi-host flags that select the stack the run tests: `--stack` for `STACK`, else `--network`. */
+export function truapiHostStackArgs(): string[] {
+  return stackLocation ? ["--stack", stackLocation] : ["--network", network];
 }
 
 export function getNetworkConfig(): NetworkConfig {

@@ -9,7 +9,7 @@ import { ensureAttested, needsAttestation } from "../lib/attested-fixture.js";
 import { ATTESTATION_TIMEOUT_MS } from "../lib/attestation-budget.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { claimLongTermStorage } from "../lib/lts-claim.js";
-import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
+import { getNetworkConfig, type BulletinConfig, type NetworkConfig } from "../config/networks.js";
 import { getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
 import { personKey } from "../lib/truapi-identity.js";
 /** A product-sdk storage client over our own connection, as a BYOD product would build it. */
@@ -56,8 +56,9 @@ function randomSigner(): CommonSignerTxCreator {
   return getTxCreator(getPublicKey(secret), "Sr25519", (message) => sign(secret, message));
 }
 
-describe("Storage: Bulletin Chain", () => {
+describe.skipIf(!getNetworkConfig().bulletin)("Storage: Bulletin Chain", () => {
   let network: NetworkConfig;
+  let bulletin: BulletinConfig;
   let client: PolkadotClient;
   let api: BulletinApi;
   let peopleClient: PolkadotClient | undefined;
@@ -72,10 +73,11 @@ describe("Storage: Bulletin Chain", () => {
     assertChainHealthy("people");
 
     network = getNetworkConfig();
+    bulletin = network.bulletin!;
     console.log(`[storage] Network: ${network.name}`);
-    console.log(`[storage] Bulletin: ${network.bulletin.ws}`);
+    console.log(`[storage] Bulletin: ${bulletin.ws}`);
 
-    ({ client, api } = createBulletinClient(network.bulletin.ws));
+    ({ client, api } = createBulletinClient(bulletin.ws));
 
     if (!network.features.resources) {
       throw new Error(
@@ -167,7 +169,7 @@ describe("Storage: Bulletin Chain", () => {
   it.skipIf(!needsAttestation())(
     "uploaded CID is retrievable from IPFS gateway",
     async () => {
-      const url = `${network.ipfsGateway}/${uploaded.cid}`;
+      const url = `${bulletin.ipfsGateway}/${uploaded.cid}`;
       console.log(`[storage] Fetching: ${url}`);
       const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
       console.log(`[storage] IPFS gateway status=${response.status}`);
