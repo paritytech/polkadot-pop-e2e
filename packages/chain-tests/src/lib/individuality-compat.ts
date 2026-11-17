@@ -16,6 +16,7 @@
 
 import { type PolkadotClient } from "polkadot-api";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
+import { personhoodProductId } from "./truapi-identity.js";
 
 /**
  * v0.12 replaced the raw 32-byte allowance contexts with hashed "product
@@ -38,7 +39,7 @@ function productContext(
   new DataView(suffix.buffer).setUint32(8, a, true);
   if (tail === "u32") new DataView(suffix.buffer).setUint32(12, b, true);
   else suffix[12] = b & 0xff;
-  const head = enc.encode(`product/peopl.${networkSuffix}/`);
+  const head = enc.encode(`product/${personhoodProductId(networkSuffix)}/`);
   const preimage = new Uint8Array(head.length + 32);
   preimage.set(head, 0);
   preimage.set(suffix, head.length);

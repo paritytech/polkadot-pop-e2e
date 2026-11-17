@@ -42,7 +42,8 @@ export function assertEngineAgrees(manifest, show) {
       continue;
     }
     const pin = manifest.binaries[slot];
-    const got = `${c.binary.repo}@${c.binary.tag}`;
+    // The engine reports a file: override as repo `file:<path>`, tag `local`.
+    const got = c.binary.repo.startsWith('file:') ? c.binary.repo : `${c.binary.repo}@${c.binary.tag}`;
     if (got !== pin) {
       errors.push(`${chain}: manifest pins ${slot} to ${pin}, engine will run ${got}`);
     } else if (!c.binary.overridden) {

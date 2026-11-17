@@ -11,7 +11,7 @@ export interface AttestedCredentials {
   mnemonic: string;
   /** dotNS TLD the person's keys are derived under. */
   networkSuffix: string;
-  /** The person's `uid.<suffix>` identity account. */
+  /** The person's `peopl.<suffix>` identity account. */
   address: string;
   publicKey: Uint8Array;
   entropy: Uint8Array;
