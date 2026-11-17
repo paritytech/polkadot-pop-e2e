@@ -5,8 +5,6 @@
 //   installed  a project that depends on the SDK, as `packages/chain-tests`: every
 //              @parity SDK package npm installed for it, found by following
 //              dependencies the way Node resolves them, and the dist/ each one ships
-//
-// The dependency walk follows `installedSdk` in runtime-diff/sdk.ts.
 
 import fs from "node:fs";
 import path from "node:path";

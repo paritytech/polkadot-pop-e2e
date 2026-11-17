@@ -31,13 +31,13 @@ export interface IdentityKey {
   sign: (message: Uint8Array) => Uint8Array;
 }
 
-/** `//product//uid.<suffix>` hard, then the soft `index_bytes(0)`: the person's identity account. */
-export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
+/** `//product//<productId>` hard, then the soft `index_bytes(index)`: a product account truapi derives. */
+export function productAccountKey(entropy: Uint8Array, productId: string, index: number): IdentityKey {
   let secret: Uint8Array = secretFromSeed(entropyToMiniSecret(entropy));
-  for (const junction of ["product", `uid.${networkSuffix}`]) {
+  for (const junction of ["product", productId]) {
     secret = HDKD.secretHard(secret, chainCode(junction));
   }
-  const secretKey = HDKD.secretSoft(secret, indexBytes(0));
+  const secretKey = HDKD.secretSoft(secret, indexBytes(index));
   const publicKey = getPublicKey(secretKey);
   return {
     secretKey,
@@ -45,6 +45,11 @@ export function identityKey(entropy: Uint8Array, networkSuffix: string): Identit
     address: AccountId().dec(publicKey),
     sign: (message) => sign(secretKey, message),
   };
+}
+
+/** The `uid.<suffix>` product account at index 0: the person's identity account. */
+export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
+  return productAccountKey(entropy, `uid.${networkSuffix}`, 0);
 }
 
 /** Ring-VRF entropy of the person's `index`th member key under `peopl.<suffix>`. */

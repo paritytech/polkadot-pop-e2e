@@ -12,6 +12,7 @@ body:
         - previewnet
         - paseo-next-v2
         - devnet
+        - westend
     validations:
       required: true
   - type: markdown
@@ -55,6 +56,14 @@ body:
         all parachains together. Same sources as polkadot, `@latest` equally safe.
       placeholder: paritytech/polkadot-sdk@polkadot-stable2606-1
   - type: input
+    id: binary-polkadot-parachain
+    attributes:
+      label: "Node binary: polkadot-parachain"
+      description: >
+        The collator binary westend's parachains exec instead of polkadot-omni-node.
+        Same sources as polkadot, `@latest` equally safe. westend only.
+      placeholder: paritytech/release-automation@polkadot-weekly2026w46-rc1
+  - type: input
     id: runtime-relay
     attributes:
       label: "Runtime: relay"
@@ -63,7 +72,9 @@ body:
         this release (Y) via sudo authorize+apply — byte-identical pins become a
         no-op assertion, a pin OLDER than production fails the gate as stale. From
         paseo-network/runtimes. The right build variant (previewnet = fast
-        epochs) is chosen automatically.
+        epochs) is chosen automatically. westend: from
+        paritytech/release-automation (weekly releases) or paritytech/polkadot-sdk
+        (its patch releases carry no runtimes, so no `@latest`).
         Do NOT use paseo-network/runtimes@latest — it resolves behind production.
       placeholder: paseo-network/runtimes@v2.4.5
   - type: input
@@ -74,7 +85,8 @@ body:
         Same upgrade semantics as the relay. previewnet/paseo-next-v2: from
         paritytech/individuality or paritytech/individuality-community
         (public nightlies); devnet: from
-        paseo-network/runtimes. Name the tag rather than `@latest`: it is
+        paseo-network/runtimes; westend: same sources as its relay. Name the tag
+        rather than `@latest`: it is
         flavor-blind on individuality and 404s on individuality-community.
       placeholder: paritytech/individuality-community@v0.3.1
   - type: input
@@ -83,7 +95,9 @@ body:
       label: "Runtime: people"
       description: >
         Same sources as asset-hub. One build usually carries both runtimes, so the
-        two fields normally name the same release.
+        two fields normally name the same release. On westend People has no sudo,
+        so the fork's bite authorizes the new runtime and the engine applies it
+        once the fork runs.
       placeholder: paritytech/individuality-community@v0.3.1
   - type: input
     id: runtime-bulletin
@@ -122,6 +136,24 @@ body:
         engine's default tag; naming one here exports DUB_TAG to gate that
         release. previewnet only. `@latest` is safe.
       placeholder: paritytech/device-uniqueness-backend@v0.3.0
+  - type: input
+    id: product-sdk
+    attributes:
+      label: "Client: product-sdk"
+      description: >
+        product-sdk packages to run the tests on instead of the pinned ones, as
+        npm specs separated by spaces. Each one replaces that package everywhere it
+        is installed. Use it to test a product-sdk prerelease against a runtime, or
+        against the live runtimes by leaving every other field empty.
+      placeholder: "@parity/product-sdk-individuality@0.10.1-dev.453.0 @parity/product-sdk@0.39.0-dev.453.0"
+  - type: input
+    id: truapi
+    attributes:
+      label: "Client: truapi"
+      description: >
+        The @parity/truapi release or prerelease whose truapi-host CLI the tests
+        drive, instead of the pinned one.
+      placeholder: 0.29.0-rc.1
   - type: textarea
     id: target
     attributes:
@@ -130,7 +162,8 @@ body:
         Full control for asks the fields can't express — a different `tests` list,
         asset-hub pinned apart from people, or a `ppn_ref` naming the
         previewnet-engine ref to take the engine from. When filled, this REPLACES
-        the fields above. Shape: see environments/README.md.
+        the pin fields above; the two client fields still apply. Shape: see
+        environments/README.md.
       render: json
     validations:
       required: false

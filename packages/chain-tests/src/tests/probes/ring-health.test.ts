@@ -46,7 +46,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { ApiPromise, WsProvider } from "@polkadot/api";
-import { getNetworkConfig, type NetworkConfig } from "../../config/networks.js";
+import { getNetworkConfig, networkKey, type NetworkConfig } from "../../config/networks.js";
 import { LITE_PEOPLE_IDENTIFIER } from "../../lib/ring.js";
 import { markChainUnhealthy } from "../../lib/chain-cascade.js";
 
@@ -264,12 +264,10 @@ describe("LitePeople ring health", () => {
       console.log(`[ring-health] People RPC: ${network.people.ws}`);
       console.log(`[ring-health] AssetHub RPC: ${network.assetHub.ws}`);
 
-      const networkKey =
-        process.env.NETWORK ?? network.name.toLowerCase().replace(/\s+/g, "-");
       ahCatchupBudgetRevs =
-        AH_CATCHUP_BUDGET_REVS_BY_NETWORK[networkKey] ?? DEFAULT_AH_CATCHUP_BUDGET_REVS;
+        AH_CATCHUP_BUDGET_REVS_BY_NETWORK[networkKey()] ?? DEFAULT_AH_CATCHUP_BUDGET_REVS;
       console.log(
-        `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey}): ${ahCatchupBudgetRevs} revision(s)`,
+        `[ring-health] AH catch-up budget for ${network.name} (key=${networkKey()}): ${ahCatchupBudgetRevs} revision(s)`,
       );
 
       peopleApi = await connect(network.people.ws);

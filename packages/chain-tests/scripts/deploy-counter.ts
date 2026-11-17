@@ -18,10 +18,6 @@
  * Run before tests:
  *   NETWORK=previewnet pnpm deploy-counter
  */
-import { config as loadEnv } from "dotenv";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
 
 import { createClient, Binary, type SizedHex } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
@@ -102,6 +98,11 @@ async function main() {
   await cryptoWaitReady();
   const network = getNetworkConfig();
   console.log(`[deploy-counter] Network: ${network.name}`);
+  // Both contracts serve only the PGAS-paid tests, which skip on networks without PGAS.
+  if (!network.features.pgas) {
+    console.log(`[deploy-counter] ${network.name} doesn't run the PGAS tests; skipping`);
+    return;
+  }
   console.log(`[deploy-counter] Counter code_hash: ${toHex(COUNTER_CODE_HASH)}`);
   console.log(`[deploy-counter] PopCounter code_hash: ${toHex(POP_COUNTER_CODE_HASH)}`);
 

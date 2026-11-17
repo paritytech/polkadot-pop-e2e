@@ -18,11 +18,51 @@ import type {
   StatementTransport,
 } from "@parity/product-sdk-statement-store";
 
+type JsonRpcProvider = Parameters<typeof createLazyClient>[0];
+
+/**
+ * Wraps `provider` and resolves `settled()` once no statement_* request is
+ * waiting for its answer, or after `timeoutMs`.
+ */
+function trackStatementRequests(provider: JsonRpcProvider) {
+  const waiting = new Set<unknown>();
+  const onSettled = new Set<() => void>();
+  const tracked: JsonRpcProvider = (onMessage) => {
+    const connection = provider((message) => {
+      const answered = "id" in message && waiting.delete(message.id);
+      // Delivered first: an answer to a subscribe the caller already left makes
+      // polkadot-api send its unsubscribe from inside this call.
+      onMessage(message);
+      if (answered && waiting.size === 0) for (const resolve of onSettled) resolve();
+    });
+    return {
+      send(message) {
+        if ("id" in message && message.method.startsWith("statement_")) waiting.add(message.id);
+        connection.send(message);
+      },
+      disconnect: () => connection.disconnect(),
+    };
+  };
+  const settled = (timeoutMs: number): Promise<void> =>
+    new Promise((resolve) => {
+      if (waiting.size === 0) return resolve();
+      const done = () => {
+        onSettled.delete(done);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      onSettled.add(done);
+    });
+  return { tracked, settled };
+}
+
 export function createNodeStatementTransport(
   peopleWs: string,
   statementSecret: Uint8Array,
 ): { transport: StatementTransport; signer: StatementSignerWithKey } {
-  const lazyClient = createLazyClient(getWsProvider(peopleWs));
+  const requests = trackStatementRequests(getWsProvider(peopleWs));
+  const lazyClient = createLazyClient(requests.tracked);
   const adapter = createPapiStatementStoreAdapter(lazyClient);
   const prover = createSr25519Prover(statementSecret);
 
@@ -48,8 +88,9 @@ export function createNodeStatementTransport(
       if (submitted.isErr()) throw submitted.error;
     },
     destroy() {
-      // Let the unsubscribe RPC settle; destroying the client rejects it otherwise.
-      setTimeout(() => lazyClient.disconnect(), 1_000);
+      // polkadot-api sends the unsubscribe without handling its rejection, so
+      // destroying the client before the node answers fails the test run.
+      void requests.settled(30_000).then(() => lazyClient.disconnect());
     },
   };
 
