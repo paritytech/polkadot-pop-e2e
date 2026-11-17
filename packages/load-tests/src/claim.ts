@@ -98,18 +98,14 @@ export async function claimCredits(
     raw: { individuality: people, assetHub: client },
   } as unknown as NftsChain & NftsCreditsChain;
   const started = Date.now();
-  const claimsOf = async (player: Player): Promise<Claim[]> => {
-    const result = await retry(CREDITS_READ_ATTEMPTS, 0, () =>
+  const claimsOf = (player: Player): Promise<Claim[]> =>
+    retry(CREDITS_READ_ATTEMPTS, 0, async () => {
       // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
-      withTimeout(
-        getClaims(chain, { claimant: { tag: "Account", address: player.address }, at: "best", individualityAt: "best" }),
-        60_000,
-        `credits of ${player.address}`,
-      ),
-    );
-    if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-    return result.value.claims;
-  };
+      const claimant = { tag: "Account" as const, address: player.address };
+      const result = await getClaims(chain, { claimant, at: "best", individualityAt: "best", signal: AbortSignal.timeout(60_000) });
+      if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
+      return result.value.claims;
+    });
   try {
     let claimants: Array<{ player: Player; claims: Claim[] }> = [];
     let awarded = 0;
