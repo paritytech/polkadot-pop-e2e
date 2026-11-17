@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { toHex } from "polkadot-api/utils";
 import { identityKey, liteRingEntropy } from "../../lib/truapi-identity.js";
 
-// Vectors from truapi's host_logic/product_account.rs tests.
+// Vectors from truapi's host_logic/product_account/tests.rs.
 describe("truapi identity derivation", () => {
   it("identity account follows the network suffix", () => {
     const entropy = new Uint8Array(16).fill(0xab);
     expect(identityKey(entropy, "paseo").address).toBe(
-      "5CtVJYWUwK7WksAU9CDm6u58ucgKkmWPE26TKhjjwiJKo2hW",
+      "5CM1iRJQs1fceofARxxpvmUbaS7kU3WtKPj5QS6ihwWWtYBG",
     );
     expect(identityKey(entropy, "testnet").address).toBe(
-      "5DhuA7ba5CxLtFjuU4YkAeCoCCH1YV1jjUUjFf3W5VSEmRxx",
+      "5DWk4cZyixLSTtudEUVjKYmJb5cjAjj5Vq7QpQSGaurN3FNf",
     );
   });
 

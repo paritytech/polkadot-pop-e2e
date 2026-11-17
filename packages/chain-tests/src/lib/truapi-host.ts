@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { toHex } from "polkadot-api/utils";
-import { getNetworkConfig, networkKey, stackOverride } from "../config/networks.js";
+import { getNetworkConfig, networkKey, truapiHostStackArgs } from "../config/networks.js";
 import { ATTEST_TIMEOUT_MS } from "./attestation-budget.js";
 
 const run = promisify(execFile);
@@ -51,9 +51,8 @@ async function truapiHost(mnemonic: string, args: string[], timeoutMs: number): 
     throw new Error(`[truapi-host-setup] truapi-host doesn't have a CLI preset for network ${networkKey()}`);
   }
   const bin = binary();
-  const stack = stackOverride();
   try {
-    const { stdout } = await run(bin, [...args, ...(stack ? ["--stack", stack] : ["--network", networkKey()])], {
+    const { stdout } = await run(bin, [...args, ...truapiHostStackArgs()], {
       env: { ...process.env, HOST_CLI_SIGNER_MNEMONIC: mnemonic, TRUAPI_HOST_NO_UPDATE: "1" },
       timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,

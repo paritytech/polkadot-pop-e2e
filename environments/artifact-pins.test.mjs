@@ -85,3 +85,36 @@ describe('when it cannot tell', () => {
     );
   });
 });
+
+// polkadot-sdk ships its unreleased node binaries as an artifact of the calling run;
+// the engine takes them only as `file:` overrides.
+describe('binary artifact: pins', () => {
+  const NODE = [
+    '/in/node/polkadot',
+    '/in/node/polkadot-execute-worker',
+    '/in/node/polkadot-prepare-worker',
+    '/in/node/polkadot-parachain',
+  ];
+  const westend = (binaries) => ({ network: 'westend', chains: {}, binaries });
+  const resolve = (manifest, files = NODE) => resolveArtifactPins(manifest, io({ list: () => files }));
+
+  it('becomes a file: pin on the binary called after the slot', async () => {
+    const westendManifest = westend({ polkadot: 'artifact:node', 'polkadot-parachain': 'artifact:node' });
+    await resolve(westendManifest);
+    assert.equal(westendManifest.binaries.polkadot, 'file:/in/node/polkadot');
+    assert.equal(westendManifest.binaries['polkadot-parachain'], 'file:/in/node/polkadot-parachain');
+  });
+
+  it('leaves release pins alone', async () => {
+    const westendManifest = westend({ polkadot: 'paritytech/polkadot-sdk@polkadot-stable2609-1' });
+    await resolve(westendManifest);
+    assert.equal(westendManifest.binaries.polkadot, 'paritytech/polkadot-sdk@polkadot-stable2609-1');
+  });
+
+  it('fails when the artifact has no file called after the slot', async () => {
+    await assert.rejects(
+      () => resolve(westend({ 'polkadot-parachain': 'artifact:node' }), ['/in/node/polkadot-omni-node']),
+      /expected exactly one file called polkadot-parachain in artifact node, found 0/
+    );
+  });
+});
