@@ -119,7 +119,7 @@ async function runStep(
   if (lateMs > 1_000) console.warn(`[${layer}] n=${count}: starting ${lateMs} ms late; shards may not overlap`);
   const windowStart = stepStart + timing.rampMs + timing.warmupMs;
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
-  const namespace = `load-tests/${run.runId}/${layer}/n${count}`;
+  const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
   const seating = { rooms: run.rooms, players: count };
   const room: GhostRoom = { profile, phase: run.phase, namespace, seating, gameStart: windowStart, window, stats };
