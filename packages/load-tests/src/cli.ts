@@ -7,7 +7,7 @@ import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, PRODUCT_IDS, shardHosts } from "./host.js";
+import { hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, resolveTarget, type Target } from "./target.js";
 
@@ -29,7 +29,8 @@ Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
   --metrics <url,...>   Prometheus endpoints of the People nodes; repeatable
 
 Players:
-  --seed <text>         Player key seed; default LOAD_SEED, else pop-e2e-load
+  --seed <text>         Player key seed; default LOAD_SEED, else pop-e2e-load, the seed the live
+                        networks' funded bots derive from
   --players <n>         mint and chain: how many players
   --layer <name>        mint: signalling (default) or host, whose players are host product accounts
 
@@ -45,12 +46,15 @@ Signalling:
                         beat from it, as the app does (default); random: each at its own phase
   --rooms <name>        co-players: each phone posts under its own topic and listens to its
                         co-players', bundles with offers deflated, as the app does since
-                        individuality-apps#1972 (default); game: one room for the whole game, the app before it
+                        https://github.com/paritytech/individuality-apps/pull/1972 (default);
+                        game: one room for the whole game, the app before it
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
 
 Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
-  --ghosts-per-host <k> Ghosts one host process serves as its product accounts 0..k-1 (default 10)
+  --ghosts-per-host <k> Ghosts whose keys derive from one host mnemonic, as its product accounts 0..k-1 (default 10)
+  --bots-per-process <k>  Ghosts one truapi-host process serves (default --ghosts-per-host); 1 makes
+                        every ghost its own client of People, as a phone is, with the same keys
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
   --follow-game         Wait until the chain command has signed this run's players up to a game
                         (same --seed, network and player count), then play one step of --steps
@@ -110,6 +114,7 @@ const { positionals, values } = parseArgs({
     "registration-wait": { type: "string", default: "120" },
     layer: { type: "string", default: "signalling" },
     "ghosts-per-host": { type: "string", default: "10" },
+    "bots-per-process": { type: "string" },
     "product-id": { type: "string" },
     "rpc-limit": { type: "string" },
     "follow-game": { type: "boolean", default: false },
@@ -189,6 +194,11 @@ switch (values.help ? undefined : command) {
       throw new Error("host doesn't take --rpc: truapi-host and the ghosts inside it connect through the stack STACK or NETWORK selects");
     }
     const target = await resolveTarget(targetOptions);
+    // Without --rpc, resolveTarget has loaded the stack; this reads the same STACK or NETWORK.
+    const stackArgs = command === "host" ? (await import("@pop-e2e/chain-tests/src/config/networks.js")).truapiHostStackArgs() : [];
+    if (stackArgs[0] === "--stack" && process.env.TRUAPI_CHAIN_BACKEND === "light-client") {
+      throw new Error("truapi-host runs on a light client only on a built-in network: unset STACK or TRUAPI_CHAIN_BACKEND");
+    }
     const profile = PROFILES[values.profile];
     if (!profile) throw new Error(`unknown --profile ${values.profile}`);
     if (!PHASES.includes(values.phase as Phase)) throw new Error(`--phase must be one of ${PHASES.join(", ")}, not '${values.phase}'`);
@@ -203,14 +213,15 @@ switch (values.help ? undefined : command) {
     };
     const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
     const productId = productIdOf(target);
-    let seed = values.seed;
+    // On a live network only the host bots the chain command signed up have a statement allowance.
+    const seed = values["follow-game"] || (command === "host" && !target.sudo) ? gameSeed(target, steps[0]) : values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
+    if (Number.isNaN(startAt)) throw new Error(`--start-at must be ms or an ISO time, not '${startText}'`);
     if (!ROOMS.includes(values.rooms as Rooms)) throw new Error(`--rooms must be one of ${ROOMS.join(", ")}, not '${values.rooms}'`);
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
-      seed = gameSeed(target, steps[0]);
-      const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ ghosts }) => ghosts);
+      const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
       if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${ghostsPerHost} than ${shardCount} machines`);
       const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, ghostsPerHost, index));
       console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to a game`);
@@ -231,30 +242,37 @@ switch (values.help ? undefined : command) {
       target,
       outDir,
     };
+    // A machine that boots late still plays the rest of the step and reports how late it was.
+    if (startAt + stepMs(run) < Date.now()) throw new Error(`--start-at ${new Date(startAt).toISOString()}: the first step is already over`);
     console.log(
       `[${command}] ${target.label} via ${target.rpc.join(", ")}: steps ${run.steps.join(", ")}, ${stepMs(run) / 1000} s each, shard ${values.shard}, start ${new Date(startAt).toISOString()}`,
     );
+    const botsPerProcess = positiveInteger("bots-per-process", values["bots-per-process"] ?? String(ghostsPerHost));
     if (values["rpc-limit"] !== undefined) {
-      // A host opens a People connection per subscription, plus its own; ghosts on direct RPC
-      // share theirs. A step over the limit measures the limit, not the node.
+      // A truapi-host process opens a People connection per subscription, plus its own, all to the
+      // stack's People endpoint; ghosts on direct RPC share theirs over `--rpc`. A step over the
+      // limit measures the limit, not the node.
       const limit = positiveInteger("rpc-limit", values["rpc-limit"]);
       const largest = Math.max(...run.steps);
-      const connections = command === "host" ? largest + Math.ceil(largest / ghostsPerHost) : Math.ceil(largest / ghostsPerConnection);
-      const perNode = Math.ceil(connections / target.rpc.length);
+      const [connections, nodes, remedy] =
+        command === "host"
+          ? [largest + shardProcesses(largest, ghostsPerHost, botsPerProcess, { index: 0, count: 1 }).length, 1, "play fewer players"]
+          : [Math.ceil(largest / ghostsPerConnection), target.rpc.length, "raise --ghosts-per-connection"];
+      const perNode = Math.ceil(connections / nodes);
       if (perNode > limit - RPC_LIMIT_RESERVE) {
         throw new Error(
-          `a step of ${largest} players needs ${perNode} connections per People node, over its limit of ${limit} less ${RPC_LIMIT_RESERVE} for the run's own clients; raise --ghosts-per-connection or the node's --rpc-max-connections`,
+          `a step of ${largest} players needs ${perNode} connections per People node, over its limit of ${limit} less ${RPC_LIMIT_RESERVE} for the run's own clients; ${remedy} or raise the node's --rpc-max-connections`,
         );
       }
     }
-    // Without --rpc, resolveTarget has loaded the stack; this reads the same STACK or NETWORK.
     const players =
       command === "host"
         ? hostGhosts(run, {
             ghostsPerHost,
+            botsPerProcess,
             productId,
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
-            stackArgs: (await import("@pop-e2e/chain-tests/src/config/networks.js")).truapiHostStackArgs(),
+            stackArgs,
           })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);

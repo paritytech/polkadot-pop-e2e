@@ -23,6 +23,8 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 export class DeliveryCounter {
   private readonly seen = new Set<number>();
   private lastDeliveryAt = 0;
+  private subscribeTime = 0;
+  private statements = 0;
 
   constructor(
     private readonly stats: SignallingStats,
@@ -38,8 +40,21 @@ export class DeliveryCounter {
     this.stats.expectedDeliveries += this.recipients;
   }
 
+  recordSubscribe(): void {
+    this.subscribeTime = Date.now();
+    this.stats.subscribed++;
+  }
+
+  /** Counts a subscription that ended before its player left, by `reason`, with how long it lasted. */
+  recordEnd(reason: string): void {
+    bump(this.stats.subscriptionsEnded, reason);
+    this.stats.subscriptionLifetimeMs.add(Date.now() - this.subscribeTime);
+    if (this.statements === 0) this.stats.emptySubscriptionEnds++;
+  }
+
   /** A bundle that arrived at this player; another player's sent in the window counts once. */
   receive(probe: Probe | undefined, now: number): void {
+    this.statements++;
     if (!probe || probe.sender === this.self || probe.sentAt < this.window.start || probe.sentAt >= this.window.end) return;
     // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
     // Both fields are u32; the key is exact while the sender index is below 2^21.
@@ -65,6 +80,10 @@ export class SignallingStats {
   subscribed = 0;
   subscribeFailures: Record<string, number> = {};
   subscriptionsEnded: Record<string, number> = {};
+  /** Time from subscribing to the end of each subscription in `subscriptionsEnded`. */
+  subscriptionLifetimeMs = new Histogram();
+  /** Subscriptions in `subscriptionsEnded` that ended before delivering any statement. */
+  emptySubscriptionEnds = 0;
   /** Subscriptions open through the game that delivered none of its statements. */
   silentSubscriptions = 0;
   /**

@@ -41,9 +41,9 @@ export interface StepRun {
 
 /** CPU and memory of the truapi-host processes a host layer step started, per ghost they served. */
 export interface HostUsage {
-  hosts: number;
+  processes: number;
   ghosts: number;
-  /** Hosts that exited with an error, by exit code or signal. */
+  /** Processes that exited with an error, by exit code or signal. */
   failures: Record<string, number>;
   cpuPercentPerGhost: number;
   rssMbPerGhost: number;

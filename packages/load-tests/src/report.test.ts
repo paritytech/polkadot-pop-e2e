@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PROFILES } from "./profile.js";
 import { DEFAULT_THRESHOLDS, summarizeStep } from "./report.js";
 import type { SignallingShardResult } from "./signalling.js";
-import { STALL_MS, SignallingStats, countDeliveryGap } from "./stats.js";
+import { DeliveryCounter, STALL_MS, SignallingStats, countDeliveryGap } from "./stats.js";
 
-function shard(index: number, accepted: number, delivered: number, lagMs = 10): SignallingShardResult {
+function shard(index: number, accepted: number, delivered: number, lagMs = 10, record?: (stats: SignallingStats) => void): SignallingShardResult {
   const stats = new SignallingStats();
-  stats.subscribed = 50;
+  record?.(stats);
+  stats.subscribed += 50;
   stats.acceptedInWindow = accepted;
   // One game room of 100 players: each statement is due to the 99 others.
   stats.expectedDeliveries = accepted * 99;
@@ -54,6 +55,27 @@ describe("summarizeStep", () => {
     const summary = summarizeStep([shard(0, 10, 500)], DEFAULT_THRESHOLDS);
     expect(summary.findings).toContain("client: 1 of 2 machines sent no result");
     expect(summary.verdict).toBe("inconclusive");
+  });
+
+  // A feed the node ends before it delivers anything is a subscription that never worked; one
+  // that ends later is a reader dropped mid-game. The summary has to tell the two apart.
+  it("reports how long ended subscriptions were open and how many ended before a statement", () => {
+    vi.useFakeTimers({ now: 0 });
+    const record = (stats: SignallingStats) => {
+      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 0, 10);
+      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 1, 10);
+      silent.recordSubscribe();
+      delivering.recordSubscribe();
+      delivering.receive(undefined, 1_000);
+      vi.advanceTimersByTime(30_000);
+      silent.recordEnd("closed");
+      delivering.recordEnd("closed");
+    };
+    const summary = summarizeStep([shard(0, 10, 990, 10, record), shard(1, 10, 990)], DEFAULT_THRESHOLDS);
+    vi.useRealTimers();
+    expect(summary.stats.emptySubscriptionEnds).toBe(1);
+    expect(summary.subscriptionLifetimeMs.count).toBe(2);
+    expect(summary.findings).toContainEqual(expect.stringContaining("2 subscriptions ended early, 1 of them before their first statement"));
   });
 });
 

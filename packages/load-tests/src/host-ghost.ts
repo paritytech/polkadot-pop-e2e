@@ -51,7 +51,11 @@ async function send(ghost: number, index: number, channel: Hex, seat: Seat, coun
     data: toHex(probePayload({ sender: index, sequence, sentAt }, wireBytes(seat, bundleBytes(profile, connecting)))) as Hex,
   };
   try {
-    const proof = await withTimeout(truapi.statementStore.createProof({ productAccountId: host.productAccount(ghost), statement }), profile.submitTimeoutMs, "proof");
+    const proof = await withTimeout(
+      truapi.statementStore.createProof({ productAccountId: host.productAccount(plan.firstAccount + ghost), statement }),
+      profile.submitTimeoutMs,
+      "proof",
+    );
     if (proof.isErr()) return bump(stats.submits, `proof:${describe(proof.error)}`);
     stats.bytesSubmitted += (statement.data.length - 2) / 2;
     const submitted = await withTimeout(truapi.statementStore.submit({ ...statement, proof: proof.value.proof }), profile.submitTimeoutMs, "submit");
@@ -70,15 +74,15 @@ async function play(ghost: number): Promise<void> {
   const seat = seatOf(plan.namespace, plan.seating, profile, index);
   await sleepUntil(plan.joinAt[ghost]);
   const counter = new DeliveryCounter(stats, window, index, seat.recipients);
+  counter.recordSubscribe();
   const subscription = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: seat.listen } }).subscribe({
     next(page) {
       const now = Date.now();
       for (const statement of page.statements) counter.receive(statement.data ? readProbe(statement.data) : undefined, now);
     },
-    error: (error) => bump(stats.subscriptionsEnded, describe(error)),
-    complete: () => bump(stats.subscriptionsEnded, "completed"),
+    error: (error) => counter.recordEnd(describe(error)),
+    complete: () => counter.recordEnd("completed"),
   });
-  stats.subscribed++;
   let inflight = 0;
   let sequence = 0;
   let next = firstSendAt(profile, plan.phase, plan.gameStart, Date.now());

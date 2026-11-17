@@ -31,11 +31,12 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "add">;
   expectedDeliveries: number;
   loss: number;
   latencyMs: QuantileSummary;
   submitRttMs: QuantileSummary;
+  subscriptionLifetimeMs: QuantileSummary;
   clientLagP99Ms: number;
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
@@ -63,7 +64,7 @@ function mergeHosts(results: SignallingShardResult[]): HostUsage | null {
   for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
   const weighted = (pick: (usage: HostUsage) => number) => usages.reduce((sum, usage) => sum + pick(usage) * usage.ghosts, 0) / ghosts;
   return {
-    hosts: usages.reduce((sum, usage) => sum + usage.hosts, 0),
+    processes: usages.reduce((sum, usage) => sum + usage.processes, 0),
     ghosts,
     failures,
     cpuPercentPerGhost: weighted((usage) => usage.cpuPercentPerGhost),
@@ -97,7 +98,13 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (total(stats.connectFailures) > 0) findings.push(`RPC: ${total(stats.connectFailures)} connections rejected`);
   if (total(stats.connectionsLost) > 0) findings.push(`RPC: ${total(stats.connectionsLost)} connections dropped`);
   if (total(stats.subscribeFailures) > 0) findings.push(`RPC: ${total(stats.subscribeFailures)} subscriptions not opened`);
-  if (total(stats.subscriptionsEnded) > 0) findings.push(`statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early`);
+  if (total(stats.subscriptionsEnded) > 0) {
+    const lifetime = stats.subscriptionLifetimeMs.summary();
+    const formatSeconds = (ms: number | null) => (ms === null ? "–" : `${Math.round(ms / 1000)} s`);
+    findings.push(
+      `statement store: ${total(stats.subscriptionsEnded)} subscriptions ended early, ${stats.emptySubscriptionEnds} of them before their first statement, after ${formatSeconds(lifetime.p50)} (p50) / ${formatSeconds(lifetime.max)} (max) open`,
+    );
+  }
   if (stats.silentSubscriptions > 0) findings.push(`statement store: ${stats.silentSubscriptions} of ${stats.subscribed} subscriptions delivered nothing`);
   if (stats.stalledSubscriptions > 0) {
     findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
@@ -105,7 +112,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (stats.deliveredInWindow > expectedDeliveries) {
     findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
   }
-  if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} hosts failed`);
+  if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
@@ -121,7 +128,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, ...counts } = stats;
+  const { latency: _latency, submitRtt, subscriptionLifetimeMs, ...counts } = stats;
   return {
     layer,
     players,
@@ -133,6 +140,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     loss,
     latencyMs: latency,
     submitRttMs: submitRtt.summary(),
+    subscriptionLifetimeMs: subscriptionLifetimeMs.summary(),
     clientLagP99Ms,
     nodes,
     hosts,

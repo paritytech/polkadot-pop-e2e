@@ -2,6 +2,7 @@ name: Load test
 
 # Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
 # sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
+# With `replay_at`, the bots of an earlier game exchange the same messages without a game.
 # See packages/load-tests/README.md.
 
 on:
@@ -21,7 +22,7 @@ on:
         type: string
         default: "1000"
       signalling:
-        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before individuality-apps#1972"
+        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before https://github.com/paritytech/individuality-apps/pull/1972"
         type: choice
         default: co-players
         options: [co-players, game]
@@ -38,6 +39,20 @@ on:
         description: Play time (ISO or unix seconds) of the scheduled game to join; empty joins the closest one
         type: string
         default: ""
+      replay_at:
+        description: "Start time (ISO) of a replay without a game: the bots of an earlier game exchange the same messages, without sign-up, reports or claims; empty plays a game"
+        type: string
+        default: ""
+      chain_backend:
+        description: "How truapi-host connects to People: rpc (WebSocket JSON-RPC) or light-client (embedded smoldot, statements over peer-to-peer gossip)"
+        type: choice
+        default: rpc
+        options: [rpc, light-client]
+      host_log:
+        description: "truapi-host log level; debug records why each connection to People ended, in the uploaded host logs"
+        type: choice
+        default: info
+        options: [info, debug]
       args:
         description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
         type: string
@@ -46,8 +61,9 @@ on:
 permissions:
   contents: read
 
+# A game run lasts until its game closes; a replay doesn't wait behind it.
 concurrency:
-  group: load-test-${{ inputs.network }}
+  group: load-test-${{ inputs.network }}-${{ inputs.replay_at == '' && 'game' || 'replay' }}
   cancel-in-progress: false
 
 env:
@@ -81,6 +97,7 @@ jobs:
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
   chain:
     name: chain · sign-up, reports, NFT claims
+    if: inputs.replay_at == ''
     runs-on: ubuntu-latest
     # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
@@ -129,8 +146,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
-  # Each machine waits until the chain job has signed its bots up, then runs them inside
-  # truapi-host from 40 s before the game's room opens until the game ends.
+  # Each machine waits until the chain job has signed its bots up, or until `replay_at`, then runs
+  # them inside truapi-host from 40 s before the game's room opens until the game ends.
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
@@ -156,11 +173,15 @@ jobs:
           MACHINES: ${{ needs.plan.outputs.machines }}
           ROOMS: ${{ inputs.signalling }}
           PHASE: ${{ inputs.timing }}
+          REPLAY_AT: ${{ inputs.replay_at }}
+          TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
+          TRUAPI_HOST_LOG: ${{ inputs.host_log }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
-          pnpm --silent --filter @pop-e2e/load-tests load host --follow-game --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
-            --shard "$SHARD/$MACHINES" --registration-wait 240 --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
+          if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
+          pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
+            --shard "$SHARD/$MACHINES" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the message results
         if: always()
         uses: actions/upload-artifact@v4
@@ -189,10 +210,16 @@ jobs:
           path: load-results
           merge-multiple: true
       - name: Merge the results
+        env:
+          REPLAY_AT: ${{ inputs.replay_at }}
         run: |
           set -euo pipefail
-          compgen -G "load-results/chain.n*.md" >/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
-          pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS" || echo "No message results" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$REPLAY_AT" ] && ! compgen -G "load-results/chain.n*.md" >/dev/null; then echo "No chain result" >> "$GITHUB_STEP_SUMMARY"; fi
+          if compgen -G "load-results/host.n*.shard*.json" >/dev/null; then
+            pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS"
+          else
+            echo "No message results" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: load-results-${{ inputs.network }}-${{ inputs.players }}

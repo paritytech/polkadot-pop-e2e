@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "light-slots": "light-slots/run.sh",
     "load": "tsx src/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
@@ -20,6 +21,7 @@
     "@pop-e2e/papi": "workspace:*",
     "@scure/sr25519": "^2.4.0",
     "polkadot-api": "^3.3.0",
+    "smoldot": "3.8.0",
     "ws": "^8.23.0"
   },
   "devDependencies": {
