@@ -41,9 +41,9 @@ export interface StepRun {
 
 /** CPU and memory of the truapi-host processes a host layer step started, per ghost they served. */
 export interface HostUsage {
-  hosts: number;
+  processes: number;
   ghosts: number;
-  /** Hosts that exited with an error, by exit code or signal. */
+  /** Processes that exited with an error, by exit code or signal. */
   failures: Record<string, number>;
   cpuPercentPerGhost: number;
   rssMbPerGhost: number;
@@ -119,7 +119,7 @@ async function runStep(
   if (lateMs > 1_000) console.warn(`[${layer}] n=${count}: starting ${lateMs} ms late; shards may not overlap`);
   const windowStart = stepStart + timing.rampMs + timing.warmupMs;
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
-  const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
+  const namespace = `load-tests/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
   const seating = { rooms: run.rooms, players: count };
   const room: GhostRoom = { profile, phase: run.phase, namespace, seating, gameStart: windowStart, window, stats };

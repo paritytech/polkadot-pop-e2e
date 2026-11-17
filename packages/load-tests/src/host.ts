@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { Seating } from "./seating.js";
-import type { HostUsage, StartPlayers, StepRun } from "./signalling.js";
+import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
 
@@ -71,14 +71,29 @@ function treeUsage(table: ProcessTable, root: number): { cpuSeconds: number; rss
   return usage;
 }
 
-/** The hosts of `count` bots that shard `shard` runs, dealt to shards in turn, and their bots. */
-export function shardHosts(count: number, ghostsPerHost: number, shard: { index: number; count: number }): Array<{ host: number; ghosts: number[] }> {
+/** The hosts of `count` bots that shard `shard` runs, dealt to shards in turn, and their players. */
+export function shardHosts(count: number, ghostsPerHost: number, shard: Shard): Array<{ host: number; players: number[] }> {
   return Array.from({ length: Math.ceil(count / ghostsPerHost) }, (_, host) => host)
     .filter((host) => host % shard.count === shard.index)
     .map((host) => ({
       host,
-      ghosts: Array.from({ length: Math.min(ghostsPerHost, count - host * ghostsPerHost) }, (_, ghost) => host * ghostsPerHost + ghost),
+      players: Array.from({ length: Math.min(ghostsPerHost, count - host * ghostsPerHost) }, (_, ghost) => host * ghostsPerHost + ghost),
     }));
+}
+
+/** The truapi-host processes of shard `shard`: each host's product accounts in runs of `botsPerProcess`. */
+export function shardProcesses(
+  count: number,
+  ghostsPerHost: number,
+  botsPerProcess: number,
+  shard: Shard,
+): Array<{ host: number; firstAccount: number; firstPlayer: number; ghosts: number }> {
+  return shardHosts(count, ghostsPerHost, shard).flatMap(({ host, players }) =>
+    Array.from({ length: Math.ceil(players.length / botsPerProcess) }, (_, processIndex) => {
+      const firstAccount = processIndex * botsPerProcess;
+      return { host, firstAccount, firstPlayer: players[firstAccount], ghosts: Math.min(botsPerProcess, players.length - firstAccount) };
+    }),
+  );
 }
 
 /**
@@ -88,73 +103,71 @@ export function shardHosts(count: number, ghostsPerHost: number, shard: { index:
  * are split over shards.
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
+  const chainArgs = run.target.hostChainArgs;
+  if (!chainArgs) throw new Error("truapi-host can't run against a bare --rpc node: set STACK to a stack descriptor that lists it");
   return async ({ count, stepStart, room }) => {
     const { ghostsPerHost } = options;
-    const owned = shardHosts(count, ghostsPerHost, run.shard);
-    const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts.length, 0);
+    const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
+    const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts, 0);
     const workDir = resolve(run.outDir, "hosts", `n${count}`);
     await mkdir(workDir, { recursive: true });
     const exits: Array<Promise<string | null>> = [];
-    const processes: ChildProcess[] = [];
+    const processes: Array<{ child: ChildProcess; ghosts: number }> = [];
     const resultPaths: string[] = [];
     let joined = 0;
-    for (const { host, ghosts: own } of owned) {
-      for (let firstAccount = 0; firstAccount < own.length; firstAccount += options.botsPerProcess) {
-        const ghosts = Math.min(options.botsPerProcess, own.length - firstAccount);
-        const name = `host${host}-${firstAccount}`;
-        const resultPath = join(workDir, `${name}.result.json`);
-        const planPath = join(workDir, `${name}.plan.json`);
-        const plan: HostGhostPlan = {
-          profile: room.profile,
-          namespace: room.namespace,
-          seating: room.seating,
-          phase: room.phase,
-          gameStart: room.gameStart,
-          window: room.window,
-          firstPlayer: host * ghostsPerHost + firstAccount,
-          firstAccount,
-          ghosts,
-          joinAt: Array.from({ length: ghosts }, () => stepStart + (joined++ * run.timing.rampMs) / ownedGhosts),
-          stopAt: room.window.end,
-          leaveAt: room.window.end + run.timing.drainMs,
-          resultPath,
-        };
-        await writeFile(planPath, JSON.stringify(plan));
-        resultPaths.push(resultPath);
-        const log = createWriteStream(join(workDir, `${name}.log`));
-        const child = spawn(
-          options.binary,
-          ["signing-host", "--network", run.target.network, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
-          {
-            env: {
-              ...process.env,
-              ...run.target.hostEnv,
-              TRUAPI_HOST_NO_UPDATE: "1",
-              TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, name),
-              HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
-              GHOST_PLAN: planPath,
-            },
-            stdio: ["ignore", "pipe", "pipe"],
+    for (const { host, firstAccount, firstPlayer, ghosts } of owned) {
+      const name = `host${host}-${firstAccount}`;
+      const resultPath = join(workDir, `${name}.result.json`);
+      const planPath = join(workDir, `${name}.plan.json`);
+      const plan: HostGhostPlan = {
+        profile: room.profile,
+        namespace: room.namespace,
+        seating: room.seating,
+        phase: room.phase,
+        gameStart: room.gameStart,
+        window: room.window,
+        firstPlayer,
+        firstAccount,
+        ghosts,
+        joinAt: Array.from({ length: ghosts }, () => stepStart + (joined++ * run.timing.rampMs) / ownedGhosts),
+        stopAt: room.window.end,
+        leaveAt: room.window.end + run.timing.drainMs,
+        resultPath,
+      };
+      await writeFile(planPath, JSON.stringify(plan));
+      resultPaths.push(resultPath);
+      const log = createWriteStream(join(workDir, `${name}.log`));
+      const child = spawn(
+        options.binary,
+        ["signing-host", ...chainArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
+        {
+          env: {
+            ...process.env,
+            TRUAPI_HOST_NO_UPDATE: "1",
+            TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, name),
+            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
+            GHOST_PLAN: planPath,
           },
-        );
-        child.stdout!.pipe(log);
-        child.stderr!.pipe(log);
-        processes.push(child);
-        exits.push(
-          new Promise((done) => {
-            child.once("error", (error) => done(`spawn: ${error.message}`));
-            child.once("exit", (code, signal) => done(code === 0 ? null : signal ? `signal ${signal}` : `exit ${code}`));
-          }),
-        );
-      }
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      child.stdout!.pipe(log);
+      child.stderr!.pipe(log);
+      processes.push({ child, ghosts });
+      exits.push(
+        new Promise((done) => {
+          child.once("error", (error) => done(`spawn: ${error.message}`));
+          child.once("exit", (code, signal) => done(code === 0 ? null : signal ? `signal ${signal}` : `exit ${code}`));
+        }),
+      );
     }
 
-    let atWindowStart: Map<number, { cpuSeconds: number; rssKb: number }> | undefined;
-    let atWindowEnd: Map<number, { cpuSeconds: number; rssKb: number }> | undefined;
     const sample = async () => {
       const table = await readProcessTable();
-      return new Map(processes.flatMap((child) => (child.pid ? [[child.pid, treeUsage(table, child.pid)] as const] : [])));
+      return processes.map(({ child }) => (child.pid !== undefined && table.has(child.pid) ? treeUsage(table, child.pid) : undefined));
     };
+    let atWindowStart: Array<ReturnType<typeof treeUsage> | undefined> = [];
+    let atWindowEnd: Array<ReturnType<typeof treeUsage> | undefined> = [];
     const sampling = (async () => {
       await sleepUntil(room.window.start);
       atWindowStart = await sample();
@@ -167,7 +180,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       stopSending() {},
       async leave() {
         const deadline = room.window.end + run.timing.drainMs + EXIT_GRACE_MS;
-        const timer = setTimeout(() => processes.forEach((child) => child.kill("SIGKILL")), Math.max(0, deadline - Date.now()));
+        const timer = setTimeout(() => processes.forEach(({ child }) => child.kill("SIGKILL")), Math.max(0, deadline - Date.now()));
         for (const failure of await Promise.all(exits)) if (failure) bump(failures, failure);
         clearTimeout(timer);
         await sampling;
@@ -180,16 +193,21 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         const seconds = (room.window.end - room.window.start) / 1000;
         let cpuSeconds = 0;
         let rssKb = 0;
-        for (const [pid, end] of atWindowEnd ?? []) {
-          cpuSeconds += end.cpuSeconds - (atWindowStart?.get(pid)?.cpuSeconds ?? end.cpuSeconds);
+        let sampledGhosts = 0;
+        processes.forEach(({ ghosts }, index) => {
+          const start = atWindowStart[index];
+          const end = atWindowEnd[index];
+          if (!start || !end) return;
+          cpuSeconds += end.cpuSeconds - start.cpuSeconds;
           rssKb += end.rssKb;
-        }
+          sampledGhosts += ghosts;
+        });
         return {
-          hosts: owned.length,
+          processes: processes.length,
           ghosts: ownedGhosts,
           failures,
-          cpuPercentPerGhost: ownedGhosts > 0 ? (cpuSeconds / seconds / ownedGhosts) * 100 : 0,
-          rssMbPerGhost: ownedGhosts > 0 ? rssKb / 1024 / ownedGhosts : 0,
+          cpuPercentPerGhost: sampledGhosts > 0 ? (cpuSeconds / seconds / sampledGhosts) * 100 : 0,
+          rssMbPerGhost: sampledGhosts > 0 ? rssKb / 1024 / sampledGhosts : 0,
         };
       },
     };

@@ -64,7 +64,7 @@ function mergeHosts(results: SignallingShardResult[]): HostUsage | null {
   for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
   const weighted = (pick: (usage: HostUsage) => number) => usages.reduce((sum, usage) => sum + pick(usage) * usage.ghosts, 0) / ghosts;
   return {
-    hosts: usages.reduce((sum, usage) => sum + usage.hosts, 0),
+    processes: usages.reduce((sum, usage) => sum + usage.processes, 0),
     ghosts,
     failures,
     cpuPercentPerGhost: weighted((usage) => usage.cpuPercentPerGhost),
@@ -112,7 +112,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (stats.deliveredInWindow > expectedDeliveries) {
     findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
   }
-  if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} hosts failed`);
+  if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
