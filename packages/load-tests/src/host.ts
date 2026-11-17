@@ -10,7 +10,6 @@ import type { Seating } from "./seating.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
-import type { Target } from "./target.js";
 
 /** The product the Jollity app signs statements as on each network. */
 export const PRODUCT_IDS = { previewnet: "dim2.testnet", "paseo-next-v2": "dim2.paseo" } as const;
@@ -38,7 +37,8 @@ export interface HostOptions {
   botsPerProcess: number;
   productId: string;
   binary: string;
-  chainArgs: string[];
+  /** `--stack <location>` or `--network <key>`: the stack the hosts run against. */
+  stackArgs: string[];
 }
 
 const SCRIPT = resolve(import.meta.dirname, "host-ghost.ts");
@@ -104,15 +104,6 @@ export function shardProcesses(
  * split over processes of `botsPerProcess`, each its own client of People. Hosts, not ghosts,
  * are split over shards.
  */
-/** truapi-host's `--stack` or `--network` for `target`; fails where truapi-host can't connect. */
-export function hostChainArgs(target: Target): string[] {
-  if (!target.hostChainArgs) throw new Error("truapi-host can't run against a bare --rpc node: set STACK to a stack descriptor that lists it");
-  if (target.hostChainArgs[0] === "--stack" && process.env.TRUAPI_CHAIN_BACKEND === "light-client") {
-    throw new Error("truapi-host runs on a light client only on a built-in network: unset STACK or TRUAPI_CHAIN_BACKEND");
-  }
-  return target.hostChainArgs;
-}
-
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
   return async ({ count, stepStart, room }) => {
     const { ghostsPerHost } = options;
@@ -148,7 +139,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const log = createWriteStream(join(workDir, `${name}.log`));
       const child = spawn(
         options.binary,
-        ["signing-host", ...options.chainArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
+        ["signing-host", ...options.stackArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
         {
           env: {
             ...process.env,

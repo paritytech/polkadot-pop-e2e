@@ -7,7 +7,7 @@ import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostChainArgs, hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
+import { hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, resolveTarget, type Target } from "./target.js";
 
@@ -22,8 +22,8 @@ Commands:
   summary     Merge the shard results in --out into summary.json and summary.md
 
 Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
-  --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People
-                        endpoint for direct-RPC ghosts and the chain command; hosts take STACK's
+  --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People endpoint;
+                        not for host, whose truapi-host and ghosts connect through the stack
   --network <key>       previewnet | paseo-next-v2 (descriptors; with --rpc, default previewnet)
   --sudo <uri>          Root key URI; default SUDO_URI, else //Alice on a PPN fork
   --metrics <url,...>   Prometheus endpoints of the People nodes; repeatable
@@ -190,8 +190,15 @@ switch (values.help ? undefined : command) {
   }
   case "signalling":
   case "host": {
+    if (command === "host" && targetOptions.rpc.length > 0) {
+      throw new Error("host doesn't take --rpc: truapi-host and the ghosts inside it connect through the stack STACK or NETWORK selects");
+    }
     const target = await resolveTarget(targetOptions);
-    const chainArgs = command === "host" ? hostChainArgs(target) : [];
+    // Without --rpc, resolveTarget has loaded the stack; this reads the same STACK or NETWORK.
+    const stackArgs = command === "host" ? (await import("@pop-e2e/chain-tests/src/config/networks.js")).truapiHostStackArgs() : [];
+    if (stackArgs[0] === "--stack" && process.env.TRUAPI_CHAIN_BACKEND === "light-client") {
+      throw new Error("truapi-host runs on a light client only on a built-in network: unset STACK or TRUAPI_CHAIN_BACKEND");
+    }
     const profile = PROFILES[values.profile];
     if (!profile) throw new Error(`unknown --profile ${values.profile}`);
     if (!PHASES.includes(values.phase as Phase)) throw new Error(`--phase must be one of ${PHASES.join(", ")}, not '${values.phase}'`);
@@ -265,7 +272,7 @@ switch (values.help ? undefined : command) {
             botsPerProcess,
             productId,
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
-            chainArgs,
+            stackArgs,
           })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);

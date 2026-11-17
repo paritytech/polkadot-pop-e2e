@@ -118,8 +118,7 @@ NETWORK=paseo-next-v2 pnpm load host --steps 1000 --start-at 2026-11-20T10:00:00
 The last one replays a game's messages without a game; it needs bots that signed up to a recent
 game and so have a statement allowance. The `host` command needs `truapi-host` at the version
 `chain-tests` pins (or `TRUAPI_HOST_BIN`) and `bun` on `PATH`; `TRUAPI_CHAIN_BACKEND=light-client`
-runs it on its light client, on a built-in network only, without `STACK`. The hosts connect to
-the chains of `STACK`, else of `NETWORK`: `--rpc` doesn't change their endpoints.
+runs it on its light client, on a built-in network only, without `STACK`.
 
 On a dev People node, a root key (`//Alice`) stands in for the sign-ups: `mint` writes each
 player's statement allowance (`System.set_storage` on `:statement_allowance:<account>`, the
@@ -142,11 +141,10 @@ pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registr
 ```
 
 A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
-from the chain, so set a long `--reporting` there. `host` runs against a dev node only through
-`STACK`: a descriptor URL that the chain-tests can read (with an `ipfs-gateway` service, and
-`NETWORK` set unless its id matches the network) and truapi-host accepts (a `dub` service,
-`dotns.popController` and a `dot`, `paseo` or `testnet` TLD). `--shard i/n` splits the bots over
-processes or machines that share `--start-at`, and `summary` merges their result files.
+from the chain, so set a long `--reporting` there. `host` doesn't take `--rpc`: truapi-host
+connects to chains only through a stack descriptor, so run it with `STACK` or `NETWORK`.
+`--shard i/n` splits the bots over processes or machines that share `--start-at`, and `summary`
+merges their result files.
 
 ## How many light clients a node takes
 

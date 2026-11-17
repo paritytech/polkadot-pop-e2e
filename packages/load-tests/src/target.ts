@@ -24,8 +24,6 @@ export interface Target {
   metrics: string[];
   /** Asset Hub RPC endpoint, where game credits are claimed as NFTs; none for a lone dev node. */
   assetHubRpc: string | undefined;
-  /** truapi-host's `--stack` or `--network` for this target; none for a bare `--rpc` node. */
-  hostChainArgs: string[] | undefined;
 }
 
 export interface TargetOptions {
@@ -49,13 +47,11 @@ function funderOf(sudoUri: string | undefined): Keypair | undefined {
 
 /**
  * The stack `STACK` selects, else the network `NETWORK` (or `network`) selects, read the way the
- * chain-tests read it. `rpc` replaces the stack's People endpoint for direct-RPC ghosts and the
- * chain command, such as a fork's node port in place of the dashboard proxy in front of it.
- * Without `STACK`, `rpc` alone is the whole target, such as a local dev node.
+ * chain-tests read it. `rpc` replaces the stack's People endpoint for the direct RPC clients
+ * (signalling ghosts, `chain`, `mint`), such as a fork's node port in place of the dashboard proxy
+ * in front of it. Without `STACK`, `rpc` alone is the whole target, such as a local dev node.
  */
 export async function resolveTarget(options: TargetOptions): Promise<Target> {
-  // chain-tests' .env, where STACK may be set; loading it fetches nothing.
-  await import("@pop-e2e/chain-tests/src/config/env.js");
   if (options.rpc.length > 0 && !process.env.STACK) {
     return {
       label: options.rpc[0],
@@ -65,24 +61,22 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
       funder: funderOf(options.sudoUri),
       metrics: options.metrics,
       assetHubRpc: undefined,
-      hostChainArgs: undefined,
     };
   }
   if (options.network) process.env.NETWORK = options.network;
   // Deferred: the module fetches the stack descriptor when it loads, which a run with `rpc` skips.
-  const { getNetworkConfig, networkKey, stackOverride } = await import("@pop-e2e/chain-tests/src/config/networks.js");
-  const stack = stackOverride();
+  const { getNetworkConfig, networkKey } = await import("@pop-e2e/chain-tests/src/config/networks.js");
   const config = getNetworkConfig();
   const sudoUri = options.sudoUri ?? config.testAccountUri;
+  const rpc = options.rpc.length > 0 ? options.rpc : [config.people.ws];
   return {
     label: config.name,
-    rpc: options.rpc.length > 0 ? options.rpc : [config.people.ws],
+    rpc,
     network: descriptorNetwork(networkKey()),
     sudo: sudoUri ? keypairFromUri(sudoUri) : undefined,
     funder: funderOf(sudoUri),
     metrics: options.metrics,
     assetHubRpc: config.assetHub.ws,
-    hostChainArgs: stack ? ["--stack", stack] : ["--network", networkKey()],
   };
 }
 
