@@ -11,7 +11,7 @@ export type Metadata = ReturnType<typeof unifyMetadata>;
 
 export type Kind = Exclude<keyof TypedApi<ChainDefinition>, "txFromCallData" | "getStaticApis">;
 
-/** A chain entry, e.g. `tx:Game.sign_up` or `constants:Score.Suffix`. */
+/** Identifies a metadata entry, e.g. `tx:Game.sign_up` or `constants:Score.Suffix`. */
 export type Selector = `${Kind}:${string}.${string}`;
 
 export interface RuntimeVersion {
@@ -32,7 +32,7 @@ export interface Encoding {
   output: Var | null;
 }
 
-/** A chain entry from runtime or descriptor metadata. */
+/** A named item in runtime or SDK descriptor metadata. */
 export interface Entry {
   selector: Selector;
   /** PAPI compatibility types; may normalize different encodings to the same type. */
@@ -58,6 +58,6 @@ export type Direction = "encode" | "decode" | "both";
 /**
  * PAPI compatibility level, or:
  * - Missing: the runtime lacks the entry.
- * - Present: the entry exists, but D has no type to compare against.
+ * - Present: the entry exists, but the descriptor has no type to compare against.
  */
 export type Level = keyof typeof CompatibilityLevel | "Missing" | "Present";

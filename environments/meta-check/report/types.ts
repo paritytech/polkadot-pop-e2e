@@ -3,45 +3,45 @@ import type { EntryVerdict, PipelineVerdict } from "../regression/types.ts";
 import type { ChainKey, RuntimeVersion } from "../types.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";
 
-/** An entry's verdict, and what the upgrade changed in it. */
+/** An entry's compatibility verdict and runtime changes. */
 export interface EntryFinding extends EntryVerdict {
-  /** Null when A and A' have the entry alike, or both lack it. */
+  /** Null if the entry is unchanged or missing from both runtimes. */
   change: EntryChange | null;
 }
 
-/** A pipeline's verdict, and the lists behind it. */
+/** A pipeline's compatibility verdict, extension lists, and runtime changes. */
 export interface PipelineFinding extends PipelineVerdict {
-  /** What D signs with; null when D has no such version, so the SDK does not use it. */
+  /** SDK's expected pipeline; null if the descriptor has no such version. */
   expected: readonly string[] | null;
-  /** A's pipeline; null when A has no such version. */
+  /** Null if the live runtime has no such version. */
   live: readonly string[] | null;
-  /** A''s pipeline; null when A' has no such version. */
+  /** Null if the candidate runtime has no such version. */
   candidate: readonly string[] | null;
-  /** Extensions in both D and A' whose types are not Identical: A''s against D's, unlike `change.retyped`. */
+  /** Extensions whose candidate types differ from SDK expectations; `change.retyped` compares against live. */
   retypedFromSdk: string[];
-  /** What the upgrade changed in this version; null when A and A' have it alike, or both lack it. */
+  /** Null if the pipeline is unchanged or missing from both runtimes. */
   change: PipelineChange | null;
 }
 
-/** The result for one chain: each requirement's and extension version's verdict, and what lies behind it. */
+/** Compatibility verdicts and runtime changes for one chain. */
 export interface Report {
   chain: ChainKey;
-  /** D: the descriptor chain and the code hash it was generated from. */
+  /** Chain name and runtime code hash used to generate the descriptor. */
   descriptor: { chain: string; codeHash: string };
   live: RuntimeVersion;
   candidate: RuntimeVersion;
-  /** In the requirements' order: by selector. */
+  /** Sorted by selector, matching the requirements. */
   entries: EntryFinding[];
-  /** Empty when the SDK does not sign on this chain. */
+  /** Empty if the SDK uses no transactions on this chain. */
   pipelines: PipelineFinding[];
-  /** What the upgrade changed in the extrinsic versions; ungraded. Null when nothing, or no transactions. */
+  /** Extrinsic-version changes, without a verdict; null if unchanged or the SDK uses no transactions. */
   extrinsicVersions: ExtrinsicVersionChange | null;
 }
 
-/** One check run: a report per upgraded chain, and the reads no chain took. */
+/** Results of a check run, including unassigned SDK accesses and chains that could not be checked. */
 export interface Run {
   reports: Report[];
   unplaced: RuntimeAccess[];
-  /** Upgraded chains that could not be checked, and why. */
+  /** Upgraded chains that could not be checked, with the reason for each. */
   failed: { chain: string; error: string }[];
 }
