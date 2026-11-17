@@ -2,6 +2,7 @@ name: Load test
 
 # Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
 # sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
+# With `replay_at`, the bots of an earlier game exchange the same messages without a game.
 # See packages/load-tests/README.md.
 
 on:
@@ -21,7 +22,7 @@ on:
         type: string
         default: "1000"
       signalling:
-        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before individuality-apps#1972"
+        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before https://github.com/paritytech/individuality-apps/pull/1972"
         type: choice
         default: co-players
         options: [co-players, game]
@@ -43,7 +44,7 @@ on:
         type: string
         default: ""
       chain_backend:
-        description: "How truapi-host reaches People: rpc (WebSocket JSON-RPC) or light-client (embedded smoldot, statements over peer-to-peer gossip)"
+        description: "How truapi-host connects to People: rpc (WebSocket JSON-RPC) or light-client (embedded smoldot, statements over peer-to-peer gossip)"
         type: choice
         default: rpc
         options: [rpc, light-client]
@@ -145,8 +146,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
-  # Each machine waits until the chain job has signed its bots up, then runs them inside
-  # truapi-host from 40 s before the game's room opens until the game ends.
+  # Each machine waits until the chain job has signed its bots up, or until `replay_at`, then runs
+  # them inside truapi-host from 40 s before the game's room opens until the game ends.
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
@@ -209,10 +210,16 @@ jobs:
           path: load-results
           merge-multiple: true
       - name: Merge the results
+        env:
+          REPLAY_AT: ${{ inputs.replay_at }}
         run: |
           set -euo pipefail
-          compgen -G "load-results/chain.n*.md" >/dev/null || echo "No chain result" >> "$GITHUB_STEP_SUMMARY"
-          pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS" || echo "No message results" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$REPLAY_AT" ] && ! compgen -G "load-results/chain.n*.md" >/dev/null; then echo "No chain result" >> "$GITHUB_STEP_SUMMARY"; fi
+          if compgen -G "load-results/host.n*.shard*.json" >/dev/null; then
+            pnpm --silent --filter @pop-e2e/load-tests load summary --out "$RESULTS"
+          else
+            echo "No message results" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: load-results-${{ inputs.network }}-${{ inputs.players }}
