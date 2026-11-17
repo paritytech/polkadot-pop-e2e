@@ -7,7 +7,7 @@ import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
+import { hostChainArgs, hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, resolveTarget, type Target } from "./target.js";
 
@@ -191,6 +191,7 @@ switch (values.help ? undefined : command) {
   case "signalling":
   case "host": {
     const target = await resolveTarget(targetOptions);
+    const chainArgs = command === "host" ? hostChainArgs(target) : [];
     const profile = PROFILES[values.profile];
     if (!profile) throw new Error(`unknown --profile ${values.profile}`);
     if (!PHASES.includes(values.phase as Phase)) throw new Error(`--phase must be one of ${PHASES.join(", ")}, not '${values.phase}'`);
@@ -264,6 +265,7 @@ switch (values.help ? undefined : command) {
             botsPerProcess,
             productId,
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
+            chainArgs,
           })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);

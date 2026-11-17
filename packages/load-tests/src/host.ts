@@ -10,6 +10,7 @@ import type { Seating } from "./seating.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
+import type { Target } from "./target.js";
 
 /** The product the Jollity app signs statements as on each network. */
 export const PRODUCT_IDS = { previewnet: "dim2.testnet", "paseo-next-v2": "dim2.paseo" } as const;
@@ -37,6 +38,7 @@ export interface HostOptions {
   botsPerProcess: number;
   productId: string;
   binary: string;
+  chainArgs: string[];
 }
 
 const SCRIPT = resolve(import.meta.dirname, "host-ghost.ts");
@@ -102,9 +104,16 @@ export function shardProcesses(
  * split over processes of `botsPerProcess`, each its own client of People. Hosts, not ghosts,
  * are split over shards.
  */
+/** truapi-host's `--stack` or `--network` for `target`; fails where truapi-host can't connect. */
+export function hostChainArgs(target: Target): string[] {
+  if (!target.hostChainArgs) throw new Error("truapi-host can't run against a bare --rpc node: set STACK to a stack descriptor that lists it");
+  if (target.hostChainArgs[0] === "--stack" && process.env.TRUAPI_CHAIN_BACKEND === "light-client") {
+    throw new Error("truapi-host runs on a light client only on a built-in network: unset STACK or TRUAPI_CHAIN_BACKEND");
+  }
+  return target.hostChainArgs;
+}
+
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
-  const chainArgs = run.target.hostChainArgs;
-  if (!chainArgs) throw new Error("truapi-host can't run against a bare --rpc node: set STACK to a stack descriptor that lists it");
   return async ({ count, stepStart, room }) => {
     const { ghostsPerHost } = options;
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
@@ -139,7 +148,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const log = createWriteStream(join(workDir, `${name}.log`));
       const child = spawn(
         options.binary,
-        ["signing-host", ...chainArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
+        ["signing-host", ...options.chainArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
         {
           env: {
             ...process.env,
@@ -193,21 +202,21 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         const seconds = (room.window.end - room.window.start) / 1000;
         let cpuSeconds = 0;
         let rssKb = 0;
-        let sampledGhosts = 0;
+        let ghostsInSample = 0;
         processes.forEach(({ ghosts }, index) => {
           const start = atWindowStart[index];
           const end = atWindowEnd[index];
           if (!start || !end) return;
           cpuSeconds += end.cpuSeconds - start.cpuSeconds;
           rssKb += end.rssKb;
-          sampledGhosts += ghosts;
+          ghostsInSample += ghosts;
         });
         return {
           processes: processes.length,
           ghosts: ownedGhosts,
           failures,
-          cpuPercentPerGhost: sampledGhosts > 0 ? (cpuSeconds / seconds / sampledGhosts) * 100 : 0,
-          rssMbPerGhost: sampledGhosts > 0 ? rssKb / 1024 / sampledGhosts : 0,
+          cpuPercentPerGhost: ghostsInSample > 0 ? (cpuSeconds / seconds / ghostsInSample) * 100 : 0,
+          rssMbPerGhost: ghostsInSample > 0 ? rssKb / 1024 / ghostsInSample : 0,
         };
       },
     };

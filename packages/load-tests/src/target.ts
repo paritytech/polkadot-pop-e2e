@@ -54,6 +54,8 @@ function funderOf(sudoUri: string | undefined): Keypair | undefined {
  * Without `STACK`, `rpc` alone is the whole target, such as a local dev node.
  */
 export async function resolveTarget(options: TargetOptions): Promise<Target> {
+  // chain-tests' .env, where STACK may be set; loading it fetches nothing.
+  await import("@pop-e2e/chain-tests/src/config/env.js");
   if (options.rpc.length > 0 && !process.env.STACK) {
     return {
       label: options.rpc[0],
@@ -68,7 +70,8 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
   }
   if (options.network) process.env.NETWORK = options.network;
   // Deferred: the module fetches the stack descriptor when it loads, which a run with `rpc` skips.
-  const { getNetworkConfig, networkKey } = await import("@pop-e2e/chain-tests/src/config/networks.js");
+  const { getNetworkConfig, networkKey, stackOverride } = await import("@pop-e2e/chain-tests/src/config/networks.js");
+  const stack = stackOverride();
   const config = getNetworkConfig();
   const sudoUri = options.sudoUri ?? config.testAccountUri;
   return {
@@ -79,7 +82,7 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
     funder: funderOf(sudoUri),
     metrics: options.metrics,
     assetHubRpc: config.assetHub.ws,
-    hostChainArgs: process.env.STACK ? ["--stack", process.env.STACK] : ["--network", networkKey()],
+    hostChainArgs: stack ? ["--stack", stack] : ["--network", networkKey()],
   };
 }
 
