@@ -24,25 +24,37 @@ export interface NetworkFeatures {
   identity: boolean;
   /** People runs pallet-game: the Game sign-up, draws and prizes product-sdk reads. */
   game: boolean;
+  /** The stack runs a Bulletin chain and an IPFS gateway serving its data. */
+  bulletin: boolean;
+  /**
+   * Transfers, proxy, multisig and the relay teleport on plain system chains run: the suite has
+   * the relay chain's PAPI descriptor and the test account is funded on the relay and Asset Hub.
+   */
+  systemFlows: boolean;
+}
+
+export interface BulletinConfig {
+  ws: string;
+  /**
+   * Optional dedicated HOP collator endpoint — a Bulletin collator run
+   * with `--enable-hop`. The hop test points its `HopClient` here when
+   * set, falling back to `ws` otherwise. Lets HOP target a specific
+   * collator distinct from the public Bulletin RPC (which may be a plain
+   * full node that doesn't serve the `hop_*` RPCs).
+   */
+  hopWs?: string;
+  ipfsGateway: string;
 }
 
 export interface NetworkConfig {
   name: string;
+  /** Null on a network without `features.systemFlows`, the only tests that use the relay. */
+  relay: { ws: string } | null;
   assetHub: { ws: string };
   people: { ws: string };
-  bulletin: {
-    ws: string;
-    /**
-     * Optional dedicated HOP collator endpoint — a Bulletin collator run
-     * with `--enable-hop`. The hop test points its `HopClient` here when
-     * set, falling back to `ws` otherwise. Lets HOP target a specific
-     * collator distinct from the public Bulletin RPC (which may be a plain
-     * full node that doesn't serve the `hop_*` RPCs).
-     */
-    hopWs?: string;
-  };
+  /** Null on a network without Bulletin (`features.bulletin`). */
+  bulletin: BulletinConfig | null;
   identityBackend: string | null;
-  ipfsGateway: string;
   /** The dotNS TLD the person's identities derive under. */
   tld: string;
   features: NetworkFeatures;
@@ -68,14 +80,14 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack-paseo-next.parity-testnet.parity.io/.well-known/trinity-stack.json",
       key: "0x2b89d8ca74aa2e11ab55f5af1168cd6929b88d1998aecd979b42cfc1078d5377",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false },
   },
   previewnet: {
     stack: {
       url: "https://previewnet.substrate.dev/.well-known/trinity-stack.json",
       key: "0x4d43362f03d5511632a210632d1fb7760b5a663580f12ffca34619f79357e239",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false },
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
@@ -88,7 +100,13 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack.api.polkadotcommunity.foundation/.well-known/trinity-stack.json",
       key: "0x1fbc5eed0deb09fe4eeefdf45350b4b4cf36370d9bbb93ca2818b076737a0ed3",
     },
-    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true, bulletin: true, systemFlows: false },
+  },
+  // Westend: relay, Asset Hub (1000) and People (1004). People runs none of the Individuality
+  // pallets and there is no Bulletin, so the chain-level tests and the system flows run.
+  westend: {
+    stack: { url: "https://stack-westend.parity-testnet.parity.io/.well-known/trinity-stack.json" },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: false, bulletin: false, systemFlows: true },
   },
 };
 
@@ -135,8 +153,10 @@ export function selectNetwork(
 /**
  * A known network's capability flags with a stack's chains, HOP endpoint, identity backend
  * and IPFS gateway. The identity backend is null when the network does not attest or the
- * stack doesn't run one, and attestation-dependent tests then skip. On a PPN fork `//Alice` is
- * the test account: sudo by bite override, and fundable.
+ * stack doesn't run one, and attestation-dependent tests then skip. Bulletin and the relay are
+ * null where the network's features leave them out; fails when a feature's chain or service is
+ * missing from the stack. On a PPN fork `//Alice` is the test account: sudo by bite override,
+ * and fundable.
  */
 export function buildNetworkConfig(entry: NetworkEntry, descriptor: Descriptor): NetworkConfig {
   const optionalUrl = (kind: string) =>
@@ -145,11 +165,17 @@ export function buildNetworkConfig(entry: NetworkEntry, descriptor: Descriptor):
   const hopWs = optionalUrl("hop");
   return {
     name: descriptor.name,
+    relay: entry.features.systemFlows ? { ws: chain(descriptor, "Relay").rpc[0] } : null,
     assetHub: { ws: chain(descriptor, "AssetHub").rpc[0] },
     people: { ws: chain(descriptor, "People").rpc[0] },
-    bulletin: { ws: chain(descriptor, "Bulletin").rpc[0], ...(hopWs && { hopWs }) },
+    bulletin: entry.features.bulletin
+      ? {
+          ws: chain(descriptor, "Bulletin").rpc[0],
+          ...(hopWs && { hopWs }),
+          ipfsGateway: service(descriptor, "ipfs-gateway").urls[0].replace(/\/$/, ""),
+        }
+      : null,
     identityBackend,
-    ipfsGateway: service(descriptor, "ipfs-gateway").urls[0].replace(/\/$/, ""),
     tld: descriptor.tld,
     features: entry.features,
     ...(FORK_ID.test(descriptor.id) && { testAccountUri: "//Alice" }),

@@ -70,11 +70,15 @@ describe("buildNetworkConfig", () => {
   it("takes the chains and services from the stack and the features from the network", () => {
     expect(buildNetworkConfig(NETWORKS.previewnet, descriptor())).toEqual({
       name: "Fork of Previewnet",
+      relay: null,
       assetHub: { ws: "ws://127.0.0.1:8090/asset-hub" },
       people: { ws: "ws://127.0.0.1:8090/people" },
-      bulletin: { ws: "ws://127.0.0.1:8090/bulletin", hopWs: "ws://127.0.0.1:8090/bulletin" },
+      bulletin: {
+        ws: "ws://127.0.0.1:8090/bulletin",
+        hopWs: "ws://127.0.0.1:8090/bulletin",
+        ipfsGateway: "http://127.0.0.1:8090/ipfs",
+      },
       identityBackend: "http://127.0.0.1:8090/dub",
-      ipfsGateway: "http://127.0.0.1:8090/ipfs",
       tld: "testnet",
       features: NETWORKS.previewnet.features,
       testAccountUri: "//Alice",
@@ -99,5 +103,45 @@ describe("buildNetworkConfig", () => {
     expect(() => buildNetworkConfig(NETWORKS.previewnet, noIpfs)).toThrow(/ipfs-gateway/);
     const noPeople = descriptor({ chains: descriptor().chains.filter((entry) => entry.role !== "People") });
     expect(() => buildNetworkConfig(NETWORKS.previewnet, noPeople)).toThrow(/People/);
+    const noBulletin = descriptor({ chains: descriptor().chains.filter((entry) => entry.role !== "Bulletin") });
+    expect(() => buildNetworkConfig(NETWORKS.previewnet, noBulletin)).toThrow(/Bulletin/);
+  });
+});
+
+// The release gate's Westend fork: no Bulletin, no IPFS gateway, no identity backend, eth-rpc
+// only. The Bulletin-dependent tests skip on a null `bulletin`; the system flows read `relay`.
+describe("a Westend fork", () => {
+  const westendFork = () =>
+    descriptor({
+      id: "westend-fork",
+      name: "Fork of Westend",
+      tld: "westend",
+      chains: descriptor().chains.filter((entry) => entry.role !== "Bulletin"),
+      services: [{ kind: "eth-rpc", urls: ["http://127.0.0.1:8090/eth-rpc/"] }],
+      fork: { of: { url: NETWORKS.westend.stack.url }, at: 1 },
+    });
+
+  it("runs as westend, with the relay and without Bulletin", () => {
+    expect(selectNetwork(undefined, stackAt(FORK_URL, westendFork()))).toBe("westend");
+    expect(buildNetworkConfig(NETWORKS.westend, westendFork())).toEqual({
+      name: "Fork of Westend",
+      relay: { ws: "ws://127.0.0.1:8090/relay" },
+      assetHub: { ws: "ws://127.0.0.1:8090/asset-hub" },
+      people: { ws: "ws://127.0.0.1:8090/people" },
+      bulletin: null,
+      identityBackend: null,
+      tld: "westend",
+      features: NETWORKS.westend.features,
+      testAccountUri: "//Alice",
+    });
+    // These decide what the Westend gate runs: the system flows, and nothing that needs
+    // Bulletin or an identity backend.
+    expect(NETWORKS.westend.features).toMatchObject({ systemFlows: true, bulletin: false, identity: false });
+  });
+
+  it("fails on a stack without the relay the system flows use", () => {
+    const noRelay = westendFork();
+    noRelay.chains = noRelay.chains.filter((entry) => entry.role !== "Relay");
+    expect(() => buildNetworkConfig(NETWORKS.westend, noRelay)).toThrow(/Relay/);
   });
 });
