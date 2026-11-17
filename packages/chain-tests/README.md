@@ -25,7 +25,7 @@ curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/p
 | `test` | Full network functional health suite (core, allowances, statement, storage, dotns, IB-health probe) |
 | `test:ring-health` | People-chain ring-builder rebuild-latency probe only |
 | `test:ib-health` | Identity Backend attestation probe only |
-| `deploy-counter` | Idempotently deploy the counter contract used by the PGAS-paid Revive test |
+| `deploy-counter` | Idempotently deploy the counter contract used by the PGAS-paid Revive test; does nothing on networks without PGAS |
 | `papi` | Re-generate PAPI descriptors from committed `.scale` metadata |
 
 ## Network selection
@@ -34,12 +34,16 @@ curl -fsSL -o /tmp/truapi-host-installer.sh "https://raw.githubusercontent.com/p
 
 - `paseo-next-v2` (default) — public testnet on Polkadot.io endpoints
 - `previewnet` — dev testnet on substrate.dev, Alice-funded
+- `devnet` — the community-operated Polkadot Products Devnet on the Paseo system chains
+- `westend` — Westend relay, Asset Hub and People; no Bulletin and no Individuality pallets, so only the chain-level tests and the system flows (`accounts`, `teleport`) run
 
 ## Tests
 
 | File | What it tests |
 |---|---|
 | `core.test.ts` | Asset Hub is producing finalised blocks, test account funded, `System.remark` includes |
+| `accounts.test.ts` | On Asset Hub: a balance transfer between two accounts derived from the test account, a call made through a proxy, and a call a 2-of-3 multisig executes (networks with `features.systemFlows`: westend) |
+| `teleport.test.ts` | The native token teleported from the relay arrives on Asset Hub (networks with `features.systemFlows`: westend) |
 | `allowances.test.ts` | PGAS claim → Revive contract call paid in PGAS |
 | `statement.test.ts` | Statement Store write + read against People chain after IB attestation |
 | `storage.test.ts` | LTS allowance claim on People → XCM to Bulletin → upload + IPFS retrieve |

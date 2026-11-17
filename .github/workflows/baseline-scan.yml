@@ -2,8 +2,9 @@ name: Baseline Scan
 
 # Keeps environments/networks/*.json true to production. Every few hours the
 # scan reads each pinned chain's LIVE runtime and attributes it to a release
-# (byte equality; declared-spec equality for the upstream-operated public
-# relay). Drift becomes a pin-bump commit on `baseline/bump` and one auto-PR —
+# (byte equality; declared-spec equality where production runs builds no release
+# publishes byte for byte: the public Paseo relay, Westend). Drift becomes a
+# pin-bump commit on `baseline/bump` and one auto-PR —
 # whose release-gate run then validates the new baseline. The job goes red only
 # when a human is needed: production running bytes no allow-listed release
 # carries, or a dead scan endpoint.
