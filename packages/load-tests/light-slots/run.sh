@@ -10,24 +10,26 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 names=(alice bob charlie dave eve ferdie)
 trap 'kill $(jobs -p) 2>/dev/null || true; rm -rf "$work"' EXIT
-polkadot build-spec --chain dev --raw > "$work/spec.json" 2>/dev/null
+polkadot build-spec --chain dev --raw > "$work/spec.json"
 boot=()
-for n in $(seq 1 "$nodes"); do
-  printf '%064x' "$n" > "$work/key$n"
-  peer=$(polkadot key inspect-node-key --file "$work/key$n")
-  boot+=("/ip4/127.0.0.1/tcp/$((30330 + n))/ws/p2p/$peer")
-  polkadot --chain "$work/spec.json" "--${names[$((n - 1))]}" --validator --insecure-validator-i-know-what-i-do \
-    --base-path "$work/db$n" --node-key-file "$work/key$n" --listen-addr "/ip4/127.0.0.1/tcp/$((30330 + n))/ws" \
-    --rpc-port $((9940 + n)) --prometheus-port $((9610 + n)) --in-peers-light "$light" --no-mdns --no-telemetry \
-    --reserved-nodes "${boot[0]}" > "$work/node$n.log" 2>&1 &
+for index in $(seq 1 "$nodes"); do
+  printf '%064x' "$index" > "$work/key$index"
+  peer=$(polkadot key inspect-node-key --file "$work/key$index")
+  boot+=("/ip4/127.0.0.1/tcp/$((30330 + index))/ws/p2p/$peer")
+  polkadot --chain "$work/spec.json" "--${names[$((index - 1))]}" --validator --insecure-validator-i-know-what-i-do \
+    --base-path "$work/db$index" --node-key-file "$work/key$index" --listen-addr "/ip4/127.0.0.1/tcp/$((30330 + index))/ws" \
+    --rpc-port $((9940 + index)) --prometheus-port $((9610 + index)) --in-peers-light "$light" --no-mdns --no-telemetry \
+    --reserved-nodes "${boot[0]}" > "$work/node$index.log" 2>&1 &
 done
 sleep 25
 echo "in-peers-light $light, nodes $nodes, clients $clients"
 node "$here/clients.mjs" "$work/spec.json" "$clients" "${boot[@]}" > "$work/clients.out" 2>&1 &
 clients_pid=$!
 sleep $((clients / 20 + 60))
-for n in $(seq 1 "$nodes"); do
-  echo "  node$n while the clients are connected: $(grep -o 'Idle ([0-9]* peers)' "$work/node$n.log" | tail -1)"
+for index in $(seq 1 "$nodes"); do
+  echo "  node$index while the clients are connected: $(grep -o 'Idle ([0-9]* peers)' "$work/node$index.log" | tail -1)"
 done
-wait $clients_pid
+status=0
+wait $clients_pid || status=$?
 cat "$work/clients.out"
+exit "$status"

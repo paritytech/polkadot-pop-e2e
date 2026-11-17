@@ -1,6 +1,6 @@
 // Starts `count` light clients, each its own smoldot with its own network identity, against the
-// chain spec at `spec` with the given bootnodes, and prints how many hold at least one peer and
-// how many peers each holds, 40 s and 80 s after the last one started.
+// chain spec at `spec` with `bootnodes`, and prints how many have at least one peer and
+// how many peers each has, 40 s and 80 s after the last one started.
 // Usage: node clients.mjs <spec> <count> <bootnode multiaddr>...
 import { readFileSync } from "node:fs";
 import { start } from "smoldot";
@@ -22,7 +22,9 @@ async function readPeerCount(chain, id) {
   chain.sendJsonRpc(JSON.stringify({ jsonrpc: "2.0", id, method: "system_peers", params: [] }));
   for (;;) {
     const reply = JSON.parse(await chain.nextJsonRpcResponse());
-    if (reply.id === id) return (reply.result ?? []).length;
+    if (reply.id !== id) continue;
+    if (reply.error) throw new Error(`system_peers: ${reply.error.message}`);
+    return reply.result.length;
   }
 }
 

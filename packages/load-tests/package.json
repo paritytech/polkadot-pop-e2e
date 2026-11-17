@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "light-slots": "light-slots/run.sh",
     "load": "tsx src/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
