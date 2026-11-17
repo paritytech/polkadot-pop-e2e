@@ -24,6 +24,9 @@ function chainCode(junction: string): Uint8Array {
 
 const indexBytes = (value: number) => contextSuffixBytes({ tag: "Index", value });
 
+/** The personhood product's id: it owns the identity account and the ring-VRF keys. */
+export const personhoodProductId = (networkSuffix: string) => `peopl.${networkSuffix}`;
+
 export interface IdentityKey {
   secretKey: Uint8Array;
   publicKey: Uint8Array;
@@ -31,13 +34,13 @@ export interface IdentityKey {
   sign: (message: Uint8Array) => Uint8Array;
 }
 
-/** `//product//uid.<suffix>` hard, then the soft `index_bytes(0)`: the person's identity account. */
-export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
+/** `//product//<productId>` hard, then the soft `index_bytes(index)`: a product account truapi derives. */
+export function productAccountKey(entropy: Uint8Array, productId: string, index: number): IdentityKey {
   let secret: Uint8Array = secretFromSeed(entropyToMiniSecret(entropy));
-  for (const junction of ["product", `uid.${networkSuffix}`]) {
+  for (const junction of ["product", productId]) {
     secret = HDKD.secretHard(secret, chainCode(junction));
   }
-  const secretKey = HDKD.secretSoft(secret, indexBytes(0));
+  const secretKey = HDKD.secretSoft(secret, indexBytes(index));
   const publicKey = getPublicKey(secretKey);
   return {
     secretKey,
@@ -47,10 +50,15 @@ export function identityKey(entropy: Uint8Array, networkSuffix: string): Identit
   };
 }
 
+/** The `peopl.<suffix>` product account at index 0: the person's identity account (RFC-0028). */
+export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
+  return productAccountKey(entropy, personhoodProductId(networkSuffix), 0);
+}
+
 /** Ring-VRF entropy of the person's `index`th member key under `peopl.<suffix>`. */
 function ringEntropyAt(entropy: Uint8Array, networkSuffix: string, index: number): Uint8Array {
   const root = blake2b256(entropy, new TextEncoder().encode("ring-vrf"));
-  const domain = blake2b256(root, chainCode(`peopl.${networkSuffix}`));
+  const domain = blake2b256(root, chainCode(personhoodProductId(networkSuffix)));
   return blake2b256(domain, indexBytes(index));
 }
 
