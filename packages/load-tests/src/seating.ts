@@ -3,7 +3,7 @@ import { topicOf, type Hex } from "./statement.js";
 
 /**
  * How a game's signalling arrives at its players, as the Jollity app does it:
- * - `co-players`, the app since individuality-apps#1972 (21c243298): a phone posts under its own
+ * - `co-players`, the app since https://github.com/paritytech/individuality-apps/pull/1972: a phone posts under its own
  *   topic and subscribes to its co-players' topics, and a bundle with offers in it goes deflated;
  * - `game`, the app before that: one room topic that every phone posts under and subscribes to,
  *   next to its inbox, so every phone receives every bundle of the game.
@@ -27,7 +27,7 @@ export interface Seat {
 
 /** The app deflates a bundle this long or longer; a hello alone stays plain. */
 const DEFLATE_FROM_BYTES = 1_024;
-/** What deflating leaves of a bundle for 10 co-players: about 45% smaller, per individuality-apps#1972. */
+/** What deflating leaves of a bundle for 10 co-players: about 45% smaller, per https://github.com/paritytech/individuality-apps/pull/1972. */
 const DEFLATED_SHARE = 0.55;
 
 function greatestCommonDivisor(left: number, right: number): number {
