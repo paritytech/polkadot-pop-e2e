@@ -46,9 +46,9 @@ export function networkKey(): string {
   return network;
 }
 
-/** The `STACK` value the run tests, or undefined when it tests the network's own stack. */
-export function stackOverride(): string | undefined {
-  return stackLocation;
+/** The truapi-host flags that select the stack the run tests: `--stack` for `STACK`, else `--network`. */
+export function truapiHostStackArgs(): string[] {
+  return stackLocation ? ["--stack", stackLocation] : ["--network", network];
 }
 
 export function getNetworkConfig(): NetworkConfig {

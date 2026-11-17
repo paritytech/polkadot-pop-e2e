@@ -35,6 +35,8 @@ export interface HostOptions {
   ghostsPerHost: number;
   productId: string;
   binary: string;
+  /** `--stack <location>` or `--network <key>`: the stack the hosts run against. */
+  stackArgs: string[];
 }
 
 const SCRIPT = resolve(import.meta.dirname, "host-ghost.ts");
@@ -118,11 +120,10 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const log = createWriteStream(join(workDir, `host${host}.log`));
       const child = spawn(
         options.binary,
-        ["signing-host", "--network", run.target.network, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
+        ["signing-host", ...options.stackArgs, "--product-id", options.productId, "--auto-accept", "--script", SCRIPT],
         {
           env: {
             ...process.env,
-            ...run.target.hostEnv,
             TRUAPI_HOST_NO_UPDATE: "1",
             TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, `host${host}`),
             HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),

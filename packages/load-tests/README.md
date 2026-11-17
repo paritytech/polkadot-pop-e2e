@@ -129,7 +129,7 @@ pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registr
 ```
 
 A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
-from the chain, so set a long `--reporting` there. For `host` against a dev node, point
-`HOST_CLI_LOCAL_NETWORK_CONFIG` at a [local network file](https://github.com/paritytech/trinity-user-agents/blob/main/docs/local-network.md)
-that lists People, Asset Hub and Bulletin nodes. `--shard i/n` splits the bots over processes or
-machines that share `--start-at`, and `summary` merges their result files.
+from the chain, so set a long `--reporting` there. `host` doesn't take `--rpc`: truapi-host
+connects to chains only through a stack descriptor, so run it with `STACK` or `NETWORK`.
+`--shard i/n` splits the bots over processes or machines that share `--start-at`, and `summary`
+merges their result files.

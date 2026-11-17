@@ -22,7 +22,8 @@ Commands:
   summary     Merge the shard results in --out into summary.json and summary.md
 
 Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
-  --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People endpoint
+  --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People endpoint;
+                        not for host, whose truapi-host and ghosts connect through the stack
   --network <key>       previewnet | paseo-next-v2 (descriptors; with --rpc, default previewnet)
   --sudo <uri>          Root key URI; default SUDO_URI, else //Alice on a PPN fork
   --metrics <url,...>   Prometheus endpoints of the People nodes; repeatable
@@ -184,6 +185,9 @@ switch (values.help ? undefined : command) {
   }
   case "signalling":
   case "host": {
+    if (command === "host" && targetOptions.rpc.length > 0) {
+      throw new Error("host doesn't take --rpc: truapi-host and the ghosts inside it connect through the stack STACK or NETWORK selects");
+    }
     const target = await resolveTarget(targetOptions);
     const profile = PROFILES[values.profile];
     if (!profile) throw new Error(`unknown --profile ${values.profile}`);
@@ -243,9 +247,15 @@ switch (values.help ? undefined : command) {
         );
       }
     }
+    // Without --rpc, resolveTarget has loaded the stack; this reads the same STACK or NETWORK.
     const players =
       command === "host"
-        ? hostGhosts(run, { ghostsPerHost, productId, binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host" })
+        ? hostGhosts(run, {
+            ghostsPerHost,
+            productId,
+            binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
+            stackArgs: (await import("@pop-e2e/chain-tests/src/config/networks.js")).truapiHostStackArgs(),
+          })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);
     if (shardCount === 1) console.log(await writeSummary(outDir, DEFAULT_THRESHOLDS));

@@ -24,8 +24,6 @@ export interface Target {
   metrics: string[];
   /** Asset Hub RPC endpoint, where game credits are claimed as NFTs; none for a lone dev node. */
   assetHubRpc: string | undefined;
-  /** truapi-host environment that routes a host to this target's chains and identity backend. */
-  hostEnv: Record<string, string>;
 }
 
 export interface TargetOptions {
@@ -49,9 +47,9 @@ function funderOf(sudoUri: string | undefined): Keypair | undefined {
 
 /**
  * The stack `STACK` selects, else the network `NETWORK` (or `network`) selects, read the way the
- * chain-tests read it. `rpc` replaces the stack's People endpoint for ghosts and hosts alike,
- * such as a fork's node port in place of the dashboard proxy in front of it. Without `STACK`,
- * `rpc` alone is the whole target, such as a local dev node.
+ * chain-tests read it. `rpc` replaces the stack's People endpoint for the direct RPC clients
+ * (signalling ghosts, `chain`, `mint`), such as a fork's node port in place of the dashboard proxy
+ * in front of it. Without `STACK`, `rpc` alone is the whole target, such as a local dev node.
  */
 export async function resolveTarget(options: TargetOptions): Promise<Target> {
   if (options.rpc.length > 0 && !process.env.STACK) {
@@ -63,8 +61,6 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
       funder: funderOf(options.sudoUri),
       metrics: options.metrics,
       assetHubRpc: undefined,
-      // A host connects to a dev node through HOST_CLI_LOCAL_NETWORK_CONFIG, which it inherits.
-      hostEnv: {},
     };
   }
   if (options.network) process.env.NETWORK = options.network;
@@ -81,12 +77,6 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
     funder: funderOf(sudoUri),
     metrics: options.metrics,
     assetHubRpc: config.assetHub.ws,
-    hostEnv: {
-      HOST_CLI_PEOPLE_WS: rpc[0],
-      HOST_CLI_ASSET_HUB_WS: config.assetHub.ws,
-      ...(config.bulletin && { HOST_CLI_BULLETIN_WS: config.bulletin.ws }),
-      ...(config.identityBackend && { HOST_CLI_IDENTITY_BACKEND_BASE: `${config.identityBackend}/api/v1` }),
-    },
   };
 }
 
