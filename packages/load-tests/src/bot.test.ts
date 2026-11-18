@@ -4,7 +4,7 @@ import { SignallingBot } from "./bot.js";
 import { derivePlayer, type Player } from "./keys.js";
 import type { DeliveredStatement, MeasurableStore } from "./measured-store.js";
 import { PROFILES } from "./profile.js";
-import { DeliveryCounter, SignallingStats } from "./stats.js";
+import { SignallingStats } from "./stats.js";
 import { sleep } from "./time.js";
 
 /** A statement store in memory: one statement per channel, each delivered to the subscribers of its topic. */
@@ -28,9 +28,10 @@ class MemoryStore {
         }
         return { status: "new" };
       },
-      subscribe: (filter, onPage) => {
+      subscribe: (filter, onPage, events) => {
         const subscriber = { topics: new Set(filter.matchAny), onPage };
         this.subscribers.add(subscriber);
+        events.opened();
         return { unsubscribe: () => this.subscribers.delete(subscriber) };
       },
     };
@@ -46,9 +47,15 @@ describe("SignallingBot", () => {
     const players = [0, 1, 2].map((index) => derivePlayer("bot-test", index));
     const bots = players.map((player) => {
       const roster = players.filter((other) => other !== player).map((other) => other.address);
-      const counter = new DeliveryCounter(stats, { start: 0, end: Number.MAX_SAFE_INTEGER }, roster.length);
-      counter.recordSubscribe();
-      return new SignallingBot({ self: player.address, roster, namespace: "bot-test", profile: PROFILES.jollity, store: memory.storeOf(player), stats, counter });
+      return new SignallingBot({
+        self: player.address,
+        roster,
+        namespace: "bot-test",
+        profile: PROFILES.jollity,
+        store: memory.storeOf(player),
+        stats,
+        window: { start: 0, end: Number.MAX_SAFE_INTEGER },
+      });
     });
     for (const bot of bots) bot.open();
     // Real time: the transport seals and deflates with the platform's WebCrypto and streams,

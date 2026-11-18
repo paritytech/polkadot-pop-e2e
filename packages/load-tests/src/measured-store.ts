@@ -9,9 +9,18 @@ export interface DeliveredStatement {
   expiry?: bigint;
 }
 
-/** A `StatementStoreLike` whose pages also say each statement's channel and expiry. */
+/** What a store reports of one subscription's life. */
+export interface SubscriptionEvents {
+  opened(): void;
+  /** The store ended the subscription before the player unsubscribed. */
+  ended(reason: string): void;
+  /** The subscription did not open. */
+  failed(reason: string): void;
+}
+
+/** A `StatementStoreLike` whose pages also say each statement's channel and expiry, and that reports its subscriptions' life. */
 export interface MeasurableStore extends Omit<StatementStoreLike, "subscribe"> {
-  subscribe(filter: { matchAny: string[] }, onPage: (page: { statements: DeliveredStatement[] }) => void): StatementSubscription;
+  subscribe(filter: { matchAny: string[] }, onPage: (page: { statements: DeliveredStatement[] }) => void, events: SubscriptionEvents): StatementSubscription;
 }
 
 /** The time a statement was stamped: `nextSlotExpiry` packs its milliseconds, modulo 2^32,
@@ -65,14 +74,23 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
     },
     subscribe(filter, onPage) {
       let forwarding = true;
+      const events: SubscriptionEvents = {
+        opened: () => counter.recordSubscribe(),
+        ended: (reason) => counter.recordEnd(reason),
+        failed: (reason) => bump(stats.subscribeFailures, reason),
+      };
       subscriptions.push(
-        store.subscribe(filter, (page) => {
-          const now = Date.now();
-          for (const { channel, expiry } of page.statements) {
-            if (channel !== undefined && expiry !== undefined) counter.receive(`${channel}/${expiry}`, stampTime(expiry), now);
-          }
-          if (forwarding) onPage(page);
-        }),
+        store.subscribe(
+          filter,
+          (page) => {
+            const now = Date.now();
+            for (const { channel, expiry } of page.statements) {
+              if (channel !== undefined && expiry !== undefined) counter.receive(`${channel}/${expiry}`, stampTime(expiry), now);
+            }
+            if (forwarding) onPage(page);
+          },
+          events,
+        ),
       );
       return { unsubscribe: () => (forwarding = false) };
     },

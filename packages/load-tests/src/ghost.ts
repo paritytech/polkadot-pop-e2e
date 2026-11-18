@@ -16,7 +16,7 @@ import type { Player } from "./keys.js";
 import type { DeliveredStatement, MeasurableStore } from "./measured-store.js";
 import { roomOpensAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection } from "./rpc.js";
-import { DeliveryCounter, bump, type SignallingStats } from "./stats.js";
+import type { SignallingStats } from "./stats.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
@@ -43,7 +43,7 @@ const fieldsOf = (wire: WireStatement): StatementFields => ({
  * The store of a player that signs its own statements and talks to People over `connection`,
  * as the app's standalone store does, with one subscription to all its topics as a host opens.
  */
-function rpcStatementStore(connection: RpcConnection, player: Player, stats: SignallingStats, counter: DeliveryCounter): MeasurableStore {
+function rpcStatementStore(connection: RpcConnection, player: Player): MeasurableStore {
   const prover = keypairStatementProver(player);
   return {
     createProofAuthorized: (wire) => prover.prove(fieldsOf(wire)),
@@ -53,7 +53,7 @@ function rpcStatementStore(connection: RpcConnection, player: Player, stats: Sig
       if (!isSubmitSuccess(result)) throw new Error(`statement rejected: ${JSON.stringify(result)}`);
       return result;
     },
-    subscribe(filter, onPage) {
+    subscribe(filter, onPage, events) {
       let subscription: string | undefined;
       let closed = false;
       const unsubscribe = () => void connection.unsubscribe(UNSUBSCRIBE, subscription!, SUBMIT_TIMEOUT_MS).catch(() => {});
@@ -72,15 +72,15 @@ function rpcStatementStore(connection: RpcConnection, player: Player, stats: Sig
               }),
             });
           },
-          onEnd: (reason) => counter.recordEnd(reason),
+          onEnd: (reason) => events.ended(reason),
         })
         .then(
           (id) => {
             subscription = id;
-            counter.recordSubscribe();
+            events.opened();
             if (closed) unsubscribe();
           },
-          (error: Error) => bump(stats.subscribeFailures, error.message),
+          (error: Error) => events.failed(error.message),
         );
       return {
         unsubscribe: () => {
@@ -98,15 +98,14 @@ export class Ghost {
   private timer: NodeJS.Timeout | undefined;
 
   constructor(player: Player, roster: Player[], connection: RpcConnection, private readonly room: GhostRoom) {
-    const counter = new DeliveryCounter(room.stats, room.window, roster.length);
     this.bot = new SignallingBot({
       self: player.address,
       roster: roster.map((other) => other.address),
       namespace: room.namespace,
       profile: room.profile,
-      store: rpcStatementStore(connection, player, room.stats, counter),
+      store: rpcStatementStore(connection, player),
       stats: room.stats,
-      counter,
+      window: room.window,
     });
   }
 

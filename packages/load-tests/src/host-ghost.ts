@@ -7,7 +7,7 @@ import type { HostGhostPlan } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
 import { roomOpensAt } from "./profile.js";
 import { coPlayersOf } from "./seating.js";
-import { DeliveryCounter, SignallingStats } from "./stats.js";
+import { SignallingStats } from "./stats.js";
 import { sleepUntil } from "./time.js";
 
 type Hex = `0x${string}`;
@@ -55,7 +55,7 @@ const RESUBSCRIBE_MS = [1000, 2000, 4000, 8000, 16000];
  * `playerStatementStore` adapts it: proved as the player, and a subscription the host ends
  * opened again.
  */
-function hostStatementStore(productAccountId: unknown, counter: DeliveryCounter): MeasurableStore {
+function hostStatementStore(productAccountId: unknown): MeasurableStore {
   return {
     async createProofAuthorized(wire) {
       const result = await truapi.statementStore.createProof({ productAccountId, statement: wire as HostStatement });
@@ -66,7 +66,7 @@ function hostStatementStore(productAccountId: unknown, counter: DeliveryCounter)
       const result = await truapi.statementStore.submit(wire as HostStatement & { proof: unknown });
       if (result.isErr()) throw new Error(`statement submit failed: ${formatHostError(result.error)}`);
     },
-    subscribe(filter, onPage) {
+    subscribe(filter, onPage, events) {
       let attempt = 0;
       let closed = false;
       let retry: NodeJS.Timeout | undefined;
@@ -76,10 +76,10 @@ function hostStatementStore(productAccountId: unknown, counter: DeliveryCounter)
         const end = (reason: string) => {
           if (closed || ended) return;
           ended = true;
-          counter.recordEnd(reason);
+          events.ended(reason);
           retry = setTimeout(open, RESUBSCRIBE_MS[Math.min(attempt++, RESUBSCRIBE_MS.length - 1)]);
         };
-        counter.recordSubscribe();
+        events.opened();
         current = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: filter.matchAny } }).subscribe({
           next(page) {
             attempt = 0;
@@ -110,9 +110,8 @@ const stats = new SignallingStats();
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
   const roster = coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
-  const counter = new DeliveryCounter(stats, plan.window, roster.length);
-  const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost), counter);
-  const bot = new SignallingBot({ self: accounts[index], roster, namespace: plan.namespace, profile, store, stats, counter });
+  const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost));
+  const bot = new SignallingBot({ self: accounts[index], roster, namespace: plan.namespace, profile, store, stats, window: plan.window });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();
   await sleepUntil(roomOpensAt(plan.phase, plan.gameStart));

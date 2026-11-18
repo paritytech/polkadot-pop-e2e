@@ -6,6 +6,7 @@ import {
   statementTransport,
   toHex,
   type SignalTransport,
+  type StatementStoreLike,
 } from "@jollity/statement-core";
 import { AccountId } from "@polkadot-api/substrate-bindings";
 import { communicationIdentifier, communicationSecret } from "./keys.js";
@@ -29,7 +30,8 @@ export interface BotOptions {
   profile: SignallingProfile;
   store: MeasurableStore;
   stats: SignallingStats;
-  counter: DeliveryCounter;
+  /** The measurement window: statements stamped in it count toward delivery. */
+  window: { start: number; end: number };
 }
 
 interface Link {
@@ -48,17 +50,22 @@ interface Link {
 export class SignallingBot {
   private readonly clock = createStoreClock({ base: () => ({ ms: Date.now(), kind: "device" }) });
   private readonly measured: MeasuredStore;
+  private readonly counter: DeliveryCounter;
   private readonly links = new Map<string, Link>();
   private transport: SignalTransport | undefined;
 
   constructor(private readonly options: BotOptions) {
-    this.measured = measuredStore(options.store, options.stats, options.counter);
+    // Every co-player listens on the player's topic, so each statement is due to each of them.
+    this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length);
+    this.measured = measuredStore(options.store, options.stats, this.counter);
   }
 
   /** The waiting room's store clock calibration: one statement on the player's own channel. */
   async calibrate(): Promise<void> {
     const { store, namespace, self, stats } = this.options;
-    const { outcome } = await calibrateStoreClock({ store, clock: this.clock, labels: calibrationLabels(namespace, self, "jollity:rtc-v2") });
+    // Unmeasured: the calibration statement is on a channel no co-player listens on.
+    const unmeasured: StatementStoreLike = { ...store, subscribe: (filter, onPage) => store.subscribe(filter, onPage, { opened() {}, ended() {}, failed() {} }) };
+    const { outcome } = await calibrateStoreClock({ store: unmeasured, clock: this.clock, labels: calibrationLabels(namespace, self, "jollity:rtc-v2") });
     bump(stats.calibrations, outcome);
   }
 
@@ -140,6 +147,6 @@ export class SignallingBot {
   /** Stops counting deliveries, which arrive until then. */
   leave(): void {
     this.measured.close();
-    this.options.counter.finish();
+    this.counter.finish();
   }
 }
