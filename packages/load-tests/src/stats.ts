@@ -50,11 +50,14 @@ export class DeliveryCounter {
     if (this.statements === 0) this.stats.emptySubscriptionEnds++;
   }
 
-  /** A statement `key` sent at `sentAt` arrived at this player; one sent in the window counts once. */
-  receive(key: string, sentAt: number, now: number): void {
+  /**
+   * A statement `key` stamped at `stampedAt`, sent at `sentAt`, arrived at this player; one stamped
+   * in the window counts once.
+   */
+  receive(key: string, stampedAt: number, sentAt: number, now: number): void {
     this.statements++;
     // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
-    if (sentAt < this.window.start || sentAt >= this.window.end || this.seen.has(key)) return;
+    if (stampedAt < this.window.start || stampedAt >= this.window.end || this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
     this.stats.latency.add(now - sentAt);

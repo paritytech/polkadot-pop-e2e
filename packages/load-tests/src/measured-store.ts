@@ -47,6 +47,14 @@ const countKey = (error: unknown) => errMessage(error).replace(/\d+/g, "N").slic
 export type MeasuredStore = StatementStoreLike & { close(): void };
 
 /**
+ * When each statement of this process's players went out, by `channel/expiry`. A receiver in the
+ * same process measures latency from it; the expiry stamp reads late here, since the process's
+ * players share statement-core's expiry floor, which moves every stamp past the last one.
+ */
+const sendTimes = new Map<string, number>();
+const statementKey = (channel: string, expiry: bigint) => `${channel.toLowerCase()}/${expiry}`;
+
+/**
  * `store` as one player's transport uses it, counting what the summary reads: every submit, and
  * every statement delivered to the player, which arrives from then until `close`, also after the
  * transport unsubscribed.
@@ -57,6 +65,7 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
   return {
     async createProofAuthorized(wire: WireStatement) {
       proofStarts.set(wire.expiry, Date.now());
+      sendTimes.set(statementKey(wire.channel, wire.expiry), Date.now());
       try {
         // The transport gives up on a proof or submit after these, so one that hangs counts as `timeout`.
         return await withTimeout(store.createProofAuthorized(wire), SIGN_TIMEOUT_MS);
@@ -95,7 +104,9 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
           (page) => {
             const now = Date.now();
             for (const { channel, expiry } of page.statements) {
-              if (channel !== undefined && expiry !== undefined) counter.receive(`${channel}/${expiry}`, stampTime(expiry), now);
+              if (channel === undefined || expiry === undefined) continue;
+              const key = statementKey(channel, expiry);
+              counter.receive(key, stampTime(expiry), sendTimes.get(key) ?? stampTime(expiry), now);
             }
             if (forwarding) onPage(page);
           },

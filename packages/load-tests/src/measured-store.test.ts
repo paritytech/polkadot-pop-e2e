@@ -37,4 +37,29 @@ describe("measuredStore", () => {
       vi.useRealTimers();
     }
   });
+
+  // Players of one process share statement-core's expiry floor, which stamps a statement later than
+  // it went out, so a receiver in the process measures from when the sender sent it.
+  it("measures a delivery from when the statement went out, not from its stamp", async () => {
+    let deliver: ((page: { statements: Array<{ channel: string; expiry: bigint }> }) => void) | undefined;
+    const store: MeasurableStore = {
+      createProofAuthorized: async () => ({}),
+      submit: async () => ({ status: "new" }),
+      subscribe: (_filter, onPage) => {
+        deliver = onPage;
+        return { unsubscribe() {} };
+      },
+    };
+    const stats = new SignallingStats();
+    const window = { start: 0, end: Number.MAX_SAFE_INTEGER };
+    const sender = measuredStore(store, stats, new DeliveryCounter(stats, window, 1));
+    const receiver = measuredStore(store, stats, new DeliveryCounter(stats, window, 1));
+    receiver.subscribe({ matchAny: ["0x02"] }, () => {});
+    const sentAt = Date.now();
+    const stamped = { ...wire, channel: "0xAB", expiry: packExpiry(sentAt + 5_000) };
+    await sender.createProofAuthorized(stamped);
+    deliver!({ statements: [{ channel: "0xab", expiry: stamped.expiry }] });
+    expect(stats.latency.summary().max).toBeGreaterThanOrEqual(0);
+    expect(stats.latency.summary().max).toBeLessThan(1_000);
+  });
 });

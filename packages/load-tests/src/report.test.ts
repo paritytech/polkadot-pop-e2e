@@ -67,7 +67,7 @@ describe("summarizeStep", () => {
       silent.recordSubscribe();
       delivering.recordSubscribe();
       // a statement sent before the window: one statement delivered, no delivery counted
-      delivering.receive("early", -1, 1_000);
+      delivering.receive("early", -1, -1, 1_000);
       vi.advanceTimersByTime(30_000);
       silent.recordEnd("closed");
       delivering.recordEnd("closed");
