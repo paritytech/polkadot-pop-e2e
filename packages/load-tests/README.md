@@ -183,8 +183,11 @@ pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registr
 ```
 
 A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
-from the chain, so set a long `--reporting` there. `host` doesn't take `--rpc`: truapi-host
-connects to chains only through a stack descriptor, so run it with `STACK` or `NETWORK`.
+from the chain, so set a long `--reporting` there. With `--rpc` alone the run reads the chain
+through previewnet's descriptors; when the node's runtime differs from previewnet's, reads fail
+with `Incompatible runtime entry`, and `--network paseo-next-v2` picks that network's descriptors.
+`host` doesn't take `--rpc`: truapi-host connects to chains only through a stack descriptor, so
+run it with `STACK` or `NETWORK`.
 `--shard i/n` splits the bots over processes or machines that share `--start-at`, and `summary`
 merges their result files.
 
