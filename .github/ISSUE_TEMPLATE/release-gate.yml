@@ -25,7 +25,7 @@ body:
 
         `@latest` is accepted everywhere and resolves through the repo's GitHub
         "latest release" — safe on `polkadot-sdk`, `release-automation`,
-        `web3-storage` and `device-uniqueness-backend`, but a
+        `web3-storage` and `device-uniqueness-backend-community`, but a
         trap on two sources (verified 2026-09-03): `paseo-network/runtimes@latest`
         is **v2.4.3**, behind the deployed v2.4.4, so the gate rejects the
         downgrade; and `polkadot-bulletin-chain` resolves to whichever flavor sorts
@@ -132,10 +132,10 @@ body:
       description: >
         The identity service quadruple (identity-api, chain-writer,
         registration-queue, username-indexer — they travel together). From
-        paritytech/device-uniqueness-backend releases. Leave empty to run the
-        engine's default tag; naming one here exports DUB_TAG to gate that
-        release. previewnet only. `@latest` is safe.
-      placeholder: paritytech/device-uniqueness-backend@v0.3.0
+        paritytech/device-uniqueness-backend-community releases. Empty runs the
+        manifest's pin, else the engine's default tag; naming one here exports
+        DUB_TAG to gate that release. previewnet and paseo-next-v2. `@latest` is safe.
+      placeholder: paritytech/device-uniqueness-backend-community@v0.8.2
   - type: input
     id: product-sdk
     attributes:
