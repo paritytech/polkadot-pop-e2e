@@ -25,7 +25,7 @@ describe("measuredStore", () => {
     vi.useFakeTimers();
     try {
       const stats = new SignallingStats();
-      const store = measuredStore(hung, stats, new DeliveryCounter(stats, { start: 0, end: Number.MAX_SAFE_INTEGER }, 1));
+      const store = measuredStore(hung, stats, new DeliveryCounter(stats, { start: 0, end: Number.MAX_SAFE_INTEGER }, 1, "player"));
       const proof = expect(store.createProofAuthorized(wire)).rejects.toThrow("timeout");
       await vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS);
       await proof;
@@ -52,8 +52,8 @@ describe("measuredStore", () => {
     };
     const stats = new SignallingStats();
     const window = { start: 0, end: Number.MAX_SAFE_INTEGER };
-    const sender = measuredStore(store, stats, new DeliveryCounter(stats, window, 1));
-    const receiver = measuredStore(store, stats, new DeliveryCounter(stats, window, 1));
+    const sender = measuredStore(store, stats, new DeliveryCounter(stats, window, 1, "sender"));
+    const receiver = measuredStore(store, stats, new DeliveryCounter(stats, window, 1, "receiver"));
     receiver.subscribe({ matchAny: ["0x02"] }, () => {});
     const sentAt = Date.now();
     const stamped = { ...wire, channel: "0xAB", expiry: packExpiry(sentAt + 5_000) };

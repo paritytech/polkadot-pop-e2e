@@ -83,7 +83,7 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
         const result = await withTimeout(store.submit(wire), SUBMIT_TIMEOUT_MS);
         stats.submitRtt.add(Date.now() - startedAt);
         bump(stats.submits, result && typeof result === "object" && "status" in result && typeof result.status === "string" ? result.status : "new");
-        counter.accepted(stampTime(wire.expiry));
+        counter.accepted(wire.channel.toLowerCase(), stampTime(wire.expiry));
         return result;
       } catch (error) {
         stats.submitRtt.add(Date.now() - startedAt);
@@ -105,8 +105,8 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
             const now = Date.now();
             for (const { channel, expiry } of page.statements) {
               if (channel === undefined || expiry === undefined) continue;
-              const key = statementKey(channel, expiry);
-              counter.receive(key, stampTime(expiry), sendTimes.get(key) ?? stampTime(expiry), now);
+              const stampedAt = stampTime(expiry);
+              counter.receive(channel.toLowerCase(), stampedAt, sendTimes.get(statementKey(channel, expiry)) ?? stampedAt, now);
             }
             if (forwarding) onPage(page);
           },

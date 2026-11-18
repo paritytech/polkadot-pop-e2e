@@ -11,6 +11,11 @@ function shard(index: number, accepted: number, delivered: number, lagMs = 10, r
   stats.acceptedInWindow = accepted;
   // One game room of 100 players: each statement is due to the 99 others.
   stats.expectedDeliveries = accepted * 99;
+  // The shard's statements on one channel, the deliveries spread over receivers up to the last of them.
+  stats.acceptedStamps[`channel ${index}`] = Array.from({ length: accepted }, (_, stamp) => stamp + 1);
+  for (let receiver = 0; receiver * accepted < delivered; receiver++) {
+    stats.deliveredUpTo[`receiver${receiver} channel ${index}`] = Math.min(accepted, delivered - receiver * accepted);
+  }
   stats.deliveredInWindow = delivered;
   stats.submits = { new: accepted };
   for (let i = 0; i < delivered; i++) stats.latency.add(40);
@@ -62,8 +67,8 @@ describe("summarizeStep", () => {
   it("reports how long ended subscriptions were open and how many ended before a statement", () => {
     vi.useFakeTimers({ now: 0 });
     const record = (stats: SignallingStats) => {
-      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10);
-      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10);
+      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10, "silent");
+      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10, "delivering");
       silent.recordSubscribe();
       delivering.recordSubscribe();
       // a statement sent before the window: one statement delivered, no delivery counted

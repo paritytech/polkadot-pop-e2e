@@ -16,8 +16,30 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 }
 
 /**
+ * Deliveries of the statements accepted in the window. A player keeps one statement per channel, a
+ * newer one replacing the last, so a receiver credits every statement of a channel up to the
+ * latest it received there: one replaced before it arrived came with the one that replaced it.
+ */
+export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedStamps" | "deliveredUpTo">): number {
+  const sorted = new Map(Object.entries(stats.acceptedStamps).map(([channel, stamps]) => [channel, [...stamps].sort((a, b) => a - b)]));
+  let credited = 0;
+  for (const [receiverChannel, upTo] of Object.entries(stats.deliveredUpTo)) {
+    const stamps = sorted.get(receiverChannel.slice(receiverChannel.indexOf(" ") + 1)) ?? [];
+    let low = 0;
+    let high = stamps.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (stamps[middle] <= upTo) low = middle + 1;
+      else high = middle;
+    }
+    credited += low;
+  }
+  return credited;
+}
+
+/**
  * One player's share of a step's delivery counts: the statements it sent that `recipients` others
- * are due, and the ones it received, each counted once, so every kind of ghost measures loss alike.
+ * are due, and the ones it received, so every kind of ghost measures loss alike.
  */
 export class DeliveryCounter {
   private readonly seen = new Set<string>();
@@ -29,13 +51,15 @@ export class DeliveryCounter {
     private readonly stats: SignallingStats,
     private readonly window: { start: number; end: number },
     private readonly recipients: number,
+    private readonly receiver: string,
   ) {}
 
-  /** A statement of this player's the store accepted; one sent in the window is due to every recipient. */
-  accepted(sentAt: number): void {
-    if (sentAt < this.window.start || sentAt >= this.window.end) return;
+  /** A statement of this player's on `channel` the store accepted; one stamped in the window is due to every recipient. */
+  accepted(channel: string, stampedAt: number): void {
+    if (stampedAt < this.window.start || stampedAt >= this.window.end) return;
     this.stats.acceptedInWindow++;
     this.stats.expectedDeliveries += this.recipients;
+    (this.stats.acceptedStamps[channel] ??= []).push(stampedAt);
   }
 
   recordSubscribe(): void {
@@ -51,12 +75,15 @@ export class DeliveryCounter {
   }
 
   /**
-   * A statement `key` stamped at `stampedAt`, sent at `sentAt`, arrived at this player; one stamped
-   * in the window counts once.
+   * A statement on `channel` stamped at `stampedAt`, sent at `sentAt`, arrived at this player; one
+   * stamped in the window counts once.
    */
-  receive(key: string, stampedAt: number, sentAt: number, now: number): void {
+  receive(channel: string, stampedAt: number, sentAt: number, now: number): void {
     this.statements++;
+    const receiverChannel = `${this.receiver} ${channel}`;
+    this.stats.deliveredUpTo[receiverChannel] = Math.max(this.stats.deliveredUpTo[receiverChannel] ?? 0, stampedAt);
     // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
+    const key = `${channel}/${stampedAt}`;
     if (stampedAt < this.window.start || stampedAt >= this.window.end || this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
@@ -103,16 +130,25 @@ export class SignallingStats {
   acceptedInWindow = 0;
   /** Deliveries those statements owe: for each, the ghosts that listen on its topics. */
   expectedDeliveries = 0;
-  /** Deliveries to this shard's ghosts of statements from other ghosts sent in the window. */
+  /** Statements of other ghosts stamped in the window that reached this shard's ghosts themselves, not replaced first. */
   deliveredInWindow = 0;
+  /** Per channel, the stamp times of the statements accepted in the window. */
+  acceptedStamps: Record<string, number[]> = {};
+  /** Per receiver and channel, as `receiver channel`, the latest stamp time the receiver got there. */
+  deliveredUpTo: Record<string, number> = {};
   bytesSubmitted = 0;
   latency = new Histogram();
   submitRtt = new Histogram();
 
   /** Adds the counts of `other`, a `SignallingStats` or its JSON. */
   add(other: SignallingStats): void {
+    const { acceptedStamps, deliveredUpTo, ...counts } = other;
+    for (const [channel, stamps] of Object.entries(acceptedStamps)) (this.acceptedStamps[channel] ??= []).push(...stamps);
+    for (const [receiverChannel, stamp] of Object.entries(deliveredUpTo)) {
+      this.deliveredUpTo[receiverChannel] = Math.max(this.deliveredUpTo[receiverChannel] ?? 0, stamp);
+    }
     const own = this as unknown as Record<string, number | Histogram | Record<string, number>>;
-    for (const [key, value] of Object.entries(other) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
+    for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
       const field = own[key];
       if (typeof value === "number") own[key] = (field as number) + value;
       else if (field instanceof Histogram) field.merge(new Histogram((value as { counts: Record<number, number> }).counts));

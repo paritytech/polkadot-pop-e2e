@@ -56,7 +56,7 @@ export class SignallingBot {
 
   constructor(private readonly options: BotOptions) {
     // Every co-player listens on the player's topic, so each statement is due to each of them.
-    this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length);
+    this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length, options.self);
     this.measured = measuredStore(options.store, options.stats, this.counter);
   }
 
