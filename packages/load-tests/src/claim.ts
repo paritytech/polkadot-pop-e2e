@@ -1,7 +1,7 @@
 import { Enum, type SizedHex, type SS58String } from "polkadot-api";
 import { getApprovedCollections, getClaimableCollections, getClaims, type Claim } from "@parity/product-sdk-nfts";
 import type { PeopleClient as AppPeopleClient } from "@individuality/people-chain";
-import { gameCredits } from "@individuality/game-outcome";
+import { gameCredits, type GameCredits } from "@individuality/game-outcome";
 import { claimsChain, type ClaimsChain } from "@individuality/game-outcome/chain";
 import { defaultCollectionFor } from "@jollity/collectables/src/picks";
 import { accountSigner, signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
@@ -34,6 +34,20 @@ const ASSET_HUB_FUNDS = 10_000_000_000n;
 const CLAIMABLE_WAIT_MS = 600_000;
 const CREDITS_READ_ATTEMPTS = 3;
 const CREDITS_READ_MS = 60_000;
+/**
+ * Claim reads at once. Each reads every award of each of the player's award blocks without a root,
+ * every claimant's, so more at once only queue: 100 at once took 40 s each on previewnet, 10 took 2.6 s.
+ */
+const CREDITS_READ_CONCURRENCY = 10;
+/** Players the run reads until the game's credits have roots; the others are read once they have. */
+const CREDITS_SAMPLE = 10;
+
+/** One player's credits of the game, counted as the app counts them, and the claims it can make now. */
+interface CreditsRead {
+  player: Player;
+  credits: GameCredits;
+  claims: Array<Claim & { hash: string }>;
+}
 
 /** Tops every claiming player up to `ASSET_HUB_FUNDS` on Asset Hub: as root on a fork, else from the funder. */
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
@@ -102,7 +116,7 @@ export async function claimCredits(
   // The read the app's `readGameCredits` makes, counted as it counts, except that a credit with no
   // root counts only from the game's reports on: an earlier award block whose every credit was
   // claimed loses its tree, and its credits read as rootless too.
-  const readCredits = (player: Player) =>
+  const readCredits = (player: Player): Promise<CreditsRead> =>
     retry(CREDITS_READ_ATTEMPTS, 0, async () => {
       const read = getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best", signal: AbortSignal.timeout(CREDITS_READ_MS) });
       const result = await withTimeout(read, CREDITS_READ_MS, `claims of ${player.address}`);
@@ -113,19 +127,31 @@ export async function claimCredits(
       );
       return { player, credits: gameCredits(runClaims, gameIndex, true), claims };
     });
+  const readPlayers = (selected: Player[]) => readAll(selected, readCredits, CREDITS_READ_CONCURRENCY);
+  const countCredits = (reads: CreditsRead[]) => {
+    const sum = (pick: (credits: GameCredits) => number) => reads.reduce((total, read) => total + pick(read.credits), 0);
+    return { awarded: sum((credits) => credits.total), claimable: sum((credits) => credits.claimable), pending: sum((credits) => credits.pending) };
+  };
+  const waiting = (reads: CreditsRead[]) => {
+    const { awarded, claimable, pending } = countCredits(reads);
+    console.log(`[claim] ${claimable}/${awarded} credits of ${reads.length} players claimable after ${Math.round((Date.now() - started) / 1000)} s`);
+    return (awarded === 0 || pending > 0) && Date.now() - started <= CLAIMABLE_WAIT_MS;
+  };
   try {
-    let reads = await readAll(players, readCredits);
-    let awarded = 0;
-    let claimable = 0;
-    for (;;) {
-      awarded = reads.reduce((sum, { credits }) => sum + credits.total, 0);
-      claimable = reads.reduce((sum, { credits }) => sum + credits.claimable, 0);
-      const pending = reads.reduce((sum, { credits }) => sum + credits.pending, 0);
-      console.log(`[claim] ${claimable}/${awarded} credits claimable after ${Math.round((Date.now() - started) / 1000)} s`);
-      if ((awarded > 0 && pending === 0) || Date.now() - started > CLAIMABLE_WAIT_MS) break;
+    // A game's credits get their roots together, so a few players show when every player's have.
+    const sample = players.slice(0, CREDITS_SAMPLE);
+    let reads = await readPlayers(sample);
+    while (waiting(reads)) {
       await sleep(12_000);
-      reads = await readAll(players, readCredits);
+      reads = await readPlayers(sample);
     }
+    reads = await readPlayers(players);
+    while (waiting(reads)) {
+      await sleep(12_000);
+      const again = new Map((await readPlayers(reads.filter((read) => read.credits.pending > 0).map((read) => read.player))).map((read) => [read.player, read]));
+      reads = reads.map((read) => again.get(read.player) ?? read);
+    }
+    const { awarded, claimable } = countCredits(reads);
     const claimableAfterMs = Date.now() - started;
     const collections = await readChestCollections(chain, target);
     if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, claimed: 0, playerMs: null };
