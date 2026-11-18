@@ -8,7 +8,7 @@ import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
-import { connectAssetHub, type AssetHubApi, type PeopleConnection, type Target } from "./target.js";
+import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
 import { readAll, retry, sleep, withTimeout } from "./time.js";
 
 export interface ClaimResult {
@@ -89,13 +89,13 @@ async function readOfferedCollections(chain: ClaimsChain, target: Target): Promi
  */
 export async function claimCredits(
   target: Target,
-  people: Pick<PeopleConnection, "client" | "api">,
+  people: AppPeopleClient,
   players: Player[],
   gameIndex: number,
   connections: number,
 ): Promise<ClaimResult> {
   const { client, api } = connectAssetHub(target);
-  const chain = claimsChain({ client: people.client, api: people.api as unknown as AppPeopleClient["api"] }, client);
+  const chain = claimsChain(people, client);
   const started = Date.now();
   const creditsOf = (player: Player) =>
     retry(CREDITS_READ_ATTEMPTS, 0, async () => {

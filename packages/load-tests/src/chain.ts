@@ -176,7 +176,7 @@ async function readRoster(engine: GameEngine, gameIndex: number): Promise<{ curr
  */
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
-  const { client, api, engine } = connectPeople(target);
+  const { client, api, appClient, engine } = connectPeople(target);
   const timeline: ChainResult["timeline"] = [];
   const blocks: BlockLoad[] = [];
   const findings: string[] = [];
@@ -306,7 +306,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (run.claim && burst.firstBlock !== null) {
         // The credits arrive on Asset Hub while the game still takes reports.
         try {
-          claim = await claimCredits(target, { client, api }, players, game.index, run.connections);
+          claim = await claimCredits(target, appClient, players, game.index, run.connections);
           if (claim.claimable < claim.awarded) {
             findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
           }

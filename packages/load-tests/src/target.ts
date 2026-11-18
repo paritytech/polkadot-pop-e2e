@@ -88,16 +88,17 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
 export interface PeopleConnection {
   client: PolkadotClient;
   api: PeopleApi;
+  /** This connection as the app's packages take a People client: this network's descriptors in place of the app's pinned ones. */
+  appClient: AppPeopleClient;
   /** The Jollity app's chain engine over this connection: its game reads and its sign-up. */
   engine: GameEngine;
 }
 
-/** The app's engine reads through this network's descriptors, in place of the app's pinned ones. */
 export function connectPeople(target: Target): PeopleConnection {
   const client = createClient(getWsProvider(target.rpc[0]));
   const api = client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi;
-  const engine = createChainEngine({ client, api: api as unknown as AppPeopleClient["api"] }, { tld: GAME_TLDS[target.network] });
-  return { client, api, engine };
+  const appClient: AppPeopleClient = { client, api: api as unknown as AppPeopleClient["api"] };
+  return { client, api, appClient, engine: createChainEngine(appClient, { tld: GAME_TLDS[target.network] }) };
 }
 
 export function connectAssetHub(target: Target): { client: PolkadotClient; api: AssetHubApi } {
