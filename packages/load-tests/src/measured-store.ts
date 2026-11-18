@@ -40,7 +40,7 @@ export function stampTime(expiry: bigint): number {
   return low + Math.round((approximate - low) / 2 ** 32) * 2 ** 32;
 }
 
-/** An error as a count key: numbers in it, such as an expiry it names, would make every key differ. */
+/** An error as a count key: numbers in it, such as an expiry in it, would make every key differ. */
 const countKey = (error: unknown) => errMessage(error).replace(/\d+/g, "N").slice(0, 160);
 
 /** A player's store as its transport uses it, which stops delivering to the player on `close`. */

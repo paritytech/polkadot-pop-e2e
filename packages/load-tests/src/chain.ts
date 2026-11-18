@@ -132,8 +132,8 @@ async function scheduleOwnGame(
 
 /**
  * A player's report as the app's game view and `buildReport` lay it out: per round, one vote per
- * co-player of its group in seat order, its own seat and seats nobody holds left out, and every
- * vote `Person`. Undefined for a player the roster doesn't hold or whose group reads back
+ * co-player of its group in seat order, its own seat and empty seats left out, and every vote
+ * `Person`. Undefined for a player missing from the roster or whose group reads back
  * inconsistent, for which the app shows no game view either.
  */
 export async function buildReport(engine: GameEngine, player: Player, playerCount: number, maxGroupSize: number): Promise<ReportVote[][] | undefined> {

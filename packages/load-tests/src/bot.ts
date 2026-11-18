@@ -137,7 +137,7 @@ export class SignallingBot {
     for (const peer of roster) if (self < peer) sendDescription(peer, "offer");
   }
 
-  /** Closes the room: the transport says bye and stops sending. */
+  /** Closes the room: the transport sends bye and stops sending. */
   close(): void {
     for (const link of this.links.values()) if (link.up) this.options.stats.linksUp++;
     this.transport?.close();

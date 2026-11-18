@@ -16,7 +16,7 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 }
 
 /**
- * Deliveries of the statements accepted in the window. A player keeps one statement per channel, a
+ * Deliveries of the statements accepted in the window. A player has one statement per channel, a
  * newer one replacing the last, so a receiver credits every statement of a channel up to the
  * latest it received there: one replaced before it arrived came with the one that replaced it.
  */
@@ -110,7 +110,7 @@ export class SignallingStats {
   /** `statement_submit` answers by status, or the error the proof or submit failed with. */
   submits: Record<string, number> = {};
   /** What the statement transport reported of its submits: retries, waits for a slot, frames
-   *  replaced while they waited, and submits it gave up on. */
+   *  replaced while queued, and submits it gave up on. */
   submitEvents: Record<string, number> = {};
   /** The waiting room's store clock calibrations, by outcome. */
   calibrations: Record<string, number> = {};

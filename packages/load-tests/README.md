@@ -118,7 +118,7 @@ longer have one either.
 Bots signal under their run's own namespace, so they never reach real players. A bot's
 communication key derives from its account, and so does the identifier it signs up with, so bots
 seal to each other without reading the chain. Every statement a bot's store accepts is due to
-each of its co-players, which is how many deliveries a run expects. A bot keeps one statement per
+each of its co-players, which is how many deliveries a run expects. A bot has one statement per
 channel, so a newer one can replace a statement before it reaches a co-player; it carries what the
 replaced one did, so a co-player that receives a statement counts every earlier one of that channel
 as delivered too. A receiver measures latency from when the statement went out when its sender
