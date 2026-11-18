@@ -1,0 +1,123 @@
+name: Stress · flood
+
+on:
+  workflow_dispatch:
+    inputs:
+      ppn_ref:
+        description: "previewnet-engine ref (fresh bite with 3 People cores / 5 collators)"
+        default: "v0.7.0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+env:
+  POLKAMETER_VERSION: 0.4.0
+
+jobs:
+  flood:
+    runs-on: parity-large
+    timeout-minutes: 300
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT || github.token }}
+      FORK_DIR: ${{ github.workspace }}/ppn/fork-bundle-previewnet
+      CORES: people=3
+      COLLATORS: people=5
+      POLKAMETER_PLUGIN_REGISTRY: ${{ github.workspace }}/polkameter-plugins.json
+      POLKAMETER_SETUP_SURI: //Alice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: paritytech/previewnet-engine
+          ref: ${{ inputs.ppn_ref || 'v0.7.0' }}
+          path: ppn
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Install missing engine packages
+        run: |
+          sudo=$(command -v sudo || true)
+          missing=$(for p in make jq; do dpkg -s "$p" >/dev/null 2>&1 || echo "$p"; done)
+          if [ -n "$missing" ]; then
+            $sudo apt-get update
+            # shellcheck disable=SC2086
+            $sudo apt-get install -y $missing
+          fi
+      # The action installs the CLI too, but topology registration needs it before run.
+      - name: Install CLI for topology registration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          POLKAMETER_INSTALL_DIR: ${{ runner.temp }}/polkameter/bin
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/agustinustheo/polkameter/v$POLKAMETER_VERSION/install.sh" |
+            sh -s -- "$POLKAMETER_VERSION"
+          echo "$POLKAMETER_INSTALL_DIR" >> "$GITHUB_PATH"
+      # A bite can hang; always discard a failed bundle before trying again.
+      - name: Bite a fresh fork
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 1800 make -C ppn ensure-deps FORK=1 FRESH_BITE=1 CORES="$CORES" COLLATORS="$COLLATORS"; then
+              cat "$FORK_DIR/manifest.json"
+              exit 0
+            fi
+            echo "::warning::bite attempt $attempt failed or hung; retrying"
+            make -C ppn kill || true
+            pkill -f doppelganger || true
+            rm -rf "$FORK_DIR"
+          done
+          echo "::error::no fork bundle after 3 attempts"; exit 1
+      - name: Reap old processes
+        run: make -C ppn kill || true
+      - name: Start the fork
+        run: |
+          nohup make -C ppn start FORK=1 CORES="$CORES" COLLATORS="$COLLATORS" > /tmp/ppn-spawn.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 60); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "::error::network exited during startup"; tail -40 /tmp/ppn-spawn.log; exit 1
+            fi
+            if curl -sS --fail --max-time 5 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}' \
+                 http://127.0.0.1:10000 >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::relay did not come up in 10 minutes"; tail -40 /tmp/ppn-spawn.log; exit 1
+      - name: Wait for every chain to produce and finalize
+        run: node ppn/bin/ppn.mjs fork wait "$FORK_DIR" 900
+      # Calibration reads 60 blocks; exclude the uneven initial fork blocks.
+      - name: Let the fork settle
+        run: sleep 120
+      - name: Register topology
+        run: polkameter plugin topology previewnet ppn/data-fork/zombie.json
+      - name: Flood
+        uses: agustinustheo/polkameter@v0
+        with:
+          version: ${{ env.POLKAMETER_VERSION }}
+          plan: stress/plans/people-default.polkameter.xml
+          plugins: stress/people-plugin.sh
+          credentials: previewnet-sudo=POLKAMETER_SETUP_SURI
+          fail-on: error
+          output: stress-results
+          artifact-retention-days: 14
+      - name: Stop the network
+        if: always()
+        run: make -C ppn kill || true
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flood-node-logs
+          path: |
+            /tmp/ppn-spawn.log
+            ppn/data-fork/*/*.log
+            ppn/fork-bundle-previewnet/manifest.json
+          retention-days: 14
+          if-no-files-found: ignore
