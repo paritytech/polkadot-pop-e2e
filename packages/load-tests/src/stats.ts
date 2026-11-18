@@ -16,14 +16,31 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 }
 
 /**
+ * A statement as the counts read it: its channel, its packed expiry, and the time decoded from that
+ * expiry. The expiry rises with every statement of a channel; the decoded time can fall, since
+ * statement-core's expiry floor carries a burst's expiries past the end of their second.
+ */
+export interface CountedStatement {
+  channel: string;
+  expiry: bigint;
+  stampedAt: number;
+}
+
+/** The later of two expiries kept as decimal strings, which JSON carries where a u64 number would lose digits. */
+const laterExpiry = (left: string | undefined, right: string) => (left !== undefined && BigInt(left) >= BigInt(right) ? left : right);
+
+/**
  * Deliveries of the statements accepted in the window. A player has one statement per channel, a
  * newer one replacing the last, so a receiver credits every statement of a channel up to the
  * latest it received there: one replaced before it arrived came with the one that replaced it.
  */
-export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedStamps" | "deliveredUpTo">): number {
+export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedExpiries" | "deliveredUpTo">): number {
   let deliveries = 0;
   for (const channels of Object.values(stats.deliveredUpTo)) {
-    for (const [channel, upTo] of Object.entries(channels)) deliveries += (stats.acceptedStamps[channel] ?? []).filter((stamp) => stamp <= upTo).length;
+    for (const [channel, upTo] of Object.entries(channels)) {
+      const latest = BigInt(upTo);
+      deliveries += (stats.acceptedExpiries[channel] ?? []).filter((expiry) => BigInt(expiry) <= latest).length;
+    }
   }
   return deliveries;
 }
@@ -45,12 +62,12 @@ export class DeliveryCounter {
     private readonly receiver: string,
   ) {}
 
-  /** A statement of this player's on `channel` the store accepted; one stamped in the window is due to every recipient. */
-  accepted(channel: string, stampedAt: number): void {
+  /** A statement of this player's the store accepted; one stamped in the window is due to every recipient. */
+  accepted({ channel, expiry, stampedAt }: CountedStatement): void {
     if (stampedAt < this.window.start || stampedAt >= this.window.end) return;
     this.stats.acceptedInWindow++;
     this.stats.expectedDeliveries += this.recipients;
-    (this.stats.acceptedStamps[channel] ??= []).push(stampedAt);
+    (this.stats.acceptedExpiries[channel] ??= []).push(expiry.toString());
   }
 
   recordSubscribe(): void {
@@ -65,16 +82,13 @@ export class DeliveryCounter {
     if (this.statements === 0) this.stats.emptySubscriptionEnds++;
   }
 
-  /**
-   * A statement on `channel` stamped at `stampedAt`, sent at `sentAt`, arrived at this player; one
-   * stamped in the window counts once.
-   */
-  receive(channel: string, stampedAt: number, sentAt: number, now: number): void {
+  /** `statement`, sent at `sentAt`, arrived at this player; one stamped in the window counts once. */
+  receive({ channel, expiry, stampedAt }: CountedStatement, sentAt: number, now: number): void {
     this.statements++;
     const channels = (this.stats.deliveredUpTo[this.receiver] ??= {});
-    channels[channel] = Math.max(channels[channel] ?? 0, stampedAt);
+    channels[channel] = laterExpiry(channels[channel], expiry.toString());
     // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
-    const key = `${channel}/${stampedAt}`;
+    const key = `${channel}/${expiry}`;
     if (stampedAt < this.window.start || stampedAt >= this.window.end || this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
@@ -123,21 +137,21 @@ export class SignallingStats {
   expectedDeliveries = 0;
   /** Statements of other ghosts stamped in the window that reached this shard's ghosts themselves, not replaced first. */
   deliveredInWindow = 0;
-  /** Per channel, the stamp times of the statements accepted in the window. */
-  acceptedStamps: Record<string, number[]> = {};
-  /** Per receiver, then per channel, the latest stamp time the receiver got there. */
-  deliveredUpTo: Record<string, Record<string, number>> = {};
+  /** Per channel, the expiries of the statements accepted in the window, as decimal strings. */
+  acceptedExpiries: Record<string, string[]> = {};
+  /** Per receiver, then per channel, the latest expiry the receiver got there, as a decimal string. */
+  deliveredUpTo: Record<string, Record<string, string>> = {};
   bytesSubmitted = 0;
   latency = new Histogram();
   submitRtt = new Histogram();
 
   /** Adds the counts of `other`, a `SignallingStats` or its JSON. */
   add(other: SignallingStats): void {
-    const { acceptedStamps, deliveredUpTo, ...counts } = other;
-    for (const [channel, stamps] of Object.entries(acceptedStamps)) (this.acceptedStamps[channel] ??= []).push(...stamps);
+    const { acceptedExpiries, deliveredUpTo, ...counts } = other;
+    for (const [channel, expiries] of Object.entries(acceptedExpiries)) (this.acceptedExpiries[channel] ??= []).push(...expiries);
     for (const [receiver, channels] of Object.entries(deliveredUpTo)) {
       const latest = (this.deliveredUpTo[receiver] ??= {});
-      for (const [channel, stamp] of Object.entries(channels)) latest[channel] = Math.max(latest[channel] ?? 0, stamp);
+      for (const [channel, expiry] of Object.entries(channels)) latest[channel] = laterExpiry(latest[channel], expiry);
     }
     const own = this as unknown as Record<string, number | Histogram | Record<string, number>>;
     for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {

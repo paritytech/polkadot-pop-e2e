@@ -31,7 +31,7 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "acceptedStamps" | "deliveredUpTo" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "acceptedExpiries" | "deliveredUpTo" | "add">;
   expectedDeliveries: number;
   /** Deliveries of statements accepted in the window, a statement replaced before it arrived counted with the one that replaced it. */
   deliveries: number;
@@ -132,7 +132,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, subscriptionLifetimeMs, acceptedStamps: _accepted, deliveredUpTo: _deliveredUpTo, ...counts } = stats;
+  const { latency: _latency, submitRtt, subscriptionLifetimeMs, acceptedExpiries: _accepted, deliveredUpTo: _deliveredUpTo, ...counts } = stats;
   return {
     layer,
     players,

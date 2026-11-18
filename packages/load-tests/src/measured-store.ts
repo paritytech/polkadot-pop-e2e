@@ -83,7 +83,7 @@ export function createCountingStore(store: MeasurableStore, stats: SignallingSta
         const result = await withTimeout(store.submit(wire), SUBMIT_TIMEOUT_MS);
         stats.submitRtt.add(Date.now() - startedAt);
         bump(stats.submits, result && typeof result === "object" && "status" in result && typeof result.status === "string" ? result.status : "new");
-        counter.accepted(wire.channel.toLowerCase(), stampTime(wire.expiry));
+        counter.accepted({ channel: wire.channel.toLowerCase(), expiry: wire.expiry, stampedAt: stampTime(wire.expiry) });
         return result;
       } catch (error) {
         stats.submitRtt.add(Date.now() - startedAt);
@@ -106,7 +106,7 @@ export function createCountingStore(store: MeasurableStore, stats: SignallingSta
             for (const { channel, expiry } of page.statements) {
               if (channel === undefined || expiry === undefined) continue;
               const stampedAt = stampTime(expiry);
-              counter.receive(channel.toLowerCase(), stampedAt, sendTimes.get(statementKey(channel, expiry)) ?? stampedAt, now);
+              counter.receive({ channel: channel.toLowerCase(), expiry, stampedAt }, sendTimes.get(statementKey(channel, expiry)) ?? stampedAt, now);
             }
             if (forwarding) onPage(page);
           },
