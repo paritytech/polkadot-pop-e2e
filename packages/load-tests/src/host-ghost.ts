@@ -1,6 +1,7 @@
 // Runs inside `truapi-host signing-host --script`: `truapi` and `host` are the host's globals,
 // and the plan file at `GHOST_PLAN` lists which ghosts this host plays and when.
 import { readFileSync, writeFileSync } from "node:fs";
+import { formatHostError } from "@parity/product-sdk-host";
 import { SignallingBot } from "./bot.js";
 import type { HostGhostPlan } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
@@ -49,19 +50,6 @@ declare const host: { productAccount(index: number): unknown };
 /** How long the app waits before opening a subscription the host ended, by attempt. */
 const RESUBSCRIBE_MS = [1000, 2000, 4000, 8000, 16000];
 
-/** A host error as text, as product-sdk-host's `formatHostError` writes it for the app. */
-function hostErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  const tagged = error as { tag?: unknown; reason?: unknown; value?: { tag?: unknown; value?: unknown; reason?: unknown } } | null;
-  if (typeof tagged?.tag === "string") {
-    if (tagged.tag === "Domain" && typeof tagged.value?.tag === "string" && tagged.value.value !== undefined) return hostErrorMessage(tagged.value.value);
-    return typeof tagged.value?.reason === "string" ? `${tagged.tag}: ${tagged.value.reason}` : tagged.tag;
-  }
-  if (typeof tagged?.reason === "string") return tagged.reason;
-  return JSON.stringify(error, (_, value) => (typeof value === "bigint" ? String(value) : value)) ?? String(error);
-}
-
 /**
  * The host's statement store for product account `productAccountId`, as the app's
  * `playerStatementStore` adapts it: proved as the player, and a subscription the host ends
@@ -71,12 +59,12 @@ function hostStatementStore(productAccountId: unknown, counter: DeliveryCounter)
   return {
     async createProofAuthorized(wire) {
       const result = await truapi.statementStore.createProof({ productAccountId, statement: wire as HostStatement });
-      if (result.isErr()) throw new Error(`statement proof refused: ${hostErrorMessage(result.error)}`);
+      if (result.isErr()) throw new Error(`statement proof refused: ${formatHostError(result.error)}`);
       return result.value.proof;
     },
     async submit(wire) {
       const result = await truapi.statementStore.submit(wire as HostStatement & { proof: unknown });
-      if (result.isErr()) throw new Error(`statement submit failed: ${hostErrorMessage(result.error)}`);
+      if (result.isErr()) throw new Error(`statement submit failed: ${formatHostError(result.error)}`);
     },
     subscribe(filter, onPage) {
       let attempt = 0;
@@ -99,7 +87,7 @@ function hostStatementStore(productAccountId: unknown, counter: DeliveryCounter)
               statements: page.statements.map(({ proof, expiry, channel, data }) => ({ data, signer: proof?.value?.signer?.toLowerCase(), channel, expiry })),
             });
           },
-          error: (error) => end(hostErrorMessage(error)),
+          error: (error) => end(formatHostError(error)),
           complete: () => end("completed"),
         });
       };
