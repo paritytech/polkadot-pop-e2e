@@ -36,10 +36,10 @@ A run has three parts:
 - **`summary`** merges every machine's result into one table.
 
 The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play
-deposit once. They don't need a person, an alias or an attestation: they sign up with
-`Game.sign_up_with_account`, share groups with the game's real players, and vote `Person` for
-every co-player. They never join the video call, so to a real player they are seats that don't
-connect.
+deposit once. They don't need a person, an alias or an attestation: the app's sign-up takes
+`Game.sign_up_with_account` for a player without personhood, they share groups with the game's
+real players, and they vote `Person` for every co-player. They never join the video call, so to a
+real player they are seats that don't connect.
 
 A bot that misses games loses score; at 0 the chain archives it and removes its statement
 allowance, so a replay needs bots that played a recent game. A game run signs them up again.
@@ -53,11 +53,45 @@ Two limits outside the test decide what a run can show:
   every collator, so a light-client run above that measures this limit:
   https://github.com/paritytech/devops/issues/5871
 
+## What runs the app's code
+
+The bots run the Jollity app's own packages from
+[individuality-apps](https://github.com/paritytech/individuality-apps/tree/2560663a232cb710b10b7f5417fc300cd830efbe)
+wherever the app does something a bot can do. Those packages aren't published and depend on each
+other by name, so the root `package.json` maps each of them, through `pnpm.overrides`, to its
+directory at one pinned commit, and `@pop-e2e/load-tests` depends on them as `*`. Moving the pin
+means changing the commit in those overrides.
+
+- **Sign-up**: `register` of the app's chain engine (`@jollity/game-chain`), the sign-up the app's
+  flow calls, over the SDK's `registerForGame`. For an account without personhood it reads the
+  seat and builds `Game.sign_up_with_account`, signed plainly for a new player and as the score
+  participant for a returning one. Its `submit` only signs, so the run still sends every sign-up at
+  once. The bots get no VRF signer, so they enter no prize draw.
+- **Signer**: every People transaction of a bot carries its signature in `VerifyMultiSignature`,
+  as a phone's host signs.
+- **Report**: each bot reads its seats through the engine (`playerIndices`, `groupMembers`) and the
+  SDK's `groupSeats`, as the app's game view does, lays out the votes as the app's `buildReport`
+  does, and builds `Game.report` with the SDK's `reportTx`, signed with `withScoreParticipant`
+  as the engine's `report` signs it. `buildReport` lives in the app itself, under
+  `apps/jollity-app/lib`, beside its UI, so the run repeats its few lines.
+- **Game reads**: which game to join, its schedule and its roster come from the engine.
+- **Credits**: `readGameCredits` of `@individuality/game-outcome`, the app's count of a game's
+  credits.
+- **NFT claims**: the Jollity app doesn't claim; the stash does, outside individuality-apps. Each
+  credit goes to the collection the app's chest shows it in (`defaultCollectionFor` of
+  `@jollity/collectables`, over the SDK's approved claimable collections), and the run builds
+  `NftClaims.claim` itself, since no package of the app or the nfts SDK builds it.
+- **Signalling**: the app's `statementTransport`, below.
+
+The rest is the run's own, because the app doesn't do it: root's clearing, funding and scheduling
+of a game and its phase durations, funding the bots, and the timeline of game states with their
+steps, read at the best block every second.
+
 ## How a bot signals
 
 A bot runs the Jollity app's own signalling: `statementTransport` from
 [`@jollity/statement-core`](https://github.com/paritytech/individuality-apps/tree/2560663a232cb710b10b7f5417fc300cd830efbe/packages/jollity-statement-core),
-which `package.json` pins to a commit of individuality-apps, configured as the app's game source
+which the root `package.json` pins to a commit of individuality-apps, configured as the app's game source
 configures it. Each bot keeps one statement live, a bundle under a topic of its own, deflated once it
 carries more than a hello; every offer and candidate in it is sealed to the co-player's
 communication key; a statement signed by another account than the one it names is dropped. A bot
