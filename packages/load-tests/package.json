@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@jollity/statement-core": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core",
     "@novasamatech/sdk-statement": "^0.6.0",
     "@parity/product-sdk-nfts": "0.4.1",
     "@polkadot-api/substrate-bindings": "^0.21.2",

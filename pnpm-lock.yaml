@@ -135,6 +135,9 @@ importers:
 
   packages/load-tests:
     dependencies:
+      '@jollity/statement-core':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core
       '@novasamatech/sdk-statement':
         specifier: ^0.6.0
         version: 0.6.0(esbuild@0.28.2)(rxjs@7.8.2)
@@ -375,6 +378,10 @@ packages:
   '@ipld/dag-pb@4.2.0':
     resolution: {integrity: sha512-T2hsy18NNAUkIiQgvtrhKJXIkTjKcGHPJzp6mYp/tx4x0X9wedUTrCNADEP4hAS7Vy4/bJtc37eX4GSDFiKLhw==}
     engines: {node: '>=16.0.0', npm: '>=7.0.0'}
+
+  '@jollity/statement-core@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core':
+    resolution: {path: /packages/jollity-statement-core, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -2328,6 +2335,12 @@ snapshots:
   '@ipld/dag-pb@4.2.0':
     dependencies:
       multiformats: 14.0.5
+
+  '@jollity/statement-core@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      scale-ts: 1.6.1
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
