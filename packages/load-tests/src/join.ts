@@ -1,6 +1,6 @@
 import type { Transaction } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
-import type { GameEngine } from "@jollity/protocol/src/engine";
+import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, signEntry } from "./burst.js";
 import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
@@ -10,14 +10,6 @@ import { readAll, sleep, withTimeout } from "./time.js";
 
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
 export const PLAYER_FUNDS = 30_000_000_000n;
-
-/** The game a player signs up to: its index and deadlines, in chain seconds. */
-export interface OpenGame {
-  index: number;
-  registration_ends: number;
-  game_date: number;
-  report_ends: number;
-}
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
 
@@ -64,7 +56,7 @@ const SCHEDULE_FINALITY_MS = 60_000;
  * the closest one scheduled. Fails at once when that game plays later than `timeoutMs` from now,
  * and after `timeoutMs` in any case.
  */
-export async function waitForGame(engine: GameEngine, gameAt: number | undefined, minRemainingMs: number, timeoutMs: number): Promise<OpenGame> {
+export async function waitForGame(engine: GameEngine, gameAt: number | undefined, minRemainingMs: number, timeoutMs: number): Promise<PalletGame> {
   const started = Date.now();
   const until = started + timeoutMs;
   let reported: string | undefined;
@@ -142,7 +134,7 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
  * message machine finds the game a separate chain run signs its bots up to. Fails after
  * `timeoutMs`, also when the chain stops answering, with the last failed check's error.
  */
-export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
+export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<PalletGame> {
   let { client, engine } = connectPeople(target);
   const until = Date.now() + timeoutMs;
   let lastError: string | undefined;
