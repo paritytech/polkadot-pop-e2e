@@ -68,7 +68,9 @@ means changing the commit in those overrides.
   participant for a returning one. Its `submit` only signs, so the run still sends every sign-up at
   once. The bots get no VRF signer, so they enter no prize draw.
 - **Signer**: every People transaction of a bot carries its signature in `VerifyMultiSignature`,
-  as a phone's host signs.
+  as a phone's host signs. The run builds and signs its bots' sign-ups, reports and claims on one
+  worker thread per core: polkadot-api's signers decode the whole runtime metadata for every
+  transaction, which on one thread takes about 0.6 s per sign-up on a CI runner.
 - **Report**: each bot reads its seats through the engine (`playerIndices`, `groupMembers`) and the
   SDK's `groupSeats`, as the app's game view does, lays out the votes as the app's `buildReport`
   does, and builds `Game.report` with the SDK's `reportTx`, signed with `withScoreParticipant`
