@@ -14,8 +14,7 @@ or Asset Hub.
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
 | `bots_per_machine` | bots one parity-large machine runs (default 1000) |
-| `signalling` | `co-players`, as the app does now (default), or `game`, the app before https://github.com/paritytech/individuality-apps/pull/1972 |
-| `timing` | `sync`, the app's one shared re-send beat (default), or `random`, each bot on a beat of its own |
+| `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
 | `claim` | whether the bots claim their NFTs after the reports |
 | `game_at` | the play time of the game to join; empty joins the closest scheduled one |
 | `replay_at` | a start time: the bots of an earlier game exchange the same messages then, without a game, sign-up, reports or claims |
@@ -56,25 +55,34 @@ Two limits outside the test decide what a run can show:
 
 ## How a bot signals
 
-A bot behaves like a player's statement transport in the Jollity app since
-https://github.com/paritytech/individuality-apps/pull/1972: it posts its bundle under a topic of
-its own and subscribes to the topics of its co-players, the 10 players it shares a table with over
-two rounds of 6, so a bundle goes only to them. A bundle with offers in it goes deflated, about 45%
-smaller, as the app sends it. `signalling: game` plays the app before that change: one room topic
-every bot posts under and subscribes to, so every bot receives every bundle and deliveries grow
-with the square of the players.
+A bot runs the Jollity app's own signalling: `statementTransport` from
+[`@jollity/statement-core`](https://github.com/paritytech/individuality-apps/tree/2560663a232cb710b10b7f5417fc300cd830efbe/packages/jollity-statement-core),
+which `package.json` pins to a commit of individuality-apps, configured as the app's game source
+configures it. Each bot keeps one statement live, a bundle under a topic of its own, deflated once it
+carries more than a hello; every offer and candidate in it is sealed to the co-player's
+communication key; a statement signed by another account than the one it names is dropped. A bot
+listens to its co-players' topics alone, the 10 players it shares a table with over two rounds of
+6, and calibrates its store clock with one statement before its room opens, as the waiting room
+does.
 
-Every bot opens its subscription at the same instant, 64 s before the first round (the
-pre-connect), negotiates every co-player of every round then, and re-sends on one beat from that
-instant: every 8 s while links are negotiated, every 16 s once they are up, with at most two
-submits waiting. A game's re-sends therefore arrive at the store in the same second;
-`timing: random` assigns each bot its own beat instead.
+In place of WebRTC, a bot plays the app's mesh for that room. Every bot opens its room at the same
+instant, 64 s before the first round (the pre-connect), and negotiates every co-player of every
+round then: the lower account offers and the other answers, each with a Chrome data-channel-only
+description (about 1 KB of SDP) and 8 trickled candidates (about 1.7 KB of JSON), 750 ms after the
+step that starts it, the time the app gathers for. A link counts as up once a bot has sent its
+description and received the co-player's description and candidates, and the bot then tells the
+transport so, as the app does when a connection connects. What is re-sent and when is the
+transport's own: its heartbeat every 8 s while a link negotiates, a hello every 16 s once every
+link is up. `timing: random` opens each bot's room up to 8 s later instead.
 
-The bundle sizes come from Chrome's data-channel-only offer (about 1 KB of SDP, 1.7 KB of
-candidates), sealed for each of the 10 co-players; the store carries only that first
-negotiation, and the video offer goes down the data channel. See `PROFILES` in `src/profile.ts`.
-Each bundle carries the time it was sent, so every receiver measures delivery latency, and each
-sender counts how many bots listen on its topic, which is how many deliveries a run expects.
+The app no longer has a room that every phone of a game posts to and listens on, so the bots no
+longer have one either.
+
+Bots signal under their run's own namespace, so they never reach real players. A bot's
+communication key derives from its account, and so does the identifier it signs up with, so bots
+seal to each other without reading the chain. Each statement's expiry carries the time it was
+stamped, so every receiver measures delivery latency from it, and every statement a bot's store
+accepts is due to each of its co-players, which is how many deliveries a run expects.
 
 ## Reading the results
 
@@ -99,8 +107,8 @@ The messages table has one row per run:
 - **Node submit avg** and **Node CPU cores** need `--metrics` with the People nodes' Prometheus
   endpoints, which a live network doesn't expose; they show `–` in CI.
 - **Findings** list what failed: rejected or dropped connections, subscriptions the node ended (a
-  subscriber that falls 128 statements behind is dropped), submits not accepted, truapi-host
-  processes that exited with an error.
+  subscriber that falls 128 statements behind is dropped), submits not accepted, links not up when
+  the game ended, truapi-host processes that exited with an error.
 
 `summary.json` and the per-machine files contain the full counts and histograms.
 
