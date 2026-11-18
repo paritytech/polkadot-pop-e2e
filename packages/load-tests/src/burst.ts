@@ -106,9 +106,6 @@ function createBlockReader(api: BurstApi, client: PolkadotClient): (hash: string
   return (hash) => cache.get(hash) ?? cache.set(hash, read(hash)).get(hash)!;
 }
 
-/** An upper bound of polkadot-api's time to sign one transaction on a CI runner. */
-export const SIGNING_MS = 150;
-
 /**
  * `entry` as a signed extrinsic in hex. Immortal: a run signs thousands up front, which can take
  * longer than a mortal transaction stays valid; the nonce still makes each one single-use.

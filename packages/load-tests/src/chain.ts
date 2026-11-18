@@ -2,9 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fromPapi, groupSeats, reportTx, withScoreParticipant, type ReportVote } from "@parity/product-sdk-individuality";
 import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
-import { hostSigner, SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { hostSigner, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { ALREADY_REGISTERED, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
@@ -243,7 +243,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
     // The players sign up as soon as the game takes sign-ups and report after it, so the run lasts
     // until the game: one further away than the run's wait fails at once.
-    const game = await waitForGame(engine, gameAt, ownGame ? 0 : 120_000 + players.length * SIGNING_MS, run.registrationWaitMs);
+    const game = await waitForGame(engine, gameAt, ownGame ? 0 : 120_000 + players.length * SIGN_UP_MS, run.registrationWaitMs);
     gameIndex = game.index;
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame) await topUpPlayers(target, api, players);

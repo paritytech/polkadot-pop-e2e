@@ -11,6 +11,12 @@ import { readAll, sleep, withTimeout } from "./time.js";
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
 export const PLAYER_FUNDS = 30_000_000_000n;
 
+/**
+ * The CPU time one sign-up takes on a CI runner, its fee estimate and its signature each decoding
+ * the whole runtime metadata: 172.5 s for 300 players on previewnet.
+ */
+export const SIGN_UP_MS = 600;
+
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
 
 /** The refusal of a player already signed up to the game, which a rerun meets for every earlier sign-up. */
