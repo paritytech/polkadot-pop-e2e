@@ -1,5 +1,8 @@
 import { createClient, type PolkadotClient, type TypedApi } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws";
+import type { PeopleClient as AppPeopleClient } from "@individuality/people-chain";
+import { createChainEngine } from "@jollity/game-chain/engine";
+import type { GameEngine } from "@jollity/protocol/src/engine";
 import { paseoNextAssetHub, paseoNextPeople, previewAssetHub, previewPeople } from "@pop-e2e/papi";
 import { keypairFromUri, type Keypair } from "./keys.js";
 
@@ -9,6 +12,8 @@ export type AssetHubApi = TypedApi<typeof previewAssetHub>;
 const PEOPLE_DESCRIPTORS = { previewnet: previewPeople, "paseo-next-v2": paseoNextPeople } as const;
 const ASSET_HUB_DESCRIPTORS = { previewnet: previewAssetHub, "paseo-next-v2": paseoNextAssetHub } as const;
 type DescriptorNetwork = keyof typeof PEOPLE_DESCRIPTORS;
+/** Each network's DotNS TLD, which the app's engine scopes its sign-up's product name to. */
+const GAME_TLDS = { previewnet: "testnet", "paseo-next-v2": "paseo" } as const;
 
 /** The People chain a run loads: where to connect, how to sign as root, what to scrape. */
 export interface Target {
@@ -80,9 +85,19 @@ export async function resolveTarget(options: TargetOptions): Promise<Target> {
   };
 }
 
-export function connectPeople(target: Target): { client: PolkadotClient; api: PeopleApi } {
+export interface PeopleConnection {
+  client: PolkadotClient;
+  api: PeopleApi;
+  /** The Jollity app's chain engine over this connection: its game reads and its sign-up. */
+  engine: GameEngine;
+}
+
+/** The app's engine reads through this network's descriptors, in place of the app's pinned ones. */
+export function connectPeople(target: Target): PeopleConnection {
   const client = createClient(getWsProvider(target.rpc[0]));
-  return { client, api: client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi };
+  const api = client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi;
+  const engine = createChainEngine({ client, api: api as unknown as AppPeopleClient["api"] }, { tld: GAME_TLDS[target.network] });
+  return { client, api, engine };
 }
 
 export function connectAssetHub(target: Target): { client: PolkadotClient; api: AssetHubApi } {

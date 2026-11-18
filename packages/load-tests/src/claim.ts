@@ -1,15 +1,18 @@
-import { Enum, type PolkadotClient, type SizedHex, type SS58String } from "polkadot-api";
-import { getClaimableCollections, getClaims, type Claim, type NftsChain, type NftsCreditsChain } from "@parity/product-sdk-nfts";
-import { signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
+import { Enum, type SizedHex, type SS58String } from "polkadot-api";
+import { getApprovedCollections, getClaimableCollections, getClaims, type Claim } from "@parity/product-sdk-nfts";
+import type { PeopleClient as AppPeopleClient } from "@individuality/people-chain";
+import { claimsChain, readGameCredits, type ClaimsChain } from "@individuality/game-outcome/chain";
+import { defaultCollectionFor } from "@jollity/collectables/src/picks";
+import { accountSigner, signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
-import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
-import { retry, sleep, withTimeout } from "./time.js";
+import { connectAssetHub, type AssetHubApi, type PeopleConnection, type Target } from "./target.js";
+import { readAll, retry, sleep, withTimeout } from "./time.js";
 
 export interface ClaimResult {
-  /** Credits the game awarded the players: the `Person` votes they received. */
+  /** Credits the game awarded the players, as the app counts a game's credits. */
   awarded: number;
   /** Of those, the ones Asset Hub had a root for, and so could be claimed, when the wait ended. */
   claimable: number;
@@ -28,23 +31,11 @@ export interface ClaimResult {
 const ASSET_HUB_FUNDS = 10_000_000_000n;
 /** How long the run waits for the game's credits to arrive on Asset Hub. */
 const CLAIMABLE_WAIT_MS = 600_000;
-const READ_CONCURRENCY = 100;
+/** How long the run waits for its claims to show at Asset Hub's finalized block, where the app reads them. */
+const CLAIMED_WAIT_MS = 120_000;
 const CREDITS_READ_ATTEMPTS = 3;
-
-/** Runs `read` over `items`, `READ_CONCURRENCY` at a time, in order. */
-async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(READ_CONCURRENCY, items.length) }, async () => {
-      while (next < items.length) {
-        const position = next++;
-        results[position] = await read(items[position]);
-      }
-    }),
-  );
-  return results;
-}
+/** The network names the nfts SDK lists approved collections under. */
+const NFT_NETWORKS = { previewnet: "previewnet", "paseo-next-v2": "paseo" } as const;
 
 /** Tops every claiming player up to `ASSET_HUB_FUNDS` on Asset Hub: as root on a fork, else from the funder. */
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
@@ -79,60 +70,75 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
   }
 }
 
+/** Every claimable collection the nfts SDK approves for `target`'s network, ascending by id, as the chest offers them. */
+async function readOfferedCollections(chain: ClaimsChain, target: Target): Promise<number[]> {
+  const approved = new Set(getApprovedCollections(NFT_NETWORKS[target.network]));
+  const offered: number[] = [];
+  let fromId: number | undefined;
+  for (;;) {
+    const result = await getClaimableCollections(chain, fromId === undefined ? {} : { fromId });
+    if (!result.ok) throw new Error(`claimable collections: ${result.error.message}`);
+    offered.push(...result.value.collections.map((collection) => collection.id).filter((id) => approved.has(id)));
+    if (result.value.nextId === null) return offered.sort((a, b) => a - b);
+    fromId = result.value.nextId;
+  }
+}
+
 /**
- * Waits for the credits People awarded the players from `sinceBlock` on to arrive on Asset Hub, then
- * has every player claim its own one at a time, each into a claimable collection and to a fresh
- * purse key, as the stash does after the game.
+ * Waits for the credits game `gameIndex` awarded the players to arrive on Asset Hub, counted as
+ * the app counts them, then has every player claim its own one at a time, each into the
+ * collection the chest shows it in and to a fresh purse key, as the stash does after the game.
  */
 export async function claimCredits(
   target: Target,
-  people: PolkadotClient,
+  people: Pick<PeopleConnection, "client" | "api">,
   players: Player[],
-  sinceBlock: number,
+  gameIndex: number,
   connections: number,
 ): Promise<ClaimResult> {
   const { client, api } = connectAssetHub(target);
-  const chain = {
-    individuality: people.getUnsafeApi(),
-    assetHub: client.getUnsafeApi(),
-    raw: { individuality: people, assetHub: client },
-  } as unknown as NftsChain & NftsCreditsChain;
+  const chain = claimsChain({ client: people.client, api: people.api as unknown as AppPeopleClient["api"] }, client);
   const started = Date.now();
-  const claimsOf = (player: Player): Promise<Claim[]> =>
+  const creditsOf = (player: Player) =>
     retry(CREDITS_READ_ATTEMPTS, 0, async () => {
-      // Best, not finalized, on both chains: the claim lanes finish on best-block inclusion.
-      const claimant = { tag: "Account" as const, address: player.address };
-      const result = await getClaims(chain, { claimant, at: "best", individualityAt: "best", signal: AbortSignal.timeout(60_000) });
-      if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-      return result.value.claims;
+      const credits = await readGameCredits(chain, { address: player.address, gameIndex, latestGame: true });
+      if (!credits) throw new Error(`credits of ${player.address} not read`);
+      return credits;
     });
   try {
-    let claimants: Array<{ player: Player; claims: Claim[] }> = [];
+    let counts = await readAll(players, creditsOf);
     let awarded = 0;
     let claimable = 0;
     for (;;) {
-      // Every credit People awarded the players from the reports' block on, claimable or not
-      // yet: the bots play no other game meanwhile.
-      const reads = await readAll(players, async (player) => {
-        const fresh = (await claimsOf(player)).filter((claim) => claim.awardBlock >= sinceBlock);
-        return { player, awarded: fresh.length, claims: fresh.filter((claim) => claim.state === "claimable") };
-      });
-      claimants = reads.filter((read) => read.claims.length > 0);
-      awarded = reads.reduce((sum, read) => sum + read.awarded, 0);
-      claimable = claimants.reduce((sum, read) => sum + read.claims.length, 0);
+      awarded = counts.reduce((sum, credits) => sum + credits.total, 0);
+      claimable = counts.reduce((sum, credits) => sum + credits.claimable, 0);
+      const pending = counts.reduce((sum, credits) => sum + credits.pending, 0);
       console.log(`[claim] ${claimable}/${awarded} credits claimable after ${Math.round((Date.now() - started) / 1000)} s`);
-      if ((awarded > 0 && claimable === awarded) || Date.now() - started > CLAIMABLE_WAIT_MS) break;
+      if ((awarded > 0 && pending === 0) || Date.now() - started > CLAIMABLE_WAIT_MS) break;
       await sleep(12_000);
+      counts = await readAll(players, creditsOf);
     }
     const claimableAfterMs = Date.now() - started;
-    const claimableCollections = await getClaimableCollections(chain);
-    if (!claimableCollections.ok) throw new Error(`claimable collections: ${claimableCollections.error.message}`);
-    const collections = claimableCollections.value.collections.map((collection) => collection.id);
+    const collections = await readOfferedCollections(chain, target);
     if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, claimed: 0, playerMs: null };
+
+    // The claims the chest holds for the game, with the proofs a mint spends.
+    const claimants = (
+      await readAll(
+        players.filter((_, position) => counts[position].claimable > 0),
+        async (player) => {
+          const result = await getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best" });
+          if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
+          const claims = result.value.claims.filter(
+            (claim): claim is Claim & { hash: string } => claim.gameIndex === gameIndex && claim.state === "claimable" && claim.hash !== null,
+          );
+          return { player, claims };
+        },
+      )
+    ).filter(({ claims }) => claims.length > 0);
 
     await fundOnAssetHub(api, target, claimants.map((read) => read.player));
     const nonces = await api.query.System.Account.getValues(claimants.map((read) => [read.player.address]), { at: "best" });
-    let position = 0;
     const txs = claimants.map(({ player, claims }) =>
       claims.map((claim) =>
         api.tx.NftClaims.claim({
@@ -141,15 +147,16 @@ export async function claimCredits(
           credit: claim.hash as SizedHex<32>,
           leaf_index: claim.leafIndex!,
           proof: claim.proof! as SizedHex<32>[],
-          collection: collections[position++ % collections.length],
+          collection: defaultCollectionFor(claim.hash, collections)!,
           // A purse key takes one NFT, so every claim mints to a key of its own.
           mint_to: derivePlayer(`${player.address}/nft/${claim.awardBlock}`, claim.leafIndex!).address,
         }),
       ),
     );
+    const creators = claimants.map(({ player }) => accountSigner(player));
     // Signed up front: one process signs for every player, which a phone does for itself only.
     const flat = await signEntries(
-      claimants.flatMap(({ player }, index) => txs[index].map((tx, offset) => ({ signer: player, tx, nonce: nonces[index].nonce + offset }))),
+      claimants.flatMap((_, index) => txs[index].map((tx, offset) => ({ creator: creators[index], tx, nonce: nonces[index].nonce + offset }))),
       "claim",
     );
     let taken = 0;
@@ -169,7 +176,7 @@ export async function claimCredits(
             // A failed claim leaves the following ones at the wrong nonce: sign them again at the chain's.
             const nonce = await readNonce(player.address);
             for (let later = next + 1; later < own.length; later++) {
-              own[later] = await withTimeout(signEntry({ signer: player, tx: txs[index][later], nonce: nonce + later - next - 1 }), 30_000, "signing");
+              own[later] = await withTimeout(signEntry({ creator: creators[index], tx: txs[index][later], nonce: nonce + later - next - 1 }), 30_000, "signing");
             }
           }
           playerMs.add(Date.now() - started);
@@ -181,12 +188,13 @@ export async function claimCredits(
       readBlocks: false,
       progress: "claim",
     });
-    const submittedHashes = new Set(claimants.flatMap(({ claims }) => claims.map((claim) => claim.hash)));
-    const after = await readAll(
-      claimants.map((read) => read.player),
-      async (player) => (await claimsOf(player)).filter((claim) => claim.state === "claimed" && submittedHashes.has(claim.hash)).length,
-    );
-    const claimed = after.reduce((sum, count) => sum + count, 0);
+    const submitted = claimants.reduce((sum, { claims }) => sum + claims.length, 0);
+    const claimedBy = claimants.map(({ player }) => player);
+    let claimed = 0;
+    for (const until = Date.now() + CLAIMED_WAIT_MS; ; await sleep(6_000)) {
+      claimed = (await readAll(claimedBy, creditsOf)).reduce((sum, credits) => sum + credits.claimed, 0);
+      if (claimed >= submitted || Date.now() > until) break;
+    }
     console.log(`[claim] ${burst.ok}/${burst.submitted} claims in a block in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
     return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), claimed, playerMs: playerMs.summary() };
   } finally {

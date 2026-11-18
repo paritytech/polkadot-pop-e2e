@@ -1,5 +1,6 @@
 import type { PolkadotClient, Transaction } from "polkadot-api";
-import { getTxCreator } from "polkadot-api/tx-creator";
+import { getTxCreator, getVerifyMultiSignatureTxCreator } from "polkadot-api/tx-creator";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { toHex } from "@polkadot-api/utils";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
@@ -13,10 +14,21 @@ import type { AssetHubApi, PeopleApi } from "./target.js";
 type BurstApi = PeopleApi | AssetHubApi;
 
 export interface BurstEntry {
-  signer: Keypair;
+  creator: CommonSignerTxCreator;
   tx: Transaction;
   /** The chain's next nonce of the signer when undefined. */
   nonce?: number;
+}
+
+/** `keypair` as a plain signer: the account's signature in the extrinsic's signature field. */
+export function accountSigner(keypair: Keypair): CommonSignerTxCreator {
+  return getTxCreator(keypair.publicKey, "Sr25519", (input) => keypair.sign(input));
+}
+
+/** `keypair` as a phone's host signs on People: the account's signature in `VerifyMultiSignature`. */
+export function hostSigner(keypair: Keypair): CommonSignerTxCreator {
+  // Typed with one more optional argument, `extensionVersion`, than the common creator the SDK wraps.
+  return getVerifyMultiSignatureTxCreator(keypair.publicKey, "Sr25519", (input) => keypair.sign(input)) as unknown as CommonSignerTxCreator;
 }
 
 interface BurstCounts {
@@ -101,8 +113,7 @@ export const SIGNING_MS = 150;
  * `entry` as a signed extrinsic in hex. Immortal: a run signs thousands up front, which can take
  * longer than a mortal transaction stays valid; the nonce still makes each one single-use.
  */
-export async function signEntry({ signer, tx, nonce }: BurstEntry): Promise<string> {
-  const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
+export async function signEntry({ creator, tx, nonce }: BurstEntry): Promise<string> {
   const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: false }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
   return toHex(await tx.create(creator, options as never));
 }
