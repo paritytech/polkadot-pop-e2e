@@ -118,7 +118,7 @@ async function scheduleOwnGame(api: PeopleApi, run: ChainRun, sudo: Keypair, cha
   // Slack of a few blocks: the chain starts the game only before its registration start.
   const gamePlayTime = Math.ceil(now / 1000) + phases.registration + phases.shuffle + phases.post_shuffle_margin + 30;
   const schedule = api.tx.Game.schedule_games({
-    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [] }],
+    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [], tenure_claim_window: 0 }],
   });
   await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases }).decodedCall, schedule.decodedCall], 2, "schedule");
   return { phases, previous: Object.keys(run.phases).length > 0 ? chainPhases : undefined };

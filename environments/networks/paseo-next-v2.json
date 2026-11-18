@@ -20,7 +20,8 @@
     }
   },
   "services": {
-    "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
+    "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
+    "identity-backend": "paritytech/device-uniqueness-backend-community@v0.8.1"
   },
   "tests": [
     "test:network-health"
