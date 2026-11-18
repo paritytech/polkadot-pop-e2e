@@ -62,11 +62,12 @@ describe("summarizeStep", () => {
   it("reports how long ended subscriptions were open and how many ended before a statement", () => {
     vi.useFakeTimers({ now: 0 });
     const record = (stats: SignallingStats) => {
-      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 0, 10);
-      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 1, 10);
+      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10);
+      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10);
       silent.recordSubscribe();
       delivering.recordSubscribe();
-      delivering.receive(undefined, 1_000);
+      // a statement sent before the window: one statement delivered, no delivery counted
+      delivering.receive("early", -1, 1_000);
       vi.advanceTimersByTime(30_000);
       silent.recordEnd("closed");
       delivering.recordEnd("closed");

@@ -6,7 +6,7 @@ import { derivePlayer, type Player } from "./keys.js";
 import { gameMs, type Phase, type SignallingProfile } from "./profile.js";
 import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
-import type { Rooms } from "./seating.js";
+import { coPlayersOf } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
 import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
@@ -32,9 +32,8 @@ export interface StepRun {
   startAt: number;
   timing: StepTiming;
   profile: SignallingProfile;
-  /** How the ghosts' bundles line up: `sync` as the app sends them, or `random`. */
+  /** How the ghosts' rooms open: `sync` all at once as the app opens them, or `random`. */
   phase: Phase;
-  rooms: Rooms;
   target: Target;
   outDir: string;
 }
@@ -121,8 +120,7 @@ async function runStep(
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
   const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
-  const seating = { rooms: run.rooms, players: count };
-  const room: GhostRoom = { profile, phase: run.phase, namespace, seating, gameStart: windowStart, window, stats };
+  const room: GhostRoom = { profile, phase: run.phase, namespace, gameStart: windowStart, window, stats };
 
   await sleepUntil(stepStart);
   const players = await startPlayers({ count, stepStart, room });
@@ -190,9 +188,9 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         connections.push(connection);
         const end = Math.min((connectionIndex + 1) * ghostsPerConnection, count);
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
-          const ghost = new Ghost(playerAt(index), connection, room);
+          const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room);
           ghosts.push(ghost);
-          await ghost.join();
+          ghost.join();
         }
       }),
     );
@@ -200,7 +198,7 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
       stopSending: () => ghosts.forEach((ghost) => ghost.stopSending()),
       async leave() {
         leaving = true;
-        await Promise.all(ghosts.map((ghost) => ghost.leave()));
+        for (const ghost of ghosts) ghost.leave();
         for (const connection of connections) connection.close();
       },
     };

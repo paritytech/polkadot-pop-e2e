@@ -1,5 +1,4 @@
 import { Histogram } from "./histogram.js";
-import type { Probe } from "./statement.js";
 
 export function bump(counts: Record<string, number>, key: string, by = 1): void {
   counts[key] = (counts[key] ?? 0) + by;
@@ -17,23 +16,22 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 }
 
 /**
- * One player's share of a step's delivery counts: the bundles it sent that `recipients` others
+ * One player's share of a step's delivery counts: the statements it sent that `recipients` others
  * are due, and the ones it received, each counted once, so every kind of ghost measures loss alike.
  */
 export class DeliveryCounter {
-  private readonly seen = new Set<number>();
+  private readonly seen = new Set<string>();
   private lastDeliveryAt = 0;
-  private subscribeTime = 0;
+  private subscribeTime: number | undefined;
   private statements = 0;
 
   constructor(
     private readonly stats: SignallingStats,
     private readonly window: { start: number; end: number },
-    private readonly self: number,
     private readonly recipients: number,
   ) {}
 
-  /** A bundle of this player's the store accepted; one sent in the window is due to every recipient. */
+  /** A statement of this player's the store accepted; one sent in the window is due to every recipient. */
   accepted(sentAt: number): void {
     if (sentAt < this.window.start || sentAt >= this.window.end) return;
     this.stats.acceptedInWindow++;
@@ -48,27 +46,24 @@ export class DeliveryCounter {
   /** Counts a subscription that ended before its player left, by `reason`, with how long it lasted. */
   recordEnd(reason: string): void {
     bump(this.stats.subscriptionsEnded, reason);
-    this.stats.subscriptionLifetimeMs.add(Date.now() - this.subscribeTime);
+    this.stats.subscriptionLifetimeMs.add(Date.now() - (this.subscribeTime ?? Date.now()));
     if (this.statements === 0) this.stats.emptySubscriptionEnds++;
   }
 
-  /** A bundle that arrived at this player; another player's sent in the window counts once. */
-  receive(probe: Probe | undefined, now: number): void {
+  /** A statement `key` sent at `sentAt` arrived at this player; one sent in the window counts once. */
+  receive(key: string, sentAt: number, now: number): void {
     this.statements++;
-    if (!probe || probe.sender === this.self || probe.sentAt < this.window.start || probe.sentAt >= this.window.end) return;
-    // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
-    // Both fields are u32; the key is exact while the sender index is below 2^21.
-    const key = probe.sender * 2 ** 32 + probe.sequence;
-    if (this.seen.has(key)) return;
+    // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
+    if (sentAt < this.window.start || sentAt >= this.window.end || this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
-    this.stats.latency.add(now - probe.sentAt);
+    this.stats.latency.add(now - sentAt);
     this.lastDeliveryAt = now;
   }
 
-  /** Counts the player's subscription if it delivered nothing, or stopped before the window ended. */
+  /** Counts the player's subscription, if it opened one, when it delivered nothing or stopped before the window ended. */
   finish(): void {
-    countDeliveryGap(this.stats, this.lastDeliveryAt, this.window.end);
+    if (this.subscribeTime !== undefined) countDeliveryGap(this.stats, this.lastDeliveryAt, this.window.end);
   }
 }
 
@@ -91,11 +86,17 @@ export class SignallingStats {
    * `STALL_MS`: the statement store ends a subscriber that falls behind without telling it.
    */
   stalledSubscriptions = 0;
-  /** `statement_submit` answers by status (and reason), or the error the request ended with. */
+  /** `statement_submit` answers by status, or the error the proof or submit failed with. */
   submits: Record<string, number> = {};
-  /** Bundles not sent because `maxInflight` submits were still waiting, as the app does. */
-  skippedInflight = 0;
-  /** Statements the node accepted as new whose probe time falls in the measurement window. */
+  /** What the statement transport reported of its submits: retries, waits for a slot, frames
+   *  replaced while they waited, and submits it gave up on. */
+  submitEvents: Record<string, number> = {};
+  /** The waiting room's store clock calibrations, by outcome. */
+  calibrations: Record<string, number> = {};
+  /** Links the ghosts' rooms negotiate, and those up when the game ended. */
+  links = 0;
+  linksUp = 0;
+  /** Statements the node accepted whose stamp time falls in the measurement window. */
   acceptedInWindow = 0;
   /** Deliveries those statements owe: for each, the ghosts that listen on its topics. */
   expectedDeliveries = 0;

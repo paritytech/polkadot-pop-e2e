@@ -21,13 +21,8 @@ on:
         description: Bots one parity-large machine sends messages for
         type: string
         default: "1000"
-      signalling:
-        description: "co-players: as the app does now (own topic, co-players' topics). game: one room per game, the app before https://github.com/paritytech/individuality-apps/pull/1972"
-        type: choice
-        default: co-players
-        options: [co-players, game]
       timing:
-        description: "sync: every bot re-sends on the app's one shared beat. random: each bot on a beat of its own, to see what spreading the burst does"
+        description: "sync: every bot opens its room at the same instant, as the app does. random: each up to one heartbeat later, to see what spreading the burst does"
         type: choice
         default: sync
         options: [sync, random]
@@ -91,7 +86,7 @@ jobs:
           machines=$(( (PLAYERS + PER_MACHINE - 1) / PER_MACHINE ))
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
           echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
-          echo "$PLAYERS bots on $machines parity-large machine(s), signalling ${{ inputs.signalling }}, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "$PLAYERS bots on $machines parity-large machine(s), timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
 
   # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
@@ -171,7 +166,6 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           MACHINES: ${{ needs.plan.outputs.machines }}
-          ROOMS: ${{ inputs.signalling }}
           PHASE: ${{ inputs.timing }}
           REPLAY_AT: ${{ inputs.replay_at }}
           TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
@@ -180,7 +174,7 @@ jobs:
           set -euo pipefail
           read -ra extra <<< "$ARGS"
           if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
-          pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --rooms "$ROOMS" --phase "$PHASE" \
+          pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --phase "$PHASE" \
             --shard "$SHARD/$MACHINES" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the message results
         if: always()

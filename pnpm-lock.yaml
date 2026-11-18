@@ -138,9 +138,12 @@ importers:
       '@jollity/statement-core':
         specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core
         version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core
-      '@novasamatech/sdk-statement':
-        specifier: ^0.6.0
-        version: 0.6.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@noble/curves':
+        specifier: ^2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
       '@parity/product-sdk-nfts':
         specifier: 0.4.1
         version: 0.4.1

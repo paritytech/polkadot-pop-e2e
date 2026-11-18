@@ -1,3 +1,5 @@
+import { p256 } from "@noble/curves/nist.js";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { sr25519CreateDerive } from "@polkadot-labs/hdkd";
 import {
   DEV_PHRASE,
@@ -54,4 +56,15 @@ export function keypairFromUri(uri: string): Keypair {
   const path = pathStart < 0 ? "" : uri.slice(pathStart);
   const pair = sr25519CreateDerive(entropyToMiniSecret(mnemonicToEntropy(phrase)))(path);
   return { publicKey: pair.publicKey, address: ss58Address(pair.publicKey), sign: (message) => pair.sign(message) };
+}
+
+/** The P-256 secret of a player's communication identifier, from its account, so a bot derives
+ *  every co-player's identifier instead of reading it from the chain. */
+export function communicationSecret(publicKey: Uint8Array): Uint8Array {
+  return p256.utils.randomSecretKey(blake2b(publicKey, { dkLen: p256.lengths.seed }));
+}
+
+/** The 65-byte identifier a player signs up with: the public key of its `communicationSecret`. */
+export function communicationIdentifier(publicKey: Uint8Array): Uint8Array {
+  return p256.getPublicKey(communicationSecret(publicKey), false);
 }
