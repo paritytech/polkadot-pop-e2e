@@ -45,7 +45,7 @@
     "multiformats": "^14.0.0",
     "polkadot-api": "^3.3.0",
     "verifiablejs": "1.6.0",
-    "viem": "^2.57.20"
+    "viem": "^2.58.0"
   },
   "devDependencies": {
     "@parity/truapi": "0.31.0",
