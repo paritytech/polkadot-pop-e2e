@@ -121,11 +121,12 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
 /**
  * The game any of `players` is signed up to, once one is and that game hasn't started: how a
  * message machine finds the game a separate chain run signs its bots up to. Fails after
- * `timeoutMs`; a check without an answer in 30 s reconnects instead of waiting forever.
+ * `timeoutMs`, also when the chain stops answering, with the last failed check's error.
  */
 export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
   let { client, api } = connectPeople(target);
   const until = Date.now() + timeoutMs;
+  let lastError: string | undefined;
   try {
     for (;;) {
       try {
@@ -141,11 +142,15 @@ export async function waitForSignUp(target: Target, players: Player[], timeoutMs
         const signedUp = rows.some((row) => row?.registered);
         if (game && signedUp && game.game_date * 1000 > Number(now)) return game;
       } catch (error) {
-        console.warn(`[host] ${(error as Error).message}; reconnecting`);
+        lastError = (error as Error).message;
+        console.warn(`[host] ${lastError}; reconnecting`);
         client.destroy();
         ({ client, api } = connectPeople(target));
       }
-      if (Date.now() > until) throw new Error(`none of this machine's bots was signed up to a game within ${timeoutMs / 60_000} min`);
+      if (Date.now() > until) {
+        const cause = lastError ? `; last check failed: ${lastError}` : "";
+        throw new Error(`none of this machine's bots was signed up to a game within ${timeoutMs / 60_000} min${cause}`);
+      }
       await sleep(5_000);
     }
   } finally {
