@@ -105,7 +105,7 @@ on:
       service_identity_backend:
         description: >
           Service identity-backend, the attestation service the PoP tests call.
-          e.g. paritytech/device-uniqueness-backend@v0.5.0
+          e.g. paritytech/device-uniqueness-backend-community@v0.8.2
         type: string
         required: false
       product_sdk:
@@ -180,7 +180,7 @@ on:
   # `@latest` is accepted everywhere and resolves through the repo's GitHub "latest
   # release", with the run log naming the concrete tag it landed on. It is only
   # SAFE on repos whose latest release is the one you mean — polkadot-sdk,
-  # release-automation, web3-storage, device-uniqueness-backend.
+  # release-automation, web3-storage, device-uniqueness-backend-community.
   # Three sources where it misfires, verified 2026-08-25:
   #   - paseo-network/runtimes@latest → v2.4.3 while production runs v2.4.4 (GitHub
   #     ranks releases/latest by tag created_at, not publish date), so the gate
@@ -266,9 +266,9 @@ on:
         description: >
           The identity service quadruple (identity-api, chain-writer,
           registration-queue, username-indexer — they travel together), from
-          paritytech/device-uniqueness-backend. Empty runs the engine's default tag.
-          previewnet only. `@latest` is safe.
-          e.g. paritytech/device-uniqueness-backend@latest
+          paritytech/device-uniqueness-backend-community. Empty runs the manifest's pin,
+          else the engine's default tag. previewnet and paseo-next-v2. `@latest` is safe.
+          e.g. paritytech/device-uniqueness-backend-community@latest
         required: false
       product_sdk:
         description: >
@@ -304,7 +304,7 @@ env:
   # Which previewnet-engine release the gate composes — a tag, so an engine merge
   # cannot change what a rerun does. A `ppn_ref` key in the dispatch form's
   # `advanced` overlay overrides it for runs against a branch.
-  PPN_REF_DEFAULT: v0.18.0
+  PPN_REF_DEFAULT: v0.18.1
   # Comma-separated: one release can gate several networks. Individuality cuts a
   # runtime that is baked into BOTH previewnet and paseo-next-v2, so its CI asks
   # for both in one call and gets a fork of each.
