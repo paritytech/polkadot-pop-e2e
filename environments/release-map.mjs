@@ -250,15 +250,11 @@ export const SERVICES = {
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
     // The identity service quadruple (identity-api, chain-writer, registration-queue,
-    // username-indexer) ships on device-uniqueness-backend's own releases since its
-    // v0.2.0; the engine fetches them and DUB_TAG pins the tag. The canonical manifest
-    // deliberately does NOT pin this service: the engine's own default tag
-    // (config/versions.env in previewnet-engine) governs the baseline, so it can't go
-    // stale here. A candidate override may still name it — that exports DUB_TAG for
-    // gating a new dub release.
+    // username-indexer); the engine fetches it, at the manifest's DUB_TAG pin if there is one,
+    // else at its own default tag (config/versions.env in previewnet-engine).
     'identity-backend': {
       envTag: 'DUB_TAG',
-      repos: ['paritytech/device-uniqueness-backend'],
+      repos: ['paritytech/device-uniqueness-backend-community'],
     },
     'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
@@ -268,10 +264,9 @@ export const SERVICES = {
       override: 'eth-rpc',
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
-    // Same wiring as previewnet's: unpinned, the engine's default DUB_TAG governs.
     'identity-backend': {
       envTag: 'DUB_TAG',
-      repos: ['paritytech/device-uniqueness-backend'],
+      repos: ['paritytech/device-uniqueness-backend-community'],
     },
   },
   devnet: {
@@ -638,8 +633,7 @@ export function mergeTarget(canonical, target) {
   const services = { ...(canonical.services ?? {}) };
   for (const [name, ref] of Object.entries(target.services ?? {})) {
     // A service the canonical doesn't pin is still overridable if the network
-    // declares it (SERVICES) — e.g. identity-backend, whose baseline tag is the
-    // engine's own default and only a candidate override exports DUB_TAG.
+    // declares it (SERVICES), e.g. identity-backend on previewnet.
     if (!(name in services) && !SERVICES[canonical.network]?.[name]) {
       throw new Error(`target names service "${name}" unknown to ${canonical.network}`);
     }

@@ -23,20 +23,20 @@
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
-      "genesis": "0xbac97e23fc8f4bccae72a98f8aeb2bcab20bf755862304e4b46ad6473456e896",
-      "codeHash": "0xd1ee06e7e13dee315971e5d7c7634390e43afd802b588faefb0cc910a790d031"
+      "genesis": "0xf7d88e2e343e911c9a5c1a7e6ed53d06ef4cd73276fc3afff87062a1f6f90514",
+      "codeHash": "0xe03444d9aad5089f049c38bde11a2280a7e4413e80f2e0e24ffc36e93d8a7f6c"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
       "metadata": ".papi/metadata/previewBulletin.scale",
-      "genesis": "0xa081192b90c1f6a3f8e9ce7b2a8246f41af805c66456c84e05fd97c2b3502425",
-      "codeHash": "0x6c9e225ba8738aff8ec16ed1bb615822d642aab73bf367622e484bbe868f1de5"
+      "genesis": "0x1c0a1c27946ca0e7def02955315633db590bc38b0c537936e423efeb6c554876",
+      "codeHash": "0x4646df17f67daae80f9676799ab1e3abc244c18ff30359ed1980331eaecea26b"
     },
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
-      "genesis": "0x55e3e689ecfa9d2fffcf7d309b8011956671493982230bfd0420c683542249e9",
-      "codeHash": "0x69e7126f098bdf708302e52b892fd76c5d2477627bce47cbfcee7fcd5db17871"
+      "genesis": "0x732abb4e3052154ebd9201a375b0aacf2d1fe7015700235c0a8b30d44b401c19",
+      "codeHash": "0x4cb6604dc0588cc27df3fc7f274b00cd26fd7211d51bad29e9954984a4074f07"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
@@ -66,7 +66,7 @@
       "wsUrl": "wss://westend-asset-hub-rpc.polkadot.io",
       "metadata": ".papi/metadata/westendAssetHub.scale",
       "genesis": "0x67f9723393ef76214df0118c34bbbd3dbebc8ed46a10973a8c969d48fe7598c9",
-      "codeHash": "0xc7a91f4aafad7a00424bf9d5c8029f2fac2b6ea87ee7ece41fcd3825a5aa8bfd"
+      "codeHash": "0x31e3e8868acfe04371e09ffee66be05749be3a96d6887becab235d88737a323a"
     },
     "westendPeople": {
       "wsUrl": "wss://westend-people-rpc.polkadot.io",
