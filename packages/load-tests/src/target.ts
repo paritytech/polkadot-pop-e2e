@@ -39,6 +39,9 @@ export interface Target {
   assetHubRpc: string | undefined;
 }
 
+/** Where a target's chains are, without its keys: what a worker thread connects with. */
+export type Endpoints = Pick<Target, "label" | "rpc" | "network" | "assetHubRpc">;
+
 export interface TargetOptions {
   rpc: string[];
   network: string | undefined;
@@ -102,14 +105,14 @@ export interface PeopleConnection {
   engine: GameEngine;
 }
 
-export function connectPeople(target: Target): PeopleConnection {
+export function connectPeople(target: Endpoints): PeopleConnection {
   const client = createClient(getWsProvider(target.rpc[0]));
   const api = client.getTypedApi(PEOPLE_DESCRIPTORS[target.network]) as PeopleApi;
   const appClient: AppPeopleClient = { client, api: api as unknown as AppPeopleClient["api"] };
   return { client, api, appClient, engine: createChainEngine(appClient, { tld: NETWORK_CONFIG[APP_NETWORKS[target.network]].dotnsTLD }) };
 }
 
-export function connectAssetHub(target: Target): { client: PolkadotClient; api: AssetHubApi } {
+export function connectAssetHub(target: Endpoints): { client: PolkadotClient; api: AssetHubApi } {
   if (!target.assetHubRpc) throw new Error(`${target.label}: no Asset Hub endpoint to claim NFTs on; run against a stack`);
   const client = createClient(getWsProvider(target.assetHubRpc));
   return { client, api: client.getTypedApi(ASSET_HUB_DESCRIPTORS[target.network]) as AssetHubApi };

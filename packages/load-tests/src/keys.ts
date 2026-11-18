@@ -21,13 +21,19 @@ export interface Keypair {
 /** A load-test player: index `index` of the accounts derived from one run seed. */
 export interface Player extends Keypair {
   index: number;
+  /** The 64-byte sr25519 secret key, which a worker thread rebuilds the player from. */
+  secretKey: Uint8Array;
+}
+
+/** Player `index` with sr25519 secret key `secretKey`. */
+export function playerFromSecret(index: number, secretKey: Uint8Array): Player {
+  const publicKey = getPublicKey(secretKey);
+  return { index, secretKey, publicKey, address: ss58Address(publicKey), sign: (message) => sign(secretKey, message) };
 }
 
 /** The same `seed` and `index` always derive the same account, in every shard and process. */
 export function derivePlayer(seed: string, index: number): Player {
-  const secret = secretFromSeed(blake2b256(new TextEncoder().encode(`${seed}/${index}`)));
-  const publicKey = getPublicKey(secret);
-  return { index, publicKey, address: ss58Address(publicKey), sign: (message) => sign(secret, message) };
+  return playerFromSecret(index, secretFromSeed(blake2b256(new TextEncoder().encode(`${seed}/${index}`))));
 }
 
 export function derivePlayers(seed: string, indices: Iterable<number>): Player[] {
@@ -54,8 +60,7 @@ export function hostGhostPlayer(seed: string, productId: string, ghostsPerHost: 
     secret = deriveProductSecret(mnemonicToEntropy(hostMnemonic(seed, host)), productId);
     hostProductSecrets.set(cacheKey, secret);
   }
-  const key = deriveProductAccount(secret, index % ghostsPerHost);
-  return { index, publicKey: key.publicKey, address: key.address, sign: key.sign };
+  return playerFromSecret(index, deriveProductAccount(secret, index % ghostsPerHost).secretKey);
 }
 
 /** An sr25519 key from a secret URI: `//Alice` (dev phrase) or `<mnemonic>[//path]`. */
