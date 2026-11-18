@@ -1,7 +1,16 @@
 // Runs inside `truapi-host signing-host --script`: `truapi` and `host` are the host's globals,
 // and the plan file at `GHOST_PLAN` lists which ghosts this host plays and when.
 import { readFileSync, writeFileSync } from "node:fs";
-import { formatHostError } from "@parity/product-sdk-host";
+import {
+  formatHostError,
+  type HexString,
+  type ProductAccountId,
+  type SignedStatement,
+  type Statement,
+  type StatementProof,
+  type TruApi,
+} from "@parity/product-sdk-host";
+import type { WireStatement } from "@jollity/statement-core";
 import { SignallingBot } from "./bot.js";
 import type { HostGhostPlan } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
@@ -10,42 +19,19 @@ import { coPlayersOf } from "./seating.js";
 import { SignallingStats } from "./stats.js";
 import { sleepUntil } from "./time.js";
 
-type Hex = `0x${string}`;
+declare const truapi: Pick<TruApi, "statementStore">;
+declare const host: { productAccount(index: number): ProductAccountId };
 
-interface Result<T> {
-  isErr(): boolean;
-  value: T;
-  error: unknown;
-}
+/** `wire` as the host takes a statement: its fields are hex the transport already wrote. */
+const hostStatement = (wire: WireStatement): Statement => ({
+  expiry: wire.expiry,
+  channel: wire.channel as HexString,
+  topics: wire.topics as HexString[],
+  data: wire.data as HexString,
+});
 
-interface HostStatement {
-  expiry: bigint;
-  channel: Hex;
-  topics: Hex[];
-  data: Hex;
-}
-
-interface SignedStatement {
-  proof?: { tag: string; value?: { signer?: string } };
-  expiry?: bigint;
-  channel?: Hex;
-  data?: Hex;
-}
-
-declare const truapi: {
-  statementStore: {
-    subscribe(options: { request: { tag: "MatchAny"; value: string[] } }): {
-      subscribe(observer: {
-        next(page: { statements: SignedStatement[] }): void;
-        error(error: unknown): void;
-        complete(): void;
-      }): { unsubscribe(): void };
-    };
-    createProof(request: { productAccountId: unknown; statement: HostStatement }): Promise<Result<{ proof: unknown }>>;
-    submit(statement: HostStatement & { proof: unknown }): Promise<Result<undefined>>;
-  };
-};
-declare const host: { productAccount(index: number): unknown };
+/** The account that signed a statement, which an on-chain proof doesn't name. */
+const signerOf = (statement: SignedStatement) => (statement.proof.tag === "OnChain" ? undefined : statement.proof.value.signer.toLowerCase());
 
 /** How long the app waits before opening a subscription the host ended, by attempt. */
 const RESUBSCRIBE_MS = [1000, 2000, 4000, 8000, 16000];
@@ -55,15 +41,16 @@ const RESUBSCRIBE_MS = [1000, 2000, 4000, 8000, 16000];
  * `playerStatementStore` adapts it: proved as the player, and a subscription the host ends
  * opened again.
  */
-function hostStatementStore(productAccountId: unknown): MeasurableStore {
+function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore {
   return {
     async createProofAuthorized(wire) {
-      const result = await truapi.statementStore.createProof({ productAccountId, statement: wire as HostStatement });
+      const result = await truapi.statementStore.createProof({ productAccountId, statement: hostStatement(wire) });
       if (result.isErr()) throw new Error(`statement proof refused: ${formatHostError(result.error)}`);
       return result.value.proof;
     },
     async submit(wire) {
-      const result = await truapi.statementStore.submit(wire as HostStatement & { proof: unknown });
+      // The proof is the one `createProofAuthorized` returned for this statement.
+      const result = await truapi.statementStore.submit({ ...hostStatement(wire), proof: wire.proof as StatementProof });
       if (result.isErr()) throw new Error(`statement submit failed: ${formatHostError(result.error)}`);
     },
     subscribe(filter, onPage, events) {
@@ -80,11 +67,11 @@ function hostStatementStore(productAccountId: unknown): MeasurableStore {
           retry = setTimeout(open, RESUBSCRIBE_MS[Math.min(attempt++, RESUBSCRIBE_MS.length - 1)]);
         };
         events.opened();
-        current = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: filter.matchAny } }).subscribe({
+        current = truapi.statementStore.subscribe({ request: { tag: "MatchAny", value: filter.matchAny as HexString[] } }).subscribe({
           next(page) {
             attempt = 0;
             onPage({
-              statements: page.statements.map(({ proof, expiry, channel, data }) => ({ data, signer: proof?.value?.signer?.toLowerCase(), channel, expiry })),
+              statements: page.statements.map((statement) => ({ data: statement.data, signer: signerOf(statement), channel: statement.channel, expiry: statement.expiry })),
             });
           },
           error: (error) => end(formatHostError(error)),
