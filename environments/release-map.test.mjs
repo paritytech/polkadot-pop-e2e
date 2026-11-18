@@ -90,11 +90,11 @@ describe('the checked-in previewnet manifest', () => {
     // A candidate override naming it exports DUB_TAG even though the canonical
     // doesn't pin it.
     const overridden = mergeTarget(previewnet, {
-      services: { 'identity-backend': 'paritytech/device-uniqueness-backend@v0.4.0' },
+      services: { 'identity-backend': 'paritytech/device-uniqueness-backend-community@v0.4.0' },
     });
     assert.deepEqual(envTagPins(overridden), { DUB_TAG: 'v0.4.0' });
     assert.deepEqual(transitions(previewnet, overridden), [
-      'identity-backend: (engine default) → paritytech/device-uniqueness-backend@v0.4.0',
+      'identity-backend: (engine default) → paritytech/device-uniqueness-backend-community@v0.4.0',
     ]);
   });
 
@@ -278,7 +278,7 @@ describe('guard rails', () => {
     assert.match(text, /binary polkadot \(runs relay\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
     assert.match(text, /binary polkadot-omni-node \(runs asset-hub, people, bulletin, web3-storage\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
     assert.match(text, /people: runtime from paritytech\/individuality-community/);
-    assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend/);
+    assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend-community/);
     assert.match(text, /kubo: from ipfs\/kubo \(pin recorded, not yet swapped\)/);
     assert.throws(() => allowedSources('nonexistent'), /unknown network/);
   });

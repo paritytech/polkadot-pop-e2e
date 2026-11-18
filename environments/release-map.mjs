@@ -250,7 +250,7 @@ export const SERVICES = {
       repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
     },
     // The identity service quadruple (identity-api, chain-writer, registration-queue,
-    // username-indexer) ships on device-uniqueness-backend's own releases since its
+    // username-indexer) ships on device-uniqueness-backend-community's releases since its
     // v0.2.0; the engine fetches them and DUB_TAG pins the tag. The canonical manifest
     // deliberately does NOT pin this service: the engine's own default tag
     // (config/versions.env in previewnet-engine) governs the baseline, so it can't go
@@ -258,7 +258,7 @@ export const SERVICES = {
     // gating a new dub release.
     'identity-backend': {
       envTag: 'DUB_TAG',
-      repos: ['paritytech/device-uniqueness-backend'],
+      repos: ['paritytech/device-uniqueness-backend-community'],
     },
     'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
@@ -271,7 +271,7 @@ export const SERVICES = {
     // Same wiring as previewnet's: unpinned, the engine's default DUB_TAG governs.
     'identity-backend': {
       envTag: 'DUB_TAG',
-      repos: ['paritytech/device-uniqueness-backend'],
+      repos: ['paritytech/device-uniqueness-backend-community'],
     },
   },
   devnet: {
