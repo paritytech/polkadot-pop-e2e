@@ -1,4 +1,13 @@
-import { TTL_S, errMessage, type StatementStoreLike, type StatementSubscription, type WireStatement } from "@jollity/statement-core";
+import {
+  SIGN_TIMEOUT_MS,
+  SUBMIT_TIMEOUT_MS,
+  TTL_S,
+  errMessage,
+  withTimeout,
+  type StatementStoreLike,
+  type StatementSubscription,
+  type WireStatement,
+} from "@jollity/statement-core";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
 
 /** A statement as a store delivers it: beside what the transport reads, its channel and expiry. */
@@ -49,7 +58,8 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
     async createProofAuthorized(wire: WireStatement) {
       proofStarts.set(wire.expiry, Date.now());
       try {
-        return await store.createProofAuthorized(wire);
+        // The transport gives up on a proof or submit after these, so one that hangs counts as `timeout`.
+        return await withTimeout(store.createProofAuthorized(wire), SIGN_TIMEOUT_MS);
       } catch (error) {
         proofStarts.delete(wire.expiry);
         bump(stats.submits, `proof:${countKey(error)}`);
@@ -61,7 +71,7 @@ export function measuredStore(store: MeasurableStore, stats: SignallingStats, co
       proofStarts.delete(wire.expiry);
       stats.bytesSubmitted += (wire.data.length - 2) / 2;
       try {
-        const result = await store.submit(wire);
+        const result = await withTimeout(store.submit(wire), SUBMIT_TIMEOUT_MS);
         stats.submitRtt.add(Date.now() - startedAt);
         bump(stats.submits, result && typeof result === "object" && "status" in result && typeof result.status === "string" ? result.status : "new");
         counter.accepted(stampTime(wire.expiry));
