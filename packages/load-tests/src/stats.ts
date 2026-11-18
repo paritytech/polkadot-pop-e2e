@@ -21,18 +21,9 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
  * latest it received there: one replaced before it arrived came with the one that replaced it.
  */
 export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedStamps" | "deliveredUpTo">): number {
-  const sorted = new Map(Object.entries(stats.acceptedStamps).map(([channel, stamps]) => [channel, [...stamps].sort((a, b) => a - b)]));
   let credited = 0;
-  for (const [receiverChannel, upTo] of Object.entries(stats.deliveredUpTo)) {
-    const stamps = sorted.get(receiverChannel.slice(receiverChannel.indexOf(" ") + 1)) ?? [];
-    let low = 0;
-    let high = stamps.length;
-    while (low < high) {
-      const middle = (low + high) >> 1;
-      if (stamps[middle] <= upTo) low = middle + 1;
-      else high = middle;
-    }
-    credited += low;
+  for (const channels of Object.values(stats.deliveredUpTo)) {
+    for (const [channel, upTo] of Object.entries(channels)) credited += (stats.acceptedStamps[channel] ?? []).filter((stamp) => stamp <= upTo).length;
   }
   return credited;
 }
@@ -80,8 +71,8 @@ export class DeliveryCounter {
    */
   receive(channel: string, stampedAt: number, sentAt: number, now: number): void {
     this.statements++;
-    const receiverChannel = `${this.receiver} ${channel}`;
-    this.stats.deliveredUpTo[receiverChannel] = Math.max(this.stats.deliveredUpTo[receiverChannel] ?? 0, stampedAt);
+    const channels = (this.stats.deliveredUpTo[this.receiver] ??= {});
+    channels[channel] = Math.max(channels[channel] ?? 0, stampedAt);
     // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
     const key = `${channel}/${stampedAt}`;
     if (stampedAt < this.window.start || stampedAt >= this.window.end || this.seen.has(key)) return;
@@ -134,8 +125,8 @@ export class SignallingStats {
   deliveredInWindow = 0;
   /** Per channel, the stamp times of the statements accepted in the window. */
   acceptedStamps: Record<string, number[]> = {};
-  /** Per receiver and channel, as `receiver channel`, the latest stamp time the receiver got there. */
-  deliveredUpTo: Record<string, number> = {};
+  /** Per receiver, then per channel, the latest stamp time the receiver got there. */
+  deliveredUpTo: Record<string, Record<string, number>> = {};
   bytesSubmitted = 0;
   latency = new Histogram();
   submitRtt = new Histogram();
@@ -144,8 +135,9 @@ export class SignallingStats {
   add(other: SignallingStats): void {
     const { acceptedStamps, deliveredUpTo, ...counts } = other;
     for (const [channel, stamps] of Object.entries(acceptedStamps)) (this.acceptedStamps[channel] ??= []).push(...stamps);
-    for (const [receiverChannel, stamp] of Object.entries(deliveredUpTo)) {
-      this.deliveredUpTo[receiverChannel] = Math.max(this.deliveredUpTo[receiverChannel] ?? 0, stamp);
+    for (const [receiver, channels] of Object.entries(deliveredUpTo)) {
+      const latest = (this.deliveredUpTo[receiver] ??= {});
+      for (const [channel, stamp] of Object.entries(channels)) latest[channel] = Math.max(latest[channel] ?? 0, stamp);
     }
     const own = this as unknown as Record<string, number | Histogram | Record<string, number>>;
     for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {

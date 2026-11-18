@@ -14,7 +14,7 @@ function shard(index: number, accepted: number, delivered: number, lagMs = 10, r
   // The shard's statements on one channel, the deliveries spread over receivers up to the last of them.
   stats.acceptedStamps[`channel ${index}`] = Array.from({ length: accepted }, (_, stamp) => stamp + 1);
   for (let receiver = 0; receiver * accepted < delivered; receiver++) {
-    stats.deliveredUpTo[`receiver${receiver} channel ${index}`] = Math.min(accepted, delivered - receiver * accepted);
+    stats.deliveredUpTo[`shard ${index} receiver ${receiver}`] = { [`channel ${index}`]: Math.min(accepted, delivered - receiver * accepted) };
   }
   stats.deliveredInWindow = delivered;
   stats.submits = { new: accepted };
