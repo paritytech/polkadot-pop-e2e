@@ -59,7 +59,7 @@ const statementKey = (channel: string, expiry: bigint) => `${channel.toLowerCase
  * every statement delivered to the player, which arrives from then until `close`, also after the
  * transport unsubscribed.
  */
-export function measuredStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter): MeasuredStore {
+export function createCountingStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter): MeasuredStore {
   const proofStarts = new Map<bigint, number>();
   const subscriptions: StatementSubscription[] = [];
   return {

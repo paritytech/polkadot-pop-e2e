@@ -10,7 +10,7 @@ import {
   ss58Address,
 } from "@polkadot-labs/hdkd-helpers";
 import { getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
-import { productAccountAt, productSecret } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
+import { deriveProductAccount, deriveProductSecret } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 
 export interface Keypair {
   publicKey: Uint8Array;
@@ -51,10 +51,10 @@ export function hostGhostPlayer(seed: string, productId: string, ghostsPerHost: 
   const cacheKey = `${seed}/${productId}/${host}`;
   let secret = hostProductSecrets.get(cacheKey);
   if (!secret) {
-    secret = productSecret(mnemonicToEntropy(hostMnemonic(seed, host)), productId);
+    secret = deriveProductSecret(mnemonicToEntropy(hostMnemonic(seed, host)), productId);
     hostProductSecrets.set(cacheKey, secret);
   }
-  const key = productAccountAt(secret, index % ghostsPerHost);
+  const key = deriveProductAccount(secret, index % ghostsPerHost);
   return { index, publicKey: key.publicKey, address: key.address, sign: key.sign };
 }
 

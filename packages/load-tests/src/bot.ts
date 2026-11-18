@@ -10,7 +10,7 @@ import {
 } from "@jollity/statement-core";
 import { AccountId } from "@polkadot-api/substrate-bindings";
 import { communicationIdentifier, communicationSecret } from "./keys.js";
-import { measuredStore, type MeasurableStore, type MeasuredStore } from "./measured-store.js";
+import { createCountingStore, type MeasurableStore, type MeasuredStore } from "./measured-store.js";
 import type { SignallingProfile } from "./profile.js";
 import { iceCandidates, iceCredentials, sessionDescription, type IceCredentials } from "./sdp.js";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
@@ -58,7 +58,7 @@ export class SignallingBot {
   constructor(private readonly options: BotOptions) {
     // Every co-player listens on the player's topic, so each statement is due to each of them.
     this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length, options.self);
-    this.measured = measuredStore(options.store, options.stats, this.counter);
+    this.measured = createCountingStore(options.store, options.stats, this.counter);
   }
 
   /** The waiting room's store clock calibration: one statement on the player's own channel. */

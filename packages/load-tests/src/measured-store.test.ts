@@ -1,6 +1,6 @@
 import { SIGN_TIMEOUT_MS, SUBMIT_TIMEOUT_MS, packExpiry, type WireStatement } from "@jollity/statement-core";
 import { describe, expect, it, vi } from "vitest";
-import { measuredStore, stampTime, type MeasurableStore } from "./measured-store.js";
+import { createCountingStore, stampTime, type MeasurableStore } from "./measured-store.js";
 import { DeliveryCounter, SignallingStats } from "./stats.js";
 
 // A receiver measures a statement's latency from the time its expiry was stamped at, which is
@@ -13,7 +13,7 @@ describe("stampTime", () => {
 
 // A host that never answers a proof or submit is a failure the players feel, so the summary has
 // to count it rather than wait on it forever.
-describe("measuredStore", () => {
+describe("createCountingStore", () => {
   const hung: MeasurableStore = {
     createProofAuthorized: () => new Promise(() => {}),
     submit: () => new Promise(() => {}),
@@ -25,7 +25,7 @@ describe("measuredStore", () => {
     vi.useFakeTimers();
     try {
       const stats = new SignallingStats();
-      const store = measuredStore(hung, stats, new DeliveryCounter(stats, { start: 0, end: Number.MAX_SAFE_INTEGER }, 1, "player"));
+      const store = createCountingStore(hung, stats, new DeliveryCounter(stats, { start: 0, end: Number.MAX_SAFE_INTEGER }, 1, "player"));
       const proof = expect(store.createProofAuthorized(wire)).rejects.toThrow("timeout");
       await vi.advanceTimersByTimeAsync(SIGN_TIMEOUT_MS);
       await proof;
@@ -52,8 +52,8 @@ describe("measuredStore", () => {
     };
     const stats = new SignallingStats();
     const window = { start: 0, end: Number.MAX_SAFE_INTEGER };
-    const sender = measuredStore(store, stats, new DeliveryCounter(stats, window, 1, "sender"));
-    const receiver = measuredStore(store, stats, new DeliveryCounter(stats, window, 1, "receiver"));
+    const sender = createCountingStore(store, stats, new DeliveryCounter(stats, window, 1, "sender"));
+    const receiver = createCountingStore(store, stats, new DeliveryCounter(stats, window, 1, "receiver"));
     receiver.subscribe({ matchAny: ["0x02"] }, () => {});
     const sentAt = Date.now();
     const stamped = { ...wire, channel: "0xAB", expiry: packExpiry(sentAt + 5_000) };

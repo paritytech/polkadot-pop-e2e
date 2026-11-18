@@ -21,7 +21,7 @@ export const ALREADY_REGISTERED = "AlreadyRegistered";
  * with a `submit` that only signs, so a burst sends them all at once. `refusals` counts the
  * players the app's sign-up left out, by its reason.
  */
-export async function signUps(engine: GameEngine, players: Player[]): Promise<{ signed: string[]; refusals: Record<string, number> }> {
+export async function signSignUps(engine: GameEngine, players: Player[]): Promise<{ signed: string[]; refusals: Record<string, number> }> {
   const started = Date.now();
   const refusals: Record<string, number> = {};
   const built = await readAll(players, async (player) => {

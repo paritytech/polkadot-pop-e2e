@@ -35,7 +35,7 @@ export interface IdentityKey {
 }
 
 /** The `//product//<productId>` hard secret of `entropy`, which every account of that product derives from. */
-export function productSecret(entropy: Uint8Array, productId: string): Uint8Array {
+export function deriveProductSecret(entropy: Uint8Array, productId: string): Uint8Array {
   let secret: Uint8Array = secretFromSeed(entropyToMiniSecret(entropy));
   for (const junction of ["product", productId]) {
     secret = HDKD.secretHard(secret, chainCode(junction));
@@ -43,9 +43,9 @@ export function productSecret(entropy: Uint8Array, productId: string): Uint8Arra
   return secret;
 }
 
-/** Product account `index` under a `productSecret`: its soft `index_bytes(index)`. */
-export function productAccountAt(productSecret: Uint8Array, index: number): IdentityKey {
-  const secretKey = HDKD.secretSoft(productSecret, indexBytes(index));
+/** Product account `index` under a product secret: its soft `index_bytes(index)`. */
+export function deriveProductAccount(secret: Uint8Array, index: number): IdentityKey {
+  const secretKey = HDKD.secretSoft(secret, indexBytes(index));
   const publicKey = getPublicKey(secretKey);
   return {
     secretKey,
@@ -57,7 +57,7 @@ export function productAccountAt(productSecret: Uint8Array, index: number): Iden
 
 /** `//product//<productId>` hard, then the soft `index_bytes(index)`: a product account truapi derives. */
 export function productAccountKey(entropy: Uint8Array, productId: string, index: number): IdentityKey {
-  return productAccountAt(productSecret(entropy, productId), index);
+  return deriveProductAccount(deriveProductSecret(entropy, productId), index);
 }
 
 /** The `peopl.<suffix>` product account at index 0: the person's identity account (RFC-0028). */

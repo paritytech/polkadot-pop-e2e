@@ -4,7 +4,7 @@ import { fromPapi, groupSeats, reportTx, withScoreParticipant, type ReportVote }
 import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, SIGNING_MS, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { ALREADY_REGISTERED, signUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import { ALREADY_REGISTERED, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
@@ -247,7 +247,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     gameIndex = game.index;
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame) await topUpPlayers(target, api, players);
-    const { signed: signedSignUps, refusals } = await signUps(engine, players);
+    const { signed: signedSignUps, refusals } = await signSignUps(engine, players);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
