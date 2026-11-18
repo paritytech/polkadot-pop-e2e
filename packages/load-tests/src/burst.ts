@@ -159,18 +159,15 @@ export function submitBurst(
   return submitLanes(lanes, api, client, urls, connectionCount, deadline);
 }
 
-/** How `submitLanes` counts its transactions. */
+/** How `submitLanes` reports its progress. */
 export interface LaneOptions {
-  /** Reads each transaction's block for its outcome and time (default); without, one in a block counts as succeeded. */
-  readBlocks?: boolean;
   /** Logs the counts under this label every 30 s while the lanes run. */
   progress?: string;
 }
 
 /**
  * Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all
- * their transactions. Without `readBlocks` a transaction counts as succeeded once it is in a
- * block, unread: for thousands of transactions a caller checks the outcome on chain afterwards.
+ * their transactions: one succeeds once it executed without a dispatch error in its block.
  */
 export async function submitLanes(
   lanes: Lane[],
@@ -179,7 +176,7 @@ export async function submitLanes(
   urls: string[],
   connectionCount: number,
   deadline: (chainStart: number) => number,
-  { readBlocks = true, progress }: LaneOptions = {},
+  { progress }: LaneOptions = {},
 ): Promise<Burst> {
   const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
   const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
@@ -204,11 +201,6 @@ export async function submitLanes(
       const timer = setTimeout(() => finish("timeout"), TX_TIMEOUT_MS);
       const included = async (hash: string) => {
         burst.inclusionMs.add(Date.now() - submittedAt);
-        if (!readBlocks) {
-          burst.ok++;
-          burst.inTime++;
-          return finish();
-        }
         const block = await readBlock(hash);
         burst.firstBlock = Math.min(burst.firstBlock ?? Infinity, block.number);
         burst.lastBlock = Math.max(burst.lastBlock ?? 0, block.number);
