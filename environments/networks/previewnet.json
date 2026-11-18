@@ -10,7 +10,7 @@
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paritytech/individuality-community@v0.3.4"
+      "runtime": "paritytech/individuality-community@v0.3.5"
     },
     "people": {
       "runtime": "paritytech/individuality-community@v0.3.5"
