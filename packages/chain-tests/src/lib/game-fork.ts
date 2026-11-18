@@ -205,6 +205,7 @@ export async function prepareGameWithDraw(
             game_play_time: gamePlayTime,
             rounds: 2,
             max_group_size: 6,
+            tenure_claim_window: 0,
             airdrops: [
               {
                 draw_offset: 120,
