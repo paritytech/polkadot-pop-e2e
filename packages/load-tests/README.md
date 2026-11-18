@@ -136,7 +136,36 @@ The `chain` table has one row per burst: sign-up, report and NFT claim.
 - **Credits** shows how many of the credits People awarded the bots arrived on Asset Hub and how
   long that took, and how many were claimed on chain once every bot was done.
 - **A player's claims** is the time one bot took for all of its claims, one after another.
-- **Fullest block** is the fullest People block of the game, by weight and proof size.
+
+**Blocks by phase** has one row per game state the People chain executed in: Registration (the
+sign-up burst), Shuffle, Reporting (the report burst) and PlayerProcess. A block counts in the
+state its previous block left the game in, so the block that ends a state counts with it. Blocks
+before the run's game and after it don't count. The run reads every finalized block once, at its
+hash.
+
+- **Block time** is the time between consecutive blocks as the run's RPC node imported them. The
+  chain's own timestamps can't give it: they follow the relay chain's slots, which consecutive
+  blocks share.
+- **Max normal %** is the normal-class weight over the normal-class limit, by ref time and proof
+  size; **Max mandatory %** is the mandatory class over the block's limit, which on
+  paseo-next-v2 includes the game's own processing.
+- **Max KB** is the extrinsics' encoded size; **Max PoV KB**, on previewnet only, is the
+  proof size the node reports with `dev_getBlockStats`.
+- **Max unincluded** is `ParachainSystem.UnincludedSegment`: blocks the relay chain hasn't
+  included yet.
+- **Max credit trees** is the NFT credit trees waiting to be built. At 8 the chain takes no more
+  credits: reports fail with `CreditCapacityExhausted` and player processing waits.
+- **Max finality lag** is how many blocks the best block was ahead when a block was finalized.
+- **Collator 1 block ends**, on previewnet only, counts why building each block ended, from the
+  collator's public log. When the log can't be read, a line under the table says so.
+
+**Game processing** gives the shuffle's work without its wait for the game date, the blocks from
+the end of reporting to `GameEnded`, and the heaviest step as a share of a block's ref time:
+from the step calls' own weight on previewnet, from the mandatory class on paseo-next-v2.
+
+The run fails when a block of a burst takes over twice the game's median block time, a block's
+normal class reaches 90%, any extrinsic fails with `CreditCapacityExhausted`, 8 credit trees are
+waiting, or `GameEnded` is later than the report end plus `player_process`.
 
 The messages table has one row per run:
 

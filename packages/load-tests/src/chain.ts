@@ -2,11 +2,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fromPapi, groupSeats, reportTx, type ReportVote } from "@parity/product-sdk-individuality";
 import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
+import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from "./block-load.js";
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
+import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep } from "./time.js";
@@ -49,14 +52,6 @@ export interface ChainRun {
   claim: boolean;
 }
 
-export interface BlockLoad {
-  number: number;
-  extrinsics: number;
-  /** Normal-class weight used over the normal-class limit. */
-  refTime: number;
-  proofSize: number;
-}
-
 export interface ChainResult {
   layer: "chain";
   runId: string;
@@ -72,13 +67,12 @@ export interface ChainResult {
   report: BurstSummary | null;
   /** Claiming the game's credits as NFTs on Asset Hub, when the run claims. */
   claim: ClaimResult | null;
+  /** Every finalized People block from the run's start to its end. */
   blocks: BlockLoad[];
-}
-
-function stateLabel(game: { state: { type: string; value?: unknown } } | undefined): string {
-  if (!game) return "None";
-  const step = (game.state.value as { step?: { type: string } } | undefined)?.step;
-  return step ? `${game.state.type}.${step.type}` : game.state.type;
+  /** Collator 1's proposals in the game's blocks, from previewnet's public log; null elsewhere or when the log wasn't read. */
+  proposals: Proposal[] | null;
+  /** What the run couldn't read, without failing it. */
+  notes: string[];
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -180,14 +174,13 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { client, api, appClient, engine } = connectPeople(target);
   const pool = SigningPool.open(target);
   const timeline: ChainResult["timeline"] = [];
-  const blocks: BlockLoad[] = [];
   const findings: string[] = [];
   const chainNow = async () => Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
   let previousPhases: Phases | undefined;
   let watching = true;
   // On a live network the next game starts as soon as this one ends, so the end is a new index.
   let gameIndex: number | undefined;
-  let blockSubscription: { unsubscribe(): void } | undefined;
+  let blockFollower: BlockFollower | undefined;
 
   try {
     const { players } = run;
@@ -203,23 +196,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       previousPhases = scheduled.previous;
     }
 
-    const maxNormal = (await api.constants.System.BlockWeights()).per_class.normal.max_total!;
-    blockSubscription = client.finalizedBlock$.subscribe({
-      next: async (block) => {
-        try {
-          const [weight, body] = await Promise.all([api.query.System.BlockWeight.getValue({ at: block.hash }), client.getBlockBody(block.hash)]);
-          blocks.push({
-            number: block.number,
-            extrinsics: body.length,
-            refTime: Number(weight.normal.ref_time) / Number(maxNormal.ref_time),
-            proofSize: Number(weight.normal.proof_size) / Number(maxNormal.proof_size),
-          });
-        } catch (error) {
-          console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
-        }
-      },
-      error: (error: Error) => console.warn(`[chain] finalized blocks no longer followed: ${error.message}`),
-    });
+    blockFollower = await followBlockLoad(client, api);
     void (async () => {
       while (watching) {
         try {
@@ -330,6 +307,20 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
+    const blocks = [...blockFollower.blocks].sort((a, b) => a.number - b.number);
+    const gameSummary = { index: game.index, gamePlayTime: game.game_date, registrationEnds: game.registration_ends, reportEnds: game.report_ends };
+    const signUpSummary = summarizeBurst(signUp);
+    findings.push(...findBlockLimits({ blocks, game: gameSummary, phases, signUp: signUpSummary, report }));
+    const notes: string[] = [];
+    let proposals: Proposal[] | null = null;
+    const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
+    if (target.network === "previewnet" && gameBlocks.length > 0) {
+      const [first, last] = [gameBlocks[0], gameBlocks.at(-1)!];
+      proposals = await readProposals(first.number, last.number, first.timestamp, last.timestamp).catch((error: Error) => {
+        notes.push(`collator log not read: ${error.message}`);
+        return null;
+      });
+    }
 
     const result: ChainResult = {
       layer: "chain",
@@ -339,19 +330,21 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       verdict: findings.length === 0 ? "pass" : "fail",
       findings,
       phases,
-      game: { index: game.index, gamePlayTime: game.game_date, registrationEnds: game.registration_ends, reportEnds: game.report_ends },
+      game: gameSummary,
       timeline,
-      signUp: summarizeBurst(signUp),
+      signUp: signUpSummary,
       report,
       claim,
-      blocks: blocks.sort((a, b) => a.number - b.number),
+      blocks,
+      proposals,
+      notes,
     };
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));
     return result;
   } finally {
     watching = false;
-    blockSubscription?.unsubscribe();
+    blockFollower?.stop();
     // The phases apply to every later game, so a run on a shared network sets them back.
     if (previousPhases && target.sudo) {
       await dispatchAsRoot(api, target.sudo, [api.tx.Game.set_game_phases({ phases: previousPhases }).decodedCall], 1, "restore phases").catch(
