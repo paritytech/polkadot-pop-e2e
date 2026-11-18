@@ -116,20 +116,6 @@ export async function signEntry({ creator, tx, nonce }: BurstEntry): Promise<str
 }
 
 /**
- * Every entry signed, before a burst's window opens: polkadot-api takes tens of milliseconds per
- * transaction.
- */
-export async function signEntries(entries: BurstEntry[], label: string): Promise<string[]> {
-  const started = Date.now();
-  const signed: string[] = [];
-  for (let start = 0; start < entries.length; start += 200) {
-    signed.push(...(await Promise.all(entries.slice(start, start + 200).map(signEntry))));
-  }
-  console.log(`[${label}] ${signed.length} transactions signed in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-  return signed;
-}
-
-/**
  * Submits one signed extrinsic; true once it is in a best block and, when the run reads blocks,
  * succeeded there; false when it failed or timed out.
  */

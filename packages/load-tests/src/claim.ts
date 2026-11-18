@@ -4,11 +4,12 @@ import type { PeopleClient as AppPeopleClient } from "@individuality/people-chai
 import { gameCredits, type GameCredits } from "@individuality/game-outcome";
 import { claimsChain, type ClaimsChain } from "@individuality/game-outcome/chain";
 import { defaultCollectionFor } from "@jollity/collectables/src/picks";
-import { accountSigner, signEntries, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
+import { accountSigner, signEntry, submitLanes, summarizeBurst, type BurstSummary, type Lane } from "./burst.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
+import type { SigningPool } from "./signing-pool.js";
 import { APP_NETWORKS, connectAssetHub, type AssetHubApi, type Target } from "./target.js";
 import { readAll, retry, sleep, withTimeout } from "./time.js";
 
@@ -109,6 +110,7 @@ export async function claimCredits(
   gameIndex: number,
   sinceBlock: number,
   connections: number,
+  pool: SigningPool,
 ): Promise<ClaimResult> {
   const { client, api } = connectAssetHub(target);
   const chain = claimsChain(people, client);
@@ -176,8 +178,10 @@ export async function claimCredits(
     );
     const creators = claimants.map(({ player }) => accountSigner(player));
     // Signed up front: one process signs for every player, which a phone does for itself only.
-    const flat = await signEntries(
-      claimants.flatMap((_, index) => txs[index].map((tx, offset) => ({ creator: creators[index], tx, nonce: nonces[index].nonce + offset }))),
+    const flat = await pool.sign(
+      claimants.flatMap(({ player }, index) =>
+        txs[index].map((tx, offset) => ({ player, chain: "assetHub" as const, signer: "account" as const, tx, nonce: nonces[index].nonce + offset })),
+      ),
       "claim",
     );
     let taken = 0;

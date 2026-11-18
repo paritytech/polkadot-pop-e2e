@@ -4,6 +4,7 @@ import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, signEntry } from "./burst.js";
 import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
+import type { SigningOutcome, SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep, withTimeout } from "./time.js";
@@ -12,8 +13,8 @@ import { readAll, sleep, withTimeout } from "./time.js";
 export const PLAYER_FUNDS = 30_000_000_000n;
 
 /**
- * The CPU time one sign-up takes on a CI runner, its fee estimate and its signature each decoding
- * the whole runtime metadata: 172.5 s for 300 players on previewnet.
+ * The CPU time one sign-up takes on one core of a CI runner, its fee estimate and its signature
+ * each decoding the whole runtime metadata: 172.5 s for 300 players on previewnet, on one thread.
  */
 export const SIGN_UP_MS = 600;
 
@@ -23,33 +24,39 @@ const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0,
 export const ALREADY_REGISTERED = "AlreadyRegistered";
 
 /**
- * Each player's sign-up as the app makes it, signed but not sent: the app engine's `register`,
- * with a `submit` that only signs, so a burst sends them all at once. `refusals` counts the
- * players the app's sign-up left out, by its reason.
+ * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
+ * `submit` that only signs, so a burst can send every player's at once.
  */
-export async function signSignUps(engine: GameEngine, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
+export async function signSignUp(engine: GameEngine, player: Player): Promise<SigningOutcome> {
+  let extrinsic: string | undefined;
+  const capabilities = {
+    account: { address: player.address, publicKey: player.publicKey },
+    signer: hostSigner(player),
+    submit: async (tx: unknown, creator: CommonSignerTxCreator) => {
+      extrinsic = await signEntry({ creator, tx: tx as Transaction });
+      return { ok: true as const };
+    },
+  };
+  try {
+    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
+    if (!result.ok) return { refusal: result.error };
+  } catch (error) {
+    return { refusal: (error as Error).message };
+  }
+  return extrinsic === undefined ? { refusal: "no sign-up to sign" } : { extrinsic };
+}
+
+/** Every player's `signSignUp`, spread over the pool's threads; `refusals` counts the players left out, by reason. */
+export async function signSignUps(pool: SigningPool, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
   const started = Date.now();
   const refusals: Record<string, number> = {};
-  const perPlayer = await readAll(players, async (player) => {
-    let extrinsic: string | undefined;
-    const capabilities = {
-      account: { address: player.address, publicKey: player.publicKey },
-      signer: hostSigner(player),
-      submit: async (tx: unknown, creator: CommonSignerTxCreator) => {
-        extrinsic = await signEntry({ creator, tx: tx as Transaction });
-        return { ok: true as const };
-      },
-    };
-    try {
-      const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
-      if (!result.ok) bump(refusals, result.error);
-    } catch (error) {
-      bump(refusals, (error as Error).message);
-    }
-    return extrinsic;
-  });
-  const extrinsics = perPlayer.filter((hex) => hex !== undefined);
-  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(refusals)}`);
+  const extrinsics: string[] = [];
+  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player)))) {
+    if ("extrinsic" in outcome) extrinsics.push(outcome.extrinsic);
+    else bump(refusals, outcome.refusal);
+  }
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(refusals)}`);
   return { extrinsics, refusals };
 }
 

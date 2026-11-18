@@ -1,12 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fromPapi, groupSeats, reportTx, withScoreParticipant, type ReportVote } from "@parity/product-sdk-individuality";
+import { fromPapi, groupSeats, reportTx, type ReportVote } from "@parity/product-sdk-individuality";
 import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
-import { hostSigner, signEntries, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
+import { SigningPool } from "./signing-pool.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep } from "./time.js";
 
@@ -177,6 +178,7 @@ async function readRoster(engine: GameEngine, gameIndex: number): Promise<{ curr
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
   const { client, api, appClient, engine } = connectPeople(target);
+  const pool = SigningPool.open(target);
   const timeline: ChainResult["timeline"] = [];
   const blocks: BlockLoad[] = [];
   const findings: string[] = [];
@@ -243,11 +245,12 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
     // The players sign up as soon as the game takes sign-ups and report after it, so the run lasts
     // until the game: one further away than the run's wait fails at once.
-    const game = await waitForGame(engine, gameAt, ownGame ? 0 : 120_000 + players.length * SIGN_UP_MS, run.registrationWaitMs);
+    const signUpMs = 120_000 + Math.ceil(players.length / pool.size) * SIGN_UP_MS;
+    const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(engine, players);
+    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
@@ -284,8 +287,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       const reports = reportEntries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
       if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built`);
       const chain = fromPapi(client, api);
-      const reportExtrinsics = await signEntries(
-        reports.map(({ player, fullReport }) => ({ creator: withScoreParticipant(hostSigner(player)), tx: reportTx(chain, { fullReport }) })),
+      const reportExtrinsics = await pool.sign(
+        reports.map(({ player, fullReport }) => ({ player, chain: "people" as const, signer: "participant" as const, tx: reportTx(chain, { fullReport }) })),
         "report",
       );
       while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
@@ -306,7 +309,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (run.claim && burst.firstBlock !== null) {
         // The credits arrive on Asset Hub while the game still takes reports.
         try {
-          claim = await claimCredits(target, appClient, players, game.index, burst.firstBlock, run.connections);
+          claim = await claimCredits(target, appClient, players, game.index, burst.firstBlock, run.connections, pool);
           if (claim.claimable < claim.awarded) {
             findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
           }
@@ -355,6 +358,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         (error: Error) => console.warn(`[chain] phases not restored: ${error.message}`),
       );
     }
+    await pool.close();
     client.destroy();
   }
 }
