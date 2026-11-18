@@ -1,8 +1,7 @@
 import { Enum, type SizedHex } from "polkadot-api";
 import { toHex } from "@polkadot-api/utils";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
 import type { BurstEntry } from "./burst.js";
-import type { Keypair, Player } from "./keys.js";
+import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { sleep, withTimeout } from "./time.js";
@@ -20,17 +19,11 @@ export interface OpenGame {
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
 
-/** A deterministic stand-in for the player's P-256 communication key, which the chain only stores. */
-function identifierKey(player: Player): SizedHex<65> {
-  const seed = blake2b256(player.publicKey);
-  return toHex(new Uint8Array([4, ...seed, ...blake2b256(seed)])) as SizedHex<65>;
-}
-
 /** Each player's `sign_up_with_account`; without `nonce`, the chain's next nonce of each player. */
 export function signUpEntries(api: PeopleApi, players: Player[], nonce?: number): BurstEntry[] {
   return players.map((player) => ({
     signer: player,
-    tx: api.tx.Game.sign_up_with_account({ identifier_key: identifierKey(player), airdrops: undefined }),
+    tx: api.tx.Game.sign_up_with_account({ identifier_key: toHex(communicationIdentifier(player.publicKey)) as SizedHex<65>, airdrops: undefined }),
     nonce,
   }));
 }
