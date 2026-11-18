@@ -69,15 +69,15 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
 }
 
 /** Every claimable collection the nfts SDK approves for `target`'s network, ascending by id, as the chest offers them. */
-async function readOfferedCollections(chain: ClaimsChain, target: Target): Promise<number[]> {
+async function readChestCollections(chain: ClaimsChain, target: Target): Promise<number[]> {
   const approved = new Set(getApprovedCollections(APP_NETWORKS[target.network]));
-  const offered: number[] = [];
+  const chestCollections: number[] = [];
   let fromId: number | undefined;
   for (;;) {
     const result = await getClaimableCollections(chain, fromId === undefined ? {} : { fromId });
     if (!result.ok) throw new Error(`claimable collections: ${result.error.message}`);
-    offered.push(...result.value.collections.map((collection) => collection.id).filter((id) => approved.has(id)));
-    if (result.value.nextId === null) return offered.sort((a, b) => a - b);
+    chestCollections.push(...result.value.collections.map((collection) => collection.id).filter((id) => approved.has(id)));
+    if (result.value.nextId === null) return chestCollections.sort((left, right) => left - right);
     fromId = result.value.nextId;
   }
 }
@@ -107,11 +107,11 @@ export async function claimCredits(
       const read = getClaims(chain, { claimant: { tag: "Account", address: player.address }, individualityAt: "best", signal: AbortSignal.timeout(CREDITS_READ_MS) });
       const result = await withTimeout(read, CREDITS_READ_MS, `claims of ${player.address}`);
       if (!result.ok) throw new Error(`claims of ${player.address}: ${result.error.message}`);
-      const ours = result.value.claims.filter((claim) => claim.gameIndex !== null || claim.awardBlock >= sinceBlock);
-      const claimable = ours.filter(
+      const runClaims = result.value.claims.filter((claim) => claim.gameIndex !== null || claim.awardBlock >= sinceBlock);
+      const claims = runClaims.filter(
         (claim): claim is Claim & { hash: string } => claim.gameIndex === gameIndex && claim.state === "claimable" && claim.hash !== null,
       );
-      return { player, credits: gameCredits(ours, gameIndex, true), claimable };
+      return { player, credits: gameCredits(runClaims, gameIndex, true), claims };
     });
   try {
     let reads = await readAll(players, readCredits);
@@ -127,10 +127,10 @@ export async function claimCredits(
       reads = await readAll(players, readCredits);
     }
     const claimableAfterMs = Date.now() - started;
-    const collections = await readOfferedCollections(chain, target);
+    const collections = await readChestCollections(chain, target);
     if (collections.length === 0 || claimable === 0) return { awarded, claimable, claimableAfterMs, collections, burst: null, claimed: 0, playerMs: null };
 
-    const claimants = reads.filter((read) => read.claimable.length > 0).map(({ player, claimable }) => ({ player, claims: claimable }));
+    const claimants = reads.filter((read) => read.claims.length > 0);
 
     await fundOnAssetHub(api, target, claimants.map((read) => read.player));
     const nonces = await api.query.System.Account.getValues(claimants.map((read) => [read.player.address]), { at: "best" });
@@ -182,11 +182,11 @@ export async function claimCredits(
     const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, { progress: "claim" });
     // Not `getClaims`: once every leaf of an award block is claimed Asset Hub deletes its tree, and
     // `getClaims` then shows the block's credits as earned in no game. The leaf ledger stays.
-    const submitted = claimants.flatMap(({ claims }) => claims);
-    const blocks = [...new Set(submitted.map((claim) => claim.awardBlock))];
+    const claimSubmissions = claimants.flatMap(({ claims }) => claims);
+    const blocks = [...new Set(claimSubmissions.map((claim) => claim.awardBlock))];
     const ledgers = await api.query.NftClaims.ClaimedLeaves.getValues(blocks.map((block) => [block]), { at: "best" });
     const ledgerOf = new Map(blocks.map((block, position) => [block, ledgers[position]]));
-    const claimed = submitted.filter((claim) => ((ledgerOf.get(claim.awardBlock)?.[claim.leafIndex! >> 3] ?? 0) >> (claim.leafIndex! & 7)) & 1).length;
+    const claimed = claimSubmissions.filter((claim) => ((ledgerOf.get(claim.awardBlock)?.[claim.leafIndex! >> 3] ?? 0) >> (claim.leafIndex! & 7)) & 1).length;
     console.log(`[claim] ${burst.ok}/${burst.submitted} claims executed in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
     return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), claimed, playerMs: playerMs.summary() };
   } finally {

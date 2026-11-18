@@ -11,12 +11,12 @@ import { sleep } from "./time.js";
 
 /**
  * A statement store in memory: one statement per channel, each delivered to the subscribers of its
- * topic, and a subscriber that opens later gets the statement each channel still holds, as a node
+ * topic, and a subscriber that opens later gets the statement each channel still contains, as a node
  * answers a new subscription.
  */
 class MemoryStore {
   readonly submitted: WireStatement[] = [];
-  private readonly held = new Map<string, DeliveredStatement & { topics: string[] }>();
+  private readonly latestByChannel = new Map<string, DeliveredStatement & { topics: string[] }>();
   private readonly subscribers = new Set<{ topics: Set<string>; onPage(page: { statements: DeliveredStatement[] }): void }>();
 
   storeOf(player: Player): MeasurableStore {
@@ -24,10 +24,10 @@ class MemoryStore {
     return {
       createProofAuthorized: async () => ({ signer }),
       submit: async (wire) => {
-        const held = this.held.get(wire.channel);
-        if (held && held.expiry! >= wire.expiry) throw new Error(`statement rejected: {"status":"rejected","reason":"channelPriorityTooLow"}`);
+        const current = this.latestByChannel.get(wire.channel);
+        if (current && current.expiry! >= wire.expiry) throw new Error(`statement rejected: {"status":"rejected","reason":"channelPriorityTooLow"}`);
         const statement = { data: wire.data, signer: (wire.proof as { signer: string }).signer, channel: wire.channel, expiry: wire.expiry, topics: wire.topics };
-        this.held.set(wire.channel, statement);
+        this.latestByChannel.set(wire.channel, statement);
         this.submitted.push(wire);
         for (const subscriber of this.subscribers) {
           if (wire.topics.some((topic) => subscriber.topics.has(topic))) setTimeout(() => subscriber.onPage({ statements: [statement] }), 5);
@@ -38,7 +38,7 @@ class MemoryStore {
         const subscriber = { topics: new Set(filter.matchAny), onPage };
         this.subscribers.add(subscriber);
         events.opened();
-        const statements = [...this.held.values()].filter((statement) => statement.topics.some((topic) => subscriber.topics.has(topic)));
+        const statements = [...this.latestByChannel.values()].filter((statement) => statement.topics.some((topic) => subscriber.topics.has(topic)));
         if (statements.length > 0) setTimeout(() => onPage({ statements }), 5);
         return { unsubscribe: () => this.subscribers.delete(subscriber) };
       },

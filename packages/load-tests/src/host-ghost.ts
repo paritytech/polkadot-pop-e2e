@@ -30,7 +30,7 @@ const hostStatement = (wire: WireStatement): Statement => ({
   data: wire.data as HexString,
 });
 
-/** The account that signed a statement, which an on-chain proof doesn't name. */
+/** The account that signed a statement, absent from an on-chain proof. */
 const signerOf = (statement: SignedStatement) => (statement.proof.tag === "OnChain" ? undefined : statement.proof.value.signer.toLowerCase());
 
 /** How long the app waits before opening a subscription the host ended, by attempt. */
@@ -45,7 +45,7 @@ function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore
   return {
     async createProofAuthorized(wire) {
       const result = await truapi.statementStore.createProof({ productAccountId, statement: hostStatement(wire) });
-      if (result.isErr()) throw new Error(`statement proof refused: ${formatHostError(result.error)}`);
+      if (result.isErr()) throw new Error(`statement proof rejected: ${formatHostError(result.error)}`);
       return result.value.proof;
     },
     async submit(wire) {
