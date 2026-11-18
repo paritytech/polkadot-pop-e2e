@@ -12,7 +12,7 @@ import { AccountId } from "@polkadot-api/substrate-bindings";
 import { communicationIdentifier, communicationSecret } from "./keys.js";
 import { measuredStore, type MeasurableStore, type MeasuredStore } from "./measured-store.js";
 import type { SignallingProfile } from "./profile.js";
-import { iceCandidates, iceCredentials, sessionDescription } from "./sdp.js";
+import { iceCandidates, iceCredentials, sessionDescription, type IceCredentials } from "./sdp.js";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
 
 /** The room's key: one room for the whole game, as the app opens it. */
@@ -35,6 +35,7 @@ export interface BotOptions {
 }
 
 interface Link {
+  credentials: IceCredentials;
   sent: boolean;
   description: boolean;
   candidates: boolean;
@@ -95,7 +96,6 @@ export class SignallingBot {
         if (!/store live|subscribed/.test(message)) console.warn(`[${self}] ${message}`);
       },
     });
-    const credentials = new Map(roster.map((peer) => [peer, iceCredentials()]));
     const update = (peer: string, link: Link) => {
       const up = link.sent && link.description && link.candidates;
       if (up === link.up) return;
@@ -106,13 +106,12 @@ export class SignallingBot {
     const sendDescription = (peer: string, type: "offer" | "answer", gen?: string) =>
       setTimeout(() => {
         const link = this.links.get(peer)!;
-        const description = sessionDescription(type, credentials.get(peer)!, profile.descriptionBytes);
-        this.transport?.send(peer, { rtc: gen === undefined ? { desc: description } : { desc: description, gen } });
-        for (const cand of iceCandidates(credentials.get(peer)!, profile.candidates)) this.transport?.send(peer, { rtc: { cand } });
+        this.transport?.send(peer, { rtc: { desc: sessionDescription(type, link.credentials, profile.descriptionBytes), gen } });
+        for (const cand of iceCandidates(link.credentials, profile.candidates)) this.transport?.send(peer, { rtc: { cand } });
         link.sent = true;
         update(peer, link);
       }, GATHER_MS);
-    for (const peer of roster) this.links.set(peer, { sent: false, description: false, candidates: false, up: false });
+    for (const peer of roster) this.links.set(peer, { credentials: iceCredentials(), sent: false, description: false, candidates: false, up: false });
     stats.links += roster.length;
     this.transport = signalling({
       base: "",
