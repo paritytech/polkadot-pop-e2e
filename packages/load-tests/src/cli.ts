@@ -6,9 +6,9 @@ import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
+import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
-import { connectPeople, resolveTarget, type Target } from "./target.js";
+import { connectPeople, gameProductId, resolveTarget, type Target } from "./target.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
@@ -147,7 +147,7 @@ const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
 const gameAt = gameTime(values["game-at"]);
 const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
-const productIdOf = (target: Target) => values["product-id"] ?? PRODUCT_IDS[target.network];
+const productIdOf = (target: Target) => values["product-id"] ?? gameProductId(target.network);
 
 /**
  * Key seed of a game run's players. On a fork, fresh accounts per game, so the sign-up is each

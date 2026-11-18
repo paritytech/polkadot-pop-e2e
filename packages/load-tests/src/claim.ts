@@ -9,7 +9,7 @@ import { Histogram, type QuantileSummary } from "./histogram.js";
 import { derivePlayer, type Keypair, type Player } from "./keys.js";
 import { requireFunder } from "./join.js";
 import { submitToBestBlock } from "./root.js";
-import { connectAssetHub, type AssetHubApi, type Target } from "./target.js";
+import { APP_NETWORKS, connectAssetHub, type AssetHubApi, type Target } from "./target.js";
 import { readAll, retry, sleep, withTimeout } from "./time.js";
 
 export interface ClaimResult {
@@ -34,8 +34,6 @@ const ASSET_HUB_FUNDS = 10_000_000_000n;
 const CLAIMABLE_WAIT_MS = 600_000;
 const CREDITS_READ_ATTEMPTS = 3;
 const CREDITS_READ_MS = 60_000;
-/** The network names the nfts SDK lists approved collections under. */
-const NFT_NETWORKS = { previewnet: "previewnet", "paseo-next-v2": "paseo" } as const;
 
 /** Tops every claiming player up to `ASSET_HUB_FUNDS` on Asset Hub: as root on a fork, else from the funder. */
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
@@ -72,7 +70,7 @@ async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[
 
 /** Every claimable collection the nfts SDK approves for `target`'s network, ascending by id, as the chest offers them. */
 async function readOfferedCollections(chain: ClaimsChain, target: Target): Promise<number[]> {
-  const approved = new Set(getApprovedCollections(NFT_NETWORKS[target.network]));
+  const approved = new Set(getApprovedCollections(APP_NETWORKS[target.network]));
   const offered: number[] = [];
   let fromId: number | undefined;
   for (;;) {

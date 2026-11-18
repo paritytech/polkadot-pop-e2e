@@ -10,9 +10,6 @@ import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
 
-/** The product the Jollity app signs statements as on each network. */
-export const PRODUCT_IDS = { previewnet: "dim2.testnet", "paseo-next-v2": "dim2.paseo" } as const;
-
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
   profile: SignallingProfile;
