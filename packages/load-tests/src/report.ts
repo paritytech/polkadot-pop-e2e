@@ -113,6 +113,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
+  if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
