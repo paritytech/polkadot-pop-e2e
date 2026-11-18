@@ -21,16 +21,16 @@ export const ALREADY_REGISTERED = "AlreadyRegistered";
  * with a `submit` that only signs, so a burst sends them all at once. `refusals` counts the
  * players the app's sign-up left out, by its reason.
  */
-export async function signSignUps(engine: GameEngine, players: Player[]): Promise<{ signed: string[]; refusals: Record<string, number> }> {
+export async function signSignUps(engine: GameEngine, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
   const started = Date.now();
   const refusals: Record<string, number> = {};
-  const built = await readAll(players, async (player) => {
-    let signed: string | undefined;
+  const perPlayer = await readAll(players, async (player) => {
+    let extrinsic: string | undefined;
     const capabilities = {
       account: { address: player.address, publicKey: player.publicKey },
       signer: hostSigner(player),
       submit: async (tx: unknown, creator: CommonSignerTxCreator) => {
-        signed = await signEntry({ creator, tx: tx as Transaction });
+        extrinsic = await signEntry({ creator, tx: tx as Transaction });
         return { ok: true as const };
       },
     };
@@ -40,11 +40,11 @@ export async function signSignUps(engine: GameEngine, players: Player[]): Promis
     } catch (error) {
       bump(refusals, (error as Error).message);
     }
-    return signed;
+    return extrinsic;
   });
-  const signed = built.filter((hex) => hex !== undefined);
-  console.log(`[sign-up] ${signed.length} of ${players.length} sign-ups built in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(refusals)}`);
-  return { signed, refusals };
+  const extrinsics = perPlayer.filter((hex) => hex !== undefined);
+  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(refusals)}`);
+  return { extrinsics, refusals };
 }
 
 /** How long a game just scheduled may take to show in the finalized schedule the engine reads. */

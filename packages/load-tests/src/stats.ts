@@ -21,11 +21,11 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
  * latest it received there: one replaced before it arrived came with the one that replaced it.
  */
 export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedStamps" | "deliveredUpTo">): number {
-  let credited = 0;
+  let deliveries = 0;
   for (const channels of Object.values(stats.deliveredUpTo)) {
-    for (const [channel, upTo] of Object.entries(channels)) credited += (stats.acceptedStamps[channel] ?? []).filter((stamp) => stamp <= upTo).length;
+    for (const [channel, upTo] of Object.entries(channels)) deliveries += (stats.acceptedStamps[channel] ?? []).filter((stamp) => stamp <= upTo).length;
   }
-  return credited;
+  return deliveries;
 }
 
 /**

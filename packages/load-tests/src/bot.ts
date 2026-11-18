@@ -10,7 +10,7 @@ import {
 } from "@jollity/statement-core";
 import { AccountId } from "@polkadot-api/substrate-bindings";
 import { communicationIdentifier, communicationSecret } from "./keys.js";
-import { createCountingStore, type MeasurableStore, type MeasuredStore } from "./measured-store.js";
+import { createCountingStore, type CountingStore, type MeasurableStore } from "./measured-store.js";
 import type { SignallingProfile } from "./profile.js";
 import { iceCandidates, iceCredentials, sessionDescription, type IceCredentials } from "./sdp.js";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
@@ -50,7 +50,7 @@ interface Link {
  */
 export class SignallingBot {
   private readonly clock = createStoreClock({ base: () => ({ ms: Date.now(), kind: "device" }) });
-  private readonly measured: MeasuredStore;
+  private readonly countingStore: CountingStore;
   private readonly counter: DeliveryCounter;
   private readonly links = new Map<string, Link>();
   private transport: SignalTransport | undefined;
@@ -58,15 +58,15 @@ export class SignallingBot {
   constructor(private readonly options: BotOptions) {
     // Every co-player listens on the player's topic, so each statement is due to each of them.
     this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length, options.self);
-    this.measured = createCountingStore(options.store, options.stats, this.counter);
+    this.countingStore = createCountingStore(options.store, options.stats, this.counter);
   }
 
   /** The waiting room's store clock calibration: one statement on the player's own channel. */
   async calibrate(): Promise<void> {
     const { store, namespace, self, stats } = this.options;
-    // Unmeasured: the calibration statement is on a channel no co-player listens on.
-    const unmeasured: StatementStoreLike = { ...store, subscribe: (filter, onPage) => store.subscribe(filter, onPage, { opened() {}, ended() {}, failed() {} }) };
-    const { outcome } = await calibrateStoreClock({ store: unmeasured, clock: this.clock, labels: calibrationLabels(namespace, self, "jollity:rtc-v2") });
+    // Not counted: the calibration statement is on a channel no co-player listens on.
+    const calibrationStore: StatementStoreLike = { ...store, subscribe: (filter, onPage) => store.subscribe(filter, onPage, { opened() {}, ended() {}, failed() {} }) };
+    const { outcome } = await calibrateStoreClock({ store: calibrationStore, clock: this.clock, labels: calibrationLabels(namespace, self, "jollity:rtc-v2") });
     bump(stats.calibrations, outcome);
   }
 
@@ -74,7 +74,7 @@ export class SignallingBot {
   open(): void {
     const { self, roster, namespace, profile, stats } = this.options;
     const signalling = statementTransport({
-      resolveStore: async () => this.measured,
+      resolveStore: async () => this.countingStore,
       storeClock: this.clock,
       namespace,
       signerOf: (peer) => {
@@ -145,7 +145,7 @@ export class SignallingBot {
 
   /** Stops counting deliveries, which arrive until then. */
   leave(): void {
-    this.measured.close();
+    this.countingStore.close();
     this.counter.finish();
   }
 }

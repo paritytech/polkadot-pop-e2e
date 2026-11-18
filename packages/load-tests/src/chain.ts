@@ -247,16 +247,16 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     gameIndex = game.index;
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame) await topUpPlayers(target, api, players);
-    const { signed: signedSignUps, refusals } = await signSignUps(engine, players);
+    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(engine, players);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
 
-    console.log(`[chain] game ${game.index}: ${signedSignUps.length} players sign up`);
-    const signUp = await submitBurst(signedSignUps, api, client, target.rpc, run.connections, () => game.registration_ends * 1000);
+    console.log(`[chain] game ${game.index}: ${signUpExtrinsics.length} players sign up`);
+    const signUp = await submitBurst(signUpExtrinsics, api, client, target.rpc, run.connections, () => game.registration_ends * 1000);
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
-    if (signUp.inTime < signedSignUps.length) {
-      findings.push(`sign-up: ${signedSignUps.length - signUp.inTime} of ${signedSignUps.length} not in before registration ended`);
+    if (signUp.inTime < signUpExtrinsics.length) {
+      findings.push(`sign-up: ${signUpExtrinsics.length - signUp.inTime} of ${signUpExtrinsics.length} not in before registration ended`);
     }
 
     const untilGame = game.game_date * 1000 - (await chainNow());
@@ -274,24 +274,24 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
           `game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`,
         );
       }
-      const built = await readAll(players, async (player) => ({
+      const reportEntries = await readAll(players, async (player) => ({
         player,
         fullReport: await buildReport(engine, player, playerCount, current.max_group_size).catch((error: Error) => {
           console.warn(`[chain] report of ${player.address} not built: ${error.message}`);
           return undefined;
         }),
       }));
-      const reports = built.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
+      const reports = reportEntries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
       if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built`);
       const chain = fromPapi(client, api);
-      const signedReports = await signEntries(
+      const reportExtrinsics = await signEntries(
         reports.map(({ player, fullReport }) => ({ creator: withScoreParticipant(hostSigner(player)), tx: reportTx(chain, { fullReport }) })),
         "report",
       );
       while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
       console.log(`[chain] ${reports.length} players report`);
       const burst = await submitBurst(
-        signedReports,
+        reportExtrinsics,
         api,
         client,
         target.rpc,

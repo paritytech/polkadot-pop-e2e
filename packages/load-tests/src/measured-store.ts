@@ -44,7 +44,7 @@ export function stampTime(expiry: bigint): number {
 const countKey = (error: unknown) => errMessage(error).replace(/\d+/g, "N").slice(0, 160);
 
 /** A player's store as its transport uses it, which stops delivering to the player on `close`. */
-export type MeasuredStore = StatementStoreLike & { close(): void };
+export type CountingStore = StatementStoreLike & { close(): void };
 
 /**
  * When each statement of this process's players went out, by `channel/expiry`. A receiver in the
@@ -59,7 +59,7 @@ const statementKey = (channel: string, expiry: bigint) => `${channel.toLowerCase
  * every statement delivered to the player, which arrives from then until `close`, also after the
  * transport unsubscribed.
  */
-export function createCountingStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter): MeasuredStore {
+export function createCountingStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter): CountingStore {
   const proofStarts = new Map<bigint, number>();
   const subscriptions: StatementSubscription[] = [];
   return {
