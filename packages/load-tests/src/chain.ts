@@ -306,7 +306,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (run.claim && burst.firstBlock !== null) {
         // The credits arrive on Asset Hub while the game still takes reports.
         try {
-          claim = await claimCredits(target, appClient, players, game.index, run.connections);
+          claim = await claimCredits(target, appClient, players, game.index, burst.firstBlock, run.connections);
           if (claim.claimable < claim.awarded) {
             findings.push(`claim: ${claim.awarded - claim.claimable} of ${claim.awarded} credits not claimable after ${Math.round(claim.claimableAfterMs / 1000)} s`);
           }
