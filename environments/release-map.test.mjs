@@ -84,11 +84,9 @@ describe('the checked-in previewnet manifest', () => {
   it('downloads nothing itself — every pin is engine-delivered (overrides or env tags)', () => {
     const { plan } = binaryPlan(previewnet, '');
     assert.deepEqual(plan, []);
-    // The canonical deliberately leaves identity-backend to the engine's default
-    // tag — no DUB_TAG export on baseline runs.
+    // previewnet doesn't pin identity-backend, so its baseline runs the engine's default tag.
     assert.deepEqual(envTagPins(previewnet), {});
-    // A candidate override naming it exports DUB_TAG even though the canonical
-    // doesn't pin it.
+    // A candidate override naming it exports DUB_TAG.
     const overridden = mergeTarget(previewnet, {
       services: { 'identity-backend': 'paritytech/device-uniqueness-backend-community@v0.4.0' },
     });

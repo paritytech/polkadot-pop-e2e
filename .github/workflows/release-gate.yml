@@ -249,8 +249,8 @@ on:
         description: >
           The identity service quadruple (identity-api, chain-writer,
           registration-queue, username-indexer — they travel together), from
-          paritytech/device-uniqueness-backend-community. Empty runs the engine's default tag.
-          previewnet only. `@latest` is safe.
+          paritytech/device-uniqueness-backend-community. Empty runs the manifest's pin,
+          else the engine's default tag. previewnet and paseo-next-v2. `@latest` is safe.
           e.g. paritytech/device-uniqueness-backend-community@latest
         required: false
       product_sdk:
