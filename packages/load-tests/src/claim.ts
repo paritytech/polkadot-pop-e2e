@@ -31,8 +31,6 @@ export interface ClaimResult {
 const ASSET_HUB_FUNDS = 10_000_000_000n;
 /** How long the run waits for the game's credits to arrive on Asset Hub. */
 const CLAIMABLE_WAIT_MS = 600_000;
-/** How long the run waits for its claims to show at Asset Hub's finalized block, where the app reads them. */
-const CLAIMED_WAIT_MS = 120_000;
 const CREDITS_READ_ATTEMPTS = 3;
 /** The network names the nfts SDK lists approved collections under. */
 const NFT_NETWORKS = { previewnet: "previewnet", "paseo-next-v2": "paseo" } as const;
@@ -183,19 +181,16 @@ export async function claimCredits(
         },
     );
     console.log(`[claim] ${claimants.length} players claim ${claimable} credits, each one at a time`);
-    // Each claim counts once it's in a block; which credits were claimed is read from Asset Hub after.
-    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, {
-      readBlocks: false,
-      progress: "claim",
-    });
-    const submitted = claimants.reduce((sum, { claims }) => sum + claims.length, 0);
-    const claimedBy = claimants.map(({ player }) => player);
-    let claimed = 0;
-    for (const until = Date.now() + CLAIMED_WAIT_MS; ; await sleep(6_000)) {
-      claimed = (await readAll(claimedBy, creditsOf)).reduce((sum, credits) => sum + credits.claimed, 0);
-      if (claimed >= submitted || Date.now() > until) break;
-    }
-    console.log(`[claim] ${burst.ok}/${burst.submitted} claims in a block in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
+    // A claim counts once it executed in its block; which credits were claimed is read from Asset Hub after.
+    const burst = await submitLanes(lanes, api, client, [target.assetHubRpc!], connections, () => Number.POSITIVE_INFINITY, { progress: "claim" });
+    // Not `getClaims`: once every leaf of an award block is claimed Asset Hub deletes its tree, and
+    // `getClaims` then shows the block's credits as earned in no game. The leaf ledger stays.
+    const submitted = claimants.flatMap(({ claims }) => claims);
+    const blocks = [...new Set(submitted.map((claim) => claim.awardBlock))];
+    const ledgers = await api.query.NftClaims.ClaimedLeaves.getValues(blocks.map((block) => [block]), { at: "best" });
+    const ledgerOf = new Map(blocks.map((block, position) => [block, ledgers[position]]));
+    const claimed = submitted.filter((claim) => ((ledgerOf.get(claim.awardBlock)?.[claim.leafIndex! >> 3] ?? 0) >> (claim.leafIndex! & 7)) & 1).length;
+    console.log(`[claim] ${burst.ok}/${burst.submitted} claims executed in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
     return { awarded, claimable, claimableAfterMs, collections, burst: summarizeBurst(burst), claimed, playerMs: playerMs.summary() };
   } finally {
     client.destroy();

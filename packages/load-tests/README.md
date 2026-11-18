@@ -76,7 +76,9 @@ means changing the commit in those overrides.
   `apps/jollity-app/lib`, beside its UI, so the run repeats its few lines.
 - **Game reads**: which game to join, its schedule and its roster come from the engine.
 - **Credits**: `readGameCredits` of `@individuality/game-outcome`, the app's count of a game's
-  credits.
+  credits, until they are claimable. Which were claimed is read from Asset Hub's
+  `NftClaims.ClaimedLeaves`: once every credit of an award block is claimed, Asset Hub deletes the
+  block's tree, and the app's read then shows those credits as earned in no game.
 - **NFT claims**: the Jollity app doesn't claim; the stash does, outside individuality-apps. Each
   credit goes to the collection the app's chest shows it in (`defaultCollectionFor` of
   `@jollity/collectables`, over the SDK's approved claimable collections), and the run builds
