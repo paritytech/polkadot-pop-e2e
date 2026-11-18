@@ -10,7 +10,7 @@ import {
   ss58Address,
 } from "@polkadot-labs/hdkd-helpers";
 import { getPublicKey, secretFromSeed, sign } from "@scure/sr25519";
-import { productAccountKey } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
+import { productAccountAt, productSecret } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 
 export interface Keypair {
   publicKey: Uint8Array;
@@ -39,13 +39,22 @@ export function hostMnemonic(seed: string, host: number): string {
   return entropyToMnemonic(blake2b256(new TextEncoder().encode(`${seed}/host/${host}`)).slice(0, 16));
 }
 
+/** Each host's `//product//<id>` secret, by `seed/productId/host`: deriving it costs a PBKDF2 and two hard junctions. */
+const hostProductSecrets = new Map<string, Uint8Array>();
+
 /**
  * Ghost `index` of a host layer run: product account `index % ghostsPerHost` of `productId` in
  * host `index / ghostsPerHost`, the account that host signs the ghost's statements with.
  */
 export function hostGhostPlayer(seed: string, productId: string, ghostsPerHost: number, index: number): Player {
   const host = Math.floor(index / ghostsPerHost);
-  const key = productAccountKey(mnemonicToEntropy(hostMnemonic(seed, host)), productId, index % ghostsPerHost);
+  const cacheKey = `${seed}/${productId}/${host}`;
+  let secret = hostProductSecrets.get(cacheKey);
+  if (!secret) {
+    secret = productSecret(mnemonicToEntropy(hostMnemonic(seed, host)), productId);
+    hostProductSecrets.set(cacheKey, secret);
+  }
+  const key = productAccountAt(secret, index % ghostsPerHost);
   return { index, publicKey: key.publicKey, address: key.address, sign: key.sign };
 }
 
