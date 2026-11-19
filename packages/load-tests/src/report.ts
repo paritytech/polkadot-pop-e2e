@@ -250,7 +250,7 @@ function processingMarkdown({ shuffle, playerProcess, heaviestStep }: GameProces
       ? `reports ended #${playerProcess.reportEndBlock}, GameEnded ${playerProcess.gameEndBlock === null ? "not seen" : `#${playerProcess.gameEndBlock}`}: ${playerProcess.blocks} blocks / ${seconds(playerProcess.ms)}`
       : "player processing –",
     heaviestStep
-      ? `heaviest step ${Math.round(heaviestStep.share * 100)}% of a block's ref time (#${heaviestStep.block}, ${heaviestStep.source})`
+      ? `heaviest step ${Math.round(heaviestStep.share * 100)}% of ${heaviestStep.source === "step call" ? "the step budget" : "a block's ref time"} (#${heaviestStep.block}, ${heaviestStep.source})`
       : "heaviest step –",
   ];
   return `Game processing: ${parts.join("; ")}.`;

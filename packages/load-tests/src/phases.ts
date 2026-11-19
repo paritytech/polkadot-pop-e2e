@@ -37,7 +37,7 @@ export interface GameProcessing {
   shuffle: { blocks: number; ms: number } | null;
   /** From the last Reporting block to the block that ended the game. */
   playerProcess: { reportEndBlock: number; gameEndBlock: number | null; blocks: number; ms: number } | null;
-  /** The heaviest step's ref time over the block's: from step calls where the runtime has them, else the mandatory class. */
+  /** The heaviest step: its share of the step budget where the runtime runs steps as calls, else the mandatory class's share of a block's ref time. */
   heaviestStep: { share: number; block: number; source: "step call" | "mandatory weight" } | null;
 }
 

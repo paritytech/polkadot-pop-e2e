@@ -161,8 +161,9 @@ hash.
   collator's public log. When the log can't be read, a line under the table says so.
 
 **Game processing** gives the shuffle's work without its wait for the game date, the blocks from
-the end of reporting to `GameEnded`, and the heaviest step as a share of a block's ref time:
-from the step calls' own weight on previewnet, from the mandatory class on paseo-next-v2.
+the end of reporting to `GameEnded`, and the heaviest step. Where the runtime runs the game's steps
+as calls, that is the step call's weight over the step budget, half the normal class's
+`max_extrinsic`; otherwise it is the mandatory class's share of a block's ref time.
 
 The run fails when `GameEnded` is later than the report end plus `player_process`, and a report
 that fails with `CreditCapacityExhausted` is one of the report burst's failures. A **Capacity**

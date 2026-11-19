@@ -23,7 +23,7 @@ export interface BlockLoad {
   normal: WeightShare;
   /** Mandatory-class weight over the block's limit: inherents and hooks, and the game's steps where the runtime runs them in hooks. */
   mandatory: WeightShare;
-  /** Ref time of the heaviest Game step call over the block's; null when the runtime runs no step as a call. */
+  /** Ref time of the heaviest Game step call over the step budget, half the normal class's `max_extrinsic`; null when the runtime runs no step as a call. */
   stepShare: number | null;
   /** The game after this block; null without one. */
   game: { index: number; state: string } | null;
@@ -86,6 +86,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   const blocks: BlockLoad[] = [];
   const { max_block: maxBlock, per_class: perClass } = await api.constants.System.BlockWeights();
   const maxNormal = perClass.normal.max_total!;
+  const stepBudget = Number(perClass.normal.max_extrinsic!.ref_time) / 2;
   const stepCallIndices = await readStepCallIndices(api);
   const share = (used: { ref_time: bigint; proof_size: bigint }, limit: { ref_time: bigint; proof_size: bigint }): WeightShare => ({
     refTime: Number(used.ref_time) / Number(limit.ref_time),
@@ -143,7 +144,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
           } else if (event.value.type === "ExtrinsicSuccess" && stepShare !== null && phase.type === "ApplyExtrinsic" && latestGameIndex !== undefined) {
             const extrinsic = body[phase.value];
             if (extrinsic && isStepCall(extrinsic, stepCallIndices, latestGameIndex)) {
-              stepShare = Math.max(stepShare, Number(event.value.value.dispatch_info.weight.ref_time) / Number(maxBlock.ref_time));
+              stepShare = Math.max(stepShare, Number(event.value.value.dispatch_info.weight.ref_time) / stepBudget);
             }
           }
         }
