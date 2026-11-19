@@ -227,6 +227,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const signUpMs = 120_000 + Math.ceil(players.length / pool.size) * SIGN_UP_MS;
     const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
+    blockFollower.followGame(game.index);
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame) await topUpPlayers(target, api, players);
     const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players);
@@ -314,7 +315,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const signUpSummary = summarizeBurst(signUp);
     const limits = findBlockLimits({ blocks, game: gameSummary, phases, signUp: signUpSummary, report });
     findings.push(...limits.findings);
-    const notes: string[] = [];
+    const notes = blockFollower.notes();
     let proposals: Proposal[] | null = null;
     const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
     if (target.network === "previewnet" && gameBlocks.length > 0) {

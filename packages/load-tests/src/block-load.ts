@@ -1,4 +1,5 @@
 import type { PolkadotClient } from "polkadot-api";
+import { readBlockContents, releaseBlockContents, type ChainEvent } from "./block-contents.js";
 import { describeError } from "./burst.js";
 import { bump } from "./stats.js";
 import type { PeopleApi } from "./target.js";
@@ -37,7 +38,7 @@ export interface BlockLoad {
   unincluded: number;
   /** Best block number minus this block's, when this block was finalized. */
   finalityLag: number;
-  /** Proof size from `dev_getBlockStats`; null where the node doesn't serve it. */
+  /** Proof size from `dev_getBlockStats`, read only for the run's game; null outside it, where the node doesn't serve it, or when the read failed. */
   witnessBytes: number | null;
 }
 
@@ -73,12 +74,6 @@ function isStepCall(extrinsic: Uint8Array, callIndices: Uint8Array[], gameIndex:
 }
 
 type Weight = { ref_time: bigint; proof_size: bigint };
-
-/** A `System.Events` record, as far as a block's measure reads it. */
-export interface ChainEvent {
-  phase: { type: string; value?: unknown };
-  event: { type: string; value: { type: string; value?: unknown } };
-}
 
 type ExtrinsicFailed = { dispatch_error: unknown };
 type ExtrinsicSuccess = { dispatch_info: { weight: Weight } };
@@ -154,12 +149,20 @@ export function measureBlock(reads: BlockReads, limits: ChainLimits): BlockLoad 
 /** Finalized blocks read so far, in the order their reads complete. */
 export interface BlockFollower {
   blocks: BlockLoad[];
+  /** Reads `dev_getBlockStats` for the blocks of game `index` and the block that ends it, from now on. */
+  followGame(index: number): void;
+  /** What the follower couldn't read, each kind with its count and first error. */
+  notes(): string[];
   stop(): void;
 }
 
+/** JSON-RPC's "method not found", which a node returns for `dev_getBlockStats` when it doesn't serve unsafe methods. */
+const METHOD_NOT_FOUND = -32601;
+
 /**
- * Reads every finalized People block once, as it is finalized, into `blocks`: six storage
- * reads and the body at the block's hash, and `dev_getBlockStats` while the node serves it.
+ * Reads every finalized People block once, as it is finalized, into `blocks`: four storage reads
+ * at the block's hash, its body, events and timestamp shared with any burst that reads the block,
+ * and `dev_getBlockStats` for the blocks of the followed game.
  */
 export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): Promise<BlockFollower> {
   const blocks: BlockLoad[] = [];
@@ -170,17 +173,28 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
     stepBudget: perClass.normal.max_extrinsic!.ref_time / 2n,
     stepCalls: await readStepCallIndices(api),
   };
+  const problems = new Map<string, { count: number; firstError: string }>();
+  const recordProblem = (kind: string, error: string) => {
+    const problem = problems.get(kind);
+    if (problem) problem.count++;
+    else problems.set(kind, { count: 1, firstError: error });
+  };
   let bestNumber = 0;
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
   const arrivalTimes = new Map<number, number | null>();
   let latestGameIndex: number | undefined;
+  let followedGame: number | undefined;
+  let lastFollowedGameBlock = -1;
   let blockStatsAvailable = true;
   const readWitnessBytes = async (hash: string): Promise<number | null> => {
     if (!blockStatsAvailable) return null;
     try {
-      return (await client._request<{ witnessLen: number }>("dev_getBlockStats", [hash])).witnessLen;
-    } catch {
-      blockStatsAvailable = false;
+      const stats = await client._request<{ witnessLen: number } | null>("dev_getBlockStats", [hash]);
+      if (stats === null) recordProblem("PoV size not read", "the node has no stats for the block");
+      return stats?.witnessLen ?? null;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === METHOD_NOT_FOUND) blockStatsAvailable = false;
+      else recordProblem("PoV size not read", (error as Error).message);
       return null;
     }
   };
@@ -200,31 +214,29 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
       for (const number of arrivalTimes.keys()) if (number < block.number) arrivalTimes.delete(number);
       const at = { at: block.hash };
       try {
-        const [weight, timestamp, events, game, creditCursor, unincluded, body, witnessBytes] = await Promise.all([
+        const [weight, game, creditCursor, unincluded, contents] = await Promise.all([
           api.query.System.BlockWeight.getValue(at),
-          api.query.Timestamp.Now.getValue(at),
-          api.query.System.Events.getValue(at),
           api.query.Game.Game.getValue(at),
           api.query.NftCredits.CreditBufferCursor.getValue(at),
           api.query.ParachainSystem.UnincludedSegment.getValue(at),
-          client.getBlockBody(block.hash),
-          readWitnessBytes(block.hash),
+          readBlockContents(client, api, block.hash),
         ]);
+        releaseBlockContents(client, block.hash);
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
+        if (followedGame !== undefined && game?.index === followedGame) lastFollowedGameBlock = Math.max(lastFollowedGameBlock, block.number);
+        const inFollowedGame = followedGame !== undefined && (game?.index === followedGame || block.number === lastFollowedGameBlock + 1);
         blocks.push(
           measureBlock(
             {
               number: block.number,
               arrivalTime,
               finalityLag,
-              timestamp: Number(timestamp),
-              body,
-              events,
+              ...contents,
               weight,
               game,
               creditCursor,
               unincludedLength: unincluded.length,
-              witnessBytes,
+              witnessBytes: inFollowedGame ? await readWitnessBytes(block.hash) : null,
               stepGameIndex: latestGameIndex,
             },
             limits,
@@ -238,6 +250,10 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   });
   return {
     blocks,
+    followGame(index) {
+      followedGame = index;
+    },
+    notes: () => [...problems].map(([kind, { count, firstError }]) => `${kind}: ${count} times, the first: ${firstError}`),
     stop() {
       finalizedSubscription.unsubscribe();
       bestSubscription.unsubscribe();

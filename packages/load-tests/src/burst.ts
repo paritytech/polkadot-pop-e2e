@@ -3,11 +3,11 @@ import { getTxCreator, getVerifyMultiSignatureTxCreator } from "polkadot-api/tx-
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { toHex } from "@polkadot-api/utils";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
+import { readBlockContents } from "./block-contents.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import type { Keypair } from "./keys.js";
 import { RpcConnection } from "./rpc.js";
 import { bump, total } from "./stats.js";
-import { sleep } from "./time.js";
 import type { AssetHubApi, PeopleApi } from "./target.js";
 
 /** A chain a burst goes to: its events and timestamp are read for each block a transaction lands in. */
@@ -70,38 +70,25 @@ export function describeError(error: unknown): string {
   return parts.length > 0 ? parts.join(".") : JSON.stringify(error);
 }
 
-type ChainEvent = { phase: { type: string; value?: unknown }; event: { type: string; value: { type: string; value: unknown } } };
-
-/** A block's extrinsics, events and timestamp, read once however many transactions it contains. */
+/** A block's outcome per extrinsic, read once however many transactions it contains. */
 function createBlockReader(api: BurstApi, client: PolkadotClient): (hash: string) => Promise<BlockView> {
   const cache = new Map<string, Promise<BlockView>>();
   const read = async (hash: string): Promise<BlockView> => {
-    // The node reports the block before papi follows it, so the first reads may miss it.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const [header, body, events, timestamp] = await Promise.all([
-          client.getBlockHeader(hash),
-          client.getBlockBody(hash),
-          api.query.System.Events.getValue({ at: hash }) as Promise<ChainEvent[]>,
-          api.query.Timestamp.Now.getValue({ at: hash }),
-        ]);
-        const extrinsics = body.map((extrinsic) => toHex(extrinsic));
-        return {
-          number: header.number,
-          timestamp: Number(timestamp),
-          outcome(hex) {
-            const index = extrinsics.indexOf(hex);
-            if (index < 0) return undefined;
-            const own = events.filter((record) => record.phase.type === "ApplyExtrinsic" && record.phase.value === index);
-            const failed = own.find((record) => record.event.type === "System" && record.event.value.type === "ExtrinsicFailed");
-            return failed ? describeError((failed.event.value.value as { dispatch_error: unknown }).dispatch_error) : "ok";
-          },
-        };
-      } catch (error) {
-        if (attempt >= 20) throw error;
-        await sleep(500);
-      }
-    }
+    // After the contents, whose reads wait until papi follows the block.
+    const { body, events, timestamp } = await readBlockContents(client, api, hash);
+    const header = await client.getBlockHeader(hash);
+    const extrinsics = body.map((extrinsic) => toHex(extrinsic));
+    return {
+      number: header.number,
+      timestamp,
+      outcome(hex) {
+        const index = extrinsics.indexOf(hex);
+        if (index < 0) return undefined;
+        const own = events.filter((record) => record.phase.type === "ApplyExtrinsic" && record.phase.value === index);
+        const failed = own.find((record) => record.event.type === "System" && record.event.value.type === "ExtrinsicFailed");
+        return failed ? describeError((failed.event.value.value as { dispatch_error: unknown }).dispatch_error) : "ok";
+      },
+    };
   };
   return (hash) => cache.get(hash) ?? cache.set(hash, read(hash)).get(hash)!;
 }

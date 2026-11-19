@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { measureBlock, type BlockReads, type ChainEvent, type ChainLimits } from "./block-load.js";
+import type { ChainEvent } from "./block-contents.js";
+import { measureBlock, type BlockReads, type ChainLimits } from "./block-load.js";
 
 const ADVANCE_SHUFFLE = Uint8Array.of(0x37, 0x18);
 
