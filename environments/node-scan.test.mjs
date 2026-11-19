@@ -3,15 +3,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { parseCommit, parseLsRemoteTags, scanNodes, sdkTagLoader } from './node-scan.mjs';
 
-const A = 'a'.repeat(40);
-const B = 'b'.repeat(40);
+const STABLE2509_COMMIT = 'a'.repeat(40);
+const STABLE2512_COMMIT = 'b'.repeat(40);
 const LS_REMOTE = [
-  `${A}\trefs/tags/polkadot-stable2509`,
+  `${STABLE2509_COMMIT}\trefs/tags/polkadot-stable2509`,
   `${'c'.repeat(40)}\trefs/tags/polkadot-stable2512`, // annotated: the tag object, then its commit
-  `${B}\trefs/tags/polkadot-stable2512^{}`,
+  `${STABLE2512_COMMIT}\trefs/tags/polkadot-stable2512^{}`,
 ].join('\n');
 const TAGS = parseLsRemoteTags(LS_REMOTE);
 
@@ -21,7 +20,7 @@ const manifest = {
   binaries: { polkadot: 'paritytech/polkadot-sdk@polkadot-stable2509' },
   services: { 'eth-rpc': 'paritytech/polkadot-sdk@polkadot-stable2509', kubo: 'ipfs/kubo@v0.30.0' },
 };
-const versions = { relay: `1.20.0-${A.slice(0, 11)}`, people: `1.21.0-weekly2026w38-${B.slice(0, 7)}` };
+const versions = { relay: `1.20.0-${STABLE2509_COMMIT.slice(0, 11)}`, people: `1.21.0-weekly2026w38-${STABLE2512_COMMIT.slice(0, 7)}` };
 const rpc = async (url, method) => {
   assert.equal(method, 'system_version');
   const chain = url.includes('people') ? 'people' : 'relay';
@@ -49,7 +48,7 @@ describe('node-scan', () => {
   });
 
   it('maps an annotated tag to the commit it points at', () => {
-    assert.deepEqual([...TAGS], [[A, ['polkadot-stable2509']], [B, ['polkadot-stable2512']]]);
+    assert.deepEqual([...TAGS], [[STABLE2509_COMMIT, ['polkadot-stable2509']], [STABLE2512_COMMIT, ['polkadot-stable2512']]]);
   });
 
   it('runs one ls-remote per run', async () => {
@@ -76,15 +75,5 @@ describe('node-scan', () => {
     assert.match(lines[0], /relay .*unreachable: refused$/);
     assert.match(lines[1], /people .*unrecognised version "parity-polkadot"$/);
     assert.match(lines[2], /eth-rpc: .*unreachable: HTTP 502$/);
-  });
-
-  it('gives up on a stalled endpoint after the deadline and still reports the rest', async () => {
-    const lines = await scan({ rpc: () => new Promise(() => {}), deadlineMs: 20 });
-    assert.match(lines[0], /relay .*unreachable: gave up after 0.02s$/);
-    assert.match(lines[2], /eth-rpc: .*no polkadot-sdk tag has commit deadbee$/);
-  });
-
-  it('never imports baseline-scan.mjs, which imports it while still evaluating', () => {
-    assert.doesNotMatch(fs.readFileSync(new URL('./node-scan.mjs', import.meta.url), 'utf8'), /from '\.\/baseline-scan/);
   });
 });

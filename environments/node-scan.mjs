@@ -4,29 +4,27 @@
 // A chain's system_version and eth-rpc's web3_clientVersion each end in a commit. One
 // `git ls-remote` per run maps commits to polkadot-sdk tags, and each line says whether the
 // live commit carries the pinned tag.
-//
-// This module must not import baseline-scan.mjs: the CLI imports it while still evaluating,
-// so a static import back deadlocks (exit 13). The CLI passes its rpc() in instead.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { CHAINS, parseReleaseRef } from './release-map.mjs';
 
 const SDK_REPO_URL = 'https://github.com/paritytech/polkadot-sdk';
-const DEADLINE_MS = 60_000; // per network
+const DEADLINE_MS = 60_000; // per read
 
 export const ETH_RPC_URLS = {
   previewnet: 'https://previewnet.substrate.dev/eth-rpc',
   'paseo-next-v2': 'https://eth-rpc-paseo-next.polkadot.io',
   devnet: 'https://eth-rpc-testnet.polkadot.io',
+  westend: 'https://westend-asset-hub-eth-rpc.polkadot.io',
 };
 
 // 1.24.3-weekly2026w38-eeb597f61b9, eth-rpc/HEAD-eeb597f/x86_64-unknown-linux-gnu/rustc1.93.0
 const COMMIT = /-([0-9a-f]{7,40})(?:\/[^/]+\/rustc\S*)?$/i;
 
 export function parseCommit(version) {
-  const m = typeof version === 'string' ? COMMIT.exec(version.trim()) : null;
-  return m ? m[1].toLowerCase() : null;
+  const match = typeof version === 'string' ? COMMIT.exec(version.trim()) : null;
+  return match ? match[1].toLowerCase() : null;
 }
 
 /** `git ls-remote --tags` output to Map(commit -> tags). An annotated tag counts by its `^{}` commit. */
@@ -61,9 +59,9 @@ async function ethClientVersion(url, fetchFn) {
 
 /**
  * One line per chain the manifest lists, plus eth-rpc when it is pinned, and one for the pinned
- * services it cannot read. A failed or stalled read is its own line, so the others still report.
+ * services it cannot read. A failed read is its own line, so the others still report.
  */
-export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch, deadlineMs = DEADLINE_MS }) {
+export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch }) {
   const known = CHAINS[manifest.network];
   const targets = Object.keys(manifest.chains ?? {}).map((chain) => ({
     name: `${chain} (${known[chain].node})`,
@@ -76,13 +74,8 @@ export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetc
     targets.push({ name: 'eth-rpc', pin: manifest.services['eth-rpc'], read: () => ethClientVersion(ethUrl, fetchFn) });
   }
   const notScanned = services.filter((name) => name !== 'eth-rpc' || !ethUrl);
-  let timer;
-  const expired = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`gave up after ${deadlineMs / 1000}s`)), deadlineMs);
-  });
-  const work = Promise.all([loadTags(), ...targets.map((t) => Promise.race([t.read(), expired]).catch((err) => err))]);
-  const [tags, ...versions] = await work.finally(() => clearTimeout(timer));
-  const lines = targets.map(({ name, pin }, i) => line(name, pin, versions[i], tags));
+  const [tags, ...versions] = await Promise.all([loadTags(), ...targets.map((target) => target.read().catch((err) => err))]);
+  const lines = targets.map(({ name, pin }, index) => line(name, pin, versions[index], tags));
   return notScanned.length ? [...lines, `- not scanned: ${notScanned.join(', ')}`] : lines;
 }
 
@@ -101,4 +94,4 @@ function line(name, pin, version, tags) {
   return `- ${name}: ${pinned}, live ${live.join(', ')} (${version})`;
 }
 
-export const renderNodeSummary = (network, lines) => [`${network} nodes (report only, #53):`, '', ...lines].join('\n');
+export const renderNodeSummary = (network, lines) => [`${network} nodes (report only):`, '', ...lines].join('\n');

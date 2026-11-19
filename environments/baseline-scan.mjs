@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import { CHAINS, findAsset, runtimePlan, validateManifest } from './release-map.mjs';
 import { getRelease, listReleases, downloadAssetBytes } from './github.mjs';
 import { runtimeSpecOf } from './wasm-spec.mjs';
+import { scanNodes, renderNodeSummary, sdkTagLoader } from './node-scan.mjs';
 
 const CODE_KEY = '0x3a636f6465'; // ":code"
 const RPC_TIMEOUT_MS = 20_000;
@@ -205,10 +206,9 @@ if (isMain) {
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
     }
-    // Report only (#53): the rows feed this printout and nothing else. The dynamic import
-    // and try keep a node-scan failure away from the runtime scan above.
+    // Report only (#53): the rows feed this printout and nothing else. The try keeps a
+    // node-scan failure away from the runtime scan above.
     try {
-      const { scanNodes, renderNodeSummary, sdkTagLoader } = await import('./node-scan.mjs');
       nodeTags ??= sdkTagLoader();
       console.log(renderNodeSummary(manifest.network, await scanNodes(manifest, { rpc, loadTags: nodeTags })));
     } catch (err) {
