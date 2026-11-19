@@ -1,16 +1,23 @@
-// Which polkadot-sdk release the live nodes and eth-rpc run (#53). Report only: the
-// baseline scan prints these lines and never uses them to rewrite a pin or set the exit code.
-//
-// A chain's system_version and eth-rpc's web3_clientVersion each end in a commit. One
-// `git ls-remote` per run maps commits to polkadot-sdk tags, and each line says whether the
-// live commit carries the pinned tag.
+// Which polkadot-sdk release the live nodes and eth-rpc run. A chain's system_version and
+// eth-rpc's web3_clientVersion each end in a commit, and one `git ls-remote` per run maps
+// commits to polkadot-sdk tags. A binary slot whose chains all run one tagged commit the pin
+// doesn't name gets that tag as its new pin, from the pinned repo or else another repo the slot
+// may come from, when the repo publishes the slot's files under it.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { CHAINS, parseReleaseRef } from './release-map.mjs';
+import { getRelease } from './github.mjs';
+import { CHAINS, NODE_BINARIES, findAsset, parseReleaseRef } from './release-map.mjs';
 
 const SDK_REPO_URL = 'https://github.com/paritytech/polkadot-sdk';
 const DEADLINE_MS = 60_000; // per read
+
+/** The release assets each binary slot is delivered from; polkadot's PVF workers go with it. */
+const SLOT_ASSETS = {
+  polkadot: ['polkadot', 'polkadot-execute-worker', 'polkadot-prepare-worker'],
+  'polkadot-omni-node': ['polkadot-omni-node'],
+  'polkadot-parachain': ['polkadot-parachain'],
+};
 
 export const ETH_RPC_URLS = {
   previewnet: 'https://previewnet.substrate.dev/eth-rpc',
@@ -59,12 +66,14 @@ async function ethClientVersion(url, fetchFn) {
 
 /**
  * One line per chain the manifest lists, plus eth-rpc when it is pinned, and one for the pinned
- * services it cannot read. A failed read is its own line, so the others still report.
+ * services it cannot read; a failed read is its own line. `pins` holds the new pin of each
+ * binary slot whose live nodes run a release the pin doesn't name.
  */
-export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch }) {
+export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch, releaseOf = getRelease }) {
   const known = CHAINS[manifest.network];
   const targets = Object.keys(manifest.chains ?? {}).map((chain) => ({
     name: `${chain} (${known[chain].node})`,
+    slot: known[chain].node,
     pin: manifest.binaries?.[known[chain].node],
     read: () => rpc(known[chain].ws, 'system_version'),
   }));
@@ -75,17 +84,25 @@ export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetc
   }
   const notScanned = services.filter((name) => name !== 'eth-rpc' || !ethUrl);
   const [tags, ...versions] = await Promise.all([loadTags(), ...targets.map((target) => target.read().catch((err) => err))]);
-  const lines = targets.map(({ name, pin }, index) => line(name, pin, versions[index], tags));
-  return notScanned.length ? [...lines, `- not scanned: ${notScanned.join(', ')}`] : lines;
+  const rows = targets.map((target, index) => ({ ...target, version: versions[index], live: liveTags(versions[index], tags) }));
+  const lines = rows.map(line);
+  return {
+    lines: notScanned.length ? [...lines, `- not scanned: ${notScanned.join(', ')}`] : lines,
+    pins: await slotPins(manifest, rows, releaseOf),
+  };
 }
 
-function line(name, pin, version, tags) {
+/** The polkadot-sdk tags at the version's commit, or null when the version names no commit. */
+function liveTags(version, tags) {
+  const commit = version instanceof Error ? null : parseCommit(version);
+  return commit && [...tags].filter(([sha]) => sha.startsWith(commit)).flatMap(([, names]) => names);
+}
+
+function line({ name, pin, version, live }) {
   const pinned = `pinned ${pin ?? 'nothing'}`;
   if (version instanceof Error) return `- ${name}: ${pinned}, unreachable: ${version.message}`;
-  const commit = parseCommit(version);
-  if (!commit) return `- ${name}: ${pinned}, unrecognised version "${version}"`;
-  const live = [...tags].filter(([sha]) => sha.startsWith(commit)).flatMap(([, names]) => names);
-  if (live.length === 0) return `- ${name}: ${pinned}, live ${version}, no polkadot-sdk tag has commit ${commit}`;
+  if (!live) return `- ${name}: ${pinned}, unrecognised version "${version}"`;
+  if (live.length === 0) return `- ${name}: ${pinned}, live ${version}, no polkadot-sdk tag has commit ${parseCommit(version)}`;
   let tag;
   try {
     tag = parseReleaseRef(pin).tag;
@@ -94,4 +111,33 @@ function line(name, pin, version, tags) {
   return `- ${name}: ${pinned}, live ${live.join(', ')} (${version})`;
 }
 
-export const renderNodeSummary = (network, lines) => [`${network} nodes (report only):`, '', ...lines].join('\n');
+/**
+ * For each pinned slot whose chains all run one tagged commit the pin doesn't name: a release
+ * under that tag carrying every file of the slot, from the pinned repo first.
+ */
+async function slotPins(manifest, rows, releaseOf) {
+  const pins = {};
+  for (const [slot, pin] of Object.entries(manifest.binaries ?? {})) {
+    const { repo, tag: pinnedTag } = parseReleaseRef(pin);
+    const lives = rows.filter((row) => row.slot === slot).map((row) => row.live);
+    if (!repo || lives.length === 0 || lives.some((live) => !live?.length)) continue;
+    const common = lives.reduce((left, right) => left.filter((tag) => right.includes(tag)));
+    if (common.includes(pinnedTag)) continue;
+    const repos = [repo, ...NODE_BINARIES[slot].repos.filter((other) => other !== repo)];
+    const found = await publishedPin(slot, repos, common, releaseOf);
+    if (found) pins[slot] = found;
+  }
+  return pins;
+}
+
+async function publishedPin(slot, repos, tags, releaseOf) {
+  for (const repo of repos) {
+    for (const tag of tags) {
+      const release = await releaseOf(repo, tag).catch(() => null);
+      if (release && SLOT_ASSETS[slot].every((name) => findAsset(release, name))) return `${repo}@${tag}`;
+    }
+  }
+  return null;
+}
+
+export const renderNodeSummary = (network, lines) => [`${network} nodes:`, '', ...lines].join('\n');
