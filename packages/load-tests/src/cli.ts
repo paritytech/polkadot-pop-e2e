@@ -234,12 +234,12 @@ switch (values.help ? undefined : command) {
       [
         `### Lite people on ${target.label}`,
         "",
-        `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, ${result.pending} pending at DUB, ${result.rateLimited} refused with 429, failures ${JSON.stringify(result.failures)}`,
+        `- ${bots.length} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, ${result.pending} pending at DUB, failures ${JSON.stringify(result.failures)}`,
         `- attest p50 / p95 / max: ${[p50, p95, max].map((ms) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`)).join(" / ")}, ${values["attest-concurrency"]} at a time`,
-        `- ${result.inRing} of ${result.bots} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
+        `- ${result.inRing} of ${bots.length} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
       ].join("\n"),
     );
-    if (result.inRing < result.bots) throw new Error(`${result.bots - result.inRing} of ${result.bots} lite bots are in no ring root`);
+    if (result.inRing < bots.length) throw new Error(`${bots.length - result.inRing} of ${bots.length} lite bots are in no ring root`);
     break;
   }
   case "mint": {

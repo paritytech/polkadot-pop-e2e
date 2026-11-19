@@ -104,9 +104,7 @@ export interface ProvisionResult {
    * DUB may still finish them, so they count as lite once the chain shows them.
    */
   pending: number;
-  /** Attests that DUB refused with 429 Too Many Requests, also counted in `failures`. */
-  rateLimited: number;
-  /** Attests that failed, by error: an HTTP status from DUB, or the CLI's message. */
+  /** Attests that failed, by error: an HTTP status from DUB, such as `HTTP 429`, or the CLI's message. */
   failures: Record<string, number>;
   /** From starting `truapi-host attest` to its exit, ring inclusion included, for the attests that succeeded. */
   attestMs: QuantileSummary;
@@ -186,11 +184,9 @@ export async function provisionLitePeople(
     const refused = total(failures);
     const inRing = await waitForRings(api, client, bots, bots.length - refused, options.inclusionTimeoutMs);
     return {
-      bots: bots.length,
       alreadyLite: bots.length - pending.length,
       attested,
       pending: waiting,
-      rateLimited: failures["HTTP 429"] ?? 0,
       failures,
       attestMs: attestMs.summary(),
       inRing,
