@@ -315,14 +315,14 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
     // The game's last blocks are best, not yet finalized, when the run sees the game end.
     const lastBestBlock = blockFollower.bestNumber();
-    const lastBlockRead = await blockFollower.waitForBlock(lastBestBlock, FINALIZED_WAIT_MS);
+    const blocksComplete = await blockFollower.waitForBlock(lastBestBlock, FINALIZED_WAIT_MS);
     const blocks = [...blockFollower.blocks].sort((a, b) => a.number - b.number);
     const gameSummary = { index: game.index, gamePlayTime: game.game_date, registrationEnds: game.registration_ends, reportEnds: game.report_ends };
     const signUpSummary = summarizeBurst(signUp);
     const limits = findBlockLimits({ blocks, game: gameSummary, phases, signUp: signUpSummary, report });
     findings.push(...limits.findings);
     const notes = blockFollower.notes();
-    if (!lastBlockRead) notes.push(`finalized blocks up to #${lastBestBlock} not read within ${FINALIZED_WAIT_MS / 1000} s of the game end`);
+    if (!blocksComplete) notes.push(`finalized blocks up to #${lastBestBlock} not read within ${FINALIZED_WAIT_MS / 1000} s of the game end`);
     let proposals: Proposal[] | null = null;
     const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
     if (target.network === "previewnet" && gameBlocks.length > 0) {

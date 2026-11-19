@@ -167,7 +167,7 @@ const METHOD_NOT_FOUND = -32601;
 /**
  * Reads every finalized People block once, as it is finalized, into `blocks`: four storage reads
  * at the block's hash, its body, events and timestamp shared with any burst that reads the block,
- * and `dev_getBlockStats` for the blocks of the followed game.
+ * and `dev_getBlockStats` for the blocks of the game `followGame` sets.
  */
 export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): Promise<BlockFollower> {
   const blocks: BlockLoad[] = [];
@@ -191,8 +191,8 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
   const arrivalTimes = new Map<number, number | null>();
   let latestGameIndex: number | undefined;
-  let followedGame: number | undefined;
-  let lastFollowedGameBlock = -1;
+  let statsGameIndex: number | undefined;
+  let lastStatsGameBlock = -1;
   let blockStatsAvailable = true;
   const readWitnessBytes = async (hash: string): Promise<number | null> => {
     if (!blockStatsAvailable) return null;
@@ -232,8 +232,8 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
         ]);
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
         const stepGameIndex = latestGameIndex;
-        if (followedGame !== undefined && game?.index === followedGame) lastFollowedGameBlock = Math.max(lastFollowedGameBlock, block.number);
-        const inFollowedGame = followedGame !== undefined && (game?.index === followedGame || block.number === lastFollowedGameBlock + 1);
+        if (statsGameIndex !== undefined && game?.index === statsGameIndex) lastStatsGameBlock = Math.max(lastStatsGameBlock, block.number);
+        const inStatsGame = statsGameIndex !== undefined && (game?.index === statsGameIndex || block.number === lastStatsGameBlock + 1);
         blocks.push(
           measureBlock(
             {
@@ -245,7 +245,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
               game,
               creditCursor,
               unincludedLength: unincluded.length,
-              witnessBytes: inFollowedGame ? await readWitnessBytes(block.hash) : null,
+              witnessBytes: inStatsGame ? await readWitnessBytes(block.hash) : null,
               stepGameIndex,
             },
             limits,
@@ -265,7 +265,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   return {
     blocks,
     followGame(index) {
-      followedGame = index;
+      statsGameIndex = index;
     },
     bestNumber: () => bestNumber,
     async waitForBlock(number, timeoutMs) {
