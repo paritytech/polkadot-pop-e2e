@@ -106,7 +106,7 @@ export class VideoMesh implements PeerLinks {
     this.closed = true;
     this.timers.forEach((timer) => clearTimeout(timer));
     this.camera.stop();
-    await Promise.all([...this.links.values()].map((link) => this.closeLink(link)));
+    await Promise.all([...this.links.values()].map((link) => this.closeLink(link, "end")));
     return this.linksUp;
   }
 
@@ -309,7 +309,7 @@ export class VideoMesh implements PeerLinks {
     for (const link of [...this.links.values()]) {
       const active = round.group.includes(link.peer);
       if (!active && !later.includes(link.peer)) {
-        void this.closeLink(link);
+        void this.closeLink(link, "round");
         continue;
       }
       if (active === !link.standby) continue;
@@ -320,14 +320,18 @@ export class VideoMesh implements PeerLinks {
     }
   }
 
-  private async closeLink(link: Link): Promise<void> {
+  /**
+   * Closes `link`, at the end of play or at a round switch. A round switch closes the peer
+   * connection alone, as the app's `dropPeer` does, and leaves the transport's linked flag set.
+   */
+  private async closeLink(link: Link, when: "end" | "round"): Promise<void> {
     if (!this.links.delete(link.peer)) return;
     link.receive.finish(Date.now());
     if (link.up) {
       // A co-player with no round left closes its side at the same moment, so a link closed by
       // the round switch may already read closed here: only a failed connection counts as down.
       if (link.pc.connectionState !== "failed") this.linksUp++;
-      this.options.onLinked(link.peer, false);
+      if (when === "end") this.options.onLinked(link.peer, false);
     }
     await link.pc.close().catch(() => {});
   }
