@@ -16,6 +16,9 @@ export interface VideoSummary {
   linksWithVideo: number;
   connectMs: QuantileSummary;
   candidateTypes: Record<string, number>;
+  localCandidates: Record<string, number>;
+  remoteCandidates: Record<string, number>;
+  candidateErrors: Record<string, number>;
   streams: number;
   streamsWithFrames: number;
   firstFrameMs: QuantileSummary;
@@ -45,6 +48,9 @@ export function summarizeVideo(stats: VideoStats, links: { links: number; linksU
     linksWithVideo: stats.linksWithVideo,
     connectMs: stats.connectMs.summary(),
     candidateTypes: stats.candidateTypes,
+    localCandidates: stats.localCandidates,
+    remoteCandidates: stats.remoteCandidates,
+    candidateErrors: stats.candidateErrors,
     streams: stats.streams,
     streamsWithFrames: stats.streamsWithFrames,
     firstFrameMs: stats.firstFrameMs.summary(),
@@ -72,6 +78,7 @@ export function videoFindings(video: VideoSummary): { findings: string[]; client
   if (video.streamsWithFrames < video.streams) findings.push(`video: ${video.streams - video.streamsWithFrames} of ${video.streams} streams showed no frame`);
   if (video.frameShare < MIN_FRAME_SHARE) findings.push(`video: ${(video.frameShare * 100).toFixed(1)}% of the expected frames arrived`);
   if (total(video.failures) > 0) findings.push(`video: ${JSON.stringify(video.failures)}`);
+  if (total(video.candidateErrors) > 0) findings.push(`ICE: candidate errors ${JSON.stringify(video.candidateErrors)}`);
   const turnFailures = total(video.turnFetches) - (video.turnFetches.ok ?? 0);
   if (turnFailures > 0) findings.push(`TURN: ${turnFailures} of ${total(video.turnFetches)} credential requests failed ${JSON.stringify(video.turnFetches)}`);
   const clientBound = video.skippedShare > MAX_SKIPPED_SHARE;
@@ -92,6 +99,7 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
     "With video",
     "Connect p50 / p95 ms",
     "Candidate types",
+    "Candidates gathered / received",
     "First frame p50 / p95 ms",
     "Frames received / expected",
     "Loss",
@@ -107,6 +115,7 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
       video.linksWithVideo,
       ms(video.connectMs),
       counts(video.candidateTypes),
+      `${counts(video.localCandidates)} / ${counts(video.remoteCandidates)}`,
       ms(video.firstFrameMs),
       `${video.framesReceived} / ${video.framesExpected} (${(video.frameShare * 100).toFixed(1)}%)`,
       `${(video.loss * 100).toFixed(2)}%`,
