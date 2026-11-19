@@ -82,7 +82,7 @@ function stateLabel(game: { state: { type: string; value?: unknown } } | undefin
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
-async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, players: Player[], phases: Phases): Promise<void> {
+async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, players: Player[]): Promise<void> {
   const { target } = run;
   const existing = await api.query.Game.Game.getValue();
   const schedules = await api.query.Game.GameSchedules.getValue();
@@ -90,8 +90,8 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
     if (!run.takeOver) {
       throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --game-at to play a load game`);
     }
-    // The chain's own phases, so the take-over leaves them as they are.
-    await clearGames(api, getTxCreator(sudo.publicKey, "Sr25519", async (input) => sudo.sign(input)), phases);
+    // null: the take-over leaves the chain's phases as they are.
+    await clearGames(api, getTxCreator(sudo.publicKey, "Sr25519", async (input) => sudo.sign(input)), null);
   }
   await fundPlayers(api, sudo, players, PLAYER_FUNDS);
 }
@@ -155,7 +155,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     let phases = chainPhases;
     let signedSignUps: string[] = [];
     if (ownGame) {
-      await clearAndFund(api, run, target.sudo!, players, chainPhases);
+      await clearAndFund(api, run, target.sudo!, players);
       // Fresh accounts, signed before the game exists, so none of registration goes to signing:
       // the sign-up is each player's first transaction, the report its second.
       signedSignUps = await signEntries(signUpEntries(api, players, 0), "sign-up");

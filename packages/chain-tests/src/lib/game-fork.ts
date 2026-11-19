@@ -116,14 +116,14 @@ export async function sudoBatch(
 }
 
 /**
- * Cancels the running game, drops every queued schedule and sets `phases`, until the Game is
- * gone and nothing is queued. Each pass re-reads the chain, because the chain can open a game
+ * Cancels the running game, drops every queued schedule and sets `phases` (null leaves them), until
+ * the Game is gone and nothing is queued. Each pass re-reads the chain, because the chain can open a game
  * between two reads.
  */
 export async function clearGames(
   api: PeopleApi,
   signer: CommonSignerTxCreator,
-  phases: GamePhases = FORK_PHASES,
+  phases: GamePhases | null = FORK_PHASES,
 ): Promise<void> {
   const deadline = Date.now() + CLEAR_TIMEOUT_MS;
   let lastError: unknown;
@@ -132,7 +132,7 @@ export async function clearGames(
     const phase = game?.state.type;
     const calls: Tx[] = [];
     // `set_game_phases` only works with no game, or a game in Registration.
-    if (!samePhases(stored, phases) && (!game || phase === "Registration")) {
+    if (phases && !samePhases(stored, phases) && (!game || phase === "Registration")) {
       calls.push(api.tx.Game.set_game_phases({ phases }));
     }
     for (const schedule of schedules) {
@@ -150,7 +150,7 @@ export async function clearGames(
       } catch (error) {
         lastError = error;
       }
-    } else if (!game && schedules.length === 0 && samePhases(stored, phases)) {
+    } else if (!game && schedules.length === 0 && (!phases || samePhases(stored, phases))) {
       return;
     }
 
