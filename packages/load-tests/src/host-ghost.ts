@@ -11,12 +11,12 @@ import {
   type TruApi,
 } from "@parity/product-sdk-host";
 import type { WireStatement } from "@jollity/statement-core";
-import { SignallingBot } from "./bot.js";
+import { SignallingBot, type AppGame } from "./bot.js";
 import type { ChainSeats } from "./chain-seats.js";
 import type { HostGhostPlan, HostGhostResult } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
 import { roomOpensAt } from "./profile.js";
-import { coPlayersOf, roundsOf, timeRounds } from "./seating.js";
+import { tablesOf, timeRounds } from "./seating.js";
 import { SignallingStats } from "./stats.js";
 import { sleep, sleepUntil } from "./time.js";
 import { botVideo } from "./video/run.js";
@@ -112,32 +112,35 @@ async function waitForSeats(path: string, until: number): Promise<ChainSeats | u
 }
 
 const chainSeats = plan.game && waitForSeats(plan.game.seatsPath, plan.stopAt);
-const identifiers = chainSeats?.then(
-  (seats) => seats && new Map(Object.entries(seats.identifiers).map(([peer, hex]) => [peer, Uint8Array.from(Buffer.from(hex.slice(2), "hex"))])),
-);
+const appGame: Promise<AppGame | undefined> | undefined = chainSeats?.then((seats) => {
+  const room = plan.game?.room;
+  if (!seats || room === undefined) return undefined;
+  const identifiers = new Map(Object.entries(seats.identifiers).map(([peer, hex]) => [peer, Uint8Array.from(Buffer.from(hex.slice(2), "hex"))]));
+  return { room, identifiers, bots };
+});
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
   const self = accounts[index];
-  // In a game, the rooms are the chain's groups, which real players share; else the run's own tables.
   const seats = chainSeats && (await chainSeats);
   if (chainSeats && !seats) return;
-  const groups = seats && (seats.rounds[self] ?? []);
-  const roster = groups ? [...new Set(groups.flat())] : coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
-  const rounds = groups ? timeRounds(groups, profile, plan.gameStart) : roundsOf(index, accounts.length, profile, plan.gameStart, (other) => accounts[other]);
+  const game = await appGame;
+  // In a game, the chain's groups; else the run's own tables. Off the app's topics, only bots answer.
+  const seated = seats ? seats.rounds[self] : tablesOf(index, accounts.length, profile).map((group) => group.map((other) => accounts[other]));
+  if (!seated) return;
+  const groups = seats && !game ? seated.map((group) => group.filter((peer) => bots.has(peer))) : seated;
+  const roster = [...new Set(groups.flat())];
   const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost));
   const bot = new SignallingBot({
     self,
     roster,
     namespace: plan.namespace,
-    room: plan.game?.room,
     profile,
     store,
     stats,
     window: plan.window,
-    identifiers: await identifiers,
-    measuredPeers: roster.filter((peer) => bots.has(peer)).length,
-    video: video && botVideo(video.ice, video.turn[ghost], video.stats, rounds),
+    game,
+    video: video && botVideo(video.ice, video.turn[ghost], video.stats, timeRounds(groups, profile, plan.gameStart)),
   });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();

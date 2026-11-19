@@ -56,10 +56,10 @@ const statementKey = (channel: string, expiry: bigint) => `${channel.toLowerCase
 
 /**
  * `store` as one player's transport uses it, counting what the summary reads: every submit, and
- * every statement delivered to the player, which arrives from then until `close`, also after the
- * transport unsubscribed.
+ * every statement delivered to the player from a signer `measured` accepts (all by default), which
+ * arrives from then until `close`, also after the transport unsubscribed.
  */
-export function createCountingStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter): CountingStore {
+export function createCountingStore(store: MeasurableStore, stats: SignallingStats, counter: DeliveryCounter, measured?: (signer: string | undefined) => boolean): CountingStore {
   const proofStarts = new Map<bigint, number>();
   const subscriptions: StatementSubscription[] = [];
   return {
@@ -103,8 +103,8 @@ export function createCountingStore(store: MeasurableStore, stats: SignallingSta
           filter,
           (page) => {
             const now = Date.now();
-            for (const { channel, expiry } of page.statements) {
-              if (channel === undefined || expiry === undefined) continue;
+            for (const { channel, expiry, signer } of page.statements) {
+              if (channel === undefined || expiry === undefined || measured?.(signer) === false) continue;
               const stampedAt = stampTime(expiry);
               counter.receive({ channel: channel.toLowerCase(), expiry, stampedAt }, sendTimes.get(statementKey(channel, expiry)) ?? stampedAt, now);
             }

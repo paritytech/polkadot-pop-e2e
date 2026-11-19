@@ -111,14 +111,14 @@ describe("SignallingBot", () => {
     expect(memory.submitted.some((wire) => Buffer.from(wire.data.slice(2), "hex").toString().includes("a=fingerprint"))).toBe(false);
   });
 
-  // A real player's identifier on chain is the public key of a secret its phone keeps, which no bot
-  // derives from its account: a bot that sealed to a derived one would never link with it.
+  // A real player's identifier on chain is the public key of a secret stored on its phone, which no
+  // bot derives from its account: a bot that sealed to a derived one would never link with it.
   it("links a real player through the identifier it registered on chain", { timeout: 30_000 }, async () => {
     const memory = new MemoryStore();
     const stats = new SignallingStats();
     const [bot, person] = [0, 1].map((index) => derivePlayer("person-test", index));
     const secret = p256.utils.randomSecretKey();
-    const optionsOf = (player: Player, other: Player) => ({
+    const optionsOf = (player: Player, other: Player, identifiers: Map<string, Uint8Array>, bots: Set<string>) => ({
       self: player.address,
       roster: [other.address],
       namespace: "person-test",
@@ -126,10 +126,12 @@ describe("SignallingBot", () => {
       store: memory.storeOf(player),
       stats,
       window: { start: 0, end: Number.MAX_SAFE_INTEGER },
+      game: { room: "g7", identifiers, bots },
     });
     const players = [
-      new SignallingBot({ ...optionsOf(bot, person), identifiers: new Map([[person.address, p256.getPublicKey(secret, false)]]) }),
-      new SignallingBot({ ...optionsOf(person, bot), secret }),
+      new SignallingBot(optionsOf(bot, person, new Map([[person.address, p256.getPublicKey(secret, false)]]), new Set([bot.address]))),
+      // The phone's side, counting nothing, so the counts are the bot's alone.
+      new SignallingBot({ ...optionsOf(person, bot, new Map(), new Set()), secret }),
     ];
     for (const player of players) player.open();
     await sleep(4_000);
@@ -137,6 +139,9 @@ describe("SignallingBot", () => {
     for (const player of players) player.leave();
 
     expect(stats.linksUp).toBe(2);
+    // A real player's statements are due to nobody the run measures, so none counts as a delivery.
+    expect(stats.expectedDeliveries).toBe(0);
+    expect(stats.deliveredInWindow).toBe(0);
   });
 
   // 12 bots are the fewest whose two rounds of 6 seat every bot with new co-players in round 2.

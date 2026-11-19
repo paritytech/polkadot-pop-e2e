@@ -20,7 +20,7 @@ or Asset Hub.
 | `claim` | whether the bots claim their NFTs after the reports |
 | `game_at` | the play time of the game to join; empty joins the closest scheduled one |
 | `replay_at` | a start time: the bots of an earlier game exchange the same messages then, without a game, sign-up, reports or claims |
-| `chain_backend` | how the bots' truapi-host connects to People: `rpc` (default) or `light-client`, its embedded smoldot |
+| `chain_backend` | how the bots' truapi-host connects to People: `rpc` (default) or `light-client`, its embedded smoldot; previewnet takes `rpc` only |
 | `host_log` | truapi-host's log level; `debug` records why each connection ended |
 | `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots; `--bots-per-process 1` runs every bot in its own truapi-host, as on a phone |
 
@@ -40,9 +40,8 @@ A run has three parts:
 The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play
 deposit once. They don't need a person, an alias or an attestation: the app's sign-up takes
 `Game.sign_up_with_account` for a player without personhood, they share groups with the game's
-real players, and they vote `Person` for every co-player. In a game their rooms are the game's
-groups on chain, under the app's own topics, so a real player's phone links with its bot
-co-players and, with `video`, sees their camera.
+real players, and they vote `Person` for every co-player. With `video`, a real player's phone
+links with its bot co-players and receives their camera.
 
 A bot that misses games loses score; at 0 the chain archives it and removes its statement
 allowance, so a replay needs bots that played a recent game. A game run signs them up again.
@@ -132,20 +131,21 @@ link is up. `timing: random` opens each bot's room up to 8 s later instead.
 The app no longer has a room that every phone of a game posts to and listens on, so the bots no
 longer have one either.
 
-In a game (`--follow-game`, as the workflow runs it), the runner reads each bot's groups by round
-once the shuffle has seated the players, as the app's game view reads them (`playerIndices`,
-`groupMembers`), and every co-player's communication identifier as registered on chain
-(`communicationIdentifier` of the engine), and the bots signal under the app's product account in
-its room `g<game index>`, so real players and bots hear each other. A bot's communication key
-derives from its account, and so does the identifier it signs up with. Out of a game, bots signal
-under their run's own namespace and seat themselves at tables of their own, so they never reach
-real players and seal to each other without reading the chain. Every statement a bot's store
-accepts is due to each of its bot co-players, which is how many deliveries a run expects. A bot
-has one statement per channel, so a newer one can replace a statement before it reaches a
-co-player; it carries what the replaced one did, so a co-player that receives a statement counts
-every earlier one of that channel as delivered too. A receiver measures latency from when the
-statement went out when its sender runs in the same process, and otherwise from the time its
-expiry was stamped with.
+With `--follow-game`, as the workflow runs it, bots play in the game's groups on chain. Once the
+shuffle seats the players, the runner reads each bot's group in every round and the
+communication identifier each co-player registered on chain. With `--video`, bots then signal
+under the app's product account in the app's room `g<game index>`, so they link with the real
+players in their groups. Without it they link with their bot co-players alone, under the run's
+own namespace, since their stand-in descriptions would send real phones to addresses that don't
+exist. Out of a game, bots signal under their run's own namespace at tables of their own, so
+real players don't receive their statements. A bot's communication key derives from its account,
+and so does the identifier it signs up with. Every statement a bot's store accepts is due to each
+of its bot co-players, which is how many deliveries a run expects; a real player's statements
+don't count. A bot has one statement per channel, so a newer one can replace a statement before
+it reaches a co-player; it carries what the replaced one did, so a co-player that receives a
+statement counts every earlier one of that channel as delivered too. A receiver measures latency
+from when the statement went out when its sender runs in the same process, and otherwise from the
+time its expiry was stamped with.
 
 ## Video
 
@@ -196,8 +196,8 @@ host table's **Host CPU / RSS per ghost** after a run of each mode. The summary 
   **With video**: links whose video renegotiation completed. Each link counts once per side.
 - **Connect**: room open to the channel opening; **Candidate types**: the local candidate of each
   connected link's selected pair (`host`, `srflx`, `prflx`, `relay`). **Candidates gathered /
-  received**: every link's own candidates and its co-player's, by type. A link that fails says
-  which it had in its finding, and ICE candidate errors (701 for a TURN server that didn't answer)
+  received**: every link's own candidates and its co-player's, by type. A failed link's finding
+  lists the candidates it had, and ICE candidate errors (701 for a TURN server that didn't answer)
   are a finding of their own.
 - **First frame**: camera on (room open, or the second round's start) to the first whole keyframe.
 - **Frames received / expected**: frames that arrived in the window against 24 per second of every

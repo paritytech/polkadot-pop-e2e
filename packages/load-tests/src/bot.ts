@@ -26,8 +26,6 @@ export interface BotOptions {
   self: string;
   roster: string[];
   namespace: string;
-  /** The room's key: in a game, the app's `g<game index>`. */
-  room?: string;
   profile: SignallingProfile;
   store: MeasurableStore;
   stats: SignallingStats;
@@ -35,15 +33,19 @@ export interface BotOptions {
   window: { start: number; end: number };
   /** Real peer connections with video in place of descriptions of Chrome's size. */
   video?: BotVideo;
-  /**
-   * Co-players' communication identifiers as registered on chain. A co-player without one is a
-   * bot, whose identifier derives from its account.
-   */
-  identifiers?: ReadonlyMap<string, Uint8Array>;
   /** The player's registered communication secret; a bot's derives from its account. */
   secret?: Uint8Array;
-  /** The co-players that count their deliveries, the bots of `roster`: all of it by default. */
-  measuredPeers?: number;
+  /** A game on the app's own topics, which real players use too. */
+  game?: AppGame;
+}
+
+export interface AppGame {
+  /** The app's room key, `g<game index>`. */
+  room: string;
+  /** Co-players' communication identifiers as registered on chain; a bot's derives from its account. */
+  identifiers: ReadonlyMap<string, Uint8Array>;
+  /** The run's bots: deliveries count between them alone. */
+  bots: ReadonlySet<string>;
 }
 
 /**
@@ -60,9 +62,13 @@ export class SignallingBot {
   private links: PeerLinks | undefined;
 
   constructor(private readonly options: BotOptions) {
-    // Every co-player listens on the player's topic, so each statement is due to each of them.
-    this.counter = new DeliveryCounter(options.stats, options.window, options.measuredPeers ?? options.roster.length, options.self);
-    this.countingStore = createCountingStore(options.store, options.stats, this.counter);
+    const { roster, game } = options;
+    // Every bot co-player listens on the player's topic, so each statement is due to each of them.
+    const recipients = game ? roster.filter((peer) => game.bots.has(peer)).length : roster.length;
+    this.counter = new DeliveryCounter(options.stats, options.window, recipients, options.self);
+    const botSigners = game && new Set([...game.bots].map((bot) => toHex(accountId.enc(bot)).toLowerCase()));
+    const measured = botSigners && ((signer: string | undefined) => signer === undefined || botSigners.has(signer.toLowerCase()));
+    this.countingStore = createCountingStore(options.store, options.stats, this.counter, measured);
   }
 
   /** The waiting room's store clock calibration: one statement on the player's own channel. */
@@ -93,7 +99,7 @@ export class SignallingBot {
       deflateBundles: true,
       keys: {
         secret: async () => this.options.secret ?? communicationSecret(accountId.enc(self)),
-        peerIdentifier: async (peer) => this.options.identifiers?.get(peer) ?? communicationIdentifier(accountId.enc(peer)),
+        peerIdentifier: async (peer) => this.options.game?.identifiers.get(peer) ?? communicationIdentifier(accountId.enc(peer)),
       },
       onSubmit: (event) => bump(stats.submitEvents, event.kind),
       log: (message) => {
@@ -109,7 +115,7 @@ export class SignallingBot {
     this.links = links;
     this.transport = signalling({
       base: "",
-      room: this.options.room ?? ROOM,
+      room: this.options.game?.room ?? ROOM,
       id: self,
       name: self,
       peers: roster,

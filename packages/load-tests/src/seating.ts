@@ -21,7 +21,7 @@ export function tableMatesOf(index: number, round: number, players: number, prof
 }
 
 /** The players `index` shares a table with, by round. */
-function tablesOf(index: number, players: number, profile: SignallingProfile): number[][] {
+export function tablesOf(index: number, players: number, profile: SignallingProfile): number[][] {
   return Array.from({ length: profile.rounds }, (_, round) => tableMatesOf(index, round, players, profile));
 }
 
@@ -44,7 +44,7 @@ export function roundsOf(index: number, players: number, profile: SignallingProf
  * Each round's group of `groups` in a room opened at `roomOpenAt`, with when the app turns the
  * camera to it: the first round's from the opening, a later round's when the round before ends.
  */
-export function timeRounds<Member>(groups: Member[][], profile: SignallingProfile, roomOpenAt: number): Array<{ activeFrom: number; group: Member[] }> {
+export function timeRounds(groups: string[][], profile: SignallingProfile, roomOpenAt: number): Array<{ activeFrom: number; group: string[] }> {
   const firstRoundAt = roomOpenAt + profile.preconnectMs;
   return groups.map((group, round) => ({
     activeFrom: round === 0 ? roomOpenAt : firstRoundAt + round * profile.roundMs + (round - 1) * profile.breakMs,
