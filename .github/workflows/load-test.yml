@@ -71,8 +71,8 @@ concurrency:
 
 env:
   NETWORK: ${{ inputs.network }}
-  # truapi-host refuses previewnet once its shipped descriptor is older than the published one,
-  # so previewnet runs read the published stack.
+  # truapi-host rejects previewnet when its built-in descriptor is older than the published one,
+  # so previewnet runs read the published stack, which truapi-host takes over RPC only.
   STACK: ${{ inputs.network == 'previewnet' && 'https://previewnet.substrate.dev/.well-known/trinity-stack.json' || '' }}
   PLAYERS: ${{ inputs.players }}
   ARGS: ${{ inputs.args }}
@@ -97,14 +97,11 @@ jobs:
           CHAIN_BACKEND: ${{ inputs.chain_backend }}
         run: |
           set -euo pipefail
-          # parity-large is c2d-highcpu-32: 32 vCPU, 64 GB, 32 Gbps, about 7 Gbps per runner to
-          # external IPs, so a video bot's 1.6 Mbit/s each way leaves CPU and memory as the limit.
-          # In game 352, 400 light-client bots, each its own truapi-host on its own light client,
-          # took 2.8% of a core and 147 MB each, about 59 of the 64 GB: light-client runs take 350.
-          # In game 354, video bots with their own truapi-host each took 11.8% of a core and 197 MB:
-          # 250 of them used 29.5 of 32 vCPU and their cameras skipped 11.2% of frames, so lite video
-          # and light-client video runs take 150.
-          # Recalibrate from the summary's "Host CPU / RSS per ghost" after a run of each mode.
+          if [ "$NETWORK" = previewnet ] && [ "$CHAIN_BACKEND" = light-client ]; then
+            echo "::error::previewnet runs read the published stack, which truapi-host takes over RPC only: use chain_backend rpc"
+            exit 1
+          fi
+          # Bots per parity-large and how to recalibrate them: packages/load-tests/README.md#video
           case "$LITE/$VIDEO" in
             true/true) default=150 ;;
             false/true) default=400 ;;
