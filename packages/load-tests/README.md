@@ -288,10 +288,13 @@ makes new lite people, and a lite person can't be removed. truapi-host reaches D
 
 `load chain --lite` plays lite bots in place of the deposit-backed ones.
 
-`load chain --draw` makes the prize draw part of the load: every bot enters the draws of whatever
-game it signs up to, and after player processing each bot that won claims its prize into its game
-account. The summary gives the tickets, the bots that won, the claims with their inclusion time
-and failures. A game the run schedules as root gets one draw (the chain's first
+`load chain --draw` makes the prize draw part of the load: each bot enters the draws of whatever
+game it signs up to as the app enters them, so a bot this game can't make a member (a new bot on
+paseo, where membership takes 3 points, so 2 games) signs up without a ticket, and the summary
+counts those as `not-member-yet`. After player processing each draw is read once, and each bot
+that won claims its prize into its game account. The summary gives the entries, the tickets, the
+bots that won, the claims with their inclusion time and failures. A game the run schedules as
+root gets one draw (the chain's first
 `Airdrop.SupportedAssets` asset at its minimum amount, 5 winners), for a fork whose games have
 none; `Game.airdrops_scheduled` 0 there means `pop/gads`, the account the Game pallet pays prizes
 from, lacks the prize asset.
