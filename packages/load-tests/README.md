@@ -211,10 +211,14 @@ hundreds: a bot with a deposit-backed player record would keep signing up as a r
 
 `load people --players <n>` makes lite bots `--lite-from`..+n lite people the way a phone becomes
 one: `truapi-host attest` with the bot's wallet, through DUB, which attests its identity account,
-registers a lite username and waits until the lite key is a ring member. `--attest-concurrency`
-attests run at once (default 4); the summary gives each attest's time and the failures by HTTP
-status, which shows where DUB limits a run. It reads which bots are lite people already, so a
-rerun attests nothing, and nothing is stored: a lite bot's keys follow from `--seed`, the network
+registers a lite username and waits until the lite key is a ring member. DUB names about 4.5
+identities a minute (its dotNS lane writes 3 per Asset Hub batch) and truapi-host waits 2 min for
+a name, so `--attest-concurrency` defaults to 3, and the run prints the time to expect: about 7 h
+for 2,000 bots. An attest the CLI stopped waiting on counts as pending, since DUB still finishes
+it; the run then reads the chain until every bot not refused is in a ring root. The summary gives
+each attest's time, the pending ones, the 429s and the other failures by error. It reads which
+bots are lite people already, so a rerun, also of an interrupted run, attests only the rest, and
+nothing is stored: a lite bot's keys follow from `--seed`, the network
 and its index alone, so the seed and the index range are all there is to keep. Changing the seed
 makes new lite people, and a lite person can't be removed. truapi-host reaches DUB only through
 `STACK` or `NETWORK`, so `people` takes `--rpc` only with `STACK`.
