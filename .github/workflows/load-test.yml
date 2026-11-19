@@ -18,9 +18,13 @@ on:
         type: string
         default: "300"
       bots_per_machine:
-        description: Bots one parity-large machine sends messages for
+        description: Bots one parity-large machine sends messages for; with video, 75 per 4-core ubuntu-latest machine instead
         type: string
         default: "1000"
+      video:
+        description: "Bots play H.264 video to their group over real WebRTC links, as phones do. With --lite in args, through TURN credentials from the network's issuer"
+        type: boolean
+        default: false
       timing:
         description: "sync: every bot opens its room at the same instant, as the app does. random: each up to one heartbeat later, to see what spreading the burst does"
         type: choice
@@ -77,16 +81,19 @@ jobs:
     outputs:
       machines: ${{ steps.plan.outputs.machines }}
       shards: ${{ steps.plan.outputs.shards }}
+      runner: ${{ steps.plan.outputs.runner }}
     steps:
       - id: plan
         env:
-          PER_MACHINE: ${{ inputs.bots_per_machine }}
+          PER_MACHINE: ${{ inputs.video && '75' || inputs.bots_per_machine }}
+          RUNNER: ${{ inputs.video && 'ubuntu-latest' || 'parity-large' }}
         run: |
           set -euo pipefail
           machines=$(( (PLAYERS + PER_MACHINE - 1) / PER_MACHINE ))
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
           echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
-          echo "$PLAYERS bots on $machines parity-large machine(s), timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "runner=$RUNNER" >> "$GITHUB_OUTPUT"
+          echo "$PLAYERS bots on $machines $RUNNER machine(s), timing ${{ inputs.timing }}, video ${{ inputs.video }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
 
   # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
@@ -142,11 +149,12 @@ jobs:
         run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   # Each machine waits until the chain job has signed its bots up, or until `replay_at`, then runs
-  # them inside truapi-host from 40 s before the game's room opens until the game ends.
+  # them inside truapi-host from 40 s before the game's room opens until the game ends. With
+  # video, each bot also connects to its co-players and sends them video, about 1.5 Mbit/s each way.
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
-    runs-on: parity-large
+    runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -170,10 +178,12 @@ jobs:
           REPLAY_AT: ${{ inputs.replay_at }}
           TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
           TRUAPI_HOST_LOG: ${{ inputs.host_log }}
+          VIDEO: ${{ inputs.video }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
           if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
+          if [ "$VIDEO" = true ]; then start+=(--video); fi
           pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --phase "$PHASE" \
             --shard "$SHARD/$MACHINES" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the message results
