@@ -205,7 +205,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
       for (const { number } of best) if (!arrivalTimes.has(number)) arrivalTimes.set(number, now);
       bestNumber = Math.max(bestNumber, best[0]?.number ?? 0);
     },
-    error: () => {},
+    error: (error: Error) => recordProblem("best blocks no longer followed, so later block times are missing", error.message),
   });
   const finalizedSubscription = client.finalizedBlock$.subscribe({
     next: async (block) => {
@@ -244,9 +244,10 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
         );
       } catch (error) {
         console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
+        recordProblem("finalized block not read", `#${block.number}: ${(error as Error).message}`);
       }
     },
-    error: (error: Error) => console.warn(`[chain] finalized blocks no longer followed: ${error.message}`),
+    error: (error: Error) => recordProblem("finalized blocks no longer followed, so later blocks are missing", error.message),
   });
   return {
     blocks,
