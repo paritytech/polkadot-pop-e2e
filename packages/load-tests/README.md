@@ -158,7 +158,8 @@ hash.
   only when its credits don't fit the room left, and player processing waits while room is low.
 - **Max finality lag** is how many blocks the best block was ahead when a block was finalized.
 - **Collator 1 block ends**, on previewnet only, counts why building each block ended, from the
-  collator's public log. When the log can't be read, a line under the table says so.
+  collator's public log. When the log can't be read, the **Notes** list at the end says so, along
+  with blocks or PoV sizes the run couldn't read.
 
 **Game processing** gives the shuffle's work without its wait for the game date, the blocks from
 the end of reporting to `GameEnded`, and the heaviest step. Where the runtime runs the game's steps

@@ -290,7 +290,7 @@ export function chainMarkdown(result: ChainResult): string {
     ...phasesMarkdown(summarizePhases(result)),
     processingMarkdown(summarizeGameProcessing(result)),
     "",
-    ...(result.notes.length > 0 ? [...result.notes, ""] : []),
+    ...(result.notes.length > 0 ? ["Notes:", "", ...result.notes.map((note) => `- ${note}`), ""] : []),
   ].join("\n");
 }
 
