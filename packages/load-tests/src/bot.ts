@@ -16,7 +16,7 @@ import { StandInLinks, type LinkWire, type PeerLinks } from "./sdp.js";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
 import { VideoMesh, type BotVideo } from "./video/mesh.js";
 
-/** The room's key: one room for the whole game, as the app opens it. */
+/** The room's key out of a game: one room for the whole run. */
 const ROOM = "game";
 
 const accountId = AccountId();
@@ -26,6 +26,8 @@ export interface BotOptions {
   self: string;
   roster: string[];
   namespace: string;
+  /** The room's key: in a game, the app's `g<game index>`. */
+  room?: string;
   profile: SignallingProfile;
   store: MeasurableStore;
   stats: SignallingStats;
@@ -33,6 +35,15 @@ export interface BotOptions {
   window: { start: number; end: number };
   /** Real peer connections with video in place of descriptions of Chrome's size. */
   video?: BotVideo;
+  /**
+   * Co-players' communication identifiers as registered on chain. A co-player without one is a
+   * bot, whose identifier derives from its account.
+   */
+  identifiers?: ReadonlyMap<string, Uint8Array>;
+  /** The player's registered communication secret; a bot's derives from its account. */
+  secret?: Uint8Array;
+  /** The co-players that count their deliveries, the bots of `roster`: all of it by default. */
+  measuredPeers?: number;
 }
 
 /**
@@ -50,7 +61,7 @@ export class SignallingBot {
 
   constructor(private readonly options: BotOptions) {
     // Every co-player listens on the player's topic, so each statement is due to each of them.
-    this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length, options.self);
+    this.counter = new DeliveryCounter(options.stats, options.window, options.measuredPeers ?? options.roster.length, options.self);
     this.countingStore = createCountingStore(options.store, options.stats, this.counter);
   }
 
@@ -81,8 +92,8 @@ export class SignallingBot {
       bundle: true,
       deflateBundles: true,
       keys: {
-        secret: async () => communicationSecret(accountId.enc(self)),
-        peerIdentifier: async (peer) => communicationIdentifier(accountId.enc(peer)),
+        secret: async () => this.options.secret ?? communicationSecret(accountId.enc(self)),
+        peerIdentifier: async (peer) => this.options.identifiers?.get(peer) ?? communicationIdentifier(accountId.enc(peer)),
       },
       onSubmit: (event) => bump(stats.submitEvents, event.kind),
       log: (message) => {
@@ -98,7 +109,7 @@ export class SignallingBot {
     this.links = links;
     this.transport = signalling({
       base: "",
-      room: ROOM,
+      room: this.options.room ?? ROOM,
       id: self,
       name: self,
       peers: roster,

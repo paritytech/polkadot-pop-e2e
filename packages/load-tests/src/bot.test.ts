@@ -1,3 +1,4 @@
+import { p256 } from "@noble/curves/nist.js";
 import { toHex, type WireStatement } from "@jollity/statement-core";
 import { describe, expect, it } from "vitest";
 import { SignallingBot } from "./bot.js";
@@ -110,6 +111,34 @@ describe("SignallingBot", () => {
     expect(memory.submitted.some((wire) => Buffer.from(wire.data.slice(2), "hex").toString().includes("a=fingerprint"))).toBe(false);
   });
 
+  // A real player's identifier on chain is the public key of a secret its phone keeps, which no bot
+  // derives from its account: a bot that sealed to a derived one would never link with it.
+  it("links a real player through the identifier it registered on chain", { timeout: 30_000 }, async () => {
+    const memory = new MemoryStore();
+    const stats = new SignallingStats();
+    const [bot, person] = [0, 1].map((index) => derivePlayer("person-test", index));
+    const secret = p256.utils.randomSecretKey();
+    const optionsOf = (player: Player, other: Player) => ({
+      self: player.address,
+      roster: [other.address],
+      namespace: "person-test",
+      profile: PROFILES.jollity,
+      store: memory.storeOf(player),
+      stats,
+      window: { start: 0, end: Number.MAX_SAFE_INTEGER },
+    });
+    const players = [
+      new SignallingBot({ ...optionsOf(bot, person), identifiers: new Map([[person.address, p256.getPublicKey(secret, false)]]) }),
+      new SignallingBot({ ...optionsOf(person, bot), secret }),
+    ];
+    for (const player of players) player.open();
+    await sleep(4_000);
+    for (const player of players) await player.close();
+    for (const player of players) player.leave();
+
+    expect(stats.linksUp).toBe(2);
+  });
+
   // 12 bots are the fewest whose two rounds of 6 seat every bot with new co-players in round 2.
   it("plays video to the current group over real peer connections set up through the transport", { timeout: 60_000 }, async () => {
     const memory = new MemoryStore();
@@ -130,7 +159,7 @@ describe("SignallingBot", () => {
         stats,
         window: { start: 0, end: Number.MAX_SAFE_INTEGER },
         video: {
-          rounds: roundsOf(index, players.length, profile, roomOpenAt).map(({ activeFrom, group }) => ({ activeFrom, group: group.map(addressOf) })),
+          rounds: roundsOf(index, players.length, profile, roomOpenAt, addressOf),
           clip,
           ice: { stunUrls: [], turn: [], relay: false, interfaceAddress: "127.0.0.1" },
           stats: video,

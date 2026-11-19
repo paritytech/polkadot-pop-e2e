@@ -6,7 +6,7 @@ import { derivePlayer, type Player } from "./keys.js";
 import { gameMs, type Phase, type SignallingProfile } from "./profile.js";
 import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
-import { coPlayersOf } from "./seating.js";
+import { coPlayersOf, roundsOf } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
 import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
@@ -206,7 +206,7 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
           const addressOf = (other: number) => playerAt(other).address;
           // Direct-RPC ghosts are never lite bots, so they have no TURN credentials.
-          const video = run.video && room.video && botVideo(run.video.ice, [], room.video, { index, players: count, profile: run.profile, roomOpenAt: room.gameStart }, addressOf);
+          const video = run.video && room.video && botVideo(run.video.ice, [], room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
           const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();

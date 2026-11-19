@@ -1,6 +1,4 @@
 import type { TurnServer } from "@jollity/protocol";
-import type { SignallingProfile } from "../profile.js";
-import { roundsOf } from "../seating.js";
 import { loadClip, type Clip } from "./clip.js";
 import type { IceSetup } from "./ice.js";
 import type { BotVideo } from "./mesh.js";
@@ -19,19 +17,10 @@ export interface VideoRun {
 
 let clip: Clip | undefined;
 
-/**
- * Player `index`'s video in a game of `players` whose room opens at `roomOpenAt`: each round's
- * table mates by account, and the run's ICE settings with its TURN servers, if it has a pass.
- */
-export function botVideo(
-  ice: RunIce,
-  turn: TurnServer[],
-  stats: VideoStats,
-  seat: { index: number; players: number; profile: SignallingProfile; roomOpenAt: number },
-  addressOf: (index: number) => string,
-): BotVideo {
+/** A bot's video over `rounds`, its groups by account, with the run's ICE settings and its TURN servers, if it has a pass. */
+export function botVideo(ice: RunIce, turn: TurnServer[], stats: VideoStats, rounds: BotVideo["rounds"]): BotVideo {
   return {
-    rounds: roundsOf(seat.index, seat.players, seat.profile, seat.roomOpenAt).map(({ activeFrom, group }) => ({ activeFrom, group: group.map(addressOf) })),
+    rounds,
     clip: (clip ??= loadClip()),
     ice: { ...ice, turn },
     stats,

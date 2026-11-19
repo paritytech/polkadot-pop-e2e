@@ -20,20 +20,34 @@ export function tableMatesOf(index: number, round: number, players: number, prof
   return Array.from({ length: players }, (_, other) => other).filter((other) => other !== index && tableOf(other, round, players, profile.groupSize) === table);
 }
 
+/** The players `index` shares a table with, by round. */
+function tablesOf(index: number, players: number, profile: SignallingProfile): number[][] {
+  return Array.from({ length: profile.rounds }, (_, round) => tableMatesOf(index, round, players, profile));
+}
+
 /** The players `index` shares a table with in any round: the roster its room links to. */
 export function coPlayersOf(index: number, players: number, profile: SignallingProfile): number[] {
-  const mates = new Set(Array.from({ length: profile.rounds }, (_, round) => tableMatesOf(index, round, players, profile)).flat());
+  const mates = new Set(tablesOf(index, players, profile).flat());
   return Array.from({ length: players }, (_, other) => other).filter((other) => mates.has(other));
 }
 
+/** Each round's table mates of `index` by account, timed as `timeRounds` times them. */
+export function roundsOf(index: number, players: number, profile: SignallingProfile, roomOpenAt: number, addressOf: (index: number) => string): Array<{ activeFrom: number; group: string[] }> {
+  return timeRounds(
+    tablesOf(index, players, profile).map((group) => group.map(addressOf)),
+    profile,
+    roomOpenAt,
+  );
+}
+
 /**
- * Each round's table mates of `index` in a room opened at `roomOpenAt`, with when the app turns the
- * camera to them: the first round's from the opening, a later round's when the round before ends.
+ * Each round's group of `groups` in a room opened at `roomOpenAt`, with when the app turns the
+ * camera to it: the first round's from the opening, a later round's when the round before ends.
  */
-export function roundsOf(index: number, players: number, profile: SignallingProfile, roomOpenAt: number): Array<{ activeFrom: number; group: number[] }> {
+export function timeRounds<Member>(groups: Member[][], profile: SignallingProfile, roomOpenAt: number): Array<{ activeFrom: number; group: Member[] }> {
   const firstRoundAt = roomOpenAt + profile.preconnectMs;
-  return Array.from({ length: profile.rounds }, (_, round) => ({
+  return groups.map((group, round) => ({
     activeFrom: round === 0 ? roomOpenAt : firstRoundAt + round * profile.roundMs + (round - 1) * profile.breakMs,
-    group: tableMatesOf(index, round, players, profile),
+    group,
   }));
 }
