@@ -2,13 +2,12 @@ import { appendFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
-import { deriveAttester, deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, readRootKey, requireLiteAllowed, type LiteBot } from "./lite.js";
+import { deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, type LiteBot } from "./lite.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
-import { SigningPool } from "./signing-pool.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
 
@@ -16,8 +15,8 @@ const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
   mint        Write a statement allowance for players 0..players-1 of --layer as root (a fork or dev node)
-  people      Make lite bots --lite-from.. of --players lite people, once: attest the ones that aren't
-              yet and wait until every one is in a ring
+  people      Make lite bots --lite-from.. of --players lite people as phones become one, with
+              truapi-host attest through the stack's identity backend (DUB); bots lite already are skipped
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain, signing up and reporting with every player at once: on a
@@ -41,8 +40,7 @@ Lite bots (lite people, signing up free as a lite person's phone does):
   --lite-from <index>   First bot index of the lite bots (default ${LITE_FIRST_INDEX}), above the
                         deposit-backed bots. A lite bot's keys follow from --seed, the network and its
                         index alone, so the seed and the index range are all a later run needs
-  --allow-live-lite     people and chain --lite on a network without a root key: each lite bot stays
-                        a lite person there for good, so only once the People team has approved it
+  --attest-concurrency <n>  people: attests running at once (default 4)
 
 Signalling:
   --steps <n,...>       Player counts, one game each, in order (default 10,25,50)
@@ -131,7 +129,7 @@ const { positionals, values } = parseArgs({
     lite: { type: "boolean", default: false },
     draw: { type: "boolean", default: false },
     "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
-    "allow-live-lite": { type: "boolean", default: false },
+    "attest-concurrency": { type: "string", default: "4" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -188,41 +186,30 @@ function liteBots(target: Target, count: number): LiteBot[] {
   return Array.from({ length: count }, (_, offset) => deriveLiteBot(`${values.seed}/${target.network}`, productIdOf(target), networkTld(target.network), from + offset));
 }
 
-/** The chain's root key, after refusing lite bots on a network without one unless `--allow-live-lite`. */
-async function requireLiteTarget(target: Target) {
-  const { client, api } = connectPeople(target);
-  const root = await readRootKey(api, target).finally(() => client.destroy());
-  requireLiteAllowed(target, root, values["allow-live-lite"]);
-  return root;
-}
-
 switch (values.help ? undefined : command) {
   case "people": {
+    // truapi-host reaches DUB and People through STACK or NETWORK alone, never `--rpc`.
+    if (targetOptions.rpc.length > 0 && !process.env.STACK) {
+      throw new Error("people attests through the stack's identity backend: set STACK to the stack's descriptor, with --rpc only in place of its People endpoint");
+    }
     const target = await resolveTarget(targetOptions);
     const bots = liteBots(target, positiveInteger("players", values.players));
-    const root = await requireLiteTarget(target);
-    const attester = deriveAttester(`${values.seed}/${target.network}`);
-    console.log(`[people] ${target.label}: lite bots ${bots[0].player.index}..${bots.at(-1)!.player.index} of seed ${values.seed}, attester ${attester.address}`);
-    const pool = SigningPool.open(target);
-    try {
-      const result = await provisionLitePeople(target, pool, bots, {
-        attester,
-        root,
-        connections: positiveInteger("connections", values.connections),
-        inclusionTimeoutMs: 20 * 60_000,
-      });
-      console.log(
-        [
-          `### Lite people on ${target.label}`,
-          "",
-          `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now ${JSON.stringify(result.failures)}`,
-          `- ${result.inRing} of ${result.bots} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
-        ].join("\n"),
-      );
-      if (result.inRing < result.bots) throw new Error(`${result.bots - result.inRing} of ${result.bots} lite bots are in no ring root`);
-    } finally {
-      await pool.close();
-    }
+    console.log(`[people] ${target.label}: lite bots ${bots[0].player.index}..${bots.at(-1)!.player.index} of seed ${values.seed}`);
+    const result = await provisionLitePeople(target, bots, {
+      concurrency: positiveInteger("attest-concurrency", values["attest-concurrency"]),
+      inclusionTimeoutMs: 20 * 60_000,
+    });
+    const { p50, p95, max } = result.attestMs;
+    console.log(
+      [
+        `### Lite people on ${target.label}`,
+        "",
+        `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, failures ${JSON.stringify(result.failures)}`,
+        `- attest p50 / p95 / max: ${[p50, p95, max].map((ms) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`)).join(" / ")}, ${values["attest-concurrency"]} at a time`,
+        `- ${result.inRing} of ${result.bots} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
+      ].join("\n"),
+    );
+    if (result.inRing < result.bots) throw new Error(`${result.bots - result.inRing} of ${result.bots} lite bots are in no ring root`);
     break;
   }
   case "mint": {
@@ -334,7 +321,6 @@ switch (values.help ? undefined : command) {
   }
   case "chain": {
     const target = await resolveTarget(targetOptions);
-    if (values.lite) await requireLiteTarget(target);
     const overrides = { registration: values.registration, shuffle: values.shuffle, post_shuffle_margin: values.margin, reporting: values.reporting, player_process: values["player-process"] };
     const phases = Object.fromEntries(
       Object.entries(overrides).flatMap(([phase, text]) => (text === undefined ? [] : [[phase, seconds(phase, text) / 1000]])),

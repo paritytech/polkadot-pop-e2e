@@ -1,17 +1,14 @@
 import { Binary, type PolkadotClient } from "polkadot-api";
-import { mergeUint8 } from "@polkadot-api/utils";
 import { mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
-import { fromPapi, GAME_ACCOUNT_INDEX, productContext, readScoreContext, type PersonhoodProver } from "@parity/product-sdk-individuality";
+import { GAME_ACCOUNT_INDEX, productContext, type PersonhoodProver } from "@parity/product-sdk-individuality";
 import { fetchRingMembers, LITE_PEOPLE_IDENTIFIER, ringExponent, takeRingSnapshot, type RingSnapshot } from "@pop-e2e/chain-tests/src/lib/ring.js";
 import { deriveProductAccount, deriveProductSecret, identityKey, liteRingEntropy, type IdentityKey } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 import { verifiableFor } from "@pop-e2e/chain-tests/src/lib/verifiable-loader.js";
-import { submitBurst } from "./burst.js";
-import { derivePlayer, hostMnemonic, playerFromSecret, type Keypair, type Player } from "./keys.js";
-import { dispatchAsRoot, fundPlayers } from "./root.js";
-import type { SigningPool } from "./signing-pool.js";
+import { Histogram, type QuantileSummary } from "./histogram.js";
+import { hostMnemonic, playerFromSecret, type Player } from "./keys.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { sleep } from "./time.js";
+import { readAll, sleep } from "./time.js";
 
 /**
  * The first bot index of the lite bots: far above the deposit-backed bots, whose hosts number
@@ -21,9 +18,11 @@ export const LITE_FIRST_INDEX = 100_000;
 
 /** A bot with a wallet of its own, the way a phone holds one person: the lite person and the game account it plays with. */
 export interface LiteBot {
+  /** The wallet's mnemonic, which truapi-host attests as a phone's host does. */
+  mnemonic: string;
   /** The game account, product account 0 of `dim2.<tld>`, which signs up and plays. */
   player: Player & { liteEntropy: Uint8Array };
-  /** The identity account, product account 0 of `peopl.<tld>`, which the attester makes a lite person. */
+  /** The identity account, product account 0 of `peopl.<tld>`, which DUB makes a lite person. */
   candidate: IdentityKey;
 }
 
@@ -33,17 +32,14 @@ export interface LiteBot {
  * index alone, so a later run finds the same lite people on chain.
  */
 export function deriveLiteBot(seed: string, gameProduct: string, tld: string, index: number): LiteBot {
-  const entropy = mnemonicToEntropy(hostMnemonic(seed, index));
+  const mnemonic = hostMnemonic(seed, index);
+  const entropy = mnemonicToEntropy(mnemonic);
   const game = deriveProductAccount(deriveProductSecret(entropy, gameProduct), GAME_ACCOUNT_INDEX);
   return {
+    mnemonic,
     player: { ...playerFromSecret(index, game.secretKey), liteEntropy: liteRingEntropy(entropy, tld) },
     candidate: identityKey(entropy, tld),
   };
-}
-
-/** The account that attests a network's lite bots: derived from the seed, so the People team can grant it an allowance once. */
-export function deriveAttester(seed: string): Player {
-  return derivePlayer(`${seed}/attester`, 0);
 }
 
 const LITE_COLLECTION = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
@@ -105,121 +101,75 @@ export class RingSnapshots {
   }
 }
 
-/** The target's root key when it is the chain's `Sudo.Key`; undefined on a chain where the run can't dispatch as root. */
-export async function readRootKey(api: PeopleApi, target: Target): Promise<Keypair | undefined> {
-  if (!target.sudo) return undefined;
-  const key = await api.query.Sudo.Key.getValue().catch(() => undefined);
-  return key === target.sudo.address ? target.sudo : undefined;
-}
-
-/** Refuses lite bots on a network without a root key unless the run passes `--allow-live-lite`. */
-export function requireLiteAllowed(target: Target, root: Keypair | undefined, allowLive: boolean): void {
-  if (root || allowLive) return;
-  throw new Error(
-    `${target.label} has no root key here, so it is a live network: lite bots stay lite people there for good; pass --allow-live-lite once the People team has approved them`,
-  );
-}
-
-/** `PeopleLite`'s registration message: the prefix, the candidate and its ring key, as `registration_message` encodes them. */
-const REGISTRATION_PREFIX = new TextEncoder().encode("pop:people-lite:register using");
-
-/** The signing context of `peopl.<suffix>`, `"sig/"` and 28 zero bytes as its suffix, which an account signs a message after. */
-function signingContext(personhoodProduct: string): Uint8Array {
-  const suffix = new Uint8Array(32);
-  suffix.set(new TextEncoder().encode("sig/"));
-  return productContext(personhoodProduct, { tag: "Raw", value: suffix });
-}
-
-/** Bots' `PeopleLite.attest` calls, signed by the attester from `nonce` on. */
-function attestCalls(api: PeopleApi, bots: LiteBot[], personhoodProduct: string) {
-  const verifiable = verifiableFor();
-  const context = signingContext(personhoodProduct);
-  return bots.map(({ player, candidate }) => {
-    const ringKey = verifiable.member_from_entropy(player.liteEntropy);
-    const message = mergeUint8([REGISTRATION_PREFIX, candidate.publicKey, ringKey]);
-    return api.tx.PeopleLite.attest({
-      candidate: candidate.address,
-      candidate_signature: { type: "Sr25519", value: Binary.toHex(candidate.sign(mergeUint8([context, message]))) },
-      ring_vrf_key: Binary.toHex(ringKey),
-      proof_of_ownership: Binary.toHex(verifiable.sign(player.liteEntropy, message)),
-      consumer_registration: undefined,
-    });
-  });
-}
-
 export interface ProvisionResult {
   bots: number;
   /** Lite people already, from an earlier run. */
   alreadyLite: number;
-  /** Attestations that executed in this run. */
+  /** Attests that ended with the bot a ring member. */
   attested: number;
-  /** Attestations that didn't, by error. */
+  /** Attests that didn't, by error: an HTTP status from DUB, a timeout, or the CLI's message. */
   failures: Record<string, number>;
+  /** From starting `truapi-host attest` to its exit, ring inclusion included, for the attests that succeeded. */
+  attestMs: QuantileSummary;
   /** Bots whose lite key is in a ring root at the end. */
   inRing: number;
   /** From the start of the run to every bot in a ring, or to the inclusion timeout. */
   durationMs: number;
 }
 
-/** Attestations per burst: about one People block of `attest` calls at their weight. */
-const ATTESTS_PER_BURST = 500;
+/** A lite username base: 6+ lowercase letters, which DUB extends to a unique username. */
+const USERNAME_BASE = "loadbot";
 
-/** The attester's balance for the fees `attest` refunds: 1 UNIT. */
-const ATTESTER_FUNDS = 10_000_000_000n;
+/** An attest failure as a count key: DUB's HTTP status when the CLI reports one, else its first line. */
+export function attestFailure(message: string): string {
+  if (/\(killed after/.test(message)) return "timeout";
+  const status = /\(([45]\d\d) [A-Z]/.exec(message) ?? /\bstatus(?: code)?:? ([45]\d\d)\b/i.exec(message);
+  if (status) return `HTTP ${status[1]}`;
+  return (message.replace(/^\[truapi-host\] attest failed: /, "").split("\n")[0] ?? "").slice(0, 120);
+}
 
 /**
- * Makes every bot a lite person: attests the bots that aren't one yet from `attester`, then waits
- * until every bot's lite key is in a ring root at the finalized block, so a rerun attests nothing
- * and only checks. With `root`, root first grants the attester the allowance and the balance it
- * lacks; without it, the attester has to have both already.
+ * Makes every bot a lite person the way a phone becomes one: `truapi-host attest` through the
+ * stack's identity backend (DUB), which attests the identity account, registers its lite
+ * username and waits until the lite key is a ring member. Bots that are lite people already are
+ * skipped, so a rerun attests nothing and only checks. `concurrency` attests run at once.
  */
 export async function provisionLitePeople(
   target: Target,
-  pool: SigningPool,
   bots: LiteBot[],
-  options: { attester: Player; root: Keypair | undefined; connections: number; inclusionTimeoutMs: number },
+  options: { concurrency: number; inclusionTimeoutMs: number },
 ): Promise<ProvisionResult> {
   const started = Date.now();
+  // Deferred: the module reads the stack STACK or NETWORK selects when it loads.
+  const { attest } = await import("@pop-e2e/chain-tests/src/lib/truapi-host.js");
   const { client, api } = connectPeople(target);
   try {
-    const score = await readScoreContext(fromPapi(client, api) as never);
-    if (!score.ok) throw score.error;
-    const personhoodProduct = score.value.productId;
     const lite = await api.query.PeopleLite.LitePeople.getValues(bots.map(({ candidate }) => [candidate.address]), { at: "best" });
     const pending = bots.filter((_, position) => lite[position] === undefined);
-    console.log(`[people] ${bots.length} bots in ${personhoodProduct}: ${bots.length - pending.length} lite already, ${pending.length} to attest`);
-    let attested = 0;
+    console.log(`[people] ${bots.length} bots: ${bots.length - pending.length} lite already, ${pending.length} to attest, ${options.concurrency} at a time`);
     const failures: Record<string, number> = {};
-    if (pending.length > 0) {
-      const { attester, root } = options;
-      const allowance = (await api.query.PeopleLite.AttestationAllowance.getValue(attester.address, { at: "best" })) ?? 0;
-      if (allowance < pending.length && !root) {
-        throw new Error(
-          `attester ${attester.address} may attest ${allowance} more lite people, ${pending.length} needed: People's root has to grant it with PeopleLite.increase_attestation_allowance`,
-        );
-      }
-      if (allowance < pending.length) {
-        await dispatchAsRoot(api, root!, [api.tx.PeopleLite.increase_attestation_allowance({ account: attester.address, count: pending.length - allowance }).decodedCall], 1, "allowance");
-      }
-      // `attest` costs no fee once it succeeds, but the pool takes the fee up front.
-      if (root && (await api.query.System.Account.getValue(attester.address, { at: "best" })).data.free < ATTESTER_FUNDS) {
-        await fundPlayers(api, root, [attester], ATTESTER_FUNDS);
-      }
-      const { nonce } = await api.query.System.Account.getValue(attester.address, { at: "best" });
-      for (let start = 0; start < pending.length; start += ATTESTS_PER_BURST) {
-        const chunk = pending.slice(start, start + ATTESTS_PER_BURST);
-        const signed = await pool.sign(
-          attestCalls(api, chunk, personhoodProduct).map((tx, position) => ({ player: attester, chain: "people" as const, signer: "account" as const, tx, nonce: nonce + start + position })),
-          "attest",
-        );
-        const sent = await submitBurst(signed, api, client, target.rpc, options.connections, () => Number.MAX_SAFE_INTEGER);
-        attested += sent.ok;
-        for (const [failure, count] of Object.entries(sent.failures)) bump(failures, failure, count);
-        console.log(`[people] attested ${Math.min(start + ATTESTS_PER_BURST, pending.length)}/${pending.length}: ${sent.ok}/${sent.submitted} ${JSON.stringify(sent.failures)}`);
-      }
-    }
+    const attestMs = new Histogram();
+    let attested = 0;
+    await readAll(
+      pending,
+      async (bot) => {
+        const attestStarted = Date.now();
+        try {
+          const identity = await attest(bot.mnemonic, USERNAME_BASE);
+          if (identity.address !== bot.candidate.address) throw new Error(`attested ${identity.address}, not the bot's identity account ${bot.candidate.address}`);
+          attestMs.add(Date.now() - attestStarted);
+          attested++;
+          console.log(`[people] bot ${bot.player.index}: ${identity.liteUsername} in ${((Date.now() - attestStarted) / 1000).toFixed(1)} s`);
+        } catch (error) {
+          const failure = attestFailure((error as Error).message);
+          bump(failures, failure);
+          console.warn(`[people] bot ${bot.player.index}: ${failure} after ${((Date.now() - attestStarted) / 1000).toFixed(1)} s: ${(error as Error).message.slice(0, 300)}`);
+        }
+      },
+      options.concurrency,
+    );
     const inRing = await waitForRings(api, client, bots, options.inclusionTimeoutMs);
-    return { bots: bots.length, alreadyLite: bots.length - pending.length, attested, failures, inRing, durationMs: Date.now() - started };
+    return { bots: bots.length, alreadyLite: bots.length - pending.length, attested, failures, attestMs: attestMs.summary(), inRing, durationMs: Date.now() - started };
   } finally {
     client.destroy();
   }

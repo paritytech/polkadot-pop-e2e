@@ -1,9 +1,8 @@
 import { mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { identityKey, liteRingEntropy } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 import { describe, expect, it } from "vitest";
-import { hostGhostPlayer, hostMnemonic, keypairFromUri } from "./keys.js";
-import { deriveLiteBot, LITE_FIRST_INDEX, requireLiteAllowed } from "./lite.js";
-import type { Target } from "./target.js";
+import { hostGhostPlayer, hostMnemonic } from "./keys.js";
+import { attestFailure, deriveLiteBot, LITE_FIRST_INDEX } from "./lite.js";
 
 describe("deriveLiteBot", () => {
   // A lite bot is attested as truapi's identity account and plays with the game account
@@ -29,16 +28,18 @@ describe("deriveLiteBot", () => {
   });
 });
 
-describe("requireLiteAllowed", () => {
-  const target = { label: "previewnet" } as Target;
-
-  // Lite people can't be removed, so a live network takes lite bots only on an explicit opt-in.
-  it("refuses a network without a root key", () => {
-    expect(() => requireLiteAllowed(target, undefined, false)).toThrow(/--allow-live-lite/);
+// A provisioning run counts failures by key, so DUB's rate limits have to show as their status.
+describe("attestFailure", () => {
+  it("keys DUB's HTTP refusals by status", () => {
+    expect(attestFailure("[truapi-host] attest failed: Error: username registration failed (429 Too Many Requests): slow down")).toBe("HTTP 429");
+    expect(attestFailure("[truapi-host] attest failed: Error: attestation failed (503 Service Unavailable)")).toBe("HTTP 503");
   });
 
-  it("takes a root key or the opt-in", () => {
-    expect(() => requireLiteAllowed(target, keypairFromUri("//Alice"), false)).not.toThrow();
-    expect(() => requireLiteAllowed(target, undefined, true)).not.toThrow();
+  it("keys a killed attest as a timeout", () => {
+    expect(attestFailure("[truapi-host] attest failed (killed after 480s): waiting for the ring")).toBe("timeout");
+  });
+
+  it("keeps any other failure's first line", () => {
+    expect(attestFailure("[truapi-host] attest failed: Error: ring member not found\nbacktrace")).toBe("Error: ring member not found");
   });
 });
