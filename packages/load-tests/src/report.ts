@@ -67,12 +67,17 @@ function mergeHosts(results: SignallingShardResult[]): HostUsage | null {
   if (usages.length === 0) return null;
   const ghosts = usages.reduce((sum, usage) => sum + usage.ghosts, 0);
   const failures: Record<string, number> = {};
-  for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
+  const unseated: Record<string, number> = {};
+  for (const usage of usages) {
+    for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
+    for (const [key, count] of Object.entries(usage.unseated ?? {})) bump(unseated, key, count);
+  }
   const weighted = (pick: (usage: HostUsage) => number) => usages.reduce((sum, usage) => sum + pick(usage) * usage.ghosts, 0) / ghosts;
   return {
     processes: usages.reduce((sum, usage) => sum + usage.processes, 0),
     ghosts,
     failures,
+    unseated,
     cpuPercentPerGhost: weighted((usage) => usage.cpuPercentPerGhost),
     rssMbPerGhost: weighted((usage) => usage.rssMbPerGhost),
   };
@@ -127,6 +132,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
+  if (hosts?.unseated && total(hosts.unseated) > 0) findings.push(`seats: ${total(hosts.unseated)} of ${hosts.ghosts} bots without seats from the chain ${JSON.stringify(hosts.unseated)}`);
   if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);

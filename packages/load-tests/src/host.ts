@@ -35,10 +35,10 @@ export interface HostGhostPlan {
   /** With video: the run's ICE settings, and each ghost's TURN servers. */
   video?: { ice: RunIce; turn: TurnServer[][] };
   /**
-   * In a game: the app's room key, and where the runner writes the chain's seats, which the
-   * ghosts wait for before playing. The namespace is then the app's product account.
+   * In a game: where the runner writes the chain's seats, which the ghosts wait for before
+   * playing, and with video the app's room key, under the app's product account as namespace.
    */
-  game?: { room: string; seatsPath: string };
+  game?: { seatsPath: string; room?: string };
 }
 
 /** What a host's ghost script writes to `resultPath`. */
@@ -136,7 +136,9 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     const exits: Array<Promise<string | null>> = [];
     const processes: Array<{ child: ChildProcess; ghosts: number }> = [];
     const resultPaths: string[] = [];
-    const game = options.game && { room: `g${options.game.index}`, seatsPath: join(planDir, "seats.json") };
+    // With video, the app's topics, which real players use too; stand-in links would send them fake descriptions.
+    const appRoom = options.game && run.video ? `g${options.game.index}` : undefined;
+    const game = options.game && { seatsPath: join(planDir, "seats.json"), ...(appRoom && { room: appRoom }) };
     let joined = 0;
     for (const { host, firstAccount, firstPlayer, ghosts } of owned) {
       const name = `host${host}-${firstAccount}`;
@@ -144,8 +146,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const planPath = join(planDir, `${name}.plan.json`);
       const plan: HostGhostPlan = {
         profile: room.profile,
-        // In a game, the app's topics, so real players and bots hear each other.
-        namespace: game ? options.productId : room.namespace,
+        namespace: appRoom ? options.productId : room.namespace,
         accounts: accounts.slice(0, count),
         phase: room.phase,
         gameStart: room.gameStart,
@@ -192,20 +193,25 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         }),
       );
     }
-    if (options.game && game) {
-      const { seatsPath } = game;
-      const bots = owned.flatMap(({ firstPlayer, ghosts }) => accounts.slice(firstPlayer, firstPlayer + ghosts));
-      // Moved into place once complete, so a ghost never reads a partial file.
-      void options.game
-        .readSeats(bots)
-        .then(async (seats) => {
-          await writeFile(`${seatsPath}.part`, JSON.stringify(seats));
-          await rename(`${seatsPath}.part`, seatsPath);
-          const seated = bots.filter((bot) => seats.rounds[bot].length > 0).length;
-          console.log(`[host] ${seated} of ${bots.length} bots seated, ${Object.keys(seats.identifiers).length} co-players' identifiers read`);
-        })
-        .catch((error: Error) => console.error(`[host] chain seats not read, the bots don't play: ${error.message}`));
-    }
+    const unseated: Record<string, number> = {};
+    const chainGame = options.game;
+    const seating =
+      chainGame && game
+        ? (async () => {
+            const bots = owned.flatMap(({ firstPlayer, ghosts }) => accounts.slice(firstPlayer, firstPlayer + ghosts));
+            try {
+              const seats = await chainGame.readSeats(bots);
+              // Moved into place once complete, so a ghost never reads a partial file.
+              await writeFile(`${game.seatsPath}.part`, JSON.stringify(seats));
+              await rename(`${game.seatsPath}.part`, game.seatsPath);
+              for (const [reason, count] of Object.entries(seats.unseated)) bump(unseated, reason, count);
+              console.log(`[host] ${Object.keys(seats.rounds).length} of ${bots.length} bots seated, ${Object.keys(seats.identifiers).length} co-players' identifiers read`);
+            } catch (error) {
+              bump(unseated, (error as Error).message, bots.length);
+              console.error(`[host] chain seats not read, the bots don't play: ${(error as Error).message}`);
+            }
+          })()
+        : undefined;
 
     const sample = async () => {
       const table = await readProcessTable();
@@ -229,6 +235,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         for (const failure of await Promise.all(exits)) if (failure) bump(failures, failure);
         clearTimeout(timer);
         await sampling;
+        await seating;
         for (const path of resultPaths) {
           const result = await readFile(path, "utf8").then((text) => JSON.parse(text) as HostGhostResult, () => undefined);
           if (!result) continue;
@@ -253,6 +260,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
           processes: processes.length,
           ghosts: ownedGhosts,
           failures,
+          ...(chainGame && { unseated }),
           cpuPercentPerGhost: ghostsInSample > 0 ? (cpuSeconds / seconds / ghostsInSample) * 100 : 0,
           rssMbPerGhost: ghostsInSample > 0 ? rssKb / 1024 / ghostsInSample : 0,
         };

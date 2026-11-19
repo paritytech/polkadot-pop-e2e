@@ -48,6 +48,8 @@ export interface HostUsage {
   ghosts: number;
   /** Processes that exited with an error, by exit code or signal. */
   failures: Record<string, number>;
+  /** In a game: bots without seats from the chain, by reason; they don't play. */
+  unseated?: Record<string, number>;
   cpuPercentPerGhost: number;
   rssMbPerGhost: number;
 }
