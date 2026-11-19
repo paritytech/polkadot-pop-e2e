@@ -84,6 +84,8 @@ Chain (phases default to the chain's own):
                         every run with an Asset Hub does by default
   --lite                The players are lite bots: bound to their lite person before the game, they
                         sign up free with Game.sign_up_with_account_lite_invite and get no funds
+  --draw                The run's own game holds one prize draw (root key and a game this run
+                        schedules only): every player enters, and the winners claim their prizes
 `;
 
 const { positionals, values } = parseArgs({
@@ -127,6 +129,7 @@ const { positionals, values } = parseArgs({
     "follow-game": { type: "boolean", default: false },
     "skip-claim": { type: "boolean", default: false },
     lite: { type: "boolean", default: false },
+    draw: { type: "boolean", default: false },
     "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
     "allow-live-lite": { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
@@ -352,6 +355,7 @@ switch (values.help ? undefined : command) {
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
       claim: target.assetHubRpc !== undefined && !values["skip-claim"],
       lite: values.lite,
+      draw: values.draw,
     });
     const text = chainMarkdown(result);
     await writeFile(`${outDir}/chain.n${result.players}.md`, text);

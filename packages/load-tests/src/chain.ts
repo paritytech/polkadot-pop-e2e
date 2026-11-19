@@ -6,8 +6,10 @@ import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from 
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
+import { buildDraw, GAME_AIRDROP_SOURCE, settleDraw, type DrawResult } from "./draw.js";
 import { ALREADY_REGISTERED, bindLiteBots, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
+import { readRootKey } from "./lite.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
@@ -55,6 +57,8 @@ export interface ChainRun {
   claim: boolean;
   /** The players are lite bots, which sign up free after a bind and get no funds. */
   lite: boolean;
+  /** The own game holds one prize draw, which every player enters and the winners claim. Takes the chain's root key. */
+  draw: boolean;
 }
 
 export interface ChainResult {
@@ -82,6 +86,8 @@ export interface ChainResult {
   capacity: string[];
   /** Lite bots' binds by outcome, and how many hold a deposit after signing up; null for deposit-backed bots. */
   lite: { binds: Record<string, number>; withDeposit: number } | null;
+  /** The prize draw's tickets, winners and claims; null without `draw`. */
+  draw: DrawResult | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -127,8 +133,9 @@ async function scheduleOwnGame(
   const now = Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
   // Slack of a few blocks: the chain starts the game only before its registration start.
   const gamePlayTime = Math.ceil(now / 1000) + phases.registration + phases.shuffle + phases.post_shuffle_margin + 30;
+  const airdrops = run.draw ? [await buildDraw(api)] : [];
   const schedule = api.tx.Game.schedule_games({
-    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [], tenure_claim_window: 0 }],
+    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops, tenure_claim_window: 0 }],
   });
   await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases }).decodedCall, schedule.decodedCall], 2, "schedule");
   return { gamePlayTime, phases, previous: Object.keys(run.phases).length > 0 ? chainPhases : undefined };
@@ -197,6 +204,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     let phases = chainPhases;
     let gameAt = run.gameAt;
+    if (run.draw && !(ownGame && (await readRootKey(api, target)))) {
+      throw new Error(`--draw gives the bots draw tickets only in a game this run schedules with the chain's root key, and ${target.label} has none here`);
+    }
     if (ownGame) {
       await clearAndFund(api, run, target.sudo!, players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
@@ -240,9 +250,12 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
     blockFollower.followGame(game.index);
+    if (run.draw && game.airdrops_scheduled !== 1) {
+      throw new Error(`game ${game.index} scheduled ${game.airdrops_scheduled} prize draws, not 1: fund ${GAME_AIRDROP_SOURCE} with the prize asset`);
+    }
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame && !run.lite) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players, false);
+    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players, run.draw);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
@@ -327,6 +340,22 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         findings.push(`player processing: ${(error as Error).message}`);
       }
     }
+    let draw: DrawResult | null = null;
+    if (run.draw && timeline.at(-1)!.state === "None") {
+      try {
+        draw = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
+        console.log(`[chain] draw: ${draw.tickets} tickets, ${draw.winners.length} winners, ${draw.claimed} claimed`);
+        if (draw.tickets < players.length) findings.push(`draw: ${players.length - draw.tickets} of ${players.length} players entered no ticket`);
+        if (draw.winners.length === 0) findings.push("draw: no winner");
+        if (draw.claimed < draw.winners.length) findings.push(`draw: ${draw.winners.length - draw.claimed} of ${draw.winners.length} prizes not claimed`);
+        for (const [reason, count] of Object.entries(draw.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
+        for (const [failure, count] of Object.entries(draw.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
+      } catch (error) {
+        findings.push(`draw: stopped on ${(error as Error).message}`);
+      }
+    } else if (run.draw) {
+      findings.push("draw: the game didn't end, so no prize was claimed");
+    }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
     // The game's last blocks are best, not yet finalized, when the run sees the game end.
@@ -367,6 +396,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       notes,
       capacity: limits.capacity,
       lite,
+      draw,
     };
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));

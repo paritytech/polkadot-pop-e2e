@@ -288,6 +288,13 @@ export function chainMarkdown(result: ChainResult): string {
     ...(result.lite
       ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots hold a deposit after signing up.`, ""]
       : []),
+    ...(result.draw
+      ? [
+          `Prize draw: ${result.draw.tickets} tickets, ${result.draw.winners.length} winners, ${result.draw.claimed} prizes claimed; the winners hold ${result.draw.prizeHeld} of the prize asset.`,
+          `Winners: ${result.draw.winners.join(", ") || "–"}`,
+          "",
+        ]
+      : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
     ...phasesMarkdown(summarizePhases(result)),
