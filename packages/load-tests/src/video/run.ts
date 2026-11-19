@@ -17,28 +17,23 @@ export interface VideoRun {
   turn?: TurnPasses;
 }
 
-/** A step's video: the run's ICE settings and the shard's counts. */
-export interface VideoRoom {
-  ice: RunIce;
-  stats: VideoStats;
-}
-
 let clip: Clip | undefined;
 
 /**
  * Player `index`'s video in a game of `players` whose room opens at `roomOpenAt`: each round's
- * table mates by account, and its ICE servers with its TURN servers, if it has a pass.
+ * table mates by account, and the run's ICE settings with its TURN servers, if it has a pass.
  */
 export function botVideo(
-  room: VideoRoom,
+  ice: RunIce,
+  turn: TurnServer[],
+  stats: VideoStats,
   seat: { index: number; players: number; profile: SignallingProfile; roomOpenAt: number },
   addressOf: (index: number) => string,
-  turn: TurnServer[],
 ): BotVideo {
   return {
     rounds: roundsOf(seat.index, seat.players, seat.profile, seat.roomOpenAt).map(({ activeFrom, group }) => ({ activeFrom, group: group.map(addressOf) })),
     clip: (clip ??= loadClip()),
-    ice: { ...room.ice, turn },
-    stats: room.stats,
+    ice: { ...ice, turn },
+    stats,
   };
 }

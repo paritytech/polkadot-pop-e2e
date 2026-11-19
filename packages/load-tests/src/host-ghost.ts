@@ -95,7 +95,7 @@ function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore
 const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGhostPlan;
 const { profile, accounts } = plan;
 const stats = new SignallingStats();
-const video = plan.video && { ice: plan.video.ice, stats: new VideoStats() };
+const video = plan.video && { ...plan.video, stats: new VideoStats() };
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
@@ -109,7 +109,7 @@ async function play(ghost: number): Promise<void> {
     store,
     stats,
     window: plan.window,
-    video: video && botVideo(video, { index, players: accounts.length, profile, roomOpenAt: plan.gameStart }, (other) => accounts[other], plan.video?.turn[ghost] ?? []),
+    video: video && botVideo(video.ice, video.turn[ghost], video.stats, { index, players: accounts.length, profile, roomOpenAt: plan.gameStart }, (other) => accounts[other]),
   });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();

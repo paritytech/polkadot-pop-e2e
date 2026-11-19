@@ -133,7 +133,7 @@ async function runStep(
     gameStart: windowStart,
     window,
     stats,
-    ...(run.video && video && { video: { ice: run.video.ice, stats: video } }),
+    ...(video && { video }),
   };
 
   await sleepUntil(stepStart);
@@ -205,7 +205,7 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         const end = Math.min((connectionIndex + 1) * ghostsPerConnection, count);
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
           const addressOf = (other: number) => playerAt(other).address;
-          const video = room.video && botVideo(room.video, { index, players: count, profile: run.profile, roomOpenAt: room.gameStart }, addressOf, run.video?.turn?.serversOf(index) ?? []);
+          const video = run.video && room.video && botVideo(run.video.ice, run.video.turn?.serversOf(index) ?? [], room.video, { index, players: count, profile: run.profile, roomOpenAt: room.gameStart }, addressOf);
           const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();

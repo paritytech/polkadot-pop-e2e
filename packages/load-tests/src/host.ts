@@ -145,9 +145,9 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         stopAt: room.window.end,
         leaveAt: room.window.end + run.timing.drainMs,
         resultPath,
-        ...(room.video && {
+        ...(run.video && {
           video: {
-            ice: room.video.ice,
+            ice: run.video.ice,
             turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? []),
           },
         }),
@@ -206,7 +206,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
           const result = await readFile(path, "utf8").then((text) => JSON.parse(text) as HostGhostResult, () => undefined);
           if (!result) continue;
           room.stats.add(result.stats);
-          if (result.video) room.video?.stats.add(result.video);
+          if (result.video) room.video?.add(result.video);
         }
       },
       hosts(): HostUsage {
