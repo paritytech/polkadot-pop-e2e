@@ -184,7 +184,10 @@ ghost** after a run of each mode. The summary gets a **Video on …** table per 
 - **Links up / attempted**: links up when the game ended, as the signalling table counts them;
   **With video**: links whose video renegotiation completed. Each link counts once per side.
 - **Connect**: room open to the channel opening; **Candidate types**: the local candidate of each
-  connected link's selected pair (`host`, `srflx`, `prflx`, `relay`).
+  connected link's selected pair (`host`, `srflx`, `prflx`, `relay`). **Candidates gathered /
+  received**: every link's own candidates and its co-player's, by type. A link that fails says
+  which it had in its finding, and ICE candidate errors (701 for a TURN server that didn't answer)
+  are a finding of their own.
 - **First frame**: camera on (room open, or the second round's start) to the first whole keyframe.
 - **Frames received / expected**: frames that arrived in the window against 24 per second of every
   stream's camera-on time after its video was negotiated. **Loss** is sequence gaps; **kbps per
