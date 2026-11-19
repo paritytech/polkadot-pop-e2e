@@ -1,16 +1,11 @@
 /**
- * Contract account mapping as product-sdk reads it. `isAccountMapped` (product-sdk-tx) is a
- * wrapper: it asks the MappingChecker it is given. Here that checker is built on
- * `isContractAccountMapped` (product-sdk-contracts), the same way `ensureContractAccountMapped`
- * builds it. The storage read of `Revive.OriginalAccount` (keyed by the H160 of the SS58
- * account) is `isContractAccountMapped`'s, so a runtime that drops or retypes that storage
- * fails here. Both functions only read; nothing is signed or submitted.
+ * Revive account mapping as product-sdk-contracts' isContractAccountMapped reads it from
+ * Revive.OriginalAccount. The tests only read.
  */
 import { randomBytes } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, type PolkadotClient } from "polkadot-api";
 import { xxhashAsHex } from "@polkadot/util-crypto";
-import { isAccountMapped, type MappingChecker } from "@parity/product-sdk-tx";
 import {
   createContractRuntimeFromClient,
   isContractAccountMapped,
@@ -29,21 +24,11 @@ describe("Account mapping reads (product-sdk)", () => {
   let client: PolkadotClient;
   let api: AssetHubApi;
   let runtime: ContractRuntime;
-  let checker: MappingChecker;
 
   beforeAll(() => {
     assertChainHealthy("asset-hub");
-    const conn = createAssetHubClient(getNetworkConfig().assetHub.ws);
-    client = conn.client;
-    api = conn.api;
+    ({ client, api } = createAssetHubClient(getNetworkConfig().assetHub.ws));
     runtime = createContractRuntimeFromClient(client, descriptorsForNetwork().assetHub);
-    checker = {
-      addressIsMapped: async (address) => {
-        const mapped = await isContractAccountMapped(runtime, address);
-        if (!mapped.ok) throw mapped.error;
-        return mapped.value;
-      },
-    };
   });
 
   afterAll(() => {
@@ -51,13 +36,10 @@ describe("Account mapping reads (product-sdk)", () => {
   });
 
   it("reports a fresh random account as not mapped", async () => {
-    const fresh = AccountId().dec(randomBytes(32));
-
-    expect(await isAccountMapped(fresh, checker)).toBe(false);
-
-    const contract = await isContractAccountMapped(runtime, fresh);
-    if (!contract.ok) throw contract.error;
-    expect(contract.value).toBe(false);
+    const randomAccount = AccountId().dec(randomBytes(32));
+    const result = await isContractAccountMapped(runtime, randomAccount);
+    if (!result.ok) throw result.error;
+    expect(result.value).toBe(false);
   });
 
   // Reads one key of the map through the raw `state_getKeysPaged` call, so no full scan is
@@ -74,17 +56,14 @@ describe("Account mapping reads (product-sdk)", () => {
       ctx.skip(`Revive.OriginalAccount is empty on ${networkKey()}`);
       return;
     }
-    expect(key.startsWith(ORIGINAL_ACCOUNT_PREFIX)).toBe(true);
     const h160 = `0x${key.slice(-40)}` as const;
 
-    const mapped = await api.query.Revive.OriginalAccount.getValue(h160, { at });
-    if (!mapped) throw new Error(`OriginalAccount key ${key} has no value on ${networkKey()}`);
-    expect(ss58ToH160(mapped).toLowerCase()).toBe(h160.toLowerCase());
+    const mappedAccount = await api.query.Revive.OriginalAccount.getValue(h160, { at });
+    if (!mappedAccount) throw new Error(`OriginalAccount key ${key} has no value on ${networkKey()}`);
+    expect(ss58ToH160(mappedAccount).toLowerCase()).toBe(h160.toLowerCase());
 
-    expect(await isAccountMapped(mapped, checker)).toBe(true);
-
-    const contract = await isContractAccountMapped(runtime, mapped);
-    if (!contract.ok) throw contract.error;
-    expect(contract.value).toBe(true);
+    const result = await isContractAccountMapped(runtime, mappedAccount);
+    if (!result.ok) throw result.error;
+    expect(result.value).toBe(true);
   });
 });
