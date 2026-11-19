@@ -304,10 +304,10 @@ export function chainMarkdown(result: ChainResult): string {
     ...(result.draw
       ? [
           `Prize draw entries: ${result.draw.entries} sign-ups entered, the others didn't ${JSON.stringify(result.draw.skips)} (\`not-member-yet\`: the game can't make the player a member, so the app leaves the ticket out).`,
-          ...(result.draw.settled
+          ...(result.draw.outcome
             ? [
-                `Prize draw: ${result.draw.settled.draws} draws, ${result.draw.settled.tickets} bot tickets, ${result.draw.settled.winners.length} bot wins, ${result.draw.settled.claimed} prizes claimed (claim p50 / p95 / max ${result.draw.settled.claimMs.p50 ?? "–"} / ${result.draw.settled.claimMs.p95 ?? "–"} / ${result.draw.settled.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.settled.claimFailures)}); the winners hold ${result.draw.settled.prizeHeld} of the prize assets.`,
-                `Winners: ${result.draw.settled.winners.join(", ") || "–"}`,
+                `Prize draw: ${result.draw.outcome.draws} draws, ${result.draw.outcome.tickets} bot tickets, ${result.draw.outcome.winners.length} bot wins, ${result.draw.outcome.claimCount} prizes claimed (claim p50 / p95 / max ${result.draw.outcome.claimMs.p50 ?? "–"} / ${result.draw.outcome.claimMs.p95 ?? "–"} / ${result.draw.outcome.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.outcome.claimFailures)}); the winners hold ${result.draw.outcome.prizeBalance} of the prize assets.`,
+                `Winners: ${result.draw.outcome.winners.join(", ") || "–"}`,
               ]
             : []),
           "",

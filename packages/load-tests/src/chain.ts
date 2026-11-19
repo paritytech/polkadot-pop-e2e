@@ -6,7 +6,7 @@ import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from 
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { buildDraw, GAME_AIRDROP_SOURCE, settleDraw, type DrawResult } from "./draw.js";
+import { buildDraw, claimDrawPrizes, GAME_AIRDROP_SOURCE, type DrawResult } from "./draw.js";
 import { ALREADY_REGISTERED, bindLiteBots, NOT_MEMBER_YET, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
@@ -84,7 +84,7 @@ export interface ChainResult {
   /** Lite bots' binds by outcome, and how many hold a deposit after signing up; null for deposit-backed bots. */
   lite: { binds: Record<string, number>; withDeposit: number } | null;
   /** The prize draws: sign-ups that entered them and why the others didn't, then tickets, winners and claims; null without `draw`. */
-  draw: { entries: number; skips: Record<string, number>; settled: DrawResult | null } | null;
+  draw: { entries: number; skips: Record<string, number>; outcome: DrawResult | null } | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -342,18 +342,18 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     }
     let draw: ChainResult["draw"] = null;
     if (run.draw && game.airdrops_scheduled > 0) {
-      draw = { entries: drawEntries, skips: drawSkips, settled: null };
+      draw = { entries: drawEntries, skips: drawSkips, outcome: null };
       if (drawEntries > 0 && timeline.at(-1)!.state === "None") {
         try {
-          const settled = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
-          draw.settled = settled;
-          console.log(`[chain] draw: ${settled.tickets} tickets, ${settled.winners.length} wins, ${settled.claimed} claimed`);
-          if (settled.tickets < drawTickets) findings.push(`draw: ${drawTickets - settled.tickets} of ${drawTickets} tickets the sign-ups carried are not on chain`);
+          const outcome = await claimDrawPrizes(engine, pool, client, api, target, players, game.index, run.connections);
+          draw.outcome = outcome;
+          console.log(`[chain] draw: ${outcome.tickets} tickets, ${outcome.winners.length} wins, ${outcome.claimCount} claimed`);
+          if (outcome.tickets < drawTickets) findings.push(`draw: ${drawTickets - outcome.tickets} of ${drawTickets} tickets the sign-ups carried are not on chain`);
           // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
-          if (settled.winners.length === 0 && ownGame) findings.push("draw: no winner");
-          if (settled.claimed < settled.winners.length) findings.push(`draw: ${settled.winners.length - settled.claimed} of ${settled.winners.length} prizes not claimed`);
-          for (const [reason, count] of Object.entries(settled.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
-          for (const [failure, count] of Object.entries(settled.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
+          if (outcome.winners.length === 0 && ownGame) findings.push("draw: no winner");
+          if (outcome.claimCount < outcome.winners.length) findings.push(`draw: ${outcome.winners.length - outcome.claimCount} of ${outcome.winners.length} prizes not claimed`);
+          for (const [reason, count] of Object.entries(outcome.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
+          for (const [failure, count] of Object.entries(outcome.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
         } catch (error) {
           findings.push(`draw: stopped on ${(error as Error).message}`);
         }

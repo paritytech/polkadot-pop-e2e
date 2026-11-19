@@ -34,15 +34,16 @@ export interface DrawResult {
   tickets: number;
   /** The winning bots' game accounts, once per draw won. */
   winners: string[];
-  /** Winners whose claim the chain would refuse, by the app's reason. */
+  /** Winners whose claim the chain would reject, by the app's reason. */
   ineligible: Record<string, number>;
-  claimed: number;
+  /** Wins whose prize was claimed. */
+  claimCount: number;
   /** Claims that failed, by error. */
   claimFailures: Record<string, number>;
   /** From submitting a claim to its block. */
   claimMs: QuantileSummary;
-  /** The prize assets the winners hold after their claims, in base units. */
-  prizeHeld: string;
+  /** The prize assets the winners own after their claims, in base units. */
+  prizeBalance: string;
 }
 
 /** The airdrop event states before its winners are final. */
@@ -59,7 +60,7 @@ const accountId = AccountId();
  * once, its tickets and winners for every bot alike. Call it after the game's player processing,
  * which makes the winners eligible.
  */
-export async function settleDraw(
+export async function claimDrawPrizes(
   engine: GameEngine,
   pool: SigningPool,
   client: PolkadotClient,
@@ -86,32 +87,32 @@ export async function settleDraw(
   const ineligible: Record<string, number> = {};
   const claimFailures: Record<string, number> = {};
   let tickets = 0;
-  let claimed = 0;
+  let claimCount = 0;
   for (const draw of draws) {
     const holders = new Map(Object.entries(draw.holders ?? {}).map(([slot, holder]) => [slotKey(slot), holder]));
     tickets += [...holders.values()].filter((holder) => botOf(holder)).length;
-    const won = draw.winningTickets.flatMap((slot) => {
+    const wins = draw.winningTickets.flatMap((slot) => {
       const bot = botOf(holders.get(slotKey(slot)));
       return bot ? [{ bot, slot: slotKey(slot) }] : [];
     });
-    const eligible: typeof won = [];
-    for (const [position, eligibility] of (await readAll(won, ({ bot }) => engine.eligibility(bot.address, gameIndex))).entries()) {
-      if (eligibility.eligible) eligible.push(won[position]);
+    const eligible: typeof wins = [];
+    for (const [position, eligibility] of (await readAll(wins, ({ bot }) => engine.eligibility(bot.address, gameIndex))).entries()) {
+      if (eligibility.eligible) eligible.push(wins[position]);
       else bump(ineligible, eligibility.reason ?? "unknown");
     }
-    const signed = await pool.sign(
+    const claimExtrinsics = await pool.sign(
       eligible.map(({ bot }) => ({ player: bot, chain: "people" as const, signer: "participant" as const, tx: claimPrizeTx(chain, { gameIndex, airdropIndex: draw.airdropIndex, beneficiary: bot.address }) })),
       `prize claim ${draw.airdropIndex}`,
     );
-    const burst = await submitBurst(signed, api, client, target.rpc, connections, () => Number.MAX_SAFE_INTEGER);
+    const burst = await submitBurst(claimExtrinsics, api, client, target.rpc, connections, () => Number.MAX_SAFE_INTEGER);
     claimMs.merge(burst.inclusionMs);
     for (const [failure, count] of Object.entries(burst.failures)) bump(claimFailures, failure, count);
     // A claim removes its winner from `Airdrop.Winners`.
     const eventId = gameAirdropEventId({ base, gameIndex, airdropIndex: draw.airdropIndex });
-    const listed = new Set((await api.query.Airdrop.Winners.getEntries(eventId, { at: "best" })).map(({ value }) => slotKey(value)));
-    claimed += won.filter(({ slot }) => !listed.has(slot)).length;
-    winners.push(...won.map(({ bot }) => bot.address));
-    console.log(`[draw] game ${gameIndex} draw ${draw.airdropIndex}: ${draw.status}, ${won.length} bots won of ${draw.winningTickets.length} winners`);
+    const remainingWinners = new Set((await api.query.Airdrop.Winners.getEntries(eventId, { at: "best" })).map(({ value }) => slotKey(value)));
+    claimCount += wins.filter(({ slot }) => !remainingWinners.has(slot)).length;
+    winners.push(...wins.map(({ bot }) => bot.address));
+    console.log(`[draw] game ${gameIndex} draw ${draw.airdropIndex}: ${draw.status}, ${wins.length} bots won of ${draw.winningTickets.length} winners`);
   }
   const balances = await readAll([...new Set(winners)], (winner) => engine.prizeBalances(winner));
   return {
@@ -119,9 +120,9 @@ export async function settleDraw(
     tickets,
     winners,
     ineligible,
-    claimed,
+    claimCount,
     claimFailures,
     claimMs: claimMs.summary(),
-    prizeHeld: balances.flat().reduce((sum, balance) => sum + BigInt(balance.amount), 0n).toString(),
+    prizeBalance: balances.flat().reduce((sum, balance) => sum + BigInt(balance.amount), 0n).toString(),
   };
 }
