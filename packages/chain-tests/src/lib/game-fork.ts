@@ -61,8 +61,8 @@ export async function readPhases(api: PeopleApi): Promise<GamePhases> {
   );
 }
 
-function samePhases(a: GamePhases | undefined, b: GamePhases): boolean {
-  return a !== undefined && PHASE_KEYS.every((key) => a[key] === b[key]);
+function samePhases(stored: GamePhases | undefined, wanted: GamePhases): boolean {
+  return stored !== undefined && PHASE_KEYS.every((key) => stored[key] === wanted[key]);
 }
 
 async function readState(api: PeopleApi) {
@@ -90,7 +90,7 @@ export async function assertSudoKey(api: PeopleApi, sudoAddress: string): Promis
  * Sends the calls as one `Utility.batch_all` inside `Sudo.sudo`, and waits until the best block
  * holds it. A failing inner call fails the batch, and the error says which.
  */
-async function sudoBatch(
+export async function sudoBatch(
   api: PeopleApi,
   signer: CommonSignerTxCreator,
   calls: Tx[],
@@ -116,20 +116,24 @@ async function sudoBatch(
 }
 
 /**
- * Cancels the running game, drops every queued schedule and sets the short phases, until the
- * Game is gone and nothing is queued. Each pass re-reads the chain, because the chain can open
- * a game between two reads.
+ * Cancels the running game, drops every queued schedule and sets `phases`, until the Game is
+ * gone and nothing is queued. Each pass re-reads the chain, because the chain can open a game
+ * between two reads.
  */
-async function clearGames(api: PeopleApi, signer: CommonSignerTxCreator): Promise<void> {
+export async function clearGames(
+  api: PeopleApi,
+  signer: CommonSignerTxCreator,
+  phases: GamePhases = FORK_PHASES,
+): Promise<void> {
   const deadline = Date.now() + CLEAR_TIMEOUT_MS;
   let lastError: unknown;
   for (;;) {
-    const { game, schedules, phases } = await readState(api);
+    const { game, schedules, phases: stored } = await readState(api);
     const phase = game?.state.type;
     const calls: Tx[] = [];
     // `set_game_phases` only works with no game, or a game in Registration.
-    if (!samePhases(phases, FORK_PHASES) && (!game || phase === "Registration")) {
-      calls.push(api.tx.Game.set_game_phases({ phases: FORK_PHASES }));
+    if (!samePhases(stored, phases) && (!game || phase === "Registration")) {
+      calls.push(api.tx.Game.set_game_phases({ phases }));
     }
     for (const schedule of schedules) {
       calls.push(api.tx.Game.remove_scheduled_game({ game_play_time: schedule.game_play_time }));
@@ -146,7 +150,7 @@ async function clearGames(api: PeopleApi, signer: CommonSignerTxCreator): Promis
       } catch (error) {
         lastError = error;
       }
-    } else if (!game && schedules.length === 0 && samePhases(phases, FORK_PHASES)) {
+    } else if (!game && schedules.length === 0 && samePhases(stored, phases)) {
       return;
     }
 
@@ -165,7 +169,7 @@ async function clearGames(api: PeopleApi, signer: CommonSignerTxCreator): Promis
  * registration with that draw scheduled.
  *
  * The prize is checked before anything is written: the draw asset is the first entry of
- * `Airdrop.SupportedAssets`, and the airdrop source (`Game.AirdropSource`) must hold it. Then the
+ * `Airdrop.SupportedAssets` that the airdrop source (`Game.AirdropSource`) holds enough of. Then the
  * running game and every queued schedule are cleared, and one game is queued. This drops the
  * forked game's queued schedules and never restores them, so nothing after this may need them.
  */
@@ -173,19 +177,26 @@ export async function prepareGameWithDraw(
   api: PeopleApi,
   signer: CommonSignerTxCreator,
 ): Promise<GameInfo> {
-  const [supported] = await api.query.Airdrop.SupportedAssets.getEntries(READ_AT);
-  if (!supported) throw new Error("Airdrop.SupportedAssets is empty: no asset can carry a draw");
-  const assetId = supported.keyArgs[0];
-  const asset = await api.query.Assets.Asset.getValue(assetId, READ_AT);
-  if (!asset) throw new Error("the supported draw asset is not in pallet Assets");
-  const amount = asset.min_balance > MIN_PRIZE ? asset.min_balance : MIN_PRIZE;
   const source = await api.constants.Game.AirdropSource();
-  const held = (await api.query.Assets.Account.getValue(assetId, source, READ_AT))?.balance ?? 0n;
-  if (held < amount) {
+  const supported = await api.query.Airdrop.SupportedAssets.getEntries(READ_AT);
+  let prize: { assetId: (typeof supported)[number]["keyArgs"][0]; amount: bigint } | undefined;
+  for (const { keyArgs: [assetId] } of supported) {
+    const asset = await api.query.Assets.Asset.getValue(assetId, READ_AT);
+    if (!asset) continue;
+    const amount = asset.min_balance > MIN_PRIZE ? asset.min_balance : MIN_PRIZE;
+    const account = await api.query.Assets.Account.getValue(assetId, source, READ_AT);
+    if ((account?.balance ?? 0n) >= amount) {
+      prize = { assetId, amount };
+      break;
+    }
+  }
+  if (!prize) {
     throw new Error(
-      `the airdrop source ${source} holds ${held} of the draw asset, short of the ${amount} prize`,
+      `the airdrop source ${source} cannot fund a prize in any of the ` +
+        `${supported.length} Airdrop.SupportedAssets`,
     );
   }
+  const { assetId, amount } = prize;
 
   await clearGames(api, signer);
 
@@ -237,7 +248,9 @@ export async function prepareGameWithDraw(
       if (game.airdrops_scheduled < 1) {
         const events = await api.query.System.Events.getValue(READ_AT);
         const failed = api.event.Game.AirdropScheduleFailed.filter(events);
-        const json = JSON.stringify(failed, (_key, v) => (typeof v === "bigint" ? `${v}` : v));
+        const json = JSON.stringify(failed, (_key, value) =>
+          typeof value === "bigint" ? `${value}` : value,
+        );
         throw new Error(
           `game ${game.index} opened with 0 draws; AirdropScheduleFailed in the best block: ` +
             (failed.length > 0 ? json : "none (it may be in an earlier block)"),
