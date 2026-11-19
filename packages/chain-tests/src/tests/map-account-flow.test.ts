@@ -28,10 +28,10 @@ import { getNetworkConfig } from "../config/networks.js";
 const WAIT_TIMEOUT_MS = 3 * 60_000;
 
 /** Polls `check` until it holds, or fails after `WAIT_TIMEOUT_MS`. */
-async function waitUntil(what: string, check: () => Promise<boolean>): Promise<void> {
+async function waitUntil(description: string, check: () => Promise<boolean>): Promise<void> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
   while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`${what} did not hold within ${WAIT_TIMEOUT_MS} ms`);
+    if (Date.now() > deadline) throw new Error(`${description} timed out after ${WAIT_TIMEOUT_MS} ms`);
     await sleep(POLL_MS);
   }
 }
@@ -65,24 +65,26 @@ describe.skipIf(!getNetworkConfig().testAccountUri)("Contract account mapping fl
   });
 
   it("maps the fresh account through ensureContractAccountMapped", async () => {
+    const autoMap = await api.constants.Revive.AutoMap();
     const result = await ensureContractAccountMapped(runtime, fresh.address, fresh.signer);
     if (!result.ok) throw result.error;
-    if (result.value && !result.value.ok) {
-      throw new Error(`Revive.map_account failed: ${formatDispatchError(result.value)}`);
+    if (autoMap) {
+      // AutoMap mapped the account when it was funded, so there is nothing to submit.
+      expect(result.value).toBeNull();
+    } else {
+      if (!result.value) throw new Error("AutoMap is off, but no Revive.map_account was submitted");
+      if (!result.value.ok) {
+        throw new Error(`Revive.map_account failed: ${formatDispatchError(result.value)}`);
+      }
     }
-    const path = result.value ? "Revive.map_account" : "AutoMap on creation";
-    console.log(`[map-account-flow] ${fresh.address} mapped via ${path}`);
   });
 
-  it("reads the fresh account as mapped in Revive.OriginalAccount", async () => {
+  it("reads the fresh account as mapped, and a second ensureContractAccountMapped is a no-op", async () => {
     // The chain returns the address in its own SS58 format, so compare it re-encoded.
     await waitUntil("the mapping finalizes", async () => {
       const original = await api.query.Revive.OriginalAccount.getValue(ss58ToH160(fresh.address));
       return original !== undefined && AccountId().dec(AccountId().enc(original)) === fresh.address;
     });
-  });
-
-  it("treats a second ensureContractAccountMapped as a no-op", async () => {
     const result = await ensureContractAccountMapped(runtime, fresh.address, fresh.signer);
     if (!result.ok) throw result.error;
     expect(result.value).toBeNull();
