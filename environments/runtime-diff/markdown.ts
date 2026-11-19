@@ -29,8 +29,9 @@ function changeText(e: EntryDiff): string {
   return at.length ? `changed at ${at.join(", ")}` : "changed";
 }
 
-const pipelineBreaks = (ext: PipelineDiff): boolean =>
-  ext.versions.some((v) => v.breaking) || ext.extrinsicVersions.removed.length > 0;
+/** Breaking extension versions plus removed extrinsic versions. */
+const pipelineBreaks = (ext: PipelineDiff): number =>
+  ext.versions.filter((v) => v.breaking).length + ext.extrinsicVersions.removed.length;
 
 const linkKey = (l: Pick<Link, "chain" | "what">): string => `${l.chain}|${l.what}`;
 const linkText = (l: Link): string => `${code(l.what)} on ${l.chain} (${l.why})`;
@@ -40,7 +41,7 @@ export function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
   return {
     entries: chain.entries.filter((e) => e.severity === "breaking" || named.has(linkKey({ chain: chain.chain, what: e.selector }))),
     // The SDK only signs on chains it has a descriptor for.
-    extensions: chain.descriptor !== null && pipelineBreaks(chain.extensions),
+    extensions: chain.descriptor !== null ? pipelineBreaks(chain.extensions) : 0,
     // A removed entry is already listed under its own name.
     missing: chain.missingSurfaces.filter(
       (m) => !m.alsoMissingOnLive && !chain.entries.some((e) => e.change === "removed" && e.selector === m.selector),
@@ -48,10 +49,9 @@ export function breakingOf(chain: Diffed, named: Set<string> = new Set()) {
   };
 }
 
-/** The job summary's per-chain decision. summary.ts must agree with it (summary.test.ts checks that). */
-export const isBreaking = (chain: Diffed, named?: Set<string>): boolean => {
+const isBreaking = (chain: Diffed, named?: Set<string>): boolean => {
   const b = breakingOf(chain, named);
-  return b.entries.length > 0 || b.extensions || b.missing.length > 0;
+  return b.entries.length + b.extensions + b.missing.length > 0;
 };
 
 const namedKeys = (explained: Explained[]): Set<string> => new Set(explained.flatMap((t) => t.links.map(linkKey)));
@@ -120,7 +120,7 @@ function chainSection(chain: ChainDiff, diff: Diff, byLink: Map<string, Explaine
 
   const extTests = byLink.get(`${chain.chain}|transaction extensions`) ?? [];
   const { removed, added } = ext.extrinsicVersions;
-  const marker = pipelineBreaks(ext)
+  const marker = pipelineBreaks(ext) > 0
     ? chain.descriptor !== null
       ? " 🔴 breaking"
       : " (no matching SDK descriptor)"
@@ -215,7 +215,7 @@ export function issueUrl(diff: Diff, explained: Explained[], { run, title }: Rep
       return [
         `### ${c.chain} (${c.pin ?? c.wasm})`,
         ...b.missing.map((m) => `- no longer has \`${m.selector}\` (read by ${m.packages.join(", ")})`),
-        ...(b.extensions ? [`- transaction extensions: ${c.extensions.summary}`] : []),
+        ...(b.extensions > 0 ? [`- transaction extensions: ${c.extensions.summary}`] : []),
         ...b.entries
           .slice(0, 15)
           .map((e) => `- \`${e.selector}\` ${changeText(e).replaceAll("`", "")} (${e.sdk.live} → ${e.sdk.candidate})`),

@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 import type { ChainDiff, Diff } from "./diff.ts";
 import type { EntryDiff } from "./entries.ts";
 import type { PipelineRow } from "./extensions.ts";
-import { isBreaking } from "./markdown.ts";
 import { summarize } from "./summary.ts";
 
 // A chain that was diffed (not one that errored).
@@ -132,61 +131,18 @@ describe("runtime diff summary", () => {
   });
 
   it("treats every diffed chain as unknown when the SDK could not be read, each counted once", () => {
-    const failed: ChainDiff = { ...people, chain: "asset-hub", error: "timeout" };
-    const versioned: ChainDiff = withVersions({ ...people, chain: "bulletin" }, [row(0, true)]);
-    const summary = summarize(diffOf([people, failed, versioned], "ENOENT: no such file"));
+    // With no SDK, capture() finds no descriptor for any chain.
+    const failed: ChainDiff = { ...noDescriptor(people), chain: "asset-hub", error: "timeout" };
+    const versioned: ChainDiff = withVersions(noDescriptor({ ...people, chain: "bulletin" }), [row(0, true)]);
+    const summary = summarize(diffOf([noDescriptor(people), failed, versioned], "ENOENT: no such file"));
     // Three chains, each unknown exactly once: the errored one is not counted twice.
     assert.equal(summary.unknown, 3);
     assert.equal(summary.sdkError, "ENOENT: no such file");
-    // The breaking extension version on bulletin is still a breaking change.
-    assert.equal(summary.breaking, 1);
+    // No descriptor, so the breaking extension version on bulletin is not counted.
+    assert.equal(summary.breaking, 0);
   });
 
   it("is zero for an empty diff", () => {
     assert.deepEqual(summarize(diffOf([])), { breaking: 0, chains: [], sdkError: null, unknown: 0 });
-  });
-});
-
-describe("summary agrees with the job summary", () => {
-  // Each variant is one chain the job summary's rule has an opinion on, with no failing
-  // test naming anything. The job summary's `isBreaking` is the reference.
-  const variants: [string, Diffed][] = [
-    ["nothing changed", people],
-    ["breaking entry", { ...people, entries: [entry("tx:PeopleLite.set_alias_account", "breaking")] }],
-    ["partial and other entries only", { ...people, entries: [entry("tx:Sudo.sudo", "partial"), entry("event:Game.NewGame", "other")] }],
-    ["breaking extension version", withVersions(people, [row(0, true)])],
-    ["breaking extension version, no descriptor", noDescriptor(withVersions(people, [row(0, true)]))],
-    ["added extension version", withVersions(people, [{ ...row(1, false), status: "added" }])],
-    ["removed extrinsic version", withRemoved(people, [4])],
-    ["removed extrinsic version, no descriptor", noDescriptor(withRemoved(people, [4]))],
-    ["gone SDK surface", { ...people, missingSurfaces: [surface("query:NetworkSuffix.NetworkSuffix", false)] }],
-    ["gone SDK surface live also lacks", { ...people, missingSurfaces: [surface("query:Old.Gone", true)] }],
-    ["gone SDK surface without descriptor", noDescriptor({ ...people, missingSurfaces: [surface("query:NetworkSuffix.NetworkSuffix", false)] })],
-    [
-      "removed entry with its surface gone",
-      {
-        ...people,
-        entries: [{ ...entry("constant:Game.airdrop_event_id_base", "other"), change: "removed" }],
-        missingSurfaces: [surface("constant:Game.airdrop_event_id_base", false)],
-      },
-    ],
-  ];
-
-  it("has both breaking and calm variants, so the check cannot pass trivially", () => {
-    const verdicts = variants.map(([, c]) => isBreaking(c));
-    assert.ok(verdicts.includes(true) && verdicts.includes(false));
-  });
-
-  for (const [name, chain] of variants) {
-    it(`${name}: breaking count > 0 exactly when the job summary says the chain breaks`, () => {
-      const counted = summarize(diffOf([chain])).chains[0]?.breaking ?? 0;
-      assert.equal(counted > 0, isBreaking(chain), `summary counts ${counted}`);
-    });
-  }
-
-  it("does not count an entry only a failing test names, though the job summary links it", () => {
-    const chain = { ...people, entries: [entry("tx:Sudo.sudo", "partial")] };
-    assert.equal(isBreaking(chain, new Set(["people|tx:Sudo.sudo"])), true);
-    assert.equal(summarize(diffOf([chain])).breaking, 0);
   });
 });

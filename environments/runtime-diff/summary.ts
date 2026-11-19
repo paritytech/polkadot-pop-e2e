@@ -1,6 +1,5 @@
-// The breaking changes in one runtime diff, for the Matrix alert. Same rule as the job
-// summary's `isBreaking` (markdown.ts), with no junit, so a failing test cannot change it.
-// summary.test.ts keeps the two in step.
+// The breaking changes in one runtime diff, for the Matrix alert. Counts what the job
+// summary's `breakingOf` (markdown.ts) finds, with no junit, so a failing test cannot change it.
 
 import type { Diff } from "./diff.ts";
 import { breakingOf } from "./markdown.ts";
@@ -26,11 +25,7 @@ export function summarize(diff: Diff): Summary {
     if ("error" in chain) return { chain: chain.chain, breaking: 0, error: chain.error };
     // No failing-test names here, so only the diff decides.
     const b = breakingOf(chain);
-    // The SDK only signs on chains with a descriptor.
-    const signs = chain.descriptor !== null;
-    const versions = signs ? chain.extensions.versions.filter((v) => v.breaking).length : 0;
-    const extrinsic = signs ? chain.extensions.extrinsicVersions.removed.length : 0;
-    return { chain: chain.chain, breaking: b.entries.length + b.missing.length + versions + extrinsic };
+    return { chain: chain.chain, breaking: b.entries.length + b.missing.length + b.extensions };
   });
   const sdkUnreadable = diff.sdkError !== null;
   return {

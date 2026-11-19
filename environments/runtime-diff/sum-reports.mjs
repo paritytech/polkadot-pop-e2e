@@ -29,15 +29,15 @@ if (!dir || parsed.positionals.length > 1) usage();
 const expected = parsed.values.expected === undefined ? null : Number(parsed.values.expected);
 if (expected !== null && !(Number.isInteger(expected) && expected >= 0)) usage();
 
-const walk = (d) =>
-  fs.existsSync(d)
-    ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => {
-        const file = path.join(d, e.name);
-        return e.isDirectory() ? walk(file) : [file];
+const walk = (folder) =>
+  fs.existsSync(folder)
+    ? fs.readdirSync(folder, { withFileTypes: true }).flatMap((dirent) => {
+        const file = path.join(folder, dirent.name);
+        return dirent.isDirectory() ? walk(file) : [file];
       })
     : [];
 
-const isCount = (n) => Number.isInteger(n) && n >= 0;
+const isCount = (value) => Number.isInteger(value) && value >= 0;
 const cell = (text) => String(text).replaceAll("|", "\\|").replaceAll("\n", " ").slice(0, 200);
 
 // The summary report.ts writes into report.json, or null when there is none to read.
@@ -54,7 +54,7 @@ function summaryOf(file) {
 function artifactOf(artifactDir) {
   const name = path.basename(artifactDir);
   const files = walk(artifactDir);
-  const named = (base) => files.find((f) => path.basename(f) === base);
+  const named = (base) => files.find((file) => path.basename(file) === base);
   const report = named("report.json");
   const summary = report ? summaryOf(report) : null;
   const why = !named("diff.json")
@@ -69,10 +69,10 @@ function artifactOf(artifactDir) {
     name,
     breaking: summary.breaking,
     unknown: summary.unknown,
-    rows: summary.chains.map((c) => [
-      c.chain,
-      c.breaking,
-      c.error ? `not diffed: ${c.error}` : summary.sdkError ? `SDK not read: ${summary.sdkError}` : "",
+    rows: summary.chains.map((chain) => [
+      chain.chain,
+      chain.breaking,
+      chain.error ? `not diffed: ${chain.error}` : summary.sdkError ? `SDK not read: ${summary.sdkError}` : "",
     ]),
   };
 }
@@ -80,15 +80,15 @@ function artifactOf(artifactDir) {
 const artifacts = fs.existsSync(dir)
   ? fs
       .readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => artifactOf(path.join(dir, e.name)))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((dirent) => dirent.isDirectory())
+      .map((dirent) => artifactOf(path.join(dir, dirent.name)))
+      .sort((left, right) => left.name.localeCompare(right.name))
   : [];
 
 // Planned candidates whose artifact directory never appeared (the job died before upload).
 const missing = expected === null ? 0 : Math.max(0, expected - artifacts.length);
-const breaking = artifacts.reduce((n, a) => n + a.breaking, 0);
-const unknown = artifacts.reduce((n, a) => n + a.unknown, 0) + missing;
+const breaking = artifacts.reduce((total, artifact) => total + artifact.breaking, 0);
+const unknown = artifacts.reduce((total, artifact) => total + artifact.unknown, 0) + missing;
 
 const lines = ["### Runtime diff: breaking changes", ""];
 if (artifacts.length === 0) {
@@ -99,9 +99,9 @@ if (artifacts.length === 0) {
       "Unknown means a diff was not captured or a chain was not diffed, so its breaking changes are not counted.",
     "",
   );
-  for (const a of artifacts) {
-    lines.push(`#### ${cell(a.name)}`, "", "| Chain | Breaking | Note |", "| --- | ---: | --- |");
-    for (const [chain, count, note] of a.rows) lines.push(`| ${cell(chain)} | ${count} | ${cell(note)} |`);
+  for (const artifact of artifacts) {
+    lines.push(`#### ${cell(artifact.name)}`, "", "| Chain | Breaking | Note |", "| --- | ---: | --- |");
+    for (const [chain, count, note] of artifact.rows) lines.push(`| ${cell(chain)} | ${count} | ${cell(note)} |`);
     lines.push("");
   }
 }

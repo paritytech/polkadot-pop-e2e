@@ -165,8 +165,8 @@ on:
         description: >
           Runtime diffs that could not be checked, summed over every candidate. Counted:
           a diff that was not captured, a chain that could not be diffed, every chain
-          when the SDK could not be read, and a planned candidate that uploaded no diff.
-          Never fails the gate.
+          when the SDK could not be read, a planned candidate that uploaded no diff, and
+          one for a plan that failed. Never fails the gate.
         value: ${{ jobs.runtime-diff-summary.outputs.unknown }}
 
   # One field per override, mirroring the "Release gate request" issue form — the
@@ -891,6 +891,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       breaking: ${{ steps.sum.outputs.breaking }}
       unknown: ${{ steps.sum.outputs.unknown }}
@@ -916,7 +918,7 @@ jobs:
           path: runtime-diffs
 
       # The script writes breaking= and unknown= to GITHUB_OUTPUT. The planned count is
-      # the plan's matrix (one entry per candidate); an empty or unreadable one is zero.
+      # the plan's matrix (one entry per candidate). No matrix means plan failed, so one unknown.
       - name: Sum the runtime diffs
         id: sum
         env:
@@ -924,8 +926,11 @@ jobs:
           GATE_RESULT: ${{ needs.gate.result }}
         run: |
           set -euo pipefail
+          # Plan failed (advisory) and wrote no matrix, so nothing was checked.
+          if [ -z "$MATRIX" ]; then
+            EXPECTED=1
           # A skipped gate ran no candidate, so none is expected.
-          if [ "$GATE_RESULT" = "skipped" ]; then
+          elif [ "$GATE_RESULT" = "skipped" ]; then
             EXPECTED=0
           else
             EXPECTED=$(node -e '
