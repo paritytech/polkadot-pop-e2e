@@ -13,7 +13,7 @@ or Asset Hub.
 |---|---|
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
-| `bots_per_machine` | bots one parity-large machine runs; empty for the mode's default: 1000 bots, 400 lite bots, 400 video bots or 200 lite video bots (see [Video](#video)) |
+| `bots_per_machine` | bots one parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) runs; empty for the mode's default: 1000 bots, 400 lite bots, 400 video bots or 200 lite video bots, at most 350 with `chain_backend: light-client` (see [Video](#video)) |
 | `lite` | the bots are lite bots (see [Lite bots](#lite-bots-and-the-prize-draw)): both the sign-up and the messages run with `--lite` |
 | `video` | bots play H.264 video to their group over real WebRTC links (see [Video](#video)) |
 | `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
@@ -174,12 +174,14 @@ thread per core and each proof right before its post, so no proof is over 30 s o
 out, and gives each truapi-host its bot's TURN servers. Without `--lite`, bots have STUN only.
 
 A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A
-parity-large machine has 32 Gbps, about 7 Gbps of it per runner to external IPs, so 400 video
-bots use under a tenth of that and CPU and memory decide how many fit. In game 352, 400
-light-client truapi-host bots took 2.8% of a core and 147 MB each on one parity-large. So the
-workflow puts 1000 bots, 400 lite bots, 400 video bots (10 per host) or 200 lite video bots on
-each parity-large: a first estimate, to recalibrate from the host table's **Host CPU / RSS per
-ghost** after a run of each mode. The summary gets a **Video on …** table per layer:
+parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) has 32 Gbps, about 7 Gbps of it per runner
+to external IPs, so 400 video bots use under a tenth of that and CPU and memory decide how many
+fit. In game 352, 400 light-client bots, each its own truapi-host on its own light client, took
+2.8% of a core and 147 MB each on one parity-large, about 59 of its 64 GB. So the workflow puts
+1000 bots, 400 lite bots, 400 video bots (10 per host) or 200 lite video bots on each
+parity-large, and at most 350 with the light client: a first estimate, to recalibrate from the
+host table's **Host CPU / RSS per ghost** after a run of each mode. The summary gets a **Video on
+…** table per layer:
 
 - **Links up / attempted**: links up when the game ended, as the signalling table counts them;
   **With video**: links whose video renegotiation completed. Each link counts once per side.
