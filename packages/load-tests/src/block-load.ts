@@ -154,7 +154,7 @@ export interface BlockFollower {
   followGame(index: number): void;
   /** The highest best block number the node has had. */
   bestNumber(): number;
-  /** Resolves true once a finalized block at or past `number` is read, false after `timeoutMs`. */
+  /** Resolves true once a finalized block at or past `number` is read and no read of a block up to it is still running, false after `timeoutMs`. */
   waitForBlock(number: number, timeoutMs: number): Promise<boolean>;
   /** What the follower couldn't read, each kind with its count and first error. */
   notes(): string[];
@@ -186,6 +186,8 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   };
   let bestNumber = 0;
   let highestRead = 0;
+  // Reads finish out of order: a block of the run's game also waits for its PoV size.
+  const pendingNumbers = new Set<number>();
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
   const arrivalTimes = new Map<number, number | null>();
   let latestGameIndex: number | undefined;
@@ -219,6 +221,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
       const arrivalTime = arrivalTimes.get(block.number) ?? null;
       for (const number of arrivalTimes.keys()) if (number < block.number) arrivalTimes.delete(number);
       const at = { at: block.hash };
+      pendingNumbers.add(block.number);
       try {
         const [weight, game, creditCursor, unincluded, contents] = await Promise.all([
           api.query.System.BlockWeight.getValue(at),
@@ -254,6 +257,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
         recordProblem("finalized block not read", `#${block.number}: ${(error as Error).message}`);
       } finally {
         releaseBlockContents(client, block.hash);
+        pendingNumbers.delete(block.number);
       }
     },
     error: (error: Error) => recordProblem("finalized blocks no longer followed, so later blocks are missing", error.message),
@@ -266,7 +270,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
     bestNumber: () => bestNumber,
     async waitForBlock(number, timeoutMs) {
       const until = Date.now() + timeoutMs;
-      while (highestRead < number) {
+      while (highestRead < number || [...pendingNumbers].some((pending) => pending <= number)) {
         if (Date.now() > until) return false;
         await sleep(500);
       }
