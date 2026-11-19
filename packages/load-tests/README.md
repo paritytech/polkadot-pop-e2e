@@ -66,8 +66,11 @@ means changing the commit in those overrides.
   flow calls, over the SDK's `registerForGame`. For an account without personhood it reads the
   seat and builds `Game.sign_up_with_account`, signed plainly for a new player and as the score
   participant for a returning one. Its `submit` only signs, so the run still sends every sign-up at
-  once. The bots get a VRF signer (the SDK's `localAirdropVrfSigner`) only with `--draw`, so in any
-  other game they enter no prize draw. Lite bots also get personhood keys, below.
+  once. With `--draw` the bots get a VRF signer (the SDK's `localAirdropVrfSigner`) and enter the
+  game's prize draws, as a phone does; without it they enter none. Lite bots also get personhood
+  keys, below.
+- **Lite people**: `truapi-host attest`, the host's own attestation through the stack's identity
+  backend (DUB), as chain-tests runs it; it also registers the bot's lite username.
 - **Lite sign-up**: a lite bot's personhood keys are the SDK's `PersonhoodProver`, answered with
   `verifiablejs` `one_shot` over its lite ring's members at the finalized block. The engine's `bind`
   (the SDK's `bindGameSeat`) binds the game account before the game opens, 50 at a time and the
@@ -98,9 +101,8 @@ means changing the commit in those overrides.
 - **Signalling**: the app's `statementTransport`, below.
 
 The rest is the run's own, because the app doesn't do it: root's clearing, funding and scheduling
-of a game and its phase durations and prize draw, funding the bots, making lite bots lite people
-(the app only signs up a person a phone made one), and the timeline of game states with their
-steps, read at the best block every second.
+of a game and its phase durations and prize draw, funding the bots, and the timeline of game
+states with their steps, read at the best block every second.
 
 ## How a bot signals
 
@@ -207,29 +209,29 @@ account 0) is the lite person, its game account (`dim2.<tld>` account 0) plays. 
 index 100000 (`--lite-from`), far above the deposit-backed bots, whose hosts number in the
 hundreds: a bot with a deposit-backed player record would keep signing up as a returning player.
 
-`load people --players <n>` makes lite bots `--lite-from`..+n lite people with `PeopleLite.attest`
-from an attester derived from the seed and the network, then waits until every lite key is in a
-ring root at the finalized block. It reads which bots are lite people already, so a rerun attests
-nothing, and nothing is stored: a lite bot's keys follow from `--seed`, the network and its index
-alone, so the seed and the index range are all there is to keep. Changing the seed makes new lite
-people, and a lite person can't be removed. With the chain's root key, root grants the attester
-its allowance and the fees `attest` refunds; without one the run fails unless the People team has
-granted the allowance, and it takes `--allow-live-lite` before it adds lite people at all.
+`load people --players <n>` makes lite bots `--lite-from`..+n lite people the way a phone becomes
+one: `truapi-host attest` with the bot's wallet, through DUB, which attests its identity account,
+registers a lite username and waits until the lite key is a ring member. `--attest-concurrency`
+attests run at once (default 4); the summary gives each attest's time and the failures by HTTP
+status, which shows where DUB limits a run. It reads which bots are lite people already, so a
+rerun attests nothing, and nothing is stored: a lite bot's keys follow from `--seed`, the network
+and its index alone, so the seed and the index range are all there is to keep. Changing the seed
+makes new lite people, and a lite person can't be removed. truapi-host reaches DUB only through
+`STACK` or `NETWORK`, so `people` takes `--rpc` only with `STACK`.
 
-`load chain --lite` plays lite bots in place of the deposit-backed ones. Without a root key it
-takes `--allow-live-lite` too.
+`load chain --lite` plays lite bots in place of the deposit-backed ones.
 
-`load chain --draw` gives the run's own game one prize draw (the chain's first
-`Airdrop.SupportedAssets` asset at its minimum amount, 5 winners) and every bot a draw ticket. It
-runs only where the run holds the chain's root key (`Sudo.Key`) and schedules the game itself
-(`--take-over`, no `--game-at`), so the bots never take prizes of a game real players are in.
-After player processing the run reads each bot's draw, and each winner claims its prize into its
-game account. `Game.airdrops_scheduled` below 1 means `pop/gads`, the account the Game pallet pays
-prizes from, lacks the prize asset.
+`load chain --draw` makes the prize draw part of the load: every bot enters the draws of whatever
+game it signs up to, and after player processing each bot that won claims its prize into its game
+account. The summary gives the tickets, the bots that won, the claims with their inclusion time
+and failures. A game the run schedules as root gets one draw (the chain's first
+`Airdrop.SupportedAssets` asset at its minimum amount, 5 winners), for a fork whose games have
+none; `Game.airdrops_scheduled` 0 there means `pop/gads`, the account the Game pallet pays prizes
+from, lacks the prize asset.
 
 ```bash
 cd packages/load-tests
-pnpm load people --rpc ws://127.0.0.1:10010 --sudo //Alice --players 30
+STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json pnpm load people --players 30
 pnpm load chain --rpc ws://127.0.0.1:10010 --sudo //Alice --players 30 --lite --draw --take-over \
   --registration 150 --reporting 300
 ```
