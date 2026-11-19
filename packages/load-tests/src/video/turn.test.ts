@@ -6,7 +6,7 @@ import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-ind
 import { afterEach, describe, expect, it } from "vitest";
 import { sleep } from "../time.js";
 import { VideoStats } from "./stats.js";
-import { fetchTurnPass, proveTurnNow, TurnPasses, type ProveTurn, type TurnProofSetup } from "./turn.js";
+import { createProofQueue, fetchTurnPass, proveTurnNow, TurnPasses, type ProveTurn, type TurnProofSetup } from "./turn.js";
 
 const CREDENTIALS = { servers: ["turn:turn.example:3478?transport=udp", "turns:turn.example:5349?transport=tcp"], username: "1700000000:alias", password: "secret", ttl: 1800 };
 
@@ -123,6 +123,28 @@ describe("fetchTurnPass", () => {
     expect(await fetchTurnPass(proveWith(prover), { base: issuer.base, fetch }, stats)).toBeUndefined();
     expect(issuer.bodies).toHaveLength(0);
     expect(stats.turnFetches).toEqual({ "proof no-ring-key": 1 });
+  });
+});
+
+describe("createProofQueue", () => {
+  // A worker thread takes many TURN jobs at once; stamping them all before the first proof is built
+  // would post the last one many proofs' time after its stamp, past the 30 s the app allows.
+  it("stamps each proof when the one before it is done", async () => {
+    const slowProver = {
+      holds: async (ring) => ring.key === "lite",
+      prove: async () => {
+        await sleep(200);
+        return { proof: new Uint8Array([1]), contextualAlias: { context: new Uint8Array(32), alias: new Uint8Array(32) }, ringIndex: 0, ringRevision: 0 };
+      },
+    } as PersonhoodProver;
+    const proveInTurn = createProofQueue();
+    const outcomes = await Promise.all([0, 1, 2].map(() => proveInTurn(proveWith(slowProver))));
+    const proofs = outcomes.map((outcome) => ("proof" in outcome ? outcome : undefined));
+
+    for (const [position, outcome] of proofs.entries()) {
+      expect(outcome!.ms).toBeLessThan(400);
+      if (position > 0) expect(outcome!.proof.at).toBeGreaterThanOrEqual(proofs[position - 1]!.proof.at + 190);
+    }
   });
 });
 

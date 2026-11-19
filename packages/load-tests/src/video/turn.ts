@@ -52,6 +52,20 @@ export async function proveTurnNow(prover: PersonhoodProver, setup: TurnProofSet
 }
 
 /**
+ * Runs the proofs handed to it one after another. A proof takes its timestamp when it starts, so
+ * a worker thread with several TURN jobs posts each proof a single proof's time after its stamp,
+ * however many wait behind it.
+ */
+export function createProofQueue(): (prove: ProveTurn) => Promise<TurnProofOutcome> {
+  let previous: Promise<unknown> = Promise.resolve();
+  return (prove) => {
+    const next = previous.then(prove, prove);
+    previous = next.catch(() => {});
+    return next;
+  };
+}
+
+/**
  * One bot's TURN credentials as the app fetches them: `proof`, or a new one, posted to the
  * issuer, up to three attempts with backoff for a timeout, a 5xx or a refused timestamp. A proof
  * 30 s old or with a refused timestamp is built again before it is posted. A 403, a 429 or another

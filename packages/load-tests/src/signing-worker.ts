@@ -10,12 +10,13 @@ import { playerFromSecret, type Player } from "./keys.js";
 import { RingSnapshots } from "./lite.js";
 import type { OutcomeOf, SignerKind, SigningJob, SigningReply } from "./signing-pool.js";
 import { connectAssetHub, connectPeople, type AssetHubApi, type Endpoints, type PeopleConnection } from "./target.js";
-import { proveTurnNow } from "./video/turn.js";
+import { createProofQueue, proveTurnNow } from "./video/turn.js";
 
 const endpoints = workerData as Endpoints;
 let people: PeopleConnection | undefined;
 let assetHub: { api: AssetHubApi } | undefined;
 let snapshots: RingSnapshots | undefined;
+const proveInTurn = createProofQueue();
 
 function creatorOf(player: Player, kind: SignerKind): CommonSignerTxCreator {
   if (kind === "account") return accountSigner(player);
@@ -31,7 +32,7 @@ function liteProver(connection: PeopleConnection, liteEntropy: Uint8Array) {
 async function runJob(job: SigningJob): Promise<OutcomeOf<SigningJob>> {
   if (job.kind === "turnProof") {
     const prover = liteProver((people ??= connectPeople(endpoints)), job.liteEntropy);
-    return proveTurnNow(prover, { productId: job.productId, genesis: job.genesis, collectionId: ringCollectionId, hash: blake2b256 });
+    return proveInTurn(() => proveTurnNow(prover, { productId: job.productId, genesis: job.genesis, collectionId: ringCollectionId, hash: blake2b256 }));
   }
   const { index, secretKey, liteEntropy } = job.player;
   const player: Player = { ...playerFromSecret(index, secretKey), liteEntropy };
