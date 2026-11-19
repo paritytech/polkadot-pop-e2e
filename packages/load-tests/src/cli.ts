@@ -43,8 +43,8 @@ Lite bots (lite people, signing up free as a lite person's phone does):
   --lite-from <index>   First bot index of the lite bots (default ${LITE_FIRST_INDEX}), above the
                         deposit-backed bots. A lite bot's keys follow from --seed, the network and its
                         index alone, so the seed and the index range are all a later run needs
-  --attest-concurrency <n>  people: attests running at once (default 3); DUB names about 4.5
-                        identities a minute, and truapi-host waits 2 min for a name, so more fail
+  --attest-concurrency <n>  people: attests running at once (default 3); DUB registers about 4.5
+                        names a minute, and truapi-host waits 2 min for a name, so more fail
 
 Signalling:
   --steps <n,...>       Player counts, one game each, in order (default 10,25,50)
@@ -218,7 +218,7 @@ const firstOffsets = (count: number) => Array.from({ length: count }, (_, offset
 
 switch (values.help ? undefined : command) {
   case "people": {
-    // truapi-host reaches DUB and People through STACK or NETWORK alone, never `--rpc`.
+    // truapi-host connects to DUB and People through STACK or NETWORK alone, never `--rpc`.
     if (targetOptions.rpc.length > 0 && !process.env.STACK) {
       throw new Error("people attests through the stack's identity backend: set STACK to the stack's descriptor, with --rpc only in place of its People endpoint");
     }

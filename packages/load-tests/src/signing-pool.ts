@@ -25,7 +25,7 @@ type SignJob = { kind: "sign"; player: PlayerKeys; chain: SigningEntry["chain"];
 
 /**
  * What a worker thread does: one player's sign-up, with a draw ticket or without; a lite bot's
- * bind of its game account; or one transaction given as its call data. A player with
+ * bind of its game account; or one transaction built from its call data. A player with
  * `liteEntropy` signs up and binds as a lite person.
  */
 export type SigningJob = SignUpJob | BindJob | SignJob;

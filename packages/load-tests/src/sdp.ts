@@ -2,7 +2,7 @@ import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { RtcPayload } from "@jollity/statement-core";
 import type { SignallingProfile } from "./profile.js";
 
-/** How a bot's links reach the statement transport. */
+/** How a bot's links connect to the statement transport. */
 export interface LinkWire {
   /** Sends a description or candidate to `peer` over the transport. */
   signal(peer: string, payload: RtcPayload): void;

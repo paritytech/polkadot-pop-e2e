@@ -100,7 +100,7 @@ export interface ProvisionResult {
   /** Attests that ended with the bot a ring member. */
   attested: number;
   /**
-   * Attests the CLI gave up waiting on, for the dotNS name or the ring, or that ran out of time:
+   * Attests the CLI gave up waiting on, for the dotNS name or the ring, or that timed out:
    * DUB may still finish them, so they count as lite once the chain shows them.
    */
   pending: number;

@@ -53,7 +53,7 @@ interface Link {
   descriptionSent: boolean;
   /** The co-player's description over the statement transport, from when it starts to apply. */
   remoteSdp?: string;
-  /** The co-player's video SSRC, which a PLI names. */
+  /** The co-player's video SSRC, which a PLI addresses. */
   remoteSsrc?: number;
   pendingCandidates: RTCIceCandidateInit[];
   up: boolean;

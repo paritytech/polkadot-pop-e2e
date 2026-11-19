@@ -22,7 +22,7 @@ export const APP_STUN_URLS = [
   "stun:stun.cloudflare.com:3478",
 ];
 
-/** How a bot's peer connections reach their co-players. */
+/** How a bot's peer connections connect to their co-players. */
 export interface IceSetup {
   stunUrls: string[];
   /** The issuer's TURN servers with this bot's credentials; none without a pass. */

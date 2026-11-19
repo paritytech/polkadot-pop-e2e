@@ -148,7 +148,7 @@ describe("SignallingBot", () => {
     expect(video.candidateTypes).toEqual({ host: stats.links });
     expect(video.failures).toEqual({});
     // Each round's group sends both ways, and a group that starts in the second round starts
-    // mid-GOP, so its first frame comes from a PLI answered with the next IDR.
+    // mid-GOP, so its first frame comes from a PLI served with the next IDR.
     expect(video.streamsWithFrames).toBe(video.streams);
     expect(video.pliSent).toBeGreaterThan(0);
     expect(video.pliReceived).toBeGreaterThan(0);

@@ -32,13 +32,13 @@ export class VideoStats {
   activeMs = 0;
 
   framesSent = 0;
-  /** Frames the camera skipped because its timer ran late, as a busy encoder drops them. */
+  /** Frames the camera skipped because its timer fell behind, as a busy encoder drops them. */
   framesSkipped = 0;
   pliSent = 0;
   pliReceived = 0;
   /** Keyframe requests that came over the "data" channel, as the app sends them. */
   keyframeRequestsReceived = 0;
-  /** Requests answered by jumping the camera to the clip's next IDR. */
+  /** Requests served by jumping the camera to the clip's next IDR. */
   keyframesForced = 0;
 
   /** TURN credential fetches by outcome: `ok`, or the issuer's cause and HTTP status. */

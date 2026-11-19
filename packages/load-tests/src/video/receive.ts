@@ -3,12 +3,12 @@ import type { VideoStats } from "./stats.js";
 
 const SEEN_WINDOW = 1024;
 const PLI_INTERVAL_MS = 1_000;
-/** No keyframe this long after the first packet means the sender started mid-GOP: ask for one. */
+/** No keyframe this long after the first packet means the sender started mid-GOP: request one. */
 const KEYFRAME_WAIT_MS = 500;
 
 /**
  * One co-player's video as a bot receives it, counted without decoding: packets, frames
- * (marker bits), keyframes, loss from sequence gaps. It asks for a keyframe (PLI) as a decoder
+ * (marker bits), keyframes, loss from sequence gaps. It requests a keyframe (PLI) as a decoder
  * does: when none has arrived since the camera came on, or when a loss persists past NACK repair.
  */
 export class ReceiveStream {

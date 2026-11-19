@@ -30,7 +30,7 @@ export type SignUpKeys = Pick<GameRegistrationCapabilities, "personhood" | "sign
 /**
  * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
  * `submit` that only signs, so a burst can send every player's at once. It enters the draws the
- * app's draw rule lets it, and says why it entered none.
+ * app's draw rule lets it, and reports why it entered none.
  */
 export async function signSignUp(engine: GameEngine, player: Player, keys: SignUpKeys): Promise<SignUpOutcome> {
   let extrinsic: string | undefined;
@@ -92,7 +92,7 @@ export async function signSignUps(pool: SigningPool, players: Player[], drawTick
 
 /**
  * A lite bot's game account bound to its lite person through the app engine's `bind`, which
- * submits the unsigned bind itself and settles at the best block. Only a seat on the free route
+ * submits the unsigned bind itself and completes at the best block. Only a seat on the free route
  * that isn't bound takes a bind, as in the app's flow: a returning player signs up as one, and a
  * stale binding is revised by the sign-up itself.
  */
