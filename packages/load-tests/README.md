@@ -13,7 +13,7 @@ or Asset Hub.
 |---|---|
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
-| `bots_per_machine` | bots one parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) runs; empty for the mode's default: 1000 bots, 400 lite bots, 400 video bots or 200 lite video bots, at most 350 with `chain_backend: light-client` (see [Video](#video)) |
+| `bots_per_machine` | bots one parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) runs; empty for the mode's default: 1000 bots, 400 lite bots, 400 video bots or 150 lite video bots, at most 350 with `chain_backend: light-client` and 150 with it and video (see [Video](#video)) |
 | `lite` | the bots are lite bots (see [Lite bots](#lite-bots-and-the-prize-draw)): both the sign-up and the messages run with `--lite` |
 | `video` | bots play H.264 video to their group over real WebRTC links (see [Video](#video)) |
 | `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
@@ -184,9 +184,11 @@ A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with pack
 parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) has 32 Gbps, about 7 Gbps of it per runner
 to external IPs, so 400 video bots use under a tenth of that and CPU and memory decide how many
 fit. In game 352, 400 light-client bots, each its own truapi-host on its own light client, took
-2.8% of a core and 147 MB each on one parity-large, about 59 of its 64 GB. So the workflow puts
-1000 bots, 400 lite bots, 400 video bots (10 per host) or 200 lite video bots on each
-parity-large, and at most 350 with the light client: a first estimate, to recalibrate from the
+2.8% of a core and 147 MB each on one parity-large, about 59 of its 64 GB. In game 354, video bots
+on the light client, each its own truapi-host, took 11.8% of a core and 197 MB each: 250 of them
+used 29.5 of the 32 vCPU and their cameras skipped 11.2% of frames. So the workflow puts 1000 bots,
+400 lite bots, 400 video bots (10 per host) or 150 lite video bots on each parity-large, at most
+350 with the light client and 150 with the light client and video: to recalibrate from the
 host table's **Host CPU / RSS per ghost** after a run of each mode. The summary gets a **Video on
 …** table per layer:
 
@@ -207,7 +209,7 @@ host table's **Host CPU / RSS per ghost** after a run of each mode. The summary 
 
 A 500-bot video run on previewnet takes the lite bots made once with `load people --players 500`,
 then the workflow with `network: previewnet`, `players: 500`, `lite: true` and `video: true`:
-3 parity-large machines.
+4 parity-large machines.
 
 To run 60 video bots locally on direct RPC against a previewnet fork's stack, turn STUN off and put
 every link on the loopback address with `--ice-address`. Without it each link binds a socket on

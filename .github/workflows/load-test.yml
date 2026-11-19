@@ -18,7 +18,7 @@ on:
         type: string
         default: "300"
       bots_per_machine:
-        description: "Bots one machine sends messages for; empty for the mode's default per parity-large: 1000 bots, 400 lite bots, 400 video bots, 200 lite video bots, at most 350 with light-client"
+        description: "Bots one machine sends messages for; empty for the mode's default per parity-large: 1000 bots, 400 lite bots, 400 video bots, 150 lite video bots, at most 350 with light-client and 150 with light-client and video"
         type: string
         default: ""
       lite:
@@ -101,15 +101,20 @@ jobs:
           # external IPs, so a video bot's 1.6 Mbit/s each way leaves CPU and memory as the limit.
           # In game 352, 400 light-client bots, each its own truapi-host on its own light client,
           # took 2.8% of a core and 147 MB each, about 59 of the 64 GB: light-client runs take 350.
-          # A first estimate: recalibrate from the summary's "Host CPU / RSS per ghost" after a run
-          # of each mode.
+          # In game 354, video bots with their own truapi-host each took 11.8% of a core and 197 MB:
+          # 250 of them used 29.5 of 32 vCPU and their cameras skipped 11.2% of frames, so lite video
+          # and light-client video runs take 150.
+          # Recalibrate from the summary's "Host CPU / RSS per ghost" after a run of each mode.
           case "$LITE/$VIDEO" in
-            true/true) default=200 ;;
+            true/true) default=150 ;;
             false/true) default=400 ;;
             true/false) default=400 ;;
             *) default=1000 ;;
           esac
-          if [ "$CHAIN_BACKEND" = light-client ] && [ "$default" -gt 350 ]; then default=350; fi
+          if [ "$CHAIN_BACKEND" = light-client ]; then
+            cap=$([ "$VIDEO" = true ] && echo 150 || echo 350)
+            [ "$default" -gt "$cap" ] && default=$cap
+          fi
           per=${PER_MACHINE:-$default}
           machines=$(( (PLAYERS + per - 1) / per ))
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
