@@ -6,7 +6,7 @@ import { localAirdropVrfSigner } from "@parity/product-sdk-individuality/testing
 import { accountSigner, hostSigner, signEntry } from "./burst.js";
 import { bindSeat, signSignUp } from "./join.js";
 import { playerFromSecret, type Player } from "./keys.js";
-import { litePersonhood, RingSnapshots } from "./lite.js";
+import { RingSnapshots } from "./lite.js";
 import type { OutcomeOf, SignerKind, SigningJob, SigningReply } from "./signing-pool.js";
 import { connectAssetHub, connectPeople, type AssetHubApi, type Endpoints, type PeopleConnection } from "./target.js";
 
@@ -24,7 +24,7 @@ function creatorOf(player: Player, kind: SignerKind): CommonSignerTxCreator {
 function personhoodOf(connection: PeopleConnection, player: Player) {
   if (!player.liteEntropy) return undefined;
   snapshots ??= new RingSnapshots(connection.api, connection.client);
-  return litePersonhood(connection.api, connection.client, player.liteEntropy, snapshots);
+  return snapshots.prover(player.liteEntropy);
 }
 
 async function runJob(job: SigningJob): Promise<OutcomeOf<SigningJob>> {

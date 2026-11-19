@@ -11,7 +11,7 @@ import {
 } from "@jollity/protocol";
 import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-individuality";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { litePersonhood, RingSnapshots, type LiteBot } from "../lite.js";
+import { RingSnapshots } from "../lite.js";
 import { bump } from "../stats.js";
 import { connectPeople, type Target } from "../target.js";
 import { sleep } from "../time.js";
@@ -147,13 +147,19 @@ export class TurnPasses {
 }
 
 /**
- * TURN passes for `bots` by player index, proved with each bot's lite key over the lite ring at
- * People's finalized block, from the issuer at `issuerBase`. `close` ends the People connection.
+ * TURN passes for the lite bots of `liteEntropies`, by player index, proved with each bot's lite
+ * key over the lite ring at People's finalized block, from the issuer at `issuerBase`. `close`
+ * ends the People connection.
  */
-export async function openLiteTurnPasses(target: Target, bots: Map<number, LiteBot>, productId: string, issuerBase: string): Promise<{ passes: TurnPasses; close(): void }> {
+export async function openLiteTurnPasses(
+  target: Target,
+  liteEntropies: Map<number, Uint8Array>,
+  productId: string,
+  issuerBase: string,
+): Promise<{ passes: TurnPasses; close(): void }> {
   const { client, api } = connectPeople(target);
   const snapshots = new RingSnapshots(api, client);
-  const provers = new Map([...bots].map(([index, bot]) => [index, litePersonhood(api, client, bot.player.liteEntropy, snapshots)]));
+  const provers = new Map([...liteEntropies].map(([index, entropy]) => [index, snapshots.prover(entropy)]));
   const { genesisHash } = await client.getChainSpecData();
   const setup: TurnProofSetup = { productId, genesis: genesisHash as `0x${string}`, collectionId: ringCollectionId, hash: blake2b256 };
   const passes = new TurnPasses(provers, setup, { base: issuerBase, fetch });

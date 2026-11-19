@@ -315,8 +315,8 @@ switch (values.help ? undefined : command) {
         const issuer = values["turn-issuer"] ?? config.identityBackend;
         if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
         const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-        const bots = new Map(liteBots(target, own).map((bot, position) => [own[position], bot]));
-        const turn = await openLiteTurnPasses(target, bots, productId, issuer);
+        const liteEntropies = new Map(liteBots(target, own).map(({ player }, position) => [own[position], player.liteEntropy]));
+        const turn = await openLiteTurnPasses(target, liteEntropies, productId, issuer);
         video.turn = turn.passes;
         closeTurn = turn.close;
         // The app fetches as soon as it knows of its game: the first step's game, after the pre-connect.

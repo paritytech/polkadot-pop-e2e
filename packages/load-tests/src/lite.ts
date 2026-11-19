@@ -1,11 +1,11 @@
 import { Binary, type PolkadotClient } from "polkadot-api";
 import { mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
-import { GAME_ACCOUNT_INDEX, productContext, type PersonhoodProver } from "@parity/product-sdk-individuality";
+import { productContext, type PersonhoodProver } from "@parity/product-sdk-individuality";
 import { fetchRingMembers, LITE_PEOPLE_IDENTIFIER, ringExponent, takeRingSnapshot, type RingSnapshot } from "@pop-e2e/chain-tests/src/lib/ring.js";
-import { deriveProductAccount, deriveProductSecret, identityKey, liteRingEntropy, type IdentityKey } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
+import { identityKey, liteRingEntropy, type IdentityKey } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 import { verifiableFor } from "@pop-e2e/chain-tests/src/lib/verifiable-loader.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
-import { hostMnemonic, playerFromSecret, type Player } from "./keys.js";
+import { hostGhostPlayer, hostMnemonic, type Player } from "./keys.js";
 import { bump, total } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep } from "./time.js";
@@ -34,49 +34,19 @@ export interface LiteBot {
 export function deriveLiteBot(seed: string, gameProduct: string, tld: string, index: number): LiteBot {
   const mnemonic = hostMnemonic(seed, index);
   const entropy = mnemonicToEntropy(mnemonic);
-  const game = deriveProductAccount(deriveProductSecret(entropy, gameProduct), GAME_ACCOUNT_INDEX);
   return {
     mnemonic,
-    player: { ...playerFromSecret(index, game.secretKey), liteEntropy: liteRingEntropy(entropy, tld) },
+    player: { ...hostGhostPlayer(seed, gameProduct, 1, index), liteEntropy: liteRingEntropy(entropy, tld) },
     candidate: identityKey(entropy, tld),
   };
 }
 
 const LITE_COLLECTION = Binary.toHex(LITE_PEOPLE_IDENTIFIER);
 
-/** The ring a lite key is included in at block `at`, if any. */
-async function readLiteRing(api: PeopleApi, memberKey: `0x${string}`, at: string): Promise<number | undefined> {
-  const status = await api.query.Members.Members.getValue(LITE_COLLECTION, memberKey, { at });
-  return status?.type === "Included" ? status.value.ring_index : undefined;
-}
-
 /**
- * The lite key of `liteEntropy` as a host's personhood keys: whether the lite ring holds it, and
- * proofs with it over that ring's members at the finalized block, which `snapshots` shares
- * between the bots of one process.
+ * Lite ring members and revision at the latest finalized block, read once per block and ring
+ * however many bots of one process prove, and each bot's lite key as a host's personhood keys.
  */
-export function litePersonhood(api: PeopleApi, client: PolkadotClient, liteEntropy: Uint8Array, snapshots: RingSnapshots): PersonhoodProver {
-  const verifiable = verifiableFor();
-  const memberKey = Binary.toHex(verifiable.member_from_entropy(liteEntropy)) as `0x${string}`;
-  return {
-    async holds(ring) {
-      return ring.key === "lite" && (await readLiteRing(api, memberKey, (await client.getFinalizedBlock()).hash)) !== undefined;
-    },
-    async prove(ring, context, message) {
-      if (ring.key !== "lite" || !("productId" in context) || context.suffix.tag !== "Index") {
-        throw new Error(`a lite bot proves with its lite key in a product's indexed context, not ${ring.key} in ${JSON.stringify(context)}`);
-      }
-      const ringIndex = await readLiteRing(api, memberKey, (await client.getFinalizedBlock()).hash);
-      if (ringIndex === undefined) throw new Error(`lite key ${memberKey} is in no ring at the finalized block`);
-      const [snapshot, exponent] = await Promise.all([snapshots.read(ringIndex), snapshots.exponent()]);
-      const contextBytes = productContext(context.productId, context.suffix);
-      const { proof, alias } = verifiable.one_shot(exponent, liteEntropy, snapshot.encodedMembers, contextBytes, message);
-      return { proof, contextualAlias: { context: contextBytes, alias }, ringIndex, ringRevision: snapshot.revisionIndex };
-    },
-  };
-}
-
-/** Lite ring members and revision at the latest finalized block, read once per block and ring however many bots prove. */
 export class RingSnapshots {
   private readonly cache = new Map<number, Promise<RingSnapshot>>();
   private exponentRead: Promise<number> | undefined;
@@ -86,11 +56,34 @@ export class RingSnapshots {
     private readonly client: PolkadotClient,
   ) {}
 
-  exponent(): Promise<number> {
-    return (this.exponentRead ??= ringExponent(this.api, "LitePeople"));
+  /** The lite key of `liteEntropy`: whether the lite ring holds it, and proofs with it over that ring at the finalized block. */
+  prover(liteEntropy: Uint8Array): PersonhoodProver {
+    const verifiable = verifiableFor();
+    const memberKey = Binary.toHex(verifiable.member_from_entropy(liteEntropy)) as `0x${string}`;
+    return {
+      holds: async (ring) => ring.key === "lite" && (await this.readLiteRing(memberKey)) !== undefined,
+      prove: async (ring, context, message) => {
+        if (ring.key !== "lite" || !("productId" in context) || context.suffix.tag !== "Index") {
+          throw new Error(`a lite bot proves with its lite key in a product's indexed context, not ${ring.key} in ${JSON.stringify(context)}`);
+        }
+        const ringIndex = await this.readLiteRing(memberKey);
+        if (ringIndex === undefined) throw new Error(`lite key ${memberKey} is in no ring at the finalized block`);
+        const [snapshot, exponent] = await Promise.all([this.read(ringIndex), (this.exponentRead ??= ringExponent(this.api, "LitePeople"))]);
+        const contextBytes = productContext(context.productId, context.suffix);
+        const { proof, alias } = verifiable.one_shot(exponent, liteEntropy, snapshot.encodedMembers, contextBytes, message);
+        return { proof, contextualAlias: { context: contextBytes, alias }, ringIndex, ringRevision: snapshot.revisionIndex };
+      },
+    };
   }
 
-  async read(ringIndex: number): Promise<RingSnapshot> {
+  /** The ring a lite key is included in at the finalized block, if any. */
+  private async readLiteRing(memberKey: `0x${string}`): Promise<number | undefined> {
+    const at = (await this.client.getFinalizedBlock()).hash;
+    const status = await this.api.query.Members.Members.getValue(LITE_COLLECTION, memberKey, { at });
+    return status?.type === "Included" ? status.value.ring_index : undefined;
+  }
+
+  private async read(ringIndex: number): Promise<RingSnapshot> {
     const finalized = (await this.client.getFinalizedBlock()).hash;
     const cached = this.cache.get(ringIndex);
     if (cached && (await cached).at === finalized) return cached;
@@ -102,7 +95,6 @@ export class RingSnapshots {
 }
 
 export interface ProvisionResult {
-  bots: number;
   /** Lite people already, from an earlier run. */
   alreadyLite: number;
   /** Attests that ended with the bot a ring member. */

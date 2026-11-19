@@ -1,16 +1,14 @@
 import { mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { identityKey, liteRingEntropy } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 import { describe, expect, it } from "vitest";
-import { hostGhostPlayer, hostMnemonic } from "./keys.js";
+import { hostMnemonic } from "./keys.js";
 import { attestFailure, deriveLiteBot, LITE_FIRST_INDEX } from "./lite.js";
 
 describe("deriveLiteBot", () => {
-  // A lite bot is attested as truapi's identity account and plays with the game account
-  // truapi-host signs with for one ghost per host, so a rerun and the host layer find the same keys.
+  // A lite bot is attested as truapi's identity account, so a rerun finds the same lite person.
   it("derives the keys truapi derives for the bot's own wallet", () => {
     const bot = deriveLiteBot("lite-test", "dim2.testnet", "testnet", LITE_FIRST_INDEX + 3);
     const entropy = mnemonicToEntropy(hostMnemonic("lite-test", LITE_FIRST_INDEX + 3));
-    expect(bot.player.address).toBe(hostGhostPlayer("lite-test", "dim2.testnet", 1, LITE_FIRST_INDEX + 3).address);
     expect(bot.candidate.address).toBe(identityKey(entropy, "testnet").address);
     expect(bot.player.liteEntropy).toEqual(liteRingEntropy(entropy, "testnet"));
   });
