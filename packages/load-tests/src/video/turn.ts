@@ -25,6 +25,8 @@ const RETRY_BUDGET_MS = 15_000;
 const PROOF_MAX_AGE_MS = 30_000;
 /** The app's warm-up refreshes, before the game (`use-turn-warmup.ts`). */
 const REFRESH_BEFORE_GAME_MS = [10 * 60_000, 3 * 60_000];
+/** A refresh replaces only a pass with less than this left (the app's `REFRESH_BELOW_S`, `ice.ts`). */
+const REFRESH_BELOW_MS = 600_000;
 
 /** What every bot's proof shares: the product, the People genesis, the ring collections and the hash. */
 export type TurnProofSetup = Omit<TurnProofInputs, "timestamp" | "describe">;
@@ -35,26 +37,35 @@ export interface TurnIssuer {
   fetch: TurnFetch;
 }
 
+type TurnProof = { body: TurnProofBody; at: number };
+
+/** A ring-VRF proof of the current second with the bot's lite key, or none after counting why. */
+async function proveTurn(prover: PersonhoodProver, setup: TurnProofSetup, stats: VideoStats): Promise<TurnProof | undefined> {
+  const at = Date.now();
+  const built = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(at / 1000) });
+  stats.turnProofMs.add(Date.now() - at);
+  if (!("code" in built)) return { body: built.body, at };
+  bump(stats.turnFetches, `proof ${built.code}`);
+  return undefined;
+}
+
 /**
- * One bot's TURN credentials as the app fetches them: a ring-VRF proof with its lite key, posted to
- * the issuer, up to three tries with backoff for a timeout, a 5xx or a refused timestamp, the proof
- * reused between tries until it is 30 s old or its timestamp was refused. A 403, a 429 or another
- * 400 ends the fetch. Every try is counted in `stats` by outcome, with its issuer time.
+ * One bot's TURN credentials as the app fetches them: `proof`, or a new one, posted to the
+ * issuer, up to three tries with backoff for a timeout, a 5xx or a refused timestamp, proved again
+ * before a try once the proof is 30 s old or its timestamp was refused. A 403, a 429 or another
+ * 400 ends the fetch. Every try is counted in `stats` by outcome, with the issuer's answer time.
  */
-export async function fetchTurnPass(prover: PersonhoodProver, setup: TurnProofSetup, issuer: TurnIssuer, stats: VideoStats): Promise<TurnPass | undefined> {
+export async function fetchTurnPass(
+  prover: PersonhoodProver,
+  setup: TurnProofSetup,
+  issuer: TurnIssuer,
+  stats: VideoStats,
+  proof?: TurnProof,
+): Promise<TurnPass | undefined> {
   const startedAt = Date.now();
-  let proof: { body: TurnProofBody; at: number } | undefined;
   for (let tries = 1; ; tries++) {
-    if (!proof || Date.now() - proof.at > PROOF_MAX_AGE_MS) {
-      const provingAt = Date.now();
-      const built = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(provingAt / 1000) });
-      stats.turnProofMs.add(Date.now() - provingAt);
-      if ("code" in built) {
-        bump(stats.turnFetches, `proof ${built.code}`);
-        return undefined;
-      }
-      proof = { body: built.body, at: provingAt };
-    }
+    if (!proof || (tries > 1 && Date.now() - proof.at > PROOF_MAX_AGE_MS)) proof = await proveTurn(prover, setup, stats);
+    if (!proof) return undefined;
     const postedAt = Date.now();
     const result = await redeemTurnProof(issuer.fetch, issuer.base, proof.body);
     stats.turnIssuerMs.add(Date.now() - postedAt);
@@ -73,8 +84,8 @@ export async function fetchTurnPass(prover: PersonhoodProver, setup: TurnProofSe
 
 /**
  * The TURN passes of a run's lite bots, fetched when the app fetches them: as soon as the bot
- * knows of its game, then 10 and 3 minutes before the game. A failed refresh keeps the pass
- * it replaces while that one is valid.
+ * knows of its game, then 10 and 3 minutes before the game for a pass with under 10 minutes
+ * left. A failed refresh keeps the pass it replaces while that one is valid.
  */
 export class TurnPasses {
   private readonly passes = new Map<number, TurnPass>();
@@ -115,14 +126,22 @@ export class TurnPasses {
   }
 
   private fetchAll(): Promise<void> {
-    this.fetching = this.fetching.then(() =>
-      Promise.all(
-        [...this.provers].map(async ([index, prover]) => {
-          const pass = await fetchTurnPass(prover, this.setup, this.issuer, this.stats);
+    this.fetching = this.fetching.then(async () => {
+      const due = [...this.provers].filter(([index]) => {
+        const pass = this.passes.get(index);
+        return !pass || turnPassLeftMs(pass, Date.now()) < REFRESH_BELOW_MS;
+      });
+      // Ring-VRF proofs block this thread: all of them go before the first request, so none delays
+      // reading an issuer's answer and the issuer times stay the issuer's own.
+      const proofs: Array<{ index: number; prover: PersonhoodProver; proof: TurnProof | undefined }> = [];
+      for (const [index, prover] of due) proofs.push({ index, prover, proof: await proveTurn(prover, this.setup, this.stats) });
+      await Promise.all(
+        proofs.map(async ({ index, prover, proof }) => {
+          const pass = proof && (await fetchTurnPass(prover, this.setup, this.issuer, this.stats, proof));
           if (pass) this.passes.set(index, pass);
         }),
-      ).then(() => {}),
-    );
+      );
+    });
     return this.fetching;
   }
 }

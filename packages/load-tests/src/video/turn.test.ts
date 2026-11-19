@@ -110,10 +110,13 @@ describe("fetchTurnPass", () => {
 });
 
 describe("TurnPasses", () => {
-  it("fetches when the game is known and again before it, and keeps a pass a failed refresh would drop", async () => {
+  // The app refreshes a pass before the game only when it has under 10 minutes left, so a run
+  // must not send the issuer a burst of proofs at each refresh time that phones don't send.
+  it("refreshes a pass with under 10 minutes left before the game, and keeps it when the refresh fails", async () => {
+    const shortPass = { ...CREDENTIALS, ttl: 300 };
     const issuer = await startIssuer([
-      { status: 200, body: CREDENTIALS },
-      { status: 200, body: CREDENTIALS },
+      { status: 200, body: shortPass },
+      { status: 200, body: shortPass },
       { status: 403, body: { error: "proof rejected" } },
     ]);
     servers.push(issuer.server);
@@ -131,5 +134,17 @@ describe("TurnPasses", () => {
     expect(passes.serversOf(2)).toEqual([]);
     expect(passes.takeStats().turnFetches).toEqual({ ok: 2, "proof-rejected 403": 2 });
     expect(passes.takeStats().turnFetches).toEqual({});
+  });
+
+  it("leaves a pass with 10 minutes or more alone at a refresh", async () => {
+    const issuer = await startIssuer([{ status: 200, body: CREDENTIALS }]);
+    servers.push(issuer.server);
+    const passes = new TurnPasses(new Map([[0, liteProver([])]]), setup, { base: issuer.base, fetch });
+    await passes.warm(Date.now() + 3 * 60_000 + 300);
+    await sleep(800);
+    passes.stop();
+
+    expect(issuer.bodies).toHaveLength(1);
+    expect(passes.takeStats().turnFetches).toEqual({ ok: 1 });
   });
 });
