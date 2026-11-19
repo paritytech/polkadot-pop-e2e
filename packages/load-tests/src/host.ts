@@ -122,7 +122,9 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
     const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts, 0);
     const workDir = resolve(run.outDir, "hosts", `n${count}`);
-    await mkdir(workDir, { recursive: true });
+    // Plans contain the bots' TURN credentials, so they stay out of the uploaded results.
+    const planDir = join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`);
+    await Promise.all([mkdir(workDir, { recursive: true }), mkdir(planDir, { recursive: true })]);
     const exits: Array<Promise<string | null>> = [];
     const processes: Array<{ child: ChildProcess; ghosts: number }> = [];
     const resultPaths: string[] = [];
@@ -130,7 +132,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     for (const { host, firstAccount, firstPlayer, ghosts } of owned) {
       const name = `host${host}-${firstAccount}`;
       const resultPath = join(workDir, `${name}.result.json`);
-      const planPath = join(workDir, `${name}.plan.json`);
+      const planPath = join(planDir, `${name}.plan.json`);
       const plan: HostGhostPlan = {
         profile: room.profile,
         namespace: room.namespace,
