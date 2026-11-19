@@ -13,7 +13,7 @@ or Asset Hub.
 |---|---|
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
-| `bots_per_machine` | bots one machine runs; empty for the mode's default: 1000 per parity-large, 100 lite bots per parity-large, 75 video bots or 30 lite video bots per 4-core `ubuntu-latest` |
+| `bots_per_machine` | bots one parity-large machine runs; empty for the mode's default: 1000 bots, 400 lite bots, 400 video bots or 200 lite video bots (see [Video](#video)) |
 | `lite` | the bots are lite bots (see [Lite bots](#lite-bots-and-the-prize-draw)): both the sign-up and the messages run with `--lite` |
 | `video` | bots play H.264 video to their group over real WebRTC links (see [Video](#video)) |
 | `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
@@ -169,15 +169,16 @@ truapi-host (each has its own wallet). Each fetches TURN credentials when the ap
 the run knows its game, then 10 and 3 minutes before it. The proof is `buildTurnProof` from
 `@jollity/protocol` with the bot's lite key over its lite ring at People's finalized block, posted
 to the network's issuer (`--turn-issuer`, default the stack's identity backend), with the app's up
-to three tries. The runner proves and fetches for its machine's bots and gives each truapi-host
+to three attempts. The runner proves and fetches for its machine's bots and gives each truapi-host
 its bot's TURN servers. Without `--lite`, bots have STUN only.
 
-A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A lite
-bot also runs in a truapi-host and bun of its own, which took 145 MB and 4% of a core per bot on
-an M-series Mac, against 25 MB and 2% for bots sharing a host by 10. So the workflow puts 75 video
-bots, or 30 lite video bots, on each 4-core `ubuntu-latest` machine until a run there gives the
-real cost: the host table's **Host CPU / RSS per ghost**. The summary gets a **Video on …** table
-per layer:
+A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A
+parity-large machine has 32 Gbps, about 7 Gbps of it per runner to external IPs, so 400 video
+bots use under a tenth of that and CPU and memory decide how many fit. In game 352, 400
+light-client truapi-host bots took 2.8% of a core and 147 MB each on one parity-large. So the
+workflow puts 1000 bots, 400 lite bots, 400 video bots (10 per host) or 200 lite video bots on
+each parity-large: a first estimate, to recalibrate from the host table's **Host CPU / RSS per
+ghost** after a run of each mode. The summary gets a **Video on …** table per layer:
 
 - **Links up / attempted**: links up when the game ended, as the signalling table counts them;
   **With video**: links whose video renegotiation completed. Each link counts once per side.
@@ -193,7 +194,7 @@ per layer:
 
 A 500-bot video run on previewnet takes the lite bots made once with `load people --players 500`,
 then the workflow with `network: previewnet`, `players: 500`, `lite: true` and `video: true`:
-17 `ubuntu-latest` machines.
+3 parity-large machines.
 
 To run 60 video bots locally on direct RPC against a previewnet fork's stack, turn STUN off and put
 every link on the loopback address with `--ice-address`. Without it each link binds a socket on
@@ -288,7 +289,7 @@ each attest's time, the pending ones, the 429s and the other failures by error. 
 bots are lite people already, so a rerun, also of an interrupted run, attests only the rest, and
 nothing is stored: a lite bot's keys follow from `--seed`, the network
 and its index alone, so the seed and the index range are all there is to keep. Changing the seed
-makes new lite people, and a lite person can't be removed. truapi-host reaches DUB only through
+makes new lite people, and a lite person can't be removed. truapi-host connects to DUB only through
 `STACK` or `NETWORK`, so `people` takes `--rpc` only with `STACK`.
 
 `load chain --lite` plays lite bots in place of the deposit-backed ones.

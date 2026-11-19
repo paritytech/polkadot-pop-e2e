@@ -18,7 +18,7 @@ on:
         type: string
         default: "300"
       bots_per_machine:
-        description: "Bots one machine sends messages for; empty for the mode's default: 1000 per parity-large, 100 lite bots per parity-large, 75 video bots or 30 lite video bots per 4-core ubuntu-latest"
+        description: "Bots one machine sends messages for; empty for the mode's default per parity-large: 1000 bots, 400 lite bots, 400 video bots, 200 lite video bots"
         type: string
         default: ""
       lite:
@@ -86,7 +86,6 @@ jobs:
     outputs:
       machines: ${{ steps.plan.outputs.machines }}
       shards: ${{ steps.plan.outputs.shards }}
-      runner: ${{ steps.plan.outputs.runner }}
     steps:
       - id: plan
         env:
@@ -94,21 +93,21 @@ jobs:
           VIDEO: ${{ inputs.video }}
         run: |
           set -euo pipefail
-          # A lite bot is a truapi-host and bun of its own (about 145 MB and 4% of a core with video,
-          # measured on an M-series Mac); other bots share one per 10. Recalibrate from the summary's
-          # "Host CPU / RSS per ghost" after a run on these machines.
+          # parity-large: 32 Gbps, about 7 Gbps per runner to external IPs, so a video bot's
+          # 1.6 Mbit/s each way leaves CPU and memory as the limit. 400 light-client truapi-host bots
+          # took 2.8% of a core and 147 MB each on one in game 352. A first estimate: recalibrate
+          # from the summary's "Host CPU / RSS per ghost" after a run of each mode.
           case "$LITE/$VIDEO" in
-            true/true) default=30 runner=ubuntu-latest ;;
-            false/true) default=75 runner=ubuntu-latest ;;
-            true/false) default=100 runner=parity-large ;;
-            *) default=1000 runner=parity-large ;;
+            true/true) default=200 ;;
+            false/true) default=400 ;;
+            true/false) default=400 ;;
+            *) default=1000 ;;
           esac
           per=${PER_MACHINE:-$default}
           machines=$(( (PLAYERS + per - 1) / per ))
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
           echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
-          echo "runner=$runner" >> "$GITHUB_OUTPUT"
-          echo "$PLAYERS bots, $per per machine on $machines $runner machine(s), lite $LITE, video $VIDEO, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "$PLAYERS bots, $per per machine on $machines parity-large machine(s), lite $LITE, video $VIDEO, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
 
   # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
@@ -170,7 +169,7 @@ jobs:
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
-    runs-on: ${{ needs.plan.outputs.runner }}
+    runs-on: parity-large
     timeout-minutes: 360
     strategy:
       fail-fast: false
