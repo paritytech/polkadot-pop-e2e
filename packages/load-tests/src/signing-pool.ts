@@ -31,8 +31,8 @@ export type SigningJob =
 /** A job's transaction signed and ready to send, or why the app's sign-up left the player out. */
 export type SigningOutcome = { extrinsic: string } | { refusal: string };
 
-/** How a lite bot's bind ended: the SDK's outcome, or the chain's or the SDK's refusal. */
-export type BindOutcome = { bound: "bound" | "already-bound" } | { refusal: string };
+/** How a lite bot's bind ended: the SDK's outcome, a seat that takes no bind, or the chain's or the SDK's refusal. */
+export type BindOutcome = { bound: "bound" | "already-bound" } | { skipped: string } | { refusal: string };
 
 export type SigningReply = { id: number } & (SigningOutcome | BindOutcome | { error: string });
 

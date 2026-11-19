@@ -77,6 +77,9 @@ export async function bindSeat(engine: GameEngine, player: Player, personhood: G
     personhood,
   };
   try {
+    const seat = await engine.seat(player.address, { litePerson: true });
+    if (seat.path !== "free") return { skipped: `${seat.path} seat` };
+    if (seat.ready) return { bound: "already-bound" };
     const result = await engine.bind(capabilities);
     return result.kind === "refused" ? { refusal: `${result.refusal}: ${result.code}` } : { bound: result.kind };
   } catch (error) {
@@ -88,16 +91,15 @@ export async function bindSeat(engine: GameEngine, player: Player, personhood: G
 const BINDS_PER_WAVE = 50;
 
 /**
- * Binds every lite bot that isn't bound yet, before the sign-up burst: `BINDS_PER_WAVE` at once,
- * the next wave once the last one is in a block, so no block takes more binds than fit. A bot
- * bound already, also from an earlier game, counts as `already-bound`.
+ * Binds every lite bot whose seat takes a bind, before the sign-up burst: `BINDS_PER_WAVE` at once,
+ * the next wave once the last one is in a block, so no block takes more binds than fit.
  */
 export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<Record<string, number>> {
   const started = Date.now();
   const outcomes: Record<string, number> = {};
   for (let start = 0; start < players.length; start += BINDS_PER_WAVE) {
     for (const outcome of await Promise.all(players.slice(start, start + BINDS_PER_WAVE).map((player) => pool.bind(player)))) {
-      bump(outcomes, "bound" in outcome ? outcome.bound : `refused: ${outcome.refusal}`);
+      bump(outcomes, "bound" in outcome ? outcome.bound : "skipped" in outcome ? outcome.skipped : `refused: ${outcome.refusal}`);
     }
   }
   console.log(`[bind] ${players.length} lite bots in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}`);

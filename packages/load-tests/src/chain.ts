@@ -199,21 +199,23 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
   try {
     const { players } = run;
+    // Lite bots sign up free after a bind, so they get no funds.
+    const isLite = players.length > 0 && players.every((player) => player.liteEntropy !== undefined);
     const ownGame = target.sudo !== undefined && run.gameAt === undefined;
     const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     let phases = chainPhases;
     let gameAt = run.gameAt;
+    // Before the game is scheduled, so the binds don't take registration's time.
+    const binds = isLite ? await bindLiteBots(pool, players) : {};
+    for (const [outcome, count] of Object.entries(binds)) {
+      if (outcome.startsWith("refused")) findings.push(`bind ${outcome}: ${count}`);
+    }
     if (ownGame) {
-      await clearAndFund(api, run, target.sudo!, players);
+      await clearAndFund(api, run, target.sudo!, isLite ? [] : players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
       gameAt = scheduled.gamePlayTime;
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
-    }
-    // Before the game opens, so the binds don't take registration's blocks.
-    const binds = run.lite ? await bindLiteBots(pool, players) : {};
-    for (const [outcome, count] of Object.entries(binds)) {
-      if (outcome.startsWith("refused")) findings.push(`bind ${outcome}: ${count}`);
     }
 
     blockFollower = await followBlockLoad(client, api);
@@ -264,7 +266,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       findings.push(`sign-up: ${signUpExtrinsics.length - signUp.inTime} of ${signUpExtrinsics.length} not in before registration ended`);
     }
     let lite: ChainResult["lite"] = null;
-    if (run.lite) {
+    if (isLite) {
       const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
       lite = { binds, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
       console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots hold a deposit`);
