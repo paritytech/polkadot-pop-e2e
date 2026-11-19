@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { H264Packetizer, splitH264NalUnits } from "werift";
 
-/** H.264 Constrained Baseline 3.1, one NAL unit or FU-A per packet: what the app prefers from a phone. */
+/** H.264 Constrained Baseline 3.1 in packetization-mode=1: what the app prefers from a phone. */
 export const H264_FMTP = "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1";
 export const FRAMES_PER_SECOND = 24;
 export const FRAME_MS = 1000 / FRAMES_PER_SECOND;
 export const FRAME_TICKS = 90_000 / FRAMES_PER_SECOND;
-const MAX_PAYLOAD_BYTES = 1_200;
 
 const NAL_IDR = 5;
 const NAL_SEI = 6;
@@ -29,45 +29,23 @@ export interface Clip {
   nextKeyIndex(index: number): number;
 }
 
-function splitAnnexB(data: Buffer): Buffer[] {
-  const starts: number[] = [];
-  for (let index = 0; index + 2 < data.length; index++) {
-    if (data[index] === 0 && data[index + 1] === 0 && data[index + 2] === 1) {
-      starts.push(index + 3);
-      index += 2;
-    }
-  }
-  return starts.map((start, position) => {
-    let end = position + 1 < starts.length ? starts[position + 1] - 3 : data.length;
-    while (end > start && data[end - 1] === 0) end--;
-    return data.subarray(start, end);
-  });
-}
+const START_CODE = Buffer.from([0, 0, 0, 1]);
 
-/** RFC 6184 packetization-mode=1 payloads: single NAL unit packets, FU-A above `MAX_PAYLOAD_BYTES`. */
-function packetize(nals: Buffer[]): Buffer[] {
-  const chunkBytes = MAX_PAYLOAD_BYTES - 2;
-  return nals.flatMap((nal) => {
-    if (nal.length <= MAX_PAYLOAD_BYTES) return [nal];
-    const payloads: Buffer[] = [];
-    for (let offset = 1; offset < nal.length; offset += chunkBytes) {
-      const flags = (offset === 1 ? 0x80 : 0) | (offset + chunkBytes >= nal.length ? 0x40 : 0);
-      payloads.push(Buffer.concat([Buffer.from([(nal[0] & 0xe0) | NAL_FU_A, flags | (nal[0] & 0x1f)]), nal.subarray(offset, offset + chunkBytes)]));
-    }
-    return payloads;
-  });
-}
-
-/** An Annex-B clip encoded with access unit delimiters, as frames of RTP payloads without AUD and SEI. */
+/**
+ * An Annex-B clip encoded with access unit delimiters, as frames of RFC 6184 packetization-mode=1
+ * payloads without AUD and SEI: single NAL units, STAP-A for SPS and PPS, FU-A above the MTU.
+ */
 export function loadClip(path = DEFAULT_CLIP): Clip {
+  const packetizer = new H264Packetizer({ inputFormat: "annexb" });
   const frames: ClipFrame[] = [];
   let nals: Buffer[] = [];
   const flush = () => {
     if (nals.length === 0) return;
-    frames.push({ payloads: packetize(nals), key: nals.some((nal) => (nal[0] & 0x1f) === NAL_IDR) });
+    const accessUnit = Buffer.concat(nals.flatMap((nal) => [START_CODE, nal]));
+    frames.push({ payloads: packetizer.packetize(accessUnit, 0).map((packet) => packet.payload), key: nals.some((nal) => (nal[0] & 0x1f) === NAL_IDR) });
     nals = [];
   };
-  for (const nal of splitAnnexB(readFileSync(path))) {
+  for (const nal of splitH264NalUnits(readFileSync(path), 4, "annexb")) {
     const type = nal[0] & 0x1f;
     if (type === NAL_AUD) flush();
     else if (type !== NAL_SEI) nals.push(nal);
