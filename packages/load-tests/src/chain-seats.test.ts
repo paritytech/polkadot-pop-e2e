@@ -38,6 +38,20 @@ describe("readChainSeats", () => {
     expect(seats.identifiers[person.address]).not.toBe(toHex(communicationIdentifier(person.publicKey)));
   });
 
+  // One bot's failed read must not leave the machine's other bots without rooms.
+  it("leaves a bot whose seat read fails unseated and seats the others", { timeout: 10_000 }, async () => {
+    const failing = {
+      ...engine,
+      playerIndices: async (address: string) => {
+        if (address === otherBot.address) throw new Error("connection closed");
+        return indices.get(address);
+      },
+    } as unknown as GameEngine;
+    const seats = await readChainSeats(failing, 7, [bot.address, otherBot.address], Date.now() + 10_000);
+    expect(Object.keys(seats.rounds)).toEqual([bot.address]);
+    expect(seats.unseated).toEqual({ "connection closed": 1 });
+  });
+
   it("fails when the game shows no groups in time", async () => {
     const unseated = { ...engine, game: async () => ({ index: 7, max_group_size: 2, state: { type: "Registration", value: {} } }) } as unknown as GameEngine;
     await expect(readChainSeats(unseated, 7, [bot.address], Date.now())).rejects.toThrow("game 7 shows no groups");

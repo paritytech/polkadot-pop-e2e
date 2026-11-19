@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fromPapi, groupSeats, reportTx, type ReportVote } from "@parity/product-sdk-individuality";
-import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
+import type { GameEngine } from "@jollity/protocol/src/engine";
+import { GROUP_READ_MS, readGroups, waitForGroups } from "./chain-seats.js";
 import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from "./block-load.js";
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
@@ -14,7 +15,7 @@ import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { readAll, sleep, withTimeout } from "./time.js";
+import { readAll, retry, sleep, withTimeout } from "./time.js";
 
 /** How long the run waits after the game for its last blocks to be finalized and read. */
 const FINALIZED_WAIT_MS = 120_000;
@@ -146,43 +147,15 @@ async function scheduleOwnGame(
  * inconsistent, for which the app shows no game view either.
  */
 export async function buildReport(engine: GameEngine, player: Player, playerCount: number, maxGroupSize: number): Promise<ReportVote[][] | undefined> {
-  const indices = await engine.playerIndices(player.address);
-  if (!indices) return undefined;
-  const rounds = await Promise.all(
-    indices.map(async (ownIndex, round) => {
-      const members = new Set((await engine.groupMembers(round, ownIndex, playerCount, maxGroupSize)).map((member) => member.index));
-      const chairs = groupSeats(ownIndex, playerCount, maxGroupSize);
-      if (members.size !== chairs.filter((chair) => chair.occupied).length || chairs.some((chair) => chair.occupied !== members.has(chair.index))) return undefined;
-      return chairs.filter((chair) => chair.occupied && chair.index !== ownIndex).map((): ReportVote => "Person");
-    }),
-  );
+  const groups = await readGroups(engine, player.address, playerCount, maxGroupSize);
+  if (!groups) return undefined;
+  const rounds = groups.map(({ ownIndex, members }) => {
+    const memberIndices = new Set(members.map((member) => member.index));
+    const chairs = groupSeats(ownIndex, playerCount, maxGroupSize);
+    if (memberIndices.size !== chairs.filter((chair) => chair.occupied).length || chairs.some((chair) => chair.occupied !== memberIndices.has(chair.index))) return undefined;
+    return chairs.filter((chair) => chair.occupied && chair.index !== ownIndex).map((): ReportVote => "Person");
+  });
   return rounds.every((votes): votes is ReportVote[] => votes !== undefined) ? rounds : undefined;
-}
-
-/** How long one read of the report phase may take before it counts as unanswered. */
-const REPORT_READ_MS = 30_000;
-
-/**
- * Game `gameIndex` once the app's engine reads its roster, with the player count its groups
- * follow from. The engine reads at the finalized block, a few blocks behind the best one. A read
- * with no answer in `REPORT_READ_MS` counts as one that showed no roster.
- */
-async function readRoster(engine: GameEngine, gameIndex: number): Promise<{ current: PalletGame; playerCount: number }> {
-  const until = Date.now() + 120_000;
-  let lastError = "";
-  for (;;) {
-    try {
-      const current = await withTimeout(engine.game(), REPORT_READ_MS, "game read");
-      if (current?.index === gameIndex) {
-        const playerCount = statePlayerCount(current.state);
-        if (playerCount !== undefined) return { current, playerCount };
-      }
-    } catch (error) {
-      lastError = `; last read: ${(error as Error).message}`;
-    }
-    if (Date.now() > until) throw new Error(`game ${gameIndex} shows no roster at the finalized block within 120 s${lastError}`);
-    await sleep(2_000);
-  }
 }
 
 /**
@@ -198,7 +171,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   const pool = SigningPool.open(target);
   const timeline: ChainResult["timeline"] = [];
   const findings: string[] = [];
-  const chainNow = async () => Number(await withTimeout(api.query.Timestamp.Now.getValue({ at: "best" }), REPORT_READ_MS, "chain time read"));
+  const chainNow = async () =>
+    Number(await retry(3, 1_000, () => withTimeout(api.query.Timestamp.Now.getValue({ at: "best" }), GROUP_READ_MS, "chain time read")));
   let previousPhases: Phases | undefined;
   let watching = true;
   // On a live network the next game starts as soon as this one ends, so the end is a new index.
@@ -297,43 +271,39 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       // node closes idle subscriptions. Every step ends by the end of reporting.
       const reading = connectPeople(target);
       let step = "roster read";
-      let reportExtrinsics: string[] = [];
       let reports: Array<{ player: Player; fullReport: ReportVote[][] }> = [];
-      const untilReportEnd = Math.max(0, game.report_ends * 1000 - (await chainNow()));
-      try {
-        await withTimeout(
-          (async () => {
-            const { current, playerCount } = await readRoster(reading.engine, game.index);
-            if (current.rounds !== run.rounds || current.max_group_size !== run.maxGroupSize) {
-              findings.push(
-                `game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`,
-              );
-            }
-            step = "seat reads";
-            const notBuilt: Record<string, number> = {};
-            const reportEntries = await readAll(players, async (player) => ({
-              player,
-              fullReport: await withTimeout(buildReport(reading.engine, player, playerCount, current.max_group_size), REPORT_READ_MS, "seat read").catch((error: Error) => {
-                bump(notBuilt, error.message);
-                return undefined;
-              }),
-            }));
-            reports = reportEntries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
-            if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built ${JSON.stringify(notBuilt)}`);
-            step = "signing";
-            const chain = fromPapi(client, api);
-            reportExtrinsics = await pool.sign(
-              reports.map(({ player, fullReport }) => ({ player, chain: "people" as const, signer: "participant" as const, tx: reportTx(chain, { fullReport }) })),
-              "report",
-            );
-          })(),
-          untilReportEnd,
-          "reporting end",
+      let reportExtrinsics: string[] = [];
+      const prepareReports = async () => {
+        const { game: current, playerCount } = await waitForGroups(reading.engine, game.index, Date.now() + 120_000);
+        step = "seat reads";
+        const notBuilt: Record<string, number> = {};
+        const entries = await readAll(players, async (player) => ({
+          player,
+          fullReport: await withTimeout(buildReport(reading.engine, player, playerCount, current.max_group_size), GROUP_READ_MS, "seat read").catch((error: Error) => {
+            bump(notBuilt, error.message);
+            return undefined;
+          }),
+        }));
+        const built = entries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
+        step = "signing";
+        const chain = fromPapi(client, api);
+        const extrinsics = await pool.sign(
+          built.map(({ player, fullReport }) => ({ player, chain: "people" as const, signer: "participant" as const, tx: reportTx(chain, { fullReport }) })),
+          "report",
         );
+        return { current, notBuilt, built, extrinsics };
+      };
+      try {
+        const untilReportEnd = Math.max(0, game.report_ends * 1000 - (await chainNow()));
+        const { current, notBuilt, built, extrinsics } = await withTimeout(prepareReports(), untilReportEnd, "reporting end");
+        reports = built;
+        reportExtrinsics = extrinsics;
+        if (current.rounds !== run.rounds || current.max_group_size !== run.maxGroupSize) {
+          findings.push(`game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`);
+        }
+        if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built ${JSON.stringify(notBuilt)}`);
       } catch (error) {
         findings.push(`report: ${step} stopped, ${(error as Error).message}`);
-        reports = [];
-        reportExtrinsics = [];
       } finally {
         reading.client.destroy();
       }
