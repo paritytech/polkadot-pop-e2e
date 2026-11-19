@@ -1,0 +1,148 @@
+import {
+  buildTurnProof,
+  redeemTurnProof,
+  turnPassFor,
+  turnPassLeftMs,
+  type TurnFetch,
+  type TurnPass,
+  type TurnProofBody,
+  type TurnProofInputs,
+  type TurnServer,
+} from "@jollity/protocol";
+import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-individuality";
+import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
+import { litePersonhood, RingSnapshots, type LiteBot } from "../lite.js";
+import { bump } from "../stats.js";
+import { connectPeople, type Target } from "../target.js";
+import { sleep } from "../time.js";
+import { VideoStats } from "./stats.js";
+
+/** Tries per fetch, the waits before the second and the third, and the budget, as the app's `ice.ts`. */
+const MAX_TRIES = 3;
+const BACKOFF_MS = [1_000, 2_000];
+const RETRY_BUDGET_MS = 15_000;
+/** A proof older than this is built again before a retry. */
+const PROOF_MAX_AGE_MS = 30_000;
+/** The app's warm-up refreshes, before the game (`use-turn-warmup.ts`). */
+const REFRESH_BEFORE_GAME_MS = [10 * 60_000, 3 * 60_000];
+
+/** What every bot's proof shares: the product, the People genesis, the ring collections and the hash. */
+export type TurnProofSetup = Omit<TurnProofInputs, "timestamp" | "describe">;
+
+export interface TurnIssuer {
+  /** The device-uniqueness backend that issues TURN credentials for a personhood proof. */
+  base: string;
+  fetch: TurnFetch;
+}
+
+/**
+ * One bot's TURN credentials as the app fetches them: a ring-VRF proof with its lite key, posted to
+ * the issuer, up to three tries with backoff for a timeout, a 5xx or a refused timestamp, the proof
+ * reused between tries until it is 30 s old or its timestamp was refused. A 403, a 429 or another
+ * 400 ends the fetch. Every try is counted in `stats` by outcome, with its issuer time.
+ */
+export async function fetchTurnPass(prover: PersonhoodProver, setup: TurnProofSetup, issuer: TurnIssuer, stats: VideoStats): Promise<TurnPass | undefined> {
+  const startedAt = Date.now();
+  let proof: { body: TurnProofBody; at: number } | undefined;
+  for (let tries = 1; ; tries++) {
+    if (!proof || Date.now() - proof.at > PROOF_MAX_AGE_MS) {
+      const provingAt = Date.now();
+      const built = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(provingAt / 1000) });
+      stats.turnProofMs.add(Date.now() - provingAt);
+      if ("code" in built) {
+        bump(stats.turnFetches, `proof ${built.code}`);
+        return undefined;
+      }
+      proof = { body: built.body, at: provingAt };
+    }
+    const postedAt = Date.now();
+    const result = await redeemTurnProof(issuer.fetch, issuer.base, proof.body);
+    stats.turnIssuerMs.add(Date.now() - postedAt);
+    if ("credentials" in result) {
+      bump(stats.turnFetches, "ok");
+      return turnPassFor(result.credentials, Date.now());
+    }
+    bump(stats.turnFetches, `${result.cause}${result.status ? ` ${result.status}` : ""}`);
+    if (result.cause === "timestamp-window") proof = undefined;
+    const retryable = result.cause === "timeout" || result.cause === "server-error" || result.cause === "no-ring-roots" || result.cause === "timestamp-window";
+    const wait = BACKOFF_MS[tries - 1] * (0.75 + Math.random() * 0.5);
+    if (!retryable || tries >= MAX_TRIES || Date.now() - startedAt + wait > RETRY_BUDGET_MS) return undefined;
+    await sleep(wait);
+  }
+}
+
+/**
+ * The TURN passes of a run's lite bots, fetched when the app fetches them: as soon as the bot
+ * knows of its game, then 10 and 3 minutes before the game. A failed refresh keeps the pass
+ * it replaces while that one is valid.
+ */
+export class TurnPasses {
+  private readonly passes = new Map<number, TurnPass>();
+  private readonly timers: NodeJS.Timeout[] = [];
+  private stats = new VideoStats();
+  private fetching: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly provers: Map<number, PersonhoodProver>,
+    private readonly setup: TurnProofSetup,
+    private readonly issuer: TurnIssuer,
+  ) {}
+
+  /** Fetches every bot's pass now and schedules the refreshes before the game at `gameAt`. */
+  warm(gameAt: number): Promise<void> {
+    for (const before of REFRESH_BEFORE_GAME_MS) {
+      const delay = gameAt - before - Date.now();
+      if (delay > 0) this.timers.push(setTimeout(() => void this.fetchAll(), delay));
+    }
+    return this.fetchAll();
+  }
+
+  /** The TURN servers of bot `index`, from its latest pass that is still valid. */
+  serversOf(index: number): TurnServer[] {
+    const pass = this.passes.get(index);
+    return pass && turnPassLeftMs(pass, Date.now()) > 0 ? pass.turn : [];
+  }
+
+  /** The fetch counts since the last call, so each step's results contain each fetch once. */
+  takeStats(): VideoStats {
+    const taken = this.stats;
+    this.stats = new VideoStats();
+    return taken;
+  }
+
+  stop(): void {
+    this.timers.forEach((timer) => clearTimeout(timer));
+  }
+
+  private fetchAll(): Promise<void> {
+    this.fetching = this.fetching.then(() =>
+      Promise.all(
+        [...this.provers].map(async ([index, prover]) => {
+          const pass = await fetchTurnPass(prover, this.setup, this.issuer, this.stats);
+          if (pass) this.passes.set(index, pass);
+        }),
+      ).then(() => {}),
+    );
+    return this.fetching;
+  }
+}
+
+/**
+ * TURN passes for `bots` by player index, proved with each bot's lite key over the lite ring at
+ * People's finalized block, from the issuer at `issuerBase`. `close` ends the People connection.
+ */
+export async function openLiteTurnPasses(target: Target, bots: Map<number, LiteBot>, productId: string, issuerBase: string): Promise<{ passes: TurnPasses; close(): void }> {
+  const { client, api } = connectPeople(target);
+  const snapshots = new RingSnapshots(api, client);
+  const provers = new Map([...bots].map(([index, bot]) => [index, litePersonhood(api, client, bot.player.liteEntropy, snapshots)]));
+  const { genesisHash } = await client.getChainSpecData();
+  const setup: TurnProofSetup = { productId, genesis: genesisHash as `0x${string}`, collectionId: ringCollectionId, hash: blake2b256 };
+  const passes = new TurnPasses(provers, setup, { base: issuerBase, fetch });
+  return {
+    passes,
+    close() {
+      passes.stop();
+      client.destroy();
+    },
+  };
+}
