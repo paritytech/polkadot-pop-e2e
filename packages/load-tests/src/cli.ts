@@ -2,18 +2,22 @@ import { appendFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
+import { deriveAttester, deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, readRootKey, requireLiteAllowed, type LiteBot } from "./lite.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
+import { SigningPool } from "./signing-pool.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
-import { connectPeople, gameProductId, resolveTarget, type Target } from "./target.js";
+import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
 Commands:
   mint        Write a statement allowance for players 0..players-1 of --layer as root (a fork or dev node)
+  people      Make lite bots --lite-from.. of --players lite people, once: attest the ones that aren't
+              yet and wait until every one is in a ring
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain, signing up and reporting with every player at once: on a
@@ -30,8 +34,15 @@ Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
 Players:
   --seed <text>         Player key seed; default LOAD_SEED, else pop-e2e-load, the seed the live
                         networks' funded bots derive from
-  --players <n>         mint and chain: how many players
+  --players <n>         mint, people and chain: how many players
   --layer <name>        mint: signalling (default) or host, whose players are host product accounts
+
+Lite bots (lite people, signing up free as a lite person's phone does):
+  --lite-from <index>   First bot index of the lite bots (default ${LITE_FIRST_INDEX}), above the
+                        deposit-backed bots. A lite bot's keys follow from --seed, the network and its
+                        index alone, so the seed and the index range are all a later run needs
+  --allow-live-lite     people and chain --lite on a network without a root key: each lite bot stays
+                        a lite person there for good, so only once the People team has approved it
 
 Signalling:
   --steps <n,...>       Player counts, one game each, in order (default 10,25,50)
@@ -113,6 +124,8 @@ const { positionals, values } = parseArgs({
     "rpc-limit": { type: "string" },
     "follow-game": { type: "boolean", default: false },
     "skip-claim": { type: "boolean", default: false },
+    "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
+    "allow-live-lite": { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -163,7 +176,49 @@ function gamePlayers(target: Target, count: number): Player[] {
   return Array.from({ length: count }, (_, index) => hostGhostPlayer(gameSeed(target, count), productIdOf(target), ghostsPerHost, index));
 }
 
+/** Lite bots `--lite-from`.. of the network: the same bots on every run, since a lite person stays one. */
+function liteBots(target: Target, count: number): LiteBot[] {
+  const from = positiveInteger("lite-from", values["lite-from"]);
+  return Array.from({ length: count }, (_, offset) => deriveLiteBot(`${values.seed}/${target.network}`, productIdOf(target), networkTld(target.network), from + offset));
+}
+
+/** The chain's root key, after refusing lite bots on a network without one unless `--allow-live-lite`. */
+async function requireLiteTarget(target: Target) {
+  const { client, api } = connectPeople(target);
+  const root = await readRootKey(api, target).finally(() => client.destroy());
+  requireLiteAllowed(target, root, values["allow-live-lite"]);
+  return root;
+}
+
 switch (values.help ? undefined : command) {
+  case "people": {
+    const target = await resolveTarget(targetOptions);
+    const bots = liteBots(target, positiveInteger("players", values.players));
+    const root = await requireLiteTarget(target);
+    const attester = deriveAttester(`${values.seed}/${target.network}`);
+    console.log(`[people] ${target.label}: lite bots ${bots[0].player.index}..${bots.at(-1)!.player.index} of seed ${values.seed}, attester ${attester.address}`);
+    const pool = SigningPool.open(target);
+    try {
+      const result = await provisionLitePeople(target, pool, bots, {
+        attester,
+        root,
+        connections: positiveInteger("connections", values.connections),
+        inclusionTimeoutMs: 20 * 60_000,
+      });
+      console.log(
+        [
+          `### Lite people on ${target.label}`,
+          "",
+          `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now ${JSON.stringify(result.failures)}`,
+          `- ${result.inRing} of ${result.bots} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
+        ].join("\n"),
+      );
+      if (result.inRing < result.bots) throw new Error(`${result.bots - result.inRing} of ${result.bots} lite bots are in no ring root`);
+    } finally {
+      await pool.close();
+    }
+    break;
+  }
   case "mint": {
     const target = await resolveTarget(targetOptions);
     const count = positiveInteger("players", values.players);

@@ -23,6 +23,8 @@ export interface Player extends Keypair {
   index: number;
   /** The 64-byte sr25519 secret key, which a worker thread rebuilds the player from. */
   secretKey: Uint8Array;
+  /** A lite bot's ring-VRF entropy, whose lite person signs this account up for free. */
+  liteEntropy?: Uint8Array;
 }
 
 /** Player `index` with sr25519 secret key `secretKey`. */
