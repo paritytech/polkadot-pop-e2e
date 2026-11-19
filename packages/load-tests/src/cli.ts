@@ -209,7 +209,7 @@ function liteRange(target: Target): { seed: string; from: number } {
 }
 
 /** Lite bots `--lite-from + offset` of the network, for each of `offsets`: the chain layer's, the host layer's and their TURN passes'. */
-function liteBots(target: Target, offsets: number[]): LiteBot[] {
+function deriveLiteBots(target: Target, offsets: number[]): LiteBot[] {
   const { seed, from } = liteRange(target);
   return offsets.map((offset) => deriveLiteBot(seed, productIdOf(target), networkTld(target.network), from + offset));
 }
@@ -223,7 +223,7 @@ switch (values.help ? undefined : command) {
       throw new Error("people attests through the stack's identity backend: set STACK to the stack's descriptor, with --rpc only in place of its People endpoint");
     }
     const target = await resolveTarget(targetOptions);
-    const bots = liteBots(target, firstOffsets(positiveInteger("players", values.players)));
+    const bots = deriveLiteBots(target, firstOffsets(positiveInteger("players", values.players)));
     console.log(`[people] ${target.label}: lite bots ${bots[0].player.index}..${bots.at(-1)!.player.index} of seed ${values.seed}`);
     const result = await provisionLitePeople(target, bots, {
       concurrency: positiveInteger("attest-concurrency", values["attest-concurrency"]),
@@ -234,7 +234,7 @@ switch (values.help ? undefined : command) {
       [
         `### Lite people on ${target.label}`,
         "",
-        `- ${bots.length} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, ${result.pending} pending at DUB, failures ${JSON.stringify(result.failures)}`,
+        `- ${bots.length} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attestCount} attested now, ${result.pending} pending at DUB, failures ${JSON.stringify(result.failures)}`,
         `- attest p50 / p95 / max: ${[p50, p95, max].map((ms) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`)).join(" / ")}, ${values["attest-concurrency"]} at a time`,
         `- ${result.inRing} of ${bots.length} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
       ].join("\n"),
@@ -315,7 +315,7 @@ switch (values.help ? undefined : command) {
         const issuer = values["turn-issuer"] ?? config.identityBackend;
         if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
         const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-        const liteEntropies = new Map(liteBots(target, own).map(({ player }, position) => [own[position], player.liteEntropy]));
+        const liteEntropies = new Map(deriveLiteBots(target, own).map(({ player }, position) => [own[position], player.liteEntropy]));
         const turn = await openLiteTurnPasses(target, liteEntropies, productId, issuer);
         video.turn = turn.passes;
         closeTurn = turn.close;
@@ -385,7 +385,7 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      players: values.lite ? liteBots(target, firstOffsets(positiveInteger("players", values.players))).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
+      players: values.lite ? deriveLiteBots(target, firstOffsets(positiveInteger("players", values.players))).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
       target,
       outDir,
       phases,

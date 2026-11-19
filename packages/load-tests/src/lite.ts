@@ -98,7 +98,7 @@ export interface ProvisionResult {
   /** Lite people already, from an earlier run. */
   alreadyLite: number;
   /** Attests that ended with the bot a ring member. */
-  attested: number;
+  attestCount: number;
   /**
    * Attests the CLI gave up waiting on, for the dotNS name or the ring, or that timed out:
    * DUB may still finish them, so they count as lite once the chain shows them.
@@ -147,7 +147,7 @@ export async function provisionLitePeople(
   bots: LiteBot[],
   options: { concurrency: number; inclusionTimeoutMs: number },
 ): Promise<ProvisionResult> {
-  const started = Date.now();
+  const startTime = Date.now();
   // Deferred: the module reads the stack STACK or NETWORK selects when it loads.
   const { attest } = await import("@pop-e2e/chain-tests/src/lib/truapi-host.js");
   const { client, api } = connectPeople(target);
@@ -159,18 +159,18 @@ export async function provisionLitePeople(
     );
     const failures: Record<string, number> = {};
     const attestMs = new Histogram();
-    let attested = 0;
+    let attestCount = 0;
     let waiting = 0;
     await readAll(
       pending,
       async (bot) => {
-        const attestStarted = Date.now();
-        const seconds = () => ((Date.now() - attestStarted) / 1000).toFixed(1);
+        const attestStart = Date.now();
+        const seconds = () => ((Date.now() - attestStart) / 1000).toFixed(1);
         try {
           const identity = await attest(bot.mnemonic, USERNAME_BASE);
           if (identity.address !== bot.candidate.address) throw new Error(`attested ${identity.address}, not the bot's identity account ${bot.candidate.address}`);
-          attestMs.add(Date.now() - attestStarted);
-          attested++;
+          attestMs.add(Date.now() - attestStart);
+          attestCount++;
           console.log(`[people] bot ${bot.player.index}: ${identity.liteUsername} in ${seconds()} s`);
         } catch (error) {
           const outcome = attestFailure((error as Error).message);
@@ -181,16 +181,16 @@ export async function provisionLitePeople(
       },
       options.concurrency,
     );
-    const refused = total(failures);
-    const inRing = await waitForRings(api, client, bots, bots.length - refused, options.inclusionTimeoutMs);
+    const rejections = total(failures);
+    const inRing = await waitForRings(api, client, bots, bots.length - rejections, options.inclusionTimeoutMs);
     return {
       alreadyLite: bots.length - pending.length,
-      attested,
+      attestCount,
       pending: waiting,
       failures,
       attestMs: attestMs.summary(),
       inRing,
-      durationMs: Date.now() - started,
+      durationMs: Date.now() - startTime,
     };
   } finally {
     client.destroy();

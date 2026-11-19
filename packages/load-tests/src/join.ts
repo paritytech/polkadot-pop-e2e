@@ -105,10 +105,11 @@ export async function bindSeat(engine: GameEngine, player: Player, personhood: G
   };
   try {
     const seat = await engine.seat(player.address, { litePerson: true });
-    if (seat.path !== "free") return { skipped: `${seat.path} seat` };
-    if (seat.ready) return { bound: "already-bound" };
+    if (seat.path !== "free") return { route: seat.path };
+    if (seat.ready) return { binding: "existing" };
     const result = await engine.bind(capabilities);
-    return result.kind === "refused" ? { refusal: `${result.refusal}: ${result.code}` } : { bound: result.kind };
+    if (result.kind === "refused") return { refusal: `${result.refusal}: ${result.code}` };
+    return { binding: result.kind === "bound" ? "new" : "existing" };
   } catch (error) {
     return { refusal: (error as Error).message };
   }
@@ -123,16 +124,16 @@ const BINDS_PER_WAVE = 50;
  * counts the binds made and the seats that took none, `refusals` the binds refused, by reason.
  */
 export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<{ outcomes: Record<string, number>; refusals: Record<string, number> }> {
-  const started = Date.now();
+  const startTime = Date.now();
   const outcomes: Record<string, number> = {};
   const refusals: Record<string, number> = {};
   for (let start = 0; start < players.length; start += BINDS_PER_WAVE) {
     for (const outcome of await Promise.all(players.slice(start, start + BINDS_PER_WAVE).map((player) => pool.bind(player)))) {
       if ("refusal" in outcome) bump(refusals, outcome.refusal);
-      else bump(outcomes, "bound" in outcome ? outcome.bound : outcome.skipped);
+      else bump(outcomes, "binding" in outcome ? `${outcome.binding} binding` : `${outcome.route} route`);
     }
   }
-  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
+  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - startTime) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
   return { outcomes, refusals };
 }
 

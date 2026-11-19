@@ -22,7 +22,7 @@ export class ReceiveStream {
   private lastPliAt = 0;
   private lossAtCheck: [number, number] = [0, 0];
   /** Camera on, from the room's opening or the end of standby. */
-  private activatedAt: number | undefined;
+  private activationTime: number | undefined;
   /** When frames became due: camera on and the video negotiated. */
   private dueSince: number | undefined;
   private negotiated = false;
@@ -35,9 +35,9 @@ export class ReceiveStream {
 
   /** The co-player's camera comes on for this bot at `now`; frames are due once the video is negotiated. */
   activate(now: number): void {
-    if (this.activatedAt !== undefined) return;
+    if (this.activationTime !== undefined) return;
     this.stats.streams++;
-    this.activatedAt = now;
+    this.activationTime = now;
     this.keyframeSeen = false;
     this.firstPacketAt = 0;
     if (this.negotiated) this.dueSince = now;
@@ -46,7 +46,7 @@ export class ReceiveStream {
   /** The video lane's answer is applied: from now on frames are due while the camera is on. */
   markNegotiated(now: number): void {
     this.negotiated = true;
-    if (this.activatedAt !== undefined) this.dueSince ??= now;
+    if (this.activationTime !== undefined) this.dueSince ??= now;
   }
 
   /** The camera goes off (standby, or the link closes): the frames due so far are counted. */
@@ -56,7 +56,7 @@ export class ReceiveStream {
       this.stats.activeMs += dueMs;
       this.stats.framesExpected += Math.round((dueMs * FRAMES_PER_SECOND) / 1000);
     }
-    this.activatedAt = undefined;
+    this.activationTime = undefined;
     this.dueSince = undefined;
   }
 
@@ -87,9 +87,9 @@ export class ReceiveStream {
     if (!marker) return;
     if (this.frameHasIdr && !this.keyframeSeen) {
       this.keyframeSeen = true;
-      if (this.activatedAt !== undefined) {
+      if (this.activationTime !== undefined) {
         this.stats.streamsWithFrames++;
-        this.stats.firstFrameMs.add(now - this.activatedAt);
+        this.stats.firstFrameMs.add(now - this.activationTime);
       }
     }
     if (inWindow) {

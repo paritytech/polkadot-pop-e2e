@@ -36,8 +36,8 @@ export type SigningOutcome = { extrinsic: string } | { refusal: string };
 /** A sign-up signed with how many draws it enters, and why none when it enters none; or why the app's sign-up left the player out. */
 export type SignUpOutcome = { extrinsic: string; drawsEntered: number; drawSkip?: string } | { refusal: string };
 
-/** How a lite bot's bind ended: the SDK's outcome, a seat that takes no bind, or the chain's or the SDK's refusal. */
-export type BindOutcome = { bound: "bound" | "already-bound" } | { skipped: string } | { refusal: string };
+/** How a lite bot's bind ended: a new or an existing binding, the route of a seat that takes no bind, or the chain's or the SDK's refusal. */
+export type BindOutcome = { binding: "new" | "existing" } | { route: string } | { refusal: string };
 
 export type OutcomeOf<J extends SigningJob> = J extends SignUpJob ? SignUpOutcome : J extends BindJob ? BindOutcome : SigningOutcome;
 

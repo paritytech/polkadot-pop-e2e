@@ -42,10 +42,10 @@ type TurnProof = { body: TurnProofBody; at: number };
 /** A ring-VRF proof of the current second with the bot's lite key, or none after counting why. */
 async function proveTurn(prover: PersonhoodProver, setup: TurnProofSetup, stats: VideoStats): Promise<TurnProof | undefined> {
   const at = Date.now();
-  const built = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(at / 1000) });
+  const proofResult = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(at / 1000) });
   stats.turnProofMs.add(Date.now() - at);
-  if (!("code" in built)) return { body: built.body, at };
-  bump(stats.turnFetches, `proof ${built.code}`);
+  if (!("code" in proofResult)) return { body: proofResult.body, at };
+  bump(stats.turnFetches, `proof ${proofResult.code}`);
   return undefined;
 }
 
@@ -62,13 +62,13 @@ export async function fetchTurnPass(
   stats: VideoStats,
   proof?: TurnProof,
 ): Promise<TurnPass | undefined> {
-  const startedAt = Date.now();
+  const startTime = Date.now();
   for (let attempt = 1; ; attempt++) {
     if (!proof || (attempt > 1 && Date.now() - proof.at > PROOF_MAX_AGE_MS)) proof = await proveTurn(prover, setup, stats);
     if (!proof) return undefined;
-    const postedAt = Date.now();
+    const postTime = Date.now();
     const result = await redeemTurnProof(issuer.fetch, issuer.base, proof.body);
-    stats.turnIssuerMs.add(Date.now() - postedAt);
+    stats.turnIssuerMs.add(Date.now() - postTime);
     if ("credentials" in result) {
       bump(stats.turnFetches, "ok");
       return turnPassFor(result.credentials, Date.now());
@@ -77,7 +77,7 @@ export async function fetchTurnPass(
     if (result.cause === "timestamp-window") proof = undefined;
     const retryable = result.cause === "timeout" || result.cause === "server-error" || result.cause === "no-ring-roots" || result.cause === "timestamp-window";
     const wait = BACKOFF_MS[attempt - 1] * (0.75 + Math.random() * 0.5);
-    if (!retryable || attempt >= MAX_ATTEMPTS || Date.now() - startedAt + wait > RETRY_BUDGET_MS) return undefined;
+    if (!retryable || attempt >= MAX_ATTEMPTS || Date.now() - startTime + wait > RETRY_BUDGET_MS) return undefined;
     await sleep(wait);
   }
 }
@@ -116,9 +116,9 @@ export class TurnPasses {
 
   /** The fetch counts since the last call, so each step's results contain each fetch once. */
   takeStats(): VideoStats {
-    const taken = this.stats;
+    const stats = this.stats;
     this.stats = new VideoStats();
-    return taken;
+    return stats;
   }
 
   stop(): void {

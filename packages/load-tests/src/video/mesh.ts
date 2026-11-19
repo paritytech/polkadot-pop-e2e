@@ -45,7 +45,7 @@ interface Link {
   pc: RTCPeerConnection;
   /** The lower id offers, on the statement transport and then on the lane, as the app's mesh decides. */
   initiator: boolean;
-  createdAt: number;
+  createTime: number;
   channel?: RTCDataChannel;
   transceiver?: RTCRtpTransceiver;
   receive: ReceiveStream;
@@ -117,7 +117,7 @@ export class VideoMesh implements PeerLinks {
       peer,
       pc,
       initiator,
-      createdAt: now,
+      createTime: now,
       receive: new ReceiveStream(stats, window, () => this.sendPli(link)),
       standby,
       descriptionSent: false,
@@ -220,7 +220,7 @@ export class VideoMesh implements PeerLinks {
     if (link.up || this.closed) return;
     const { stats, onLinked } = this.options;
     link.up = true;
-    stats.connectMs.add(Date.now() - link.createdAt);
+    stats.connectMs.add(Date.now() - link.createTime);
     bump(stats.candidateTypes, link.pc.iceTransports[0]?.getSelectedCandidatePair()?.local.type ?? "unknown");
     onLinked(link.peer, true);
     // Media starts once the channel is open, and only the initiator offers it down the lane.
@@ -260,10 +260,10 @@ export class VideoMesh implements PeerLinks {
         await link.transceiver?.sender.replaceTrack(link.standby ? null : this.camera.track);
         await pc.setLocalDescription(await pc.createAnswer());
         this.sendLane(link, { tag: "Answer", value: pc.localDescription!.sdp });
-        this.videoNegotiated(link);
+        this.recordVideoNegotiation(link);
       } else if (signal.tag === "Answer") {
         await pc.setRemoteDescription({ type: "answer", sdp: signal.value });
-        this.videoNegotiated(link);
+        this.recordVideoNegotiation(link);
       } else {
         for (const candidate of signal.value) await pc.addIceCandidate({ candidate: candidate.sdp, sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid });
       }
@@ -272,7 +272,7 @@ export class VideoMesh implements PeerLinks {
     }
   }
 
-  private videoNegotiated(link: Link): void {
+  private recordVideoNegotiation(link: Link): void {
     this.options.stats.linksWithVideo++;
     link.receive.markNegotiated(Date.now());
   }
