@@ -227,7 +227,6 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
           api.query.ParachainSystem.UnincludedSegment.getValue(at),
           readBlockContents(client, api, block.hash),
         ]);
-        releaseBlockContents(client, block.hash);
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
         const stepGameIndex = latestGameIndex;
         if (followedGame !== undefined && game?.index === followedGame) lastFollowedGameBlock = Math.max(lastFollowedGameBlock, block.number);
@@ -253,6 +252,8 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
       } catch (error) {
         console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
         recordProblem("finalized block not read", `#${block.number}: ${(error as Error).message}`);
+      } finally {
+        releaseBlockContents(client, block.hash);
       }
     },
     error: (error: Error) => recordProblem("finalized blocks no longer followed, so later blocks are missing", error.message),
