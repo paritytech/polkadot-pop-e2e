@@ -18,11 +18,15 @@ on:
         type: string
         default: "300"
       bots_per_machine:
-        description: Bots one parity-large machine sends messages for; with video, 75 per 4-core ubuntu-latest machine instead
+        description: "Bots one machine sends messages for; empty for the mode's default: 1000 per parity-large, 100 lite bots per parity-large, 75 video bots or 30 lite video bots per 4-core ubuntu-latest"
         type: string
-        default: "1000"
+        default: ""
+      lite:
+        description: The bots are lite people (made once with `load people`) that sign up free; each runs in its own truapi-host
+        type: boolean
+        default: false
       video:
-        description: "Bots play H.264 video to their group over real WebRTC links, as phones do. With --lite in args, through TURN credentials from the network's issuer"
+        description: "Bots play H.264 video to their group over real WebRTC links, as phones do; lite bots through TURN credentials from the network's issuer"
         type: boolean
         default: false
       timing:
@@ -70,6 +74,7 @@ env:
   PLAYERS: ${{ inputs.players }}
   ARGS: ${{ inputs.args }}
   GAME_AT: ${{ inputs.game_at }}
+  LITE: ${{ inputs.lite }}
   RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
   RESULTS: ${{ github.workspace }}/load-results
   TRUAPI_HOST_NO_UPDATE: "1"
@@ -85,15 +90,25 @@ jobs:
     steps:
       - id: plan
         env:
-          PER_MACHINE: ${{ inputs.video && '75' || inputs.bots_per_machine }}
-          RUNNER: ${{ inputs.video && 'ubuntu-latest' || 'parity-large' }}
+          PER_MACHINE: ${{ inputs.bots_per_machine }}
+          VIDEO: ${{ inputs.video }}
         run: |
           set -euo pipefail
-          machines=$(( (PLAYERS + PER_MACHINE - 1) / PER_MACHINE ))
+          # A lite bot is a truapi-host and bun of its own (about 145 MB and 4% of a core with video,
+          # measured on an M-series Mac); other bots share one per 10. Recalibrate from the summary's
+          # "Host CPU / RSS per ghost" after a run on these machines.
+          case "$LITE/$VIDEO" in
+            true/true) default=30 runner=ubuntu-latest ;;
+            false/true) default=75 runner=ubuntu-latest ;;
+            true/false) default=100 runner=parity-large ;;
+            *) default=1000 runner=parity-large ;;
+          esac
+          per=${PER_MACHINE:-$default}
+          machines=$(( (PLAYERS + per - 1) / per ))
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
           echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
-          echo "runner=$RUNNER" >> "$GITHUB_OUTPUT"
-          echo "$PLAYERS bots on $machines $RUNNER machine(s), timing ${{ inputs.timing }}, video ${{ inputs.video }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+          echo "$PLAYERS bots, $per per machine on $machines $runner machine(s), lite $LITE, video $VIDEO, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
 
   # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
@@ -124,6 +139,7 @@ jobs:
           game=(--registration-wait 240)
           if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
           if [ "$CLAIM" != true ]; then game+=(--skip-claim); fi
+          if [ "$LITE" = true ]; then game+=(--lite); fi
           pnpm --silent --filter @pop-e2e/load-tests load chain --players "$PLAYERS" "${game[@]}" \
             --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the chain result
@@ -150,7 +166,7 @@ jobs:
 
   # Each machine waits until the chain job has signed its bots up, or until `replay_at`, then runs
   # them inside truapi-host from 40 s before the game's room opens until the game ends. With
-  # video, each bot also connects to its co-players and sends them video, about 1.5 Mbit/s each way.
+  # video, each bot also connects to its co-players and sends them about 1.5 Mbit/s of video each way.
   messages:
     name: messages · machine ${{ matrix.shard }}
     needs: plan
@@ -184,6 +200,7 @@ jobs:
           read -ra extra <<< "$ARGS"
           if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
           if [ "$VIDEO" = true ]; then start+=(--video); fi
+          if [ "$LITE" = true ]; then start+=(--lite); fi
           pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --phase "$PHASE" \
             --shard "$SHARD/$MACHINES" --run-id "$RUN_ID" --out "$RESULTS" "${extra[@]}"
       - name: Upload the message results
