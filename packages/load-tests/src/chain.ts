@@ -73,7 +73,7 @@ export interface ChainResult {
   proposals: Proposal[] | null;
   /** What the run couldn't read, without failing it. */
   notes: string[];
-  /** Where People blocks reached their limits without failing the run. */
+  /** Where People blocks came close to their limits without failing the run. */
   capacity: string[];
 }
 

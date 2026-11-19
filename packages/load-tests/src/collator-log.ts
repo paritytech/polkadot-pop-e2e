@@ -15,7 +15,7 @@ function utcDate(ms: number): string {
 /**
  * Collator 1's proposals for blocks `first` to `last`, built between `fromMs` and `toMs`, from
  * previewnet's public daily logs. A log lists the newest line first, so each day's log is read
- * in ranges from its start until the proposals reach back past `first`.
+ * in ranges from its start until the proposals go back past `first`.
  */
 export async function readProposals(first: number, last: number, fromMs: number, toMs: number): Promise<Proposal[]> {
   const proposals = new Map<string, Proposal>();

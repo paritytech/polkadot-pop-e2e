@@ -9,12 +9,12 @@ function block(number: number, state: string | null, changes: Partial<BlockLoad>
   return {
     number,
     timestamp: number * 6_000,
-    seenAt: number * 6_000,
+    arrivalTime: number * 6_000,
     extrinsics: 2,
     bytes: 500,
     normal: { refTime: 0.1, proofSize: 0.05 },
     mandatory: { refTime: 0.02, proofSize: 0.01 },
-    step: null,
+    stepShare: null,
     game: state === null ? null : { index: GAME, state },
     failures: {},
     gameEvents: {},
@@ -96,14 +96,14 @@ describe("findBlockLimits", () => {
   // falls behind; it fails the run only through its effects, such as reports not in time.
   it("notes a burst block over twice the median block time without failing, not one just under", () => {
     const blocks = gameBlocks();
-    for (const load of blocks.filter((load) => load.number >= 112)) load.seenAt! += 12_001;
+    for (const load of blocks.filter((load) => load.number >= 112)) load.arrivalTime! += 12_001;
     expect(limits(blocks)).toEqual({
       findings: [],
       capacity: [expect.stringMatching(/^report burst: 1 blocks took over twice the median block time of 6\.0 s, the longest 18\.0 s \(#112\)/)],
     });
 
     const justUnder = gameBlocks();
-    for (const load of justUnder.filter((load) => load.number >= 112)) load.seenAt! += 6_000;
+    for (const load of justUnder.filter((load) => load.number >= 112)) load.arrivalTime! += 6_000;
     expect(limits(justUnder).capacity).toEqual([]);
   });
 

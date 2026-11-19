@@ -247,7 +247,7 @@ function processingMarkdown({ shuffle, playerProcess, heaviestStep }: GameProces
   const parts = [
     shuffle ? `shuffle ${shuffle.blocks} blocks / ${seconds(shuffle.ms)}` : "shuffle –",
     playerProcess
-      ? `reports ended #${playerProcess.reportsEnded}, GameEnded ${playerProcess.gameEnded === null ? "not seen" : `#${playerProcess.gameEnded}`}: ${playerProcess.blocks} blocks / ${seconds(playerProcess.ms)}`
+      ? `reports ended #${playerProcess.reportEndBlock}, GameEnded ${playerProcess.gameEndBlock === null ? "not seen" : `#${playerProcess.gameEndBlock}`}: ${playerProcess.blocks} blocks / ${seconds(playerProcess.ms)}`
       : "player processing –",
     heaviestStep
       ? `heaviest step ${Math.round(heaviestStep.share * 100)}% of a block's ref time (#${heaviestStep.block}, ${heaviestStep.source})`

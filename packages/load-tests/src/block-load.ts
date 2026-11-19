@@ -15,7 +15,7 @@ export interface BlockLoad {
   /** `Timestamp.Now`, chain milliseconds: the relay chain's slot, which consecutive blocks can share. */
   timestamp: number;
   /** Wall-clock milliseconds when the run's RPC node first had this block number as best; null for blocks it had before the run followed it. */
-  seenAt: number | null;
+  arrivalTime: number | null;
   extrinsics: number;
   /** Encoded length of the block's extrinsics. */
   bytes: number;
@@ -24,7 +24,7 @@ export interface BlockLoad {
   /** Mandatory-class weight over the block's limit: inherents and hooks, and the game's steps where the runtime runs them in hooks. */
   mandatory: WeightShare;
   /** Ref time of the heaviest Game step call over the block's; null when the runtime runs no step as a call. */
-  step: number | null;
+  stepShare: number | null;
   /** The game after this block; null without one. */
   game: { index: number; state: string } | null;
   /** Failed extrinsics by dispatch error. */
@@ -93,15 +93,15 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   });
   let bestNumber = 0;
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
-  const seenAt = new Map<number, number | null>();
+  const arrivalTimes = new Map<number, number | null>();
   let latestGameIndex: number | undefined;
-  let blockStatsServed = true;
+  let blockStatsAvailable = true;
   const readWitnessBytes = async (hash: string): Promise<number | null> => {
-    if (!blockStatsServed) return null;
+    if (!blockStatsAvailable) return null;
     try {
       return (await client._request<{ witnessLen: number }>("dev_getBlockStats", [hash])).witnessLen;
     } catch {
-      blockStatsServed = false;
+      blockStatsAvailable = false;
       return null;
     }
   };
@@ -109,7 +109,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   const bestSubscription = client.bestBlocks$.subscribe({
     next: (best) => {
       const now = bestNumber === 0 ? null : Date.now();
-      for (const { number } of best) if (!seenAt.has(number)) seenAt.set(number, now);
+      for (const { number } of best) if (!arrivalTimes.has(number)) arrivalTimes.set(number, now);
       bestNumber = Math.max(bestNumber, best[0]?.number ?? 0);
     },
     error: () => {},
@@ -117,8 +117,8 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
   const finalizedSubscription = client.finalizedBlock$.subscribe({
     next: async (block) => {
       const finalityLag = Math.max(0, bestNumber - block.number);
-      const blockSeenAt = seenAt.get(block.number) ?? null;
-      for (const number of seenAt.keys()) if (number < block.number) seenAt.delete(number);
+      const arrivalTime = arrivalTimes.get(block.number) ?? null;
+      for (const number of arrivalTimes.keys()) if (number < block.number) arrivalTimes.delete(number);
       const at = { at: block.hash };
       try {
         const [weight, timestamp, events, game, creditCursor, unincluded, body, witnessBytes] = await Promise.all([
@@ -134,28 +134,28 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
         const failures: Record<string, number> = {};
         const gameEvents: Record<string, number> = {};
-        let step: number | null = stepCallIndices.length > 0 ? 0 : null;
+        let stepShare: number | null = stepCallIndices.length > 0 ? 0 : null;
         for (const { phase, event } of events) {
           if (event.type === "Game") bump(gameEvents, event.value.type);
           if (event.type !== "System") continue;
           if (event.value.type === "ExtrinsicFailed") {
             bump(failures, describeError(event.value.value.dispatch_error));
-          } else if (event.value.type === "ExtrinsicSuccess" && step !== null && phase.type === "ApplyExtrinsic" && latestGameIndex !== undefined) {
+          } else if (event.value.type === "ExtrinsicSuccess" && stepShare !== null && phase.type === "ApplyExtrinsic" && latestGameIndex !== undefined) {
             const extrinsic = body[phase.value];
             if (extrinsic && isStepCall(extrinsic, stepCallIndices, latestGameIndex)) {
-              step = Math.max(step, Number(event.value.value.dispatch_info.weight.ref_time) / Number(maxBlock.ref_time));
+              stepShare = Math.max(stepShare, Number(event.value.value.dispatch_info.weight.ref_time) / Number(maxBlock.ref_time));
             }
           }
         }
         blocks.push({
           number: block.number,
           timestamp: Number(timestamp),
-          seenAt: blockSeenAt,
+          arrivalTime,
           extrinsics: body.length,
           bytes: body.reduce((sum, extrinsic) => sum + extrinsic.length, 0),
           normal: share(weight.normal, maxNormal),
           mandatory: share(weight.mandatory, maxBlock),
-          step,
+          stepShare,
           game: game ? { index: game.index, state: stateLabel(game) } : null,
           failures,
           gameEvents,

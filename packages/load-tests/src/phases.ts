@@ -36,7 +36,7 @@ export interface GameProcessing {
   /** The shuffle's work, its wait for the game date excluded. */
   shuffle: { blocks: number; ms: number } | null;
   /** From the last Reporting block to the block that ended the game. */
-  playerProcess: { reportsEnded: number; gameEnded: number | null; blocks: number; ms: number } | null;
+  playerProcess: { reportEndBlock: number; gameEndBlock: number | null; blocks: number; ms: number } | null;
   /** The heaviest step's ref time over the block's: from step calls where the runtime has them, else the mandatory class. */
   heaviestStep: { share: number; block: number; source: "step call" | "mandatory weight" } | null;
 }
@@ -60,7 +60,9 @@ function blockTimes(blocks: BlockLoad[]): Map<number, number> {
   const times = new Map<number, number>();
   for (const [position, block] of blocks.entries()) {
     const previous = blocks[position - 1];
-    if (previous?.number === block.number - 1 && previous.seenAt !== null && block.seenAt !== null) times.set(block.number, block.seenAt - previous.seenAt);
+    if (previous?.number === block.number - 1 && previous.arrivalTime !== null && block.arrivalTime !== null) {
+      times.set(block.number, block.arrivalTime - previous.arrivalTime);
+    }
   }
   return times;
 }
@@ -138,8 +140,8 @@ export function summarizeGameProcessing(result: Pick<ChainResult, "blocks" | "ga
   const playerProcess = mergePhases(windows).find(({ state }) => state === "PlayerProcess")?.blocks ?? [];
   const processing = [...shuffleWork, ...playerProcess];
   const heaviestCall = maxOf(
-    windows.flatMap(({ blocks }) => blocks).filter((block) => block.step !== null),
-    (block) => block.step!,
+    windows.flatMap(({ blocks }) => blocks).filter((block) => block.stepShare !== null),
+    (block) => block.stepShare!,
   );
   const heaviestMandatory = maxOf(processing, (block) => block.mandatory.refTime);
   return {
@@ -147,13 +149,13 @@ export function summarizeGameProcessing(result: Pick<ChainResult, "blocks" | "ga
     playerProcess:
       playerProcess.length > 0
         ? {
-            reportsEnded: playerProcess[0].number - 1,
-            gameEnded: playerProcess.find((block) => block.gameEvents.GameEnded)?.number ?? null,
+            reportEndBlock: playerProcess[0].number - 1,
+            gameEndBlock: playerProcess.find((block) => block.gameEvents.GameEnded)?.number ?? null,
             ...blockSpan(playerProcess, times),
           }
         : null,
     heaviestStep: heaviestCall
-      ? { share: heaviestCall.step!, block: heaviestCall.number, source: "step call" }
+      ? { share: heaviestCall.stepShare!, block: heaviestCall.number, source: "step call" }
       : heaviestMandatory
         ? { share: heaviestMandatory.mandatory.refTime, block: heaviestMandatory.number, source: "mandatory weight" }
         : null,
@@ -164,9 +166,9 @@ const percent = (share: number) => `${Math.round(share * 100)}%`;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 export interface BlockLimits {
-  /** Effects on the game that fail the run: credits refused, credit buffers full, a late game end. */
+  /** Effects on the game that fail the run: credits the chain rejected, credit buffers full, a late game end. */
   findings: string[];
-  /** Where blocks reached their limits without failing anything: slow blocks in a burst, full blocks. */
+  /** Where blocks came close to their limits without failing anything: slow blocks in a burst, full blocks. */
   capacity: string[];
 }
 
@@ -208,24 +210,25 @@ export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "p
     );
   }
 
-  const exhausted = gameBlocks.filter((block) => Object.keys(block.failures).some((failure) => failure.endsWith("CreditCapacityExhausted")));
-  if (exhausted.length > 0) {
-    const count = exhausted.reduce(
-      (sum, block) => sum + Object.entries(block.failures).reduce((blockSum, [failure, n]) => blockSum + (failure.endsWith("CreditCapacityExhausted") ? n : 0), 0),
+  const capacityFailures = gameBlocks.filter((block) => Object.keys(block.failures).some((failure) => failure.endsWith("CreditCapacityExhausted")));
+  if (capacityFailures.length > 0) {
+    const count = capacityFailures.reduce(
+      (sum, block) =>
+        sum + Object.entries(block.failures).reduce((blockSum, [failure, failureCount]) => blockSum + (failure.endsWith("CreditCapacityExhausted") ? failureCount : 0), 0),
       0,
     );
-    findings.push(`credit capacity exhausted: ${count} extrinsics failed with CreditCapacityExhausted, from #${exhausted[0].number}`);
+    findings.push(`credit capacity exhausted: ${count} extrinsics failed with CreditCapacityExhausted, from #${capacityFailures[0].number}`);
   }
 
-  const backlogged = gameBlocks.filter((block) => block.creditTrees >= MAX_CREDIT_TREES);
-  if (backlogged.length > 0) {
-    findings.push(`credit buffers full: ${MAX_CREDIT_TREES} credit trees waiting after ${backlogged.length} blocks, from #${backlogged[0].number}`);
+  const creditBacklog = gameBlocks.filter((block) => block.creditTrees >= MAX_CREDIT_TREES);
+  if (creditBacklog.length > 0) {
+    findings.push(`credit buffers full: ${MAX_CREDIT_TREES} credit trees waiting after ${creditBacklog.length} blocks, from #${creditBacklog[0].number}`);
   }
 
-  const gameEnded = gameBlocks.find((block) => block.gameEvents.GameEnded);
+  const gameEndBlock = gameBlocks.find((block) => block.gameEvents.GameEnded);
   const deadline = (result.game.reportEnds + result.phases.player_process) * 1000;
-  if (gameEnded && gameEnded.timestamp > deadline) {
-    findings.push(`game end: GameEnded at #${gameEnded.number}, ${seconds(gameEnded.timestamp - deadline)} after report end plus player_process`);
+  if (gameEndBlock && gameEndBlock.timestamp > deadline) {
+    findings.push(`game end: GameEnded at #${gameEndBlock.number}, ${seconds(gameEndBlock.timestamp - deadline)} after report end plus player_process`);
   }
   return { findings, capacity };
 }
