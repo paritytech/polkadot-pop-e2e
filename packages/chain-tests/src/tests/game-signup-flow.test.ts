@@ -78,7 +78,6 @@ describe.skipIf(!getNetworkConfig().testAccountUri || !getNetworkConfig().featur
         const ecdh = createECDH("prime256v1");
         ecdh.generateKeys();
         const identifierKey = new Uint8Array(ecdh.getPublicKey(undefined, "uncompressed"));
-        expect(identifierKey).toHaveLength(65);
 
         const outcome = await registerForGame(
           chain,

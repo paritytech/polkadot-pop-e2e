@@ -1,6 +1,7 @@
 import type { Transaction, TxCallData } from "polkadot-api";
 import { mergeUint8 } from "@polkadot-api/utils";
 import { getTxCreator } from "polkadot-api/tx-creator";
+import { sudoBatch } from "@pop-e2e/chain-tests/src/lib/game-fork.js";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
 import type { Keypair, Player } from "./keys.js";
 import type { PeopleApi } from "./target.js";
@@ -58,16 +59,10 @@ export async function dispatchAsRoot(
   chunk: number,
   label: string,
 ): Promise<void> {
+  const signer = getTxCreator(sudo.publicKey, "Sr25519", async (input) => sudo.sign(input));
   for (let start = 0; start < calls.length; start += chunk) {
-    const batch = api.tx.Utility.batch_all({ calls: calls.slice(start, start + chunk) });
-    const included = await submitToBestBlock(api.tx.Sudo.sudo({ call: batch.decodedCall }), sudo);
-    const sudid = included.events.find((event) => event.type === "Sudo" && event.value.type === "Sudid");
-    const result = (sudid?.value.value as { sudo_result?: { success: boolean; value: unknown } } | undefined)?.sudo_result;
-    if (!result?.success) {
-      throw new Error(`${label}: root dispatch failed in #${included.block.number}: ${JSON.stringify(result?.value ?? "no Sudid event")}`);
-    }
-    const done = Math.min(start + chunk, calls.length);
-    console.log(`[${label}] ${done}/${calls.length} in #${included.block.number}`);
+    const batch = calls.slice(start, start + chunk).map((decodedCall) => ({ decodedCall }));
+    await sudoBatch(api, signer, batch, `${label} ${Math.min(start + chunk, calls.length)}/${calls.length}`);
   }
 }
 

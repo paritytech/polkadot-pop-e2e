@@ -12,8 +12,8 @@ import { formatDispatchError, submitAndWatch } from "@parity/product-sdk-tx";
 import type { AssetHubApi, PeopleApi } from "./client.js";
 
 /**
- * Fork reads are pinned to the best block: the finalized head trails it by 24 to 48 s on these
- * networks, which would put a schedule's timing and a batch's state out of step.
+ * Fork reads are pinned to the best block: the finalized head trails it on these networks, which
+ * would put a schedule's timing and a batch's state out of step.
  */
 export const READ_AT = { at: "best" } as const;
 /** A block, roughly: the pace the fork polls the chain at. */
