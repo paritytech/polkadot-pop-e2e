@@ -2,12 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { attribute, scanManifest, applyDrift, renderSummary, rpc } from './baseline-scan.mjs';
 
-// A WebSocket stand-in: every request is answered with `frame()`, delivered the way
+// A WebSocket stand-in: every request is answered with `frame`, delivered the way
 // the real socket delivers it (from a later tick, through onmessage).
-async function withFakeSocket(frame, body) {
+async function withFakeSocket(frame, run) {
   class FakeSocket {
-    constructor(url) {
-      this.url = url;
+    constructor() {
       setImmediate(() => this.onopen?.());
     }
     send() {
@@ -18,7 +17,7 @@ async function withFakeSocket(frame, body) {
   const original = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket;
   try {
-    return await body();
+    return await run();
   } finally {
     globalThis.WebSocket = original;
   }
