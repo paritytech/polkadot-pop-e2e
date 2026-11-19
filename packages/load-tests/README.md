@@ -66,7 +66,16 @@ means changing the commit in those overrides.
   flow calls, over the SDK's `registerForGame`. For an account without personhood it reads the
   seat and builds `Game.sign_up_with_account`, signed plainly for a new player and as the score
   participant for a returning one. Its `submit` only signs, so the run still sends every sign-up at
-  once. The bots get no VRF signer, so they enter no prize draw.
+  once. The bots get a VRF signer (the SDK's `localAirdropVrfSigner`) only with `--draw`, so in any
+  other game they enter no prize draw. Lite bots also get personhood keys, below.
+- **Lite sign-up**: a lite bot's personhood keys are the SDK's `PersonhoodProver`, answered with
+  `verifiablejs` `one_shot` over its lite ring's members at the finalized block. The engine's `bind`
+  (the SDK's `bindGameSeat`) binds the game account before the game opens, 50 at a time and the
+  next 50 once those are in a block, since a block takes about 58 binds. `register` then takes the
+  free route, `Game.sign_up_with_account_lite_invite`, and sends the revised leg itself when the
+  ring's revision moved since the bind.
+- **Prize claims**: the engine's `draws` and `eligibility` reads, and `Game.claim_airdrop` from the
+  SDK's `claimPrizeTx`, signed as the score participant as the engine's `claimPrize` signs it.
 - **Signer**: every People transaction of a bot carries its signature in `VerifyMultiSignature`,
   as a phone's host signs. The run builds and signs its bots' sign-ups, reports and claims on one
   worker thread per core: polkadot-api's signers decode the whole runtime metadata for every
@@ -89,7 +98,8 @@ means changing the commit in those overrides.
 - **Signalling**: the app's `statementTransport`, below.
 
 The rest is the run's own, because the app doesn't do it: root's clearing, funding and scheduling
-of a game and its phase durations, funding the bots, and the timeline of game states with their
+of a game and its phase durations and prize draw, funding the bots, making lite bots lite people
+(the app only signs up a person a phone made one), and the timeline of game states with their
 steps, read at the best block every second.
 
 ## How a bot signals
@@ -187,6 +197,47 @@ The messages table has one row per run:
   the game ended, truapi-host processes that exited with an error.
 
 `summary.json` and the per-machine files contain the full counts and histograms.
+
+## Lite bots and the prize draw
+
+A lite bot plays the way a phone with a lite person does: it signs up free, without a deposit,
+once its game account is bound to its lite person. Each lite bot has a wallet of its own, the one
+truapi-host derives for host `<index>` with one ghost: its identity account (`peopl.<tld>` product
+account 0) is the lite person, its game account (`dim2.<tld>` account 0) plays. Lite bots start at
+index 100000 (`--lite-from`), far above the deposit-backed bots, whose hosts number in the
+hundreds: a bot with a deposit-backed player record would keep signing up as a returning player.
+
+`load people --players <n>` makes lite bots `--lite-from`..+n lite people with `PeopleLite.attest`
+from an attester derived from the seed and the network, then waits until every lite key is in a
+ring root at the finalized block. It reads which bots are lite people already, so a rerun attests
+nothing, and nothing is stored: a lite bot's keys follow from `--seed`, the network and its index
+alone, so the seed and the index range are all there is to keep. Changing the seed makes new lite
+people, and a lite person can't be removed. With the chain's root key, root grants the attester
+its allowance and the fees `attest` refunds; without one the run fails unless the People team has
+granted the allowance, and it takes `--allow-live-lite` before it adds lite people at all.
+
+`load chain --lite` plays lite bots in place of the deposit-backed ones. Without a root key it
+takes `--allow-live-lite` too.
+
+`load chain --draw` gives the run's own game one prize draw (the chain's first
+`Airdrop.SupportedAssets` asset at its minimum amount, 5 winners) and every bot a draw ticket. It
+runs only where the run holds the chain's root key (`Sudo.Key`) and schedules the game itself
+(`--take-over`, no `--game-at`), so the bots never take prizes of a game real players are in.
+After player processing the run reads each bot's draw, and each winner claims its prize into its
+game account. `Game.airdrops_scheduled` below 1 means `pop/gads`, the account the Game pallet pays
+prizes from, lacks the prize asset.
+
+```bash
+cd packages/load-tests
+pnpm load people --rpc ws://127.0.0.1:10010 --sudo //Alice --players 30
+pnpm load chain --rpc ws://127.0.0.1:10010 --sudo //Alice --players 30 --lite --draw --take-over \
+  --registration 150 --reporting 300
+```
+
+The ports are a previewnet fork's (`ppn start --fork` in previewnet-engine), where `//Alice` is
+sudo and People builds lite rings and draws as it does live. The chain summary then has a line
+for the binds and how many lite bots hold a deposit after signing up, and one for the draw's
+tickets, winners and claims.
 
 ## Running it locally
 
