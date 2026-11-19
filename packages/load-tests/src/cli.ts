@@ -97,8 +97,8 @@ Chain (phases default to the chain's own):
                         every run with an Asset Hub does by default
   --lite                The players are lite bots: bound to their lite person before the game, they
                         sign up free with Game.sign_up_with_account_lite_invite and get no funds
-  --draw                Every player enters the game's prize draws with a draw ticket, and the winners
-                        claim their prizes; a game this run schedules as root gets one draw
+  --draw                Players enter the game's prize draws as the app enters them (not a player the
+                        game can't make a member), and the winners claim; an own game gets one draw
 `;
 
 const { positionals, values } = parseArgs({

@@ -303,8 +303,13 @@ export function chainMarkdown(result: ChainResult): string {
       : []),
     ...(result.draw
       ? [
-          `Prize draw: ${result.draw.tickets} tickets, ${result.draw.winners.length} winners, ${result.draw.claimed} prizes claimed (claim p50 / p95 / max ${result.draw.claimMs.p50 ?? "–"} / ${result.draw.claimMs.p95 ?? "–"} / ${result.draw.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.claimFailures)}); the winners hold ${result.draw.prizeHeld} of the prize asset.`,
-          `Winners: ${result.draw.winners.join(", ") || "–"}`,
+          `Prize draw entries: ${result.draw.entries} sign-ups entered, the others didn't ${JSON.stringify(result.draw.skips)} (\`not-member-yet\`: the game can't make the player a member, so the app leaves the ticket out).`,
+          ...(result.draw.settled
+            ? [
+                `Prize draw: ${result.draw.settled.draws} draws, ${result.draw.settled.tickets} bot tickets, ${result.draw.settled.winners.length} bot wins, ${result.draw.settled.claimed} prizes claimed (claim p50 / p95 / max ${result.draw.settled.claimMs.p50 ?? "–"} / ${result.draw.settled.claimMs.p95 ?? "–"} / ${result.draw.settled.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.settled.claimFailures)}); the winners hold ${result.draw.settled.prizeHeld} of the prize assets.`,
+                `Winners: ${result.draw.settled.winners.join(", ") || "–"}`,
+              ]
+            : []),
           "",
         ]
       : []),

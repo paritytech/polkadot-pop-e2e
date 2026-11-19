@@ -83,8 +83,8 @@ export interface ChainResult {
   capacity: string[];
   /** Lite bots' binds by outcome, and how many hold a deposit after signing up; null for deposit-backed bots. */
   lite: { binds: Record<string, number>; withDeposit: number } | null;
-  /** The prize draw's tickets, winners and claims; null without `draw`. */
-  draw: DrawResult | null;
+  /** The prize draws: sign-ups that entered them and why the others didn't, then tickets, winners and claims; null without `draw`. */
+  draw: { entries: number; skips: Record<string, number>; settled: DrawResult | null } | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -342,22 +342,27 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         findings.push(`player processing: ${(error as Error).message}`);
       }
     }
-    let draw: DrawResult | null = null;
-    if (run.draw && game.airdrops_scheduled > 0 && timeline.at(-1)!.state === "None") {
-      try {
-        draw = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
-        console.log(`[chain] draw: ${draw.tickets} tickets, ${draw.winners.length} winners, ${draw.claimed} claimed`);
-        if (draw.tickets < players.length) findings.push(`draw: ${players.length - draw.tickets} of ${players.length} players entered no ticket`);
-        // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
-        if (draw.winners.length === 0 && ownGame) findings.push("draw: no winner");
-        if (draw.claimed < draw.winners.length) findings.push(`draw: ${draw.winners.length - draw.claimed} of ${draw.winners.length} prizes not claimed`);
-        for (const [reason, count] of Object.entries(draw.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
-        for (const [failure, count] of Object.entries(draw.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
-      } catch (error) {
-        findings.push(`draw: stopped on ${(error as Error).message}`);
+    let draw: ChainResult["draw"] = null;
+    if (run.draw && game.airdrops_scheduled > 0) {
+      draw = { entries: drawEntries, skips: drawSkips, settled: null };
+      if (drawEntries > 0 && timeline.at(-1)!.state === "None") {
+        try {
+          const settled = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
+          draw.settled = settled;
+          console.log(`[chain] draw: ${settled.tickets} tickets, ${settled.winners.length} wins, ${settled.claimed} claimed`);
+          const expected = drawEntries * settled.draws;
+          if (settled.tickets < expected) findings.push(`draw: ${expected - settled.tickets} of ${expected} tickets the sign-ups carried are not on chain`);
+          // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
+          if (settled.winners.length === 0 && ownGame) findings.push("draw: no winner");
+          if (settled.claimed < settled.winners.length) findings.push(`draw: ${settled.winners.length - settled.claimed} of ${settled.winners.length} prizes not claimed`);
+          for (const [reason, count] of Object.entries(settled.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
+          for (const [failure, count] of Object.entries(settled.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
+        } catch (error) {
+          findings.push(`draw: stopped on ${(error as Error).message}`);
+        }
+      } else if (drawEntries > 0) {
+        findings.push("draw: the game didn't end, so no prize was claimed");
       }
-    } else if (run.draw && game.airdrops_scheduled > 0) {
-      findings.push("draw: the game didn't end, so no prize was claimed");
     }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
