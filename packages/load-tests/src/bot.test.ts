@@ -169,7 +169,9 @@ describe("SignallingBot", () => {
     };
     const summary = summarizeStep([JSON.parse(JSON.stringify(result)) as SignallingShardResult], DEFAULT_THRESHOLDS);
     console.log(videoMarkdown("memory", [{ players: players.length, video: summary.video! }]));
+    // Over 1 would mean frames from a co-player on standby, whose camera should be off.
     expect(summary.video?.frameShare).toBeGreaterThan(0.9);
+    expect(summary.video?.frameShare).toBeLessThan(1.05);
     expect(summary.findings.filter((finding) => /^(video|TURN)/.test(finding))).toEqual([]);
   });
 });
