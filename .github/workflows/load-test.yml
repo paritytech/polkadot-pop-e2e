@@ -71,6 +71,9 @@ concurrency:
 
 env:
   NETWORK: ${{ inputs.network }}
+  # truapi-host refuses previewnet once its shipped descriptor is older than the published one,
+  # so previewnet runs read the published stack.
+  STACK: ${{ inputs.network == 'previewnet' && 'https://previewnet.substrate.dev/.well-known/trinity-stack.json' || '' }}
   PLAYERS: ${{ inputs.players }}
   ARGS: ${{ inputs.args }}
   GAME_AT: ${{ inputs.game_at }}
