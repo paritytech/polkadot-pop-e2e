@@ -269,6 +269,7 @@ export function chainMarkdown(result: ChainResult): string {
     "",
     result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up, report and claim was in",
     "",
+    ...(result.capacity.length > 0 ? [`**Capacity:** ${result.capacity.join("; ")}.`, ""] : []),
     "| Burst | Succeeded | In time | Inclusion p50 / p95 / max ms | Burst length | Blocks |",
     "|---|---|---|---|---|---|",
     phaseRow("sign-up", result.signUp),

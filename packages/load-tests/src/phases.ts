@@ -163,9 +163,16 @@ export function summarizeGameProcessing(result: Pick<ChainResult, "blocks" | "ga
 const percent = (share: number) => `${Math.round(share * 100)}%`;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
-/** Where the chain fell behind during the game: slow blocks in a burst, full blocks, exhausted credit capacity, a late game end. */
-export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "phases" | "signUp" | "report">): string[] {
+export interface BlockLimits {
+  /** Effects on the game that fail the run: credits refused, credit buffers full, a late game end. */
+  findings: string[];
+  /** Where blocks reached their limits without failing anything: slow blocks in a burst, full blocks. */
+  capacity: string[];
+}
+
+export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "phases" | "signUp" | "report">): BlockLimits {
   const findings: string[] = [];
+  const capacity: string[] = [];
   const times = blockTimes(result.blocks);
   const windows = splitStates(result.blocks, result.game.index);
   const gameBlocks = windows.flatMap(({ blocks }) => blocks);
@@ -181,7 +188,7 @@ export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "p
     );
     const slowest = maxOf(slow, (block) => times.get(block.number)!);
     if (slowest) {
-      findings.push(
+      capacity.push(
         `${name} burst: ${slow.length} blocks took over twice the median block time of ${seconds(typicalMs)}, the longest ${seconds(times.get(slowest.number)!)} (#${slowest.number})`,
       );
     }
@@ -194,7 +201,7 @@ export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "p
     const byPhase: Record<string, number> = {};
     for (const { phase } of full) bump(byPhase, phase);
     const fullest = maxOf(full, ({ block }) => Math.max(block.normal.refTime, block.normal.proofSize))!.block;
-    findings.push(
+    capacity.push(
       `normal-class weight at ${percent(FULL_NORMAL_SHARE)} or more in ${full.length} blocks (${Object.entries(byPhase)
         .map(([phase, count]) => `${phase} ${count}`)
         .join(", ")}), the highest ${percent(Math.max(fullest.normal.refTime, fullest.normal.proofSize))} at #${fullest.number}`,
@@ -220,5 +227,5 @@ export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "p
   if (gameEnded && gameEnded.timestamp > deadline) {
     findings.push(`game end: GameEnded at #${gameEnded.number}, ${seconds(gameEnded.timestamp - deadline)} after report end plus player_process`);
   }
-  return findings;
+  return { findings, capacity };
 }

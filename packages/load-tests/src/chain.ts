@@ -73,6 +73,8 @@ export interface ChainResult {
   proposals: Proposal[] | null;
   /** What the run couldn't read, without failing it. */
   notes: string[];
+  /** Where People blocks reached their limits without failing the run. */
+  capacity: string[];
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -310,7 +312,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const blocks = [...blockFollower.blocks].sort((a, b) => a.number - b.number);
     const gameSummary = { index: game.index, gamePlayTime: game.game_date, registrationEnds: game.registration_ends, reportEnds: game.report_ends };
     const signUpSummary = summarizeBurst(signUp);
-    findings.push(...findBlockLimits({ blocks, game: gameSummary, phases, signUp: signUpSummary, report }));
+    const limits = findBlockLimits({ blocks, game: gameSummary, phases, signUp: signUpSummary, report });
+    findings.push(...limits.findings);
     const notes: string[] = [];
     let proposals: Proposal[] | null = null;
     const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
@@ -338,6 +341,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       blocks,
       proposals,
       notes,
+      capacity: limits.capacity,
     };
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));

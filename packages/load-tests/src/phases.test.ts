@@ -89,43 +89,50 @@ describe("summarizePhases", () => {
 
 describe("findBlockLimits", () => {
   it("finds nothing in a game the chain kept up with", () => {
-    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }))).toEqual([]);
+    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }))).toEqual({ findings: [], capacity: [] });
   });
 
-  // A block that takes twice the usual time while a burst is in the pool is the chain falling
-  // behind the players, which they see as their sign-up or report not arriving.
-  it("flags a burst block over twice the median block time, not one just under", () => {
+  // A block that takes twice the usual time while a burst is in the pool shows where the chain
+  // falls behind; it fails the run only through its effects, such as reports not in time.
+  it("notes a burst block over twice the median block time without failing, not one just under", () => {
     const blocks = gameBlocks();
     for (const load of blocks.filter((load) => load.number >= 112)) load.seenAt! += 12_001;
-    expect(limits(blocks)).toEqual([expect.stringMatching(/^report burst: 1 blocks took over twice the median block time of 6\.0 s, the longest 18\.0 s \(#112\)/)]);
+    expect(limits(blocks)).toEqual({
+      findings: [],
+      capacity: [expect.stringMatching(/^report burst: 1 blocks took over twice the median block time of 6\.0 s, the longest 18\.0 s \(#112\)/)],
+    });
 
     const justUnder = gameBlocks();
     for (const load of justUnder.filter((load) => load.number >= 112)) load.seenAt! += 6_000;
-    expect(limits(justUnder)).toEqual([]);
+    expect(limits(justUnder).capacity).toEqual([]);
   });
 
-  it("flags normal-class weight at 90% of its limit", () => {
-    expect(limits(gameBlocks({ 105: { normal: { refTime: 0.9, proofSize: 0.2 } } }))).toEqual([expect.stringMatching(/^normal-class weight at 90% or more in 1 blocks \(Registration 1\)/)]);
-    expect(limits(gameBlocks({ 105: { normal: { refTime: 0.89, proofSize: 0.89 } } }))).toEqual([]);
+  // A full block is the chain's capacity at work, not a failure: the transactions still get in.
+  it("notes normal-class weight at 90% of its limit without failing", () => {
+    expect(limits(gameBlocks({ 105: { normal: { refTime: 0.9, proofSize: 0.2 } } }))).toEqual({
+      findings: [],
+      capacity: [expect.stringMatching(/^normal-class weight at 90% or more in 1 blocks \(Registration 1\)/)],
+    });
+    expect(limits(gameBlocks({ 105: { normal: { refTime: 0.89, proofSize: 0.89 } } })).capacity).toEqual([]);
   });
 
   it("flags any report that failed on exhausted credit capacity", () => {
-    expect(limits(gameBlocks({ 112: { failures: { "Module.Game.CreditCapacityExhausted": 3 } } }))).toEqual([
+    expect(limits(gameBlocks({ 112: { failures: { "Module.Game.CreditCapacityExhausted": 3 } } })).findings).toEqual([
       "credit capacity exhausted: 3 extrinsics failed with CreditCapacityExhausted, from #112",
     ]);
   });
 
   // At 8 waiting trees the pallet takes no more credits, so reports fail and processing stalls.
   it("flags credit buffers at the pallet's limit of 8 trees, not at 7", () => {
-    expect(limits(gameBlocks({ 113: { creditTrees: 8 } }))).toEqual(["credit buffers full: 8 credit trees waiting after 1 blocks, from #113"]);
-    expect(limits(gameBlocks({ 113: { creditTrees: 7 } }))).toEqual([]);
+    expect(limits(gameBlocks({ 113: { creditTrees: 8 } })).findings).toEqual(["credit buffers full: 8 credit trees waiting after 1 blocks, from #113"]);
+    expect(limits(gameBlocks({ 113: { creditTrees: 7 } })).findings).toEqual([]);
   });
 
   // The game's schedule gives player processing `player_process` seconds after reports end; the
   // next game's registration assumes it is over by then.
   it("flags a game that ended after report end plus player_process", () => {
     // Block 116 is at 696 s; reports end at 600 s and processing has 60 s.
-    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }), 600)).toEqual(["game end: GameEnded at #116, 36.0 s after report end plus player_process"]);
-    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }), 636)).toEqual([]);
+    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }), 600).findings).toEqual(["game end: GameEnded at #116, 36.0 s after report end plus player_process"]);
+    expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }), 636).findings).toEqual([]);
   });
 });

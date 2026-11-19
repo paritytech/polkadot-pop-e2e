@@ -163,9 +163,10 @@ hash.
 the end of reporting to `GameEnded`, and the heaviest step as a share of a block's ref time:
 from the step calls' own weight on previewnet, from the mandatory class on paseo-next-v2.
 
-The run fails when a block of a burst takes over twice the game's median block time, a block's
-normal class reaches 90%, any extrinsic fails with `CreditCapacityExhausted`, 8 credit trees are
-waiting, or `GameEnded` is later than the report end plus `player_process`.
+The run fails when any extrinsic fails with `CreditCapacityExhausted`, 8 credit trees are waiting,
+or `GameEnded` is later than the report end plus `player_process`. A **Capacity** line under the
+findings lists blocks of a burst that took over twice the game's median block time and blocks
+whose normal class reached 90%; these don't fail the run.
 
 The messages table has one row per run:
 
