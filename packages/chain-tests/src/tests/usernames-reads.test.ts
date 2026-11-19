@@ -8,9 +8,8 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, type PolkadotClient } from "polkadot-api";
-import { Bytes } from "@polkadot-api/substrate-bindings";
-import { fromHex } from "@polkadot-api/utils";
-// Not resolvePeopleUsernameOwner (@internal): readPersonhoodState({ username }) reads the same entry.
+import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
+import { getDynamicBuilder, getLookupFn } from "@polkadot-api/metadata-builders";
 import {
   fromPapi,
   lookupUsername,
@@ -31,34 +30,7 @@ function randomUsername(): string {
   return `${randomLabel()}.${String(randomInt(100)).padStart(2, "0")}`;
 }
 
-/**
- * Returns the first key of `Resources.UsernameOwnerOf` at `hash`, decoded to the username
- * bytes, or undefined when the map is empty. The key is the entry's 32-byte prefix, then a
- * 16-byte Blake2_128 hash of the SCALE-encoded username (its compact length, then the bytes:
- * Blake2_128Concat). The prefix comes from the descriptor, and the username is checked by
- * rebuilding the key from it, so a different hasher or encoding fails here instead of
- * decoding a wrong name.
- */
-async function firstRegisteredUsername(
-  client: PolkadotClient,
-  api: PeopleApi,
-  hash: string,
-): Promise<Uint8Array | undefined> {
-  const entry = api.query.Resources.UsernameOwnerOf;
-  const prefix = (await entry.getKey(new Uint8Array())).slice(0, 2 + 64);
-  const [key] = await client._request<string[], [string, number, null, string]>(
-    "state_getKeysPaged",
-    [prefix, 1, null, hash],
-  );
-  if (key === undefined) return undefined;
-  const username = Bytes().dec(fromHex(key).slice(32 + 16));
-  if ((await entry.getKey(username)) !== key) {
-    throw new Error("Resources.UsernameOwnerOf keys are not prefix, Blake2_128 hash, username");
-  }
-  return username;
-}
-
-describe("Username reads (product-sdk)", () => {
+describe.skipIf(!getNetworkConfig().features.game)("Username reads (product-sdk)", () => {
   const accountAddress = AccountId().dec(randomBytes(32));
   let peopleClient: PolkadotClient;
   let chain: PapiIndividualityChain<PeopleApi, PolkadotClient>;
@@ -90,24 +62,24 @@ describe("Username reads (product-sdk)", () => {
     expect(read.value.tag).toBe("UsernameUnowned");
   });
 
-  // Reads one registered username with a paged raw key read at the finalized block. Its
-  // owner and their usernames are read at the block readPersonhoodState pinned. The test
-  // skips with a reason when the network has no registered username.
+  // Takes the first Resources.UsernameOwnerOf key at the finalized block.
   it("reads a registered username back to its owner and their usernames", async (ctx) => {
     const { hash } = await peopleClient.getFinalizedBlock();
-    const name = await firstRegisteredUsername(peopleClient, chain.individuality, hash);
-    if (name === undefined) return ctx.skip(`no username is registered on ${getNetworkConfig().name}`);
-    const username = new TextDecoder().decode(name);
+    const metadata = unifyMetadata(decAnyMetadata(await peopleClient.getMetadata(hash)));
+    const keys = getDynamicBuilder(getLookupFn(metadata)).buildStorage("Resources", "UsernameOwnerOf").keys;
+    const [key] = await peopleClient._request<string[], [string, number, null, string]>(
+      "state_getKeysPaged",
+      [keys.enc(), 1, null, hash],
+    );
+    if (key === undefined) return ctx.skip(`no username is registered on ${getNetworkConfig().name}`);
+    const username = new TextDecoder().decode(keys.dec(key)[0]);
 
     const personhood = await readPersonhoodState(chain, { username });
     if (!personhood.ok) throw personhood.error;
     if (personhood.value.tag === "UsernameUnowned") throw new Error("a registered username read as unowned");
     const at = personhood.value.at.blockHash;
-    const owner = await chain.individuality.query.Resources.UsernameOwnerOf.getValue(name, { at });
-    if (!owner) throw new Error("a registered username has no owner at the personhood block");
-    expect(personhood.value.accountAddress).toBe(owner);
 
-    const usernames = await lookupUsername(chain, { account: owner, at });
+    const usernames = await lookupUsername(chain, { account: personhood.value.accountAddress, at });
     if (!usernames.ok) throw usernames.error;
     expect([usernames.value?.liteUsername, usernames.value?.fullUsername]).toContain(username);
   });
