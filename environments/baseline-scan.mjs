@@ -206,8 +206,7 @@ if (isMain) {
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
     }
-    // A node-scan failure leaves the binary pins as they are and doesn't fail the scan: nodes
-    // that run an untagged build need no human, unlike unpublished runtime code.
+    // A failed tag listing leaves the binary pins as they are and doesn't fail the scan.
     try {
       nodeTags ??= sdkTagLoader();
       const nodes = await scanNodes(manifest, { rpc, loadTags: nodeTags });

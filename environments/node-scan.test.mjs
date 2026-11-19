@@ -112,7 +112,7 @@ describe('node-scan', () => {
     });
   });
 
-  it('keeps a pin when the release lacks a file of the slot', async () => {
+  it('leaves the pin when the release lacks a file of the slot', async () => {
     const { pins } = await pinScan({ relay: stable2512, people: stable2512 }, release('polkadot-prepare-worker'));
     assert.deepEqual(pins, { 'polkadot-omni-node': 'paritytech/release-automation@polkadot-stable2512' });
   });
@@ -123,7 +123,7 @@ describe('node-scan', () => {
     assert.deepEqual(pins, { polkadot: 'paritytech/polkadot-sdk@polkadot-stable2512' });
   });
 
-  it("keeps a pin when the slot's chains run different releases", async () => {
+  it("leaves the pin when the slot's chains run different releases", async () => {
     const { pins } = await pinScan({ people: stable2512, 'asset-hub': versions.relay }, release());
     assert.deepEqual(pins, {});
   });

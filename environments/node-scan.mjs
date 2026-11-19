@@ -1,8 +1,6 @@
 // Which polkadot-sdk release the live nodes and eth-rpc run. A chain's system_version and
 // eth-rpc's web3_clientVersion each end in a commit, and one `git ls-remote` per run maps
-// commits to polkadot-sdk tags. A binary slot whose chains all run one tagged commit the pin
-// doesn't name gets that tag as its new pin, from the pinned repo or else another repo the slot
-// may come from, when the repo publishes the slot's files under it.
+// commits to polkadot-sdk tags.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -11,13 +9,6 @@ import { CHAINS, NODE_BINARIES, findAsset, parseReleaseRef } from './release-map
 
 const SDK_REPO_URL = 'https://github.com/paritytech/polkadot-sdk';
 const DEADLINE_MS = 60_000; // per read
-
-/** The release assets each binary slot is delivered from; polkadot's PVF workers go with it. */
-const SLOT_ASSETS = {
-  polkadot: ['polkadot', 'polkadot-execute-worker', 'polkadot-prepare-worker'],
-  'polkadot-omni-node': ['polkadot-omni-node'],
-  'polkadot-parachain': ['polkadot-parachain'],
-};
 
 export const ETH_RPC_URLS = {
   previewnet: 'https://previewnet.substrate.dev/eth-rpc',
@@ -67,7 +58,7 @@ async function ethClientVersion(url, fetchFn) {
 /**
  * One line per chain the manifest lists, plus eth-rpc when it is pinned, and one for the pinned
  * services it cannot read; a failed read is its own line. `pins` holds the new pin of each
- * binary slot whose live nodes run a release the pin doesn't name.
+ * binary slot whose live nodes run a release other than the pinned one.
  */
 export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetch: fetchFn = fetch, releaseOf = getRelease }) {
   const known = CHAINS[manifest.network];
@@ -92,7 +83,7 @@ export async function scanNodes(manifest, { rpc, loadTags = sdkTagLoader(), fetc
   };
 }
 
-/** The polkadot-sdk tags at the version's commit, or null when the version names no commit. */
+/** The polkadot-sdk tags at the version's commit, or null when the version doesn't end in a commit. */
 function liveTags(version, tags) {
   const commit = version instanceof Error ? null : parseCommit(version);
   return commit && [...tags].filter(([sha]) => sha.startsWith(commit)).flatMap(([, names]) => names);
@@ -112,8 +103,8 @@ function line({ name, pin, version, live }) {
 }
 
 /**
- * For each pinned slot whose chains all run one tagged commit the pin doesn't name: a release
- * under that tag carrying every file of the slot, from the pinned repo first.
+ * For each pinned slot whose chains all run one tagged commit other than the pinned tag: a
+ * release under that tag carrying every file of the slot, from the pinned repo first.
  */
 async function slotPins(manifest, rows, releaseOf) {
   const pins = {};
@@ -134,7 +125,7 @@ async function publishedPin(slot, repos, tags, releaseOf) {
   for (const repo of repos) {
     for (const tag of tags) {
       const release = await releaseOf(repo, tag).catch(() => null);
-      if (release && SLOT_ASSETS[slot].every((name) => findAsset(release, name))) return `${repo}@${tag}`;
+      if (release && NODE_BINARIES[slot].assets.every((name) => findAsset(release, name))) return `${repo}@${tag}`;
     }
   }
   return null;

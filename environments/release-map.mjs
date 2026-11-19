@@ -223,17 +223,21 @@ export const NETWORK_META = {
  * Delivery is the engine's: each slot pin becomes a `PPN_BINARIES` override
  * (`ppnOverrides()`), applied inside PPN's loader so `fetch`, `start` and
  * `show --json` cannot disagree — the PVF workers travel with polkadot, released or
- * built in the calling run, because the engine knows its own file set.
+ * built in the calling run, because the engine knows its own file set. `assets` are the
+ * linux files the gate's engine fetches for the slot.
  */
 export const NODE_BINARIES = {
   polkadot: {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    assets: ['polkadot', 'polkadot-execute-worker', 'polkadot-prepare-worker'],
   },
   'polkadot-parachain': {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    assets: ['polkadot-parachain'],
   },
   'polkadot-omni-node': {
     repos: ['paritytech/polkadot-sdk', 'paritytech/release-automation'],
+    assets: ['polkadot-omni-node'],
   },
 };
 
