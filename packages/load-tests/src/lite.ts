@@ -6,7 +6,7 @@ import { deriveProductAccount, deriveProductSecret, identityKey, liteRingEntropy
 import { verifiableFor } from "@pop-e2e/chain-tests/src/lib/verifiable-loader.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
 import { hostMnemonic, playerFromSecret, type Player } from "./keys.js";
-import { bump } from "./stats.js";
+import { bump, total } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep } from "./time.js";
 
@@ -107,7 +107,14 @@ export interface ProvisionResult {
   alreadyLite: number;
   /** Attests that ended with the bot a ring member. */
   attested: number;
-  /** Attests that didn't, by error: an HTTP status from DUB, a timeout, or the CLI's message. */
+  /**
+   * Attests the CLI gave up waiting on, for the dotNS name or the ring, or that ran out of time:
+   * DUB may still finish them, so they count as lite once the chain shows them.
+   */
+  pending: number;
+  /** Attests that DUB refused with 429 Too Many Requests, also counted in `failures`. */
+  rateLimited: number;
+  /** Attests that failed, by error: an HTTP status from DUB, or the CLI's message. */
   failures: Record<string, number>;
   /** From starting `truapi-host attest` to its exit, ring inclusion included, for the attests that succeeded. */
   attestMs: QuantileSummary;
@@ -120,19 +127,30 @@ export interface ProvisionResult {
 /** A lite username base: 6+ lowercase letters, which DUB extends to a unique username. */
 const USERNAME_BASE = "loadbot";
 
-/** An attest failure as a count key: DUB's HTTP status when the CLI reports one, else its first line. */
+/**
+ * How an attest ended when `truapi-host attest` failed: `pending` when it stopped waiting for
+ * work DUB still finishes (the dotNS name, ring membership, or its own time limit), else the
+ * failure as a count key, DUB's HTTP status when the CLI reports one, else its first line.
+ */
 export function attestFailure(message: string): string {
-  if (/\(killed after/.test(message)) return "timeout";
+  if (/\(killed after|dotNS username did not appear|did not appear in any personhood ring/.test(message)) return "pending";
   const status = /\(([45]\d\d) [A-Z]/.exec(message) ?? /\bstatus(?: code)?:? ([45]\d\d)\b/i.exec(message);
   if (status) return `HTTP ${status[1]}`;
   return (message.replace(/^\[truapi-host\] attest failed: /, "").split("\n")[0] ?? "").slice(0, 120);
 }
 
 /**
+ * DUB's dotNS lane writes about 3 names per Asset Hub batch, waiting for finality between
+ * batches: about 4.5 a minute, whatever the attests' concurrency.
+ */
+const ATTESTS_PER_MINUTE = 4.5;
+
+/**
  * Makes every bot a lite person the way a phone becomes one: `truapi-host attest` through the
  * stack's identity backend (DUB), which attests the identity account, registers its lite
  * username and waits until the lite key is a ring member. Bots that are lite people already are
- * skipped, so a rerun attests nothing and only checks. `concurrency` attests run at once.
+ * skipped, so a rerun, also of an interrupted run, attests only the rest. `concurrency` attests
+ * run at once; then the chain is read until every bot not refused is in a ring root.
  */
 export async function provisionLitePeople(
   target: Target,
@@ -146,30 +164,46 @@ export async function provisionLitePeople(
   try {
     const lite = await api.query.PeopleLite.LitePeople.getValues(bots.map(({ candidate }) => [candidate.address]), { at: "best" });
     const pending = bots.filter((_, position) => lite[position] === undefined);
-    console.log(`[people] ${bots.length} bots: ${bots.length - pending.length} lite already, ${pending.length} to attest, ${options.concurrency} at a time`);
+    console.log(
+      `[people] ${bots.length} bots: ${bots.length - pending.length} lite already, ${pending.length} to attest, ${options.concurrency} at a time, about ${Math.ceil(pending.length / ATTESTS_PER_MINUTE)} min at DUB's dotNS rate`,
+    );
     const failures: Record<string, number> = {};
     const attestMs = new Histogram();
     let attested = 0;
+    let waiting = 0;
     await readAll(
       pending,
       async (bot) => {
         const attestStarted = Date.now();
+        const seconds = () => ((Date.now() - attestStarted) / 1000).toFixed(1);
         try {
           const identity = await attest(bot.mnemonic, USERNAME_BASE);
           if (identity.address !== bot.candidate.address) throw new Error(`attested ${identity.address}, not the bot's identity account ${bot.candidate.address}`);
           attestMs.add(Date.now() - attestStarted);
           attested++;
-          console.log(`[people] bot ${bot.player.index}: ${identity.liteUsername} in ${((Date.now() - attestStarted) / 1000).toFixed(1)} s`);
+          console.log(`[people] bot ${bot.player.index}: ${identity.liteUsername} in ${seconds()} s`);
         } catch (error) {
-          const failure = attestFailure((error as Error).message);
-          bump(failures, failure);
-          console.warn(`[people] bot ${bot.player.index}: ${failure} after ${((Date.now() - attestStarted) / 1000).toFixed(1)} s: ${(error as Error).message.slice(0, 300)}`);
+          const outcome = attestFailure((error as Error).message);
+          if (outcome === "pending") waiting++;
+          else bump(failures, outcome);
+          console.warn(`[people] bot ${bot.player.index}: ${outcome} after ${seconds()} s: ${(error as Error).message.slice(0, 300)}`);
         }
       },
       options.concurrency,
     );
-    const inRing = await waitForRings(api, client, bots, options.inclusionTimeoutMs);
-    return { bots: bots.length, alreadyLite: bots.length - pending.length, attested, failures, attestMs: attestMs.summary(), inRing, durationMs: Date.now() - started };
+    const refused = total(failures);
+    const inRing = await waitForRings(api, client, bots, bots.length - refused, options.inclusionTimeoutMs);
+    return {
+      bots: bots.length,
+      alreadyLite: bots.length - pending.length,
+      attested,
+      pending: waiting,
+      rateLimited: failures["HTTP 429"] ?? 0,
+      failures,
+      attestMs: attestMs.summary(),
+      inRing,
+      durationMs: Date.now() - started,
+    };
   } finally {
     client.destroy();
   }
@@ -177,10 +211,10 @@ export async function provisionLitePeople(
 
 /**
  * How many bots' lite keys are in a ring root at the finalized block, read again every 6 s until
- * all are or `timeoutMs` has passed. A key is `Included` a block before the ring's root contains
- * it, so a key counts once it is among the ring's included keys.
+ * `expected` are or `timeoutMs` has passed. A key is `Included` a block before the ring's root
+ * contains it, so a key counts once it is among the ring's included keys.
  */
-async function waitForRings(api: PeopleApi, client: PolkadotClient, bots: LiteBot[], timeoutMs: number): Promise<number> {
+async function waitForRings(api: PeopleApi, client: PolkadotClient, bots: LiteBot[], expected: number, timeoutMs: number): Promise<number> {
   const { member_from_entropy } = verifiableFor();
   const keys = bots.map(({ player }) => Binary.toHex(member_from_entropy(player.liteEntropy)));
   const until = Date.now() + timeoutMs;
@@ -194,7 +228,7 @@ async function waitForRings(api: PeopleApi, client: PolkadotClient, bots: LiteBo
     const inRing = keys.filter((key) => rootKeys.has(key)).length;
     if (inRing !== reported) console.log(`[people] ${inRing}/${keys.length} lite keys in a ring root at the finalized block`);
     reported = inRing;
-    if (inRing === keys.length || Date.now() > until) return inRing;
+    if (inRing >= expected || Date.now() > until) return inRing;
     await sleep(6_000);
   }
 }

@@ -40,7 +40,8 @@ Lite bots (lite people, signing up free as a lite person's phone does):
   --lite-from <index>   First bot index of the lite bots (default ${LITE_FIRST_INDEX}), above the
                         deposit-backed bots. A lite bot's keys follow from --seed, the network and its
                         index alone, so the seed and the index range are all a later run needs
-  --attest-concurrency <n>  people: attests running at once (default 4)
+  --attest-concurrency <n>  people: attests running at once (default 3); DUB names about 4.5
+                        identities a minute, and truapi-host waits 2 min for a name, so more fail
 
 Signalling:
   --steps <n,...>       Player counts, one game each, in order (default 10,25,50)
@@ -129,7 +130,7 @@ const { positionals, values } = parseArgs({
     lite: { type: "boolean", default: false },
     draw: { type: "boolean", default: false },
     "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
-    "attest-concurrency": { type: "string", default: "4" },
+    "attest-concurrency": { type: "string", default: "3" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -204,7 +205,7 @@ switch (values.help ? undefined : command) {
       [
         `### Lite people on ${target.label}`,
         "",
-        `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, failures ${JSON.stringify(result.failures)}`,
+        `- ${result.bots} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attested} attested now, ${result.pending} pending at DUB, ${result.rateLimited} refused with 429, failures ${JSON.stringify(result.failures)}`,
         `- attest p50 / p95 / max: ${[p50, p95, max].map((ms) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`)).join(" / ")}, ${values["attest-concurrency"]} at a time`,
         `- ${result.inRing} of ${result.bots} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
       ].join("\n"),

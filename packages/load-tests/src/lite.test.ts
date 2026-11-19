@@ -35,8 +35,10 @@ describe("attestFailure", () => {
     expect(attestFailure("[truapi-host] attest failed: Error: attestation failed (503 Service Unavailable)")).toBe("HTTP 503");
   });
 
-  it("keys a killed attest as a timeout", () => {
-    expect(attestFailure("[truapi-host] attest failed (killed after 480s): waiting for the ring")).toBe("timeout");
+  // DUB finishes a registration after truapi-host stops waiting, so the chain decides it later.
+  it("keys an attest the CLI stopped waiting on as pending", () => {
+    expect(attestFailure("[truapi-host] attest failed (killed after 480s): waiting for the ring")).toBe("pending");
+    expect(attestFailure("[truapi-host] attest failed: Error: dotNS username did not appear on Asset Hub after attestation")).toBe("pending");
   });
 
   it("keeps any other failure's first line", () => {
