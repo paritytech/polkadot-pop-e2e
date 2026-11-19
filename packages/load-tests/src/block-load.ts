@@ -3,6 +3,7 @@ import { readBlockContents, releaseBlockContents, type ChainEvent } from "./bloc
 import { describeError } from "./burst.js";
 import { bump } from "./stats.js";
 import type { PeopleApi } from "./target.js";
+import { sleep } from "./time.js";
 
 /** Weight used over a limit, per dimension. */
 export interface WeightShare {
@@ -151,6 +152,10 @@ export interface BlockFollower {
   blocks: BlockLoad[];
   /** Reads `dev_getBlockStats` for the blocks of game `index` and the block that ends it, from now on. */
   followGame(index: number): void;
+  /** The highest best block number the node has had. */
+  bestNumber(): number;
+  /** Resolves true once a finalized block at or past `number` is read, false after `timeoutMs`. */
+  waitForBlock(number: number, timeoutMs: number): Promise<boolean>;
   /** What the follower couldn't read, each kind with its count and first error. */
   notes(): string[];
   stop(): void;
@@ -180,6 +185,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
     else problems.set(kind, { count: 1, firstError: error });
   };
   let bestNumber = 0;
+  let highestRead = 0;
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
   const arrivalTimes = new Map<number, number | null>();
   let latestGameIndex: number | undefined;
@@ -242,6 +248,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
             limits,
           ),
         );
+        highestRead = Math.max(highestRead, block.number);
       } catch (error) {
         console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
         recordProblem("finalized block not read", `#${block.number}: ${(error as Error).message}`);
@@ -253,6 +260,15 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
     blocks,
     followGame(index) {
       followedGame = index;
+    },
+    bestNumber: () => bestNumber,
+    async waitForBlock(number, timeoutMs) {
+      const until = Date.now() + timeoutMs;
+      while (highestRead < number) {
+        if (Date.now() > until) return false;
+        await sleep(500);
+      }
+      return true;
     },
     notes: () => [...problems].map(([kind, { count, firstError }]) => `${kind}: ${count} times, the first: ${firstError}`),
     stop() {
