@@ -676,9 +676,11 @@ export function transitions(canonical, manifest) {
  * the fleet upgrade binaries first?") and current binaries × new runtimes ("does the
  * upgrade enact without the binary bump?"). Cross-term failures are rollout-ordering
  * findings, not defects of the target. Single-dimension PRs collapse to the target;
- * so do PRs that change the chain set itself (cross terms are ill-defined then).
+ * so do PRs that change the chain set itself (cross terms are ill-defined then), and
+ * `targetOnly` runs: a baseline bump records what production already runs in both
+ * dimensions, so a cross term would splice in pins production has left.
  */
-export function candidateMatrix(base, head) {
+export function candidateMatrix(base, head, { targetOnly = false } = {}) {
   const chainNames = (m) => Object.keys(m.chains ?? {}).sort().join(',');
   const binaryDim = (m) => JSON.stringify({ b: m.binaries ?? {}, s: m.services ?? {} });
   const runtimeDim = (m) =>
@@ -699,6 +701,7 @@ export function candidateMatrix(base, head) {
   };
   if (
     !base ||
+    targetOnly ||
     chainNames(base) !== chainNames(head) ||
     (binaryDim(base) === binaryDim(head) && runtimeDim(base) === runtimeDim(head))
   ) {

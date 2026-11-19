@@ -137,6 +137,13 @@ describe('candidateMatrix', () => {
     assert.deepEqual(candidateMatrix(previewnet, bumpRuntimes).map((c) => c.id), ['target']);
   });
 
+  it("a baseline bump moving both dimensions gates the target alone, with the record's transitions", () => {
+    const [target, ...rest] = candidateMatrix(previewnet, bumpBoth, { targetOnly: true });
+    assert.equal(target.id, 'target');
+    assert.deepEqual(rest, []);
+    assert.ok(target.transitions.length > 0);
+  });
+
   it('no base (dispatch), no pin movement, and chain-set changes all mean a single run', () => {
     assert.deepEqual(candidateMatrix(null, previewnet).map((c) => c.id), ['target']);
     assert.deepEqual(candidateMatrix(previewnet, { ...previewnet }).map((c) => c.id), ['target']);
