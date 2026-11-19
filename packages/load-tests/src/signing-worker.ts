@@ -11,6 +11,7 @@ import { playerFromSecret, type Player } from "./keys.js";
 import { RingSnapshots } from "./lite.js";
 import type { OutcomeOf, SignerKind, SigningJob, SigningReply } from "./signing-pool.js";
 import { connectAssetHub, connectPeople, type AssetHubApi, type Endpoints, type PeopleConnection } from "./target.js";
+import { withTimeout } from "./time.js";
 import { createProofQueue, proveTurnNow } from "./video/turn.js";
 
 const endpoints = workerData as Endpoints;
@@ -20,9 +21,9 @@ let snapshots: RingSnapshots | undefined;
 const proveInTurn = createProofQueue();
 
 /**
- * How long a job may take before the thread gives it up: a node that stops answering a
- * connection, or closes its subscriptions, leaves a read waiting forever. A sign-up waits for its
- * draws and a bind for its block; a proof waits for the proofs before it on this thread.
+ * How long a job may run before it fails: a node that stops answering a connection, or closes its
+ * subscriptions, leaves a read waiting forever. A sign-up waits for its draws and a bind for its
+ * block; a proof waits for the proofs before it on this thread.
  */
 const JOB_TIMEOUT_MS: Record<SigningJob["kind"], number> = { signUp: 180_000, bind: 180_000, turnProof: 120_000, sign: 60_000 };
 
@@ -69,19 +70,17 @@ async function runJob(job: SigningJob): Promise<OutcomeOf<SigningJob>> {
 const reply = (message: SigningReply) => parentPort!.postMessage(message);
 
 parentPort!.on("message", async ({ id, job }: { id: number; job: SigningJob }) => {
-  const timeoutMs = JOB_TIMEOUT_MS[job.kind];
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      dropConnections();
-      reject(new Error(`${job.kind} job: no answer from the chain in ${timeoutMs / 1000} s`));
-    }, timeoutMs);
-  });
+  let timedOut = false;
+  const dropOnTimeout = () => {
+    timedOut = true;
+    dropConnections();
+  };
   try {
-    reply({ id, ...(await Promise.race([runJob(job), timeout])) });
+    reply({ id, ...(await withTimeout(runJob(job), JOB_TIMEOUT_MS[job.kind], `${job.kind} job`, dropOnTimeout)) });
   } catch (error) {
-    reply({ id, error: (error as Error).message });
-  } finally {
-    clearTimeout(timer);
+    const message = (error as Error).message;
+    // A timeout is the job's own failure, which its caller counts.
+    if (!timedOut) reply({ id, error: message });
+    else reply({ id, ...(job.kind === "turnProof" ? { code: "timeout" } : { refusal: message }) });
   }
 });
