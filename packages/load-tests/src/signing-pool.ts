@@ -3,6 +3,7 @@ import { Worker } from "node:worker_threads";
 import type { Transaction } from "polkadot-api";
 import type { Player } from "./keys.js";
 import type { Endpoints } from "./target.js";
+import type { TurnProofOutcome } from "./video/turn.js";
 
 /** How a transaction is signed: plainly, as a phone's host signs, or as the host signs as the score participant. */
 export type SignerKind = "account" | "host" | "participant";
@@ -22,13 +23,14 @@ export type PlayerKeys = Pick<Player, "index" | "secretKey" | "liteEntropy">;
 type SignUpJob = { kind: "signUp"; player: PlayerKeys; drawTicket: boolean };
 type BindJob = { kind: "bind"; player: PlayerKeys };
 type SignJob = { kind: "sign"; player: PlayerKeys; chain: SigningEntry["chain"]; signer: SignerKind; callData: Uint8Array; nonce?: number };
+type TurnProofJob = { kind: "turnProof"; liteEntropy: Uint8Array; productId: string; genesis: `0x${string}` };
 
 /**
  * What a worker thread does: one player's sign-up, with a draw ticket or without; a lite bot's
- * bind of its game account; or one transaction built from its call data. A player with
- * `liteEntropy` signs up and binds as a lite person.
+ * bind of its game account; one transaction built from its call data; or a lite bot's TURN
+ * proof. A player with `liteEntropy` signs up and binds as a lite person.
  */
-export type SigningJob = SignUpJob | BindJob | SignJob;
+export type SigningJob = SignUpJob | BindJob | SignJob | TurnProofJob;
 
 /** A job's transaction signed and ready to send, or why it wasn't. */
 export type SigningOutcome = { extrinsic: string } | { refusal: string };
@@ -39,7 +41,13 @@ export type SignUpOutcome = { extrinsic: string; drawsEntered: number; drawSkip?
 /** How a lite bot's bind ended: a new or an existing binding, the route of a seat that takes no bind, or the chain's or the SDK's refusal. */
 export type BindOutcome = { binding: "new" | "existing" } | { route: string } | { refusal: string };
 
-export type OutcomeOf<J extends SigningJob> = J extends SignUpJob ? SignUpOutcome : J extends BindJob ? BindOutcome : SigningOutcome;
+export type OutcomeOf<J extends SigningJob> = J extends SignUpJob
+  ? SignUpOutcome
+  : J extends BindJob
+    ? BindOutcome
+    : J extends TurnProofJob
+      ? TurnProofOutcome
+      : SigningOutcome;
 
 export type SigningReply = { id: number } & (OutcomeOf<SigningJob> | { error: string });
 
@@ -96,6 +104,11 @@ export class SigningPool {
   /** A lite bot's game account bound to its lite person when its seat needs it, submitted by the worker as the app's bind submits it. */
   bind(player: Player): Promise<BindOutcome> {
     return this.run({ kind: "bind", player: playerKeys(player) });
+  }
+
+  /** A TURN proof of the current second with the lite key of `liteEntropy`, made when a thread takes the job. */
+  proveTurn(liteEntropy: Uint8Array, productId: string, genesis: `0x${string}`): Promise<TurnProofOutcome> {
+    return this.run({ kind: "turnProof", liteEntropy, productId, genesis });
   }
 
   /** Every entry signed, in order, logged under `label`. */

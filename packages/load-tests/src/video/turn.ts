@@ -9,9 +9,8 @@ import {
   type TurnProofInputs,
   type TurnServer,
 } from "@jollity/protocol";
-import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-individuality";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import { RingSnapshots } from "../lite.js";
+import type { PersonhoodProver } from "@parity/product-sdk-individuality";
+import { SigningPool } from "../signing-pool.js";
 import { bump } from "../stats.js";
 import { connectPeople, type Target } from "../target.js";
 import { sleep } from "../time.js";
@@ -21,7 +20,7 @@ import { VideoStats } from "./stats.js";
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1_000, 2_000];
 const RETRY_BUDGET_MS = 15_000;
-/** A proof older than this is built again before a retry. */
+/** A proof older than this is built again before it is posted. */
 const PROOF_MAX_AGE_MS = 30_000;
 /** The app's warm-up refreshes, before the game (`use-turn-warmup.ts`). */
 const REFRESH_BEFORE_GAME_MS = [10 * 60_000, 3 * 60_000];
@@ -37,34 +36,41 @@ export interface TurnIssuer {
   fetch: TurnFetch;
 }
 
-type TurnProof = { body: TurnProofBody; at: number };
+export type TurnProof = { body: TurnProofBody; at: number };
 
-/** A ring-VRF proof of the current second with the bot's lite key, or none after counting why. */
-async function proveTurn(prover: PersonhoodProver, setup: TurnProofSetup, stats: VideoStats): Promise<TurnProof | undefined> {
+/** A proof of the current second, with the time building it took; or the step that stopped it. */
+export type TurnProofOutcome = { proof: TurnProof; ms: number } | { code: string };
+
+/** One bot's proof of the current second, made on whichever thread has its key. */
+export type ProveTurn = () => Promise<TurnProofOutcome>;
+
+/** A ring-VRF proof of the current second with `prover`'s lite key. */
+export async function proveTurnNow(prover: PersonhoodProver, setup: TurnProofSetup): Promise<TurnProofOutcome> {
   const at = Date.now();
-  const proofResult = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(at / 1000) });
-  stats.turnProofMs.add(Date.now() - at);
-  if (!("code" in proofResult)) return { body: proofResult.body, at };
-  bump(stats.turnFetches, `proof ${proofResult.code}`);
-  return undefined;
+  const result = await buildTurnProof(prover, { ...setup, timestamp: Math.floor(at / 1000) });
+  return "code" in result ? { code: result.code } : { proof: { body: result.body, at }, ms: Date.now() - at };
 }
 
 /**
  * One bot's TURN credentials as the app fetches them: `proof`, or a new one, posted to the
- * issuer, up to three attempts with backoff for a timeout, a 5xx or a refused timestamp, proved again
- * before an attempt once the proof is 30 s old or its timestamp was refused. A 403, a 429 or another
- * 400 ends the fetch. Every attempt is counted in `stats` by outcome, with the issuer's answer time.
+ * issuer, up to three attempts with backoff for a timeout, a 5xx or a refused timestamp. A proof
+ * 30 s old or with a refused timestamp is built again before it is posted. A 403, a 429 or another
+ * 400 ends the fetch. Every attempt is counted in `stats` by outcome, with the proof's and the
+ * issuer's time.
  */
-export async function fetchTurnPass(
-  prover: PersonhoodProver,
-  setup: TurnProofSetup,
-  issuer: TurnIssuer,
-  stats: VideoStats,
-  proof?: TurnProof,
-): Promise<TurnPass | undefined> {
+export async function fetchTurnPass(proveTurn: ProveTurn, issuer: TurnIssuer, stats: VideoStats, proof?: TurnProof): Promise<TurnPass | undefined> {
+  const prove = async (): Promise<TurnProof | undefined> => {
+    const outcome = await proveTurn();
+    if ("code" in outcome) {
+      bump(stats.turnFetches, `proof ${outcome.code}`);
+      return undefined;
+    }
+    stats.turnProofMs.add(outcome.ms);
+    return outcome.proof;
+  };
   const startTime = Date.now();
   for (let attempt = 1; ; attempt++) {
-    if (!proof || (attempt > 1 && Date.now() - proof.at > PROOF_MAX_AGE_MS)) proof = await proveTurn(prover, setup, stats);
+    if (!proof || Date.now() - proof.at > PROOF_MAX_AGE_MS) proof = await prove();
     if (!proof) return undefined;
     const postTime = Date.now();
     const result = await redeemTurnProof(issuer.fetch, issuer.base, proof.body);
@@ -94,8 +100,7 @@ export class TurnPasses {
   private fetching: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly provers: Map<number, PersonhoodProver>,
-    private readonly setup: TurnProofSetup,
+    private readonly provers: Map<number, ProveTurn>,
     private readonly issuer: TurnIssuer,
   ) {}
 
@@ -125,19 +130,16 @@ export class TurnPasses {
     this.timers.forEach((timer) => clearTimeout(timer));
   }
 
+  /** Every due bot proves and posts at once: each proof is built right before its post. */
   private fetchAll(): Promise<void> {
     this.fetching = this.fetching.then(async () => {
       const due = [...this.provers].filter(([index]) => {
         const pass = this.passes.get(index);
         return !pass || turnPassLeftMs(pass, Date.now()) < REFRESH_BELOW_MS;
       });
-      // Ring-VRF proofs block this thread: all of them go before the first request, so none delays
-      // reading an issuer's answer and the issuer times stay the issuer's own.
-      const proofs: Array<{ index: number; prover: PersonhoodProver; proof: TurnProof | undefined }> = [];
-      for (const [index, prover] of due) proofs.push({ index, prover, proof: await proveTurn(prover, this.setup, this.stats) });
       await Promise.all(
-        proofs.map(async ({ index, prover, proof }) => {
-          const pass = proof && (await fetchTurnPass(prover, this.setup, this.issuer, this.stats, proof));
+        due.map(async ([index, prove]) => {
+          const pass = await fetchTurnPass(prove, this.issuer, this.stats);
           if (pass) this.passes.set(index, pass);
         }),
       );
@@ -148,8 +150,8 @@ export class TurnPasses {
 
 /**
  * TURN passes for the lite bots of `liteEntropies`, by player index, proved with each bot's lite
- * key over the lite ring at People's finalized block, from the issuer at `issuerBase`. `close`
- * ends the People connection.
+ * key over the lite ring at People's finalized block on one worker thread per core, from the
+ * issuer at `issuerBase`. `close` ends the worker threads.
  */
 export async function openLiteTurnPasses(
   target: Target,
@@ -157,17 +159,17 @@ export async function openLiteTurnPasses(
   productId: string,
   issuerBase: string,
 ): Promise<{ passes: TurnPasses; close(): void }> {
-  const { client, api } = connectPeople(target);
-  const snapshots = new RingSnapshots(api, client);
-  const provers = new Map([...liteEntropies].map(([index, entropy]) => [index, snapshots.prover(entropy)]));
-  const { genesisHash } = await client.getChainSpecData();
-  const setup: TurnProofSetup = { productId, genesis: genesisHash as `0x${string}`, collectionId: ringCollectionId, hash: blake2b256 };
-  const passes = new TurnPasses(provers, setup, { base: issuerBase, fetch });
+  const { client } = connectPeople(target);
+  const { genesisHash } = await client.getChainSpecData().finally(() => client.destroy());
+  const pool = SigningPool.open(target);
+  const genesis = genesisHash as `0x${string}`;
+  const provers = new Map([...liteEntropies].map(([index, entropy]): [number, ProveTurn] => [index, () => pool.proveTurn(entropy, productId, genesis)]));
+  const passes = new TurnPasses(provers, { base: issuerBase, fetch });
   return {
     passes,
     close() {
       passes.stop();
-      client.destroy();
+      void pool.close();
     },
   };
 }

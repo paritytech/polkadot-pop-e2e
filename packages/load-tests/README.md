@@ -169,8 +169,9 @@ truapi-host (each has its own wallet). Each fetches TURN credentials when the ap
 the run knows its game, then 10 and 3 minutes before it. The proof is `buildTurnProof` from
 `@jollity/protocol` with the bot's lite key over its lite ring at People's finalized block, posted
 to the network's issuer (`--turn-issuer`, default the stack's identity backend), with the app's up
-to three attempts. The runner proves and fetches for its machine's bots and gives each truapi-host
-its bot's TURN servers. Without `--lite`, bots have STUN only.
+to three attempts. The runner proves and fetches for its machine's bots, proving on one worker
+thread per core and each proof right before its post, so no proof is over 30 s old when it goes
+out, and gives each truapi-host its bot's TURN servers. Without `--lite`, bots have STUN only.
 
 A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A
 parity-large machine has 32 Gbps, about 7 Gbps of it per runner to external IPs, so 400 video

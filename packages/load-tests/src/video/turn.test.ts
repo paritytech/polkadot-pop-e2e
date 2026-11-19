@@ -6,7 +6,7 @@ import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-ind
 import { afterEach, describe, expect, it } from "vitest";
 import { sleep } from "../time.js";
 import { VideoStats } from "./stats.js";
-import { fetchTurnPass, TurnPasses, type TurnProofSetup } from "./turn.js";
+import { fetchTurnPass, proveTurnNow, TurnPasses, type ProveTurn, type TurnProofSetup } from "./turn.js";
 
 const CREDENTIALS = { servers: ["turn:turn.example:3478?transport=udp", "turns:turn.example:5349?transport=tcp"], username: "1700000000:alias", password: "secret", ttl: 1800 };
 
@@ -41,6 +41,7 @@ function liteProver(messages: Uint8Array[]): PersonhoodProver {
 
 const GENESIS = `0x${"ab".repeat(32)}` as const;
 const setup: TurnProofSetup = { productId: "dim2.testnet", genesis: GENESIS, collectionId: ringCollectionId, hash: blake2b256 };
+const proveWith = (prover: PersonhoodProver): ProveTurn => () => proveTurnNow(prover, setup);
 
 let servers: Server[] = [];
 afterEach(() => {
@@ -56,7 +57,7 @@ describe("fetchTurnPass", () => {
     servers.push(issuer.server);
     const messages: Uint8Array[] = [];
     const stats = new VideoStats();
-    const pass = await fetchTurnPass(liteProver(messages), setup, { base: issuer.base, fetch }, stats);
+    const pass = await fetchTurnPass(proveWith(liteProver(messages)), { base: issuer.base, fetch }, stats);
 
     expect(pass?.turn).toEqual(CREDENTIALS.servers.map((urls) => ({ urls, username: CREDENTIALS.username, credential: CREDENTIALS.password })));
     const [body] = issuer.bodies;
@@ -65,6 +66,22 @@ describe("fetchTurnPass", () => {
     expect(messages).toEqual([freshnessMessage(body.timestamp, blake2b256)]);
     expect(stats.turnFetches).toEqual({ ok: 1 });
     expect(stats.turnIssuerMs.total).toBe(1);
+  });
+
+  // The issuer takes a proof stamped within 60 s, and the app posts none older than 30 s, so a
+  // proof that waited (for other bots' proofs, or a retry) is built again before it goes out.
+  it("proves again before posting a proof older than 30 s", async () => {
+    const issuer = await startIssuer([{ status: 200, body: CREDENTIALS }]);
+    servers.push(issuer.server);
+    const messages: Uint8Array[] = [];
+    const stats = new VideoStats();
+    const stale = { body: { productId: "dim2.testnet", collection: "0x00", proof: "0x00", ringIndex: 0, ringRevision: 0, timestamp: 1 }, at: Date.now() - 31_000 };
+    expect(await fetchTurnPass(proveWith(liteProver(messages)), { base: issuer.base, fetch }, stats, stale)).toBeDefined();
+
+    expect(messages).toHaveLength(1);
+    expect(issuer.bodies).toHaveLength(1);
+    expect(Math.abs(issuer.bodies[0].timestamp - Date.now() / 1000)).toBeLessThan(5);
+    expect(stats.turnProofMs.total).toBe(1);
   });
 
   it("posts to an overloaded issuer three times with the same proof", { timeout: 10_000 }, async () => {
@@ -76,7 +93,7 @@ describe("fetchTurnPass", () => {
     servers.push(issuer.server);
     const messages: Uint8Array[] = [];
     const stats = new VideoStats();
-    const pass = await fetchTurnPass(liteProver(messages), setup, { base: issuer.base, fetch }, stats);
+    const pass = await fetchTurnPass(proveWith(liteProver(messages)), { base: issuer.base, fetch }, stats);
 
     expect(pass).toBeDefined();
     expect(messages).toHaveLength(1);
@@ -91,7 +108,7 @@ describe("fetchTurnPass", () => {
     servers.push(issuer.server);
     const messages: Uint8Array[] = [];
     const stats = new VideoStats();
-    const pass = await fetchTurnPass(liteProver(messages), setup, { base: issuer.base, fetch }, stats);
+    const pass = await fetchTurnPass(proveWith(liteProver(messages)), { base: issuer.base, fetch }, stats);
 
     expect(pass).toBeUndefined();
     expect(messages).toHaveLength(2);
@@ -103,7 +120,7 @@ describe("fetchTurnPass", () => {
     servers.push(issuer.server);
     const stats = new VideoStats();
     const prover = { holds: async () => false, prove: async () => Promise.reject(new Error("unreachable")) } as unknown as PersonhoodProver;
-    expect(await fetchTurnPass(prover, setup, { base: issuer.base, fetch }, stats)).toBeUndefined();
+    expect(await fetchTurnPass(proveWith(prover), { base: issuer.base, fetch }, stats)).toBeUndefined();
     expect(issuer.bodies).toHaveLength(0);
     expect(stats.turnFetches).toEqual({ "proof no-ring-key": 1 });
   });
@@ -120,8 +137,8 @@ describe("TurnPasses", () => {
       { status: 403, body: { error: "proof rejected" } },
     ]);
     servers.push(issuer.server);
-    const provers = new Map([0, 1].map((index) => [index, liteProver([])]));
-    const passes = new TurnPasses(provers, setup, { base: issuer.base, fetch });
+    const provers = new Map([0, 1].map((index) => [index, proveWith(liteProver([]))]));
+    const passes = new TurnPasses(provers, { base: issuer.base, fetch });
     // The 10-minute refresh is past; the 3-minute one comes 300 ms from now.
     await passes.warm(Date.now() + 3 * 60_000 + 300);
     expect(issuer.bodies).toHaveLength(2);
@@ -139,7 +156,7 @@ describe("TurnPasses", () => {
   it("leaves a pass with 10 minutes or more alone at a refresh", async () => {
     const issuer = await startIssuer([{ status: 200, body: CREDENTIALS }]);
     servers.push(issuer.server);
-    const passes = new TurnPasses(new Map([[0, liteProver([])]]), setup, { base: issuer.base, fetch });
+    const passes = new TurnPasses(new Map([[0, proveWith(liteProver([]))]]), { base: issuer.base, fetch });
     await passes.warm(Date.now() + 3 * 60_000 + 300);
     await sleep(800);
     passes.stop();
