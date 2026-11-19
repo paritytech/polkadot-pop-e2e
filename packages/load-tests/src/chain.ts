@@ -9,7 +9,6 @@ import { claimCredits, type ClaimResult } from "./claim.js";
 import { buildDraw, GAME_AIRDROP_SOURCE, settleDraw, type DrawResult } from "./draw.js";
 import { ALREADY_REGISTERED, bindLiteBots, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
-import { readRootKey } from "./lite.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
@@ -57,7 +56,7 @@ export interface ChainRun {
   claim: boolean;
   /** The players are lite bots, which sign up free after a bind and get no funds. */
   lite: boolean;
-  /** The own game holds one prize draw, which every player enters and the winners claim. Takes the chain's root key. */
+  /** Every player enters the game's prize draws, and the winners claim; a game this run schedules gets one draw. */
   draw: boolean;
 }
 
@@ -204,9 +203,6 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     let phases = chainPhases;
     let gameAt = run.gameAt;
-    if (run.draw && !(ownGame && (await readRootKey(api, target)))) {
-      throw new Error(`--draw gives the bots draw tickets only in a game this run schedules with the chain's root key, and ${target.label} has none here`);
-    }
     if (ownGame) {
       await clearAndFund(api, run, target.sudo!, players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
@@ -250,8 +246,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
     blockFollower.followGame(game.index);
-    if (run.draw && game.airdrops_scheduled !== 1) {
-      throw new Error(`game ${game.index} scheduled ${game.airdrops_scheduled} prize draws, not 1: fund ${GAME_AIRDROP_SOURCE} with the prize asset`);
+    if (run.draw && game.airdrops_scheduled === 0) {
+      const remedy = ownGame ? `: fund ${GAME_AIRDROP_SOURCE} with the prize asset` : "";
+      findings.push(`draw: game ${game.index} has no prize draw${remedy}`);
     }
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame && !run.lite) await topUpPlayers(target, api, players);
@@ -341,19 +338,20 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       }
     }
     let draw: DrawResult | null = null;
-    if (run.draw && timeline.at(-1)!.state === "None") {
+    if (run.draw && game.airdrops_scheduled > 0 && timeline.at(-1)!.state === "None") {
       try {
         draw = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
         console.log(`[chain] draw: ${draw.tickets} tickets, ${draw.winners.length} winners, ${draw.claimed} claimed`);
         if (draw.tickets < players.length) findings.push(`draw: ${players.length - draw.tickets} of ${players.length} players entered no ticket`);
-        if (draw.winners.length === 0) findings.push("draw: no winner");
+        // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
+        if (draw.winners.length === 0 && ownGame) findings.push("draw: no winner");
         if (draw.claimed < draw.winners.length) findings.push(`draw: ${draw.winners.length - draw.claimed} of ${draw.winners.length} prizes not claimed`);
         for (const [reason, count] of Object.entries(draw.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
         for (const [failure, count] of Object.entries(draw.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
       } catch (error) {
         findings.push(`draw: stopped on ${(error as Error).message}`);
       }
-    } else if (run.draw) {
+    } else if (run.draw && game.airdrops_scheduled > 0) {
       findings.push("draw: the game didn't end, so no prize was claimed");
     }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);

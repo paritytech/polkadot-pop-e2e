@@ -290,7 +290,7 @@ export function chainMarkdown(result: ChainResult): string {
       : []),
     ...(result.draw
       ? [
-          `Prize draw: ${result.draw.tickets} tickets, ${result.draw.winners.length} winners, ${result.draw.claimed} prizes claimed; the winners hold ${result.draw.prizeHeld} of the prize asset.`,
+          `Prize draw: ${result.draw.tickets} tickets, ${result.draw.winners.length} winners, ${result.draw.claimed} prizes claimed (claim p50 / p95 / max ${result.draw.claimMs.p50 ?? "–"} / ${result.draw.claimMs.p95 ?? "–"} / ${result.draw.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.claimFailures)}); the winners hold ${result.draw.prizeHeld} of the prize asset.`,
           `Winners: ${result.draw.winners.join(", ") || "–"}`,
           "",
         ]

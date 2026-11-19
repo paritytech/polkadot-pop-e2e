@@ -4,6 +4,7 @@ import { ss58Address } from "@polkadot-labs/hdkd-helpers";
 import { claimPrizeTx, fromPapi } from "@parity/product-sdk-individuality";
 import type { GameEngine, PalletDraw } from "@jollity/protocol/src/engine";
 import { submitBurst } from "./burst.js";
+import type { QuantileSummary } from "./histogram.js";
 import type { Player } from "./keys.js";
 import type { SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
@@ -36,6 +37,8 @@ export interface DrawResult {
   claimed: number;
   /** Claims that failed, by error. */
   claimFailures: Record<string, number>;
+  /** From submitting a claim to its block. */
+  claimMs: QuantileSummary;
   /** The prize asset the winners hold after their claims, in base units. */
   prizeHeld: string;
 }
@@ -90,6 +93,7 @@ export async function settleDraw(
     ineligible,
     claimed: after.filter((draw) => draw?.claimed).length,
     claimFailures: burst.failures,
+    claimMs: burst.inclusionMs.summary(),
     prizeHeld: balances.flat().reduce((sum, balance) => sum + BigInt(balance.amount), 0n).toString(),
   };
 }
