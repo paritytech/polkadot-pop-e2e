@@ -13,7 +13,8 @@ or Asset Hub.
 |---|---|
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
-| `bots_per_machine` | bots one parity-large machine runs (default 1000); with `video`, 75 per 4-core `ubuntu-latest` machine instead |
+| `bots_per_machine` | bots one machine runs; empty for the mode's default: 1000 per parity-large, 100 lite bots per parity-large, 75 video bots or 30 lite video bots per 4-core `ubuntu-latest` |
+| `lite` | the bots are lite bots (see [Lite bots](#lite-bots-and-the-prize-draw)): both the sign-up and the messages run with `--lite` |
 | `video` | bots play H.264 video to their group over real WebRTC links (see [Video](#video)) |
 | `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
 | `claim` | whether the bots claim their NFTs after the reports |
@@ -171,11 +172,15 @@ to the network's issuer (`--turn-issuer`, default the stack's identity backend),
 to three tries. The runner proves and fetches for its machine's bots and gives each truapi-host
 its bot's TURN servers. Without `--lite`, bots have STUN only.
 
-A video bot sends and receives about 1.6 Mbit/s each way, so the workflow puts 75 on each 4-core
-`ubuntu-latest` machine. The summary gets a **Video on …** table per layer:
+A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A lite
+bot also runs in a truapi-host and bun of its own, which took 145 MB and 4% of a core per bot on
+an M-series Mac, against 25 MB and 2% for bots sharing a host by 10. So the workflow puts 75 video
+bots, or 30 lite video bots, on each 4-core `ubuntu-latest` machine until a run there gives the
+real cost: the host table's **Host CPU / RSS per ghost**. The summary gets a **Video on …** table
+per layer:
 
-- **Links up / attempted**: peer connections whose `"data"` channel opened; **With video**: those
-  whose video renegotiation completed. Each link counts once per side.
+- **Links up / attempted**: links up when the game ended, as the signalling table counts them;
+  **With video**: links whose video renegotiation completed. Each link counts once per side.
 - **Connect**: room open to the channel opening; **Candidate types**: the local candidate of each
   connected link's selected pair (`host`, `srflx`, `prflx`, `relay`).
 - **First frame**: camera on (room open, or the second round's start) to the first whole keyframe.
@@ -187,8 +192,8 @@ A video bot sends and receives about 1.6 Mbit/s each way, so the workflow puts 7
   the issuer's answer time.
 
 A 500-bot video run on previewnet takes the lite bots made once with `load people --players 500`,
-then the workflow with `network: previewnet`, `players: 500`, `video: true` and `args: --lite`:
-7 `ubuntu-latest` machines.
+then the workflow with `network: previewnet`, `players: 500`, `lite: true` and `video: true`:
+17 `ubuntu-latest` machines.
 
 Locally, 60 video bots on direct RPC against a previewnet fork's stack, STUN off and every link on
 the loopback address (`--ice-address`). Without it each link binds a socket on every interface,
