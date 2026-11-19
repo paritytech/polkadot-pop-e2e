@@ -57,9 +57,26 @@ interface Link {
   remoteSsrc?: number;
   pendingCandidates: RTCIceCandidateInit[];
   up: boolean;
+  /** Candidates by type this side gathered and the co-player sent, in descriptions and trickled. */
+  localCandidates: Record<string, number>;
+  remoteCandidates: Record<string, number>;
 }
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 80);
+
+function countCandidate(counts: Record<string, number>, candidate: string | undefined): void {
+  const type = / typ (\w+)/.exec(candidate ?? "")?.[1];
+  if (type) bump(counts, type);
+}
+
+function countSdpCandidates(counts: Record<string, number>, sdp: string): void {
+  for (const line of sdp.split("\r\n")) if (line.startsWith("a=candidate:")) countCandidate(counts, line);
+}
+
+const describeCandidates = (counts: Record<string, number>) =>
+  Object.entries(counts)
+    .map(([type, count]) => `${type} ${count}`)
+    .join(" ") || "none";
 
 /**
  * One bot's peer connections, set up as the app's mesh (jollity-app `lib/webrtc/mesh.ts`) sets
@@ -98,7 +115,10 @@ export class VideoMesh implements PeerLinks {
     const { desc, cand, gen } = rtc;
     if (desc?.type === "offer" && desc.sdp) void this.answer(link, desc.sdp, gen);
     else if (desc?.type === "answer" && desc.sdp) void this.applyAnswer(link, desc.sdp);
-    if (cand) void this.addCandidate(link, cand);
+    if (cand) {
+      countCandidate(link.remoteCandidates, cand.candidate);
+      void this.addCandidate(link, cand);
+    }
   }
 
   /** Closes every link and stops the camera; returns the links that were up until they closed. */
@@ -123,19 +143,24 @@ export class VideoMesh implements PeerLinks {
       descriptionSent: false,
       pendingCandidates: [],
       up: false,
+      localCandidates: {},
+      remoteCandidates: {},
     };
     this.links.set(peer, link);
     if (!standby) link.receive.activate(now);
     pc.onIceCandidate.subscribe((candidate) => {
       // Candidates gathered before the description went out are in its SDP.
       if (!candidate || !link.descriptionSent || this.closed) return;
+      countCandidate(link.localCandidates, candidate.candidate);
       if (link.channel?.readyState === "open") {
         this.sendLane(link, { tag: "IceCandidates", value: [{ sdp: candidate.candidate, sdpMLineIndex: candidate.sdpMLineIndex ?? 0, sdpMid: candidate.sdpMid }] });
       } else this.options.signal(peer, { rtc: { cand: candidate.toJSON() } });
     });
     pc.connectionStateChange.subscribe((state) => {
-      if (state === "failed") bump(stats.failures, "connection failed");
+      if (state === "failed") bump(stats.failures, `connection failed: local ${describeCandidates(link.localCandidates)}, remote ${describeCandidates(link.remoteCandidates)}`);
     });
+    // 701: a STUN or TURN server that didn't answer; 401 or 403 from a TURN server that refused the credentials.
+    pc.onIceCandidateError.subscribe((event) => bump(stats.candidateErrors, `${event.errorCode} ${event.errorText ?? ""}`.trim()));
     pc.onDataChannel.subscribe((channel) => this.attachChannel(link, channel));
     // Where the app's answerer adds its track before the lane offer arrives, this one takes the
     // offer's transceiver, during setRemoteDescription so its track's first packets are counted.
@@ -157,6 +182,7 @@ export class VideoMesh implements PeerLinks {
       if (this.closed) return;
       this.options.signal(link.peer, { rtc: { desc: { type: "offer", sdp: link.pc.localDescription!.sdp } } });
       link.descriptionSent = true;
+      countSdpCandidates(link.localCandidates, link.pc.localDescription!.sdp);
     } catch (error) {
       bump(this.options.stats.failures, `offer: ${describe(error)}`);
     }
@@ -170,6 +196,7 @@ export class VideoMesh implements PeerLinks {
       return;
     }
     link.remoteSdp = sdp;
+    countSdpCandidates(link.remoteCandidates, sdp);
     try {
       await link.pc.setRemoteDescription({ type: "offer", sdp });
       await this.flushCandidates(link);
@@ -177,6 +204,7 @@ export class VideoMesh implements PeerLinks {
       if (this.closed) return;
       this.options.signal(link.peer, { rtc: { desc: { type: "answer", sdp: link.pc.localDescription!.sdp }, gen } });
       link.descriptionSent = true;
+      countSdpCandidates(link.localCandidates, link.pc.localDescription!.sdp);
     } catch (error) {
       bump(this.options.stats.failures, `answer: ${describe(error)}`);
     }
@@ -185,6 +213,7 @@ export class VideoMesh implements PeerLinks {
   private async applyAnswer(link: Link, sdp: string): Promise<void> {
     if (!link.initiator || link.remoteSdp !== undefined || link.pc.signalingState !== "have-local-offer") return;
     link.remoteSdp = sdp;
+    countSdpCandidates(link.remoteCandidates, sdp);
     try {
       await link.pc.setRemoteDescription({ type: "answer", sdp });
       await this.flushCandidates(link);
@@ -265,7 +294,10 @@ export class VideoMesh implements PeerLinks {
         await pc.setRemoteDescription({ type: "answer", sdp: signal.value });
         this.recordVideoNegotiation(link);
       } else {
-        for (const candidate of signal.value) await pc.addIceCandidate({ candidate: candidate.sdp, sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid });
+        for (const candidate of signal.value) {
+          countCandidate(link.remoteCandidates, candidate.sdp);
+          await pc.addIceCandidate({ candidate: candidate.sdp, sdpMLineIndex: candidate.sdpMLineIndex, sdpMid: candidate.sdpMid });
+        }
       }
     } catch (error) {
       bump(this.options.stats.failures, `lane ${signal.tag}: ${describe(error)}`);
@@ -327,6 +359,9 @@ export class VideoMesh implements PeerLinks {
   private async closeLink(link: Link, when: "end" | "round"): Promise<void> {
     if (!this.links.delete(link.peer)) return;
     link.receive.finish(Date.now());
+    const { stats } = this.options;
+    for (const [type, count] of Object.entries(link.localCandidates)) bump(stats.localCandidates, type, count);
+    for (const [type, count] of Object.entries(link.remoteCandidates)) bump(stats.remoteCandidates, type, count);
     if (link.up) {
       // A co-player with no round left closes its side at the same moment, so a link closed by
       // the round switch may already read closed here: only a failed connection counts as down.

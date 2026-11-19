@@ -9,6 +9,11 @@ export class VideoStats {
   connectMs = new Histogram();
   /** Local candidate type of each connected link's selected pair: host, srflx, prflx or relay. */
   candidateTypes: Record<string, number> = {};
+  /** Candidates by type the bots gathered and their co-players sent them, over every link. */
+  localCandidates: Record<string, number> = {};
+  remoteCandidates: Record<string, number> = {};
+  /** ICE candidate errors by code and text, such as 701 for a TURN server that didn't answer. */
+  candidateErrors: Record<string, number> = {};
   /** Why a link's negotiation or connection failed, by step. */
   failures: Record<string, number> = {};
 

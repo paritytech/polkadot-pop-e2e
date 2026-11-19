@@ -146,6 +146,10 @@ describe("SignallingBot", () => {
     expect(stats.linksUp).toBe(stats.links);
     expect(video.linksWithVideo).toBe(stats.links);
     expect(video.candidateTypes).toEqual({ host: stats.links });
+    // One loopback host candidate per link and side, sent in the description and received by the co-player.
+    expect(video.localCandidates).toEqual({ host: stats.links });
+    expect(video.remoteCandidates).toEqual({ host: stats.links });
+    expect(video.candidateErrors).toEqual({});
     expect(video.failures).toEqual({});
     // Each round's group sends both ways, and a group that starts in the second round starts
     // mid-GOP, so its first frame comes from a PLI served with the next IDR.
