@@ -136,7 +136,41 @@ The `chain` table has one row per burst: sign-up, report and NFT claim.
 - **Credits** shows how many of the credits People awarded the bots arrived on Asset Hub and how
   long that took, and how many were claimed on chain once every bot was done.
 - **A player's claims** is the time one bot took for all of its claims, one after another.
-- **Fullest block** is the fullest People block of the game, by weight and proof size.
+
+**Blocks by phase** has one row per game state the People chain executed in: Registration (the
+sign-up burst), Shuffle, Reporting (the report burst) and PlayerProcess. A block counts in the
+state its previous block left the game in, so the block that ends a state counts with it. Blocks
+before the run's game and after it don't count. The run reads every finalized block once, at its
+hash.
+
+- **Block time** is the time between consecutive blocks as the run's RPC node imported them. The
+  chain's own timestamps can't give it: they follow the relay chain's slots, which consecutive
+  blocks share.
+- **Max normal %** is the normal-class weight over the normal-class limit, by ref time and proof
+  size; **Max mandatory %** is the mandatory class over the block's limit, which on
+  paseo-next-v2 includes the game's own processing.
+- **Max KB** is the extrinsics' encoded size; **Max PoV KB**, on previewnet only, is the
+  proof size the node reports with `dev_getBlockStats`.
+- **Max unincluded** is `ParachainSystem.UnincludedSegment`: blocks the relay chain hasn't
+  included yet.
+- **Max credit trees** is the NFT credit trees waiting to be built, at most 8. A block builds one,
+  so 8 waiting doesn't reject anything by itself: a report fails with `CreditCapacityExhausted`
+  only when its credits don't fit the room left, and player processing waits while room is low.
+- **Max finality lag** is how many blocks the best block was ahead when a block was finalized.
+- **Collator 1 block ends**, on previewnet only, counts why building each block ended, from the
+  collator's public log. When the log can't be read, the **Notes** list at the end says so, along
+  with blocks or PoV sizes the run couldn't read.
+
+**Game processing** shows the shuffle's work without its wait for the game date, the blocks from
+the end of reporting to `GameEnded`, and the heaviest step. Where the runtime runs the game's steps
+as calls, that is the step call's weight over the step budget, half the normal class's
+`max_extrinsic`; otherwise it is the mandatory class's share of a block's ref time.
+
+The run fails when `GameEnded` is later than the report end plus `player_process`, and a report
+that fails with `CreditCapacityExhausted` is one of the report burst's failures. A **Capacity**
+line under the findings lists blocks of a burst that took over twice the game's median block
+time, blocks whose normal class reached 90%, and blocks after which 8 credit trees were waiting;
+these don't fail the run.
 
 The messages table has one row per run:
 

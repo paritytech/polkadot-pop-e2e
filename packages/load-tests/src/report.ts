@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { QuantileSummary } from "./histogram.js";
 import type { Sample } from "./prometheus.js";
 import type { ChainResult } from "./chain.js";
+import { summarizeGameProcessing, summarizePhases, type GameProcessing, type PhaseLoad } from "./phases.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
 import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
 
@@ -195,7 +196,67 @@ function stepsMarkdown(target: string, steps: StepSummary[]): string {
   ].join("\n");
 }
 
-/** One chain game's result: the timeline of its phases, both transaction bursts, block fullness. */
+function phasesMarkdown(phases: PhaseLoad[]): string[] {
+  if (phases.length === 0) return ["Blocks by phase: no finalized block of the game was read.", ""];
+  const percent = (share: number) => `${Math.round(share * 100)}`;
+  const withWitness = phases.some((phase) => phase.maxWitnessBytes !== null);
+  const withProposals = phases.some((phase) => phase.proposalEnds !== null);
+  const header = [
+    "Phase",
+    "Blocks",
+    "Block time p50 / max s",
+    "Max extrinsics",
+    "Max normal % ref / proof",
+    "Max mandatory % ref / proof",
+    "Max KB",
+    ...(withWitness ? ["Max PoV KB"] : []),
+    "Max unincluded",
+    "Max credit trees",
+    "Max finality lag",
+    "Failed extrinsics",
+    ...(withProposals ? ["Collator 1 block ends"] : []),
+  ];
+  const rows = phases.map((phase) =>
+    [
+      phase.phase,
+      `${phase.blocks} (#${phase.firstBlock}–#${phase.lastBlock})`,
+      [phase.blockMs.p50, phase.blockMs.max].map((ms) => (ms === null ? "–" : (ms / 1000).toFixed(1))).join(" / "),
+      phase.maxExtrinsics,
+      `${percent(phase.maxNormal.refTime)} / ${percent(phase.maxNormal.proofSize)}`,
+      `${percent(phase.maxMandatory.refTime)} / ${percent(phase.maxMandatory.proofSize)}`,
+      (phase.maxBytes / 1024).toFixed(1),
+      ...(withWitness ? [phase.maxWitnessBytes === null ? "–" : (phase.maxWitnessBytes / 1024).toFixed(1)] : []),
+      phase.maxUnincluded,
+      phase.maxCreditTrees,
+      phase.maxFinalityLag,
+      phase.failedExtrinsics,
+      ...(withProposals
+        ? [
+            Object.entries(phase.proposalEnds ?? {})
+              .map(([end, count]) => `${end} ${count}`)
+              .join(", ") || "–",
+          ]
+        : []),
+    ].join(" | "),
+  );
+  return ["Blocks by phase:", "", `| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row} |`), ""];
+}
+
+function processingMarkdown({ shuffle, playerProcess, heaviestStep }: GameProcessing): string {
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const parts = [
+    shuffle ? `shuffle ${shuffle.blocks} blocks / ${seconds(shuffle.ms)}` : "shuffle –",
+    playerProcess
+      ? `reports ended #${playerProcess.reportEndBlock}, GameEnded ${playerProcess.gameEndBlock === null ? "not seen" : `#${playerProcess.gameEndBlock}`}: ${playerProcess.blocks} blocks / ${seconds(playerProcess.ms)}`
+      : "player processing –",
+    heaviestStep
+      ? `heaviest step ${Math.round(heaviestStep.share * 100)}% of ${heaviestStep.source === "step call" ? "the step budget" : "a block's ref time"} (#${heaviestStep.block}, ${heaviestStep.source})`
+      : "heaviest step –",
+  ];
+  return `Game processing: ${parts.join("; ")}.`;
+}
+
+/** One chain game's result: the timeline of its phases, the transaction bursts, the People blocks of each phase. */
 export function chainMarkdown(result: ChainResult): string {
   const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   const phaseRow = (name: string, phase: ChainResult["signUp"] | null) =>
@@ -203,13 +264,12 @@ export function chainMarkdown(result: ChainResult): string {
       ? `| ${name} | ${phase.ok}/${phase.submitted} | ${phase.inTime} | ${phase.inclusionMs.p50 ?? "–"} / ${phase.inclusionMs.p95 ?? "–"} / ${phase.inclusionMs.max ?? "–"} | ${seconds(phase.durationMs)} | ${phase.firstBlock ?? "–"}–${phase.lastBlock ?? "–"} |`
       : `| ${name} | skipped | | | | |`;
   const durations = result.timeline.slice(1).map((entry, i) => `${result.timeline[i].state} ${seconds(entry.at - result.timeline[i].at)}`);
-  const fullest = (pick: (block: ChainResult["blocks"][number]) => number) =>
-    `${(Math.max(0, ...result.blocks.map(pick)) * 100).toFixed(0)}%`;
   return [
     `### Chain game with ${result.players} players on ${result.target}: ${result.verdict}`,
     "",
     result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up, report and claim was in",
     "",
+    ...(result.capacity.length > 0 ? [`**Capacity:** ${result.capacity.join("; ")}.`, ""] : []),
     "| Burst | Succeeded | In time | Inclusion p50 / p95 / max ms | Burst length | Blocks |",
     "|---|---|---|---|---|---|",
     phaseRow("sign-up", result.signUp),
@@ -227,8 +287,10 @@ export function chainMarkdown(result: ChainResult): string {
       : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
-    `Fullest block: ${fullest((block) => block.refTime)} of the normal-class ref time, ${fullest((block) => block.proofSize)} of its proof size, ${Math.max(0, ...result.blocks.map((block) => block.extrinsics))} extrinsics.`,
+    ...phasesMarkdown(summarizePhases(result)),
+    processingMarkdown(summarizeGameProcessing(result)),
     "",
+    ...(result.notes.length > 0 ? ["Notes:", "", ...result.notes.map((note) => `- ${note}`), ""] : []),
   ].join("\n");
 }
 
