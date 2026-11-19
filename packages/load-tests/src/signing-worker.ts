@@ -1,5 +1,6 @@
 // A `SigningPool` thread: signs the jobs the pool posts, over its own connections to the chains.
 import { parentPort, workerData } from "node:worker_threads";
+import type { PolkadotClient } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { ringCollectionId, withScoreParticipant } from "@parity/product-sdk-individuality";
 import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
@@ -14,9 +15,25 @@ import { createProofQueue, proveTurnNow } from "./video/turn.js";
 
 const endpoints = workerData as Endpoints;
 let people: PeopleConnection | undefined;
-let assetHub: { api: AssetHubApi } | undefined;
+let assetHub: { client: PolkadotClient; api: AssetHubApi } | undefined;
 let snapshots: RingSnapshots | undefined;
 const proveInTurn = createProofQueue();
+
+/**
+ * How long a job may take before the thread gives it up: a node that stops answering a
+ * connection, or closes its subscriptions, leaves a read waiting forever. A sign-up waits for its
+ * draws and a bind for its block; a proof waits for the proofs before it on this thread.
+ */
+const JOB_TIMEOUT_MS: Record<SigningJob["kind"], number> = { signUp: 180_000, bind: 180_000, turnProof: 120_000, sign: 60_000 };
+
+/** Drops this thread's connections, so the next job opens fresh ones. */
+function dropConnections(): void {
+  people?.client.destroy();
+  assetHub?.client.destroy();
+  people = undefined;
+  assetHub = undefined;
+  snapshots = undefined;
+}
 
 function creatorOf(player: Player, kind: SignerKind): CommonSignerTxCreator {
   if (kind === "account") return accountSigner(player);
@@ -52,9 +69,19 @@ async function runJob(job: SigningJob): Promise<OutcomeOf<SigningJob>> {
 const reply = (message: SigningReply) => parentPort!.postMessage(message);
 
 parentPort!.on("message", async ({ id, job }: { id: number; job: SigningJob }) => {
+  const timeoutMs = JOB_TIMEOUT_MS[job.kind];
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      dropConnections();
+      reject(new Error(`${job.kind} job: no answer from the chain in ${timeoutMs / 1000} s`));
+    }, timeoutMs);
+  });
   try {
-    reply({ id, ...(await runJob(job)) });
+    reply({ id, ...(await Promise.race([runJob(job), timeout])) });
   } catch (error) {
     reply({ id, error: (error as Error).message });
+  } finally {
+    clearTimeout(timer);
   }
 });
