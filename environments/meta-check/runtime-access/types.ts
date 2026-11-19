@@ -7,9 +7,7 @@ export interface RuntimeAccess {
   chain: ChainKey | null;
   /** Optional chaining on the pallet or entry. */
   optional: boolean;
-  /** The package name, e.g. `@parity/product-sdk-individuality`. */
-  package: string;
-  /** Relative to the scanned packages directory. */
+  /** Relative to the scan root; package-prefixed when scanning multiple roots. */
   file: string;
   line: number;
 }

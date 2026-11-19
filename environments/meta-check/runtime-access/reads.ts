@@ -1,34 +1,131 @@
-// The chain entries one source file reads through a polkadot-api typed (or unsafe) API:
-// `chain.individuality.query.Game.Players`, `api.tx.Coinage.transfer`, and the same
-// through local aliases such as `const query = chain.individuality.query.Game` or
-// `const { query } = chain.individuality`.
+// The runtime accesses in one source file, found in two steps:
+//
+//   1. fullPath   what an expression stands for, with const aliases replaced by what they hold:
+//                 `players.getValue` -> chain.individuality.query.Game?.Players.getValue
+//   2. findEntry  the `<kind>.<Pallet>.<entry>` in that path:
+//                 -> query:Game.Players on individuality, optional
 //
 // It parses the file with TypeScript but checks no types: the program exists only so
 // the checker can say which declaration a local name refers to.
 
 import ts from "typescript";
 import { CHAIN_KEYS, KINDS } from "../selector.ts";
-import type { ChainKey, Selector } from "../types.ts";
+import type { RuntimeAccess } from "./types.ts";
 
-export interface Read {
-  selector: Selector;
-  /** The chain-client key the read goes through; null when the chain is not visible. */
-  chain: ChainKey | null;
-  /** Read with `?.` on the pallet or the entry: the code copes with the entry being absent. */
-  optional: boolean;
-  line: number;
-}
+/** An access before the folder scan adds the file path. */
+export type Read = Omit<RuntimeAccess, "file">;
 
-/** One name in an access path, and whether it was reached with `?.`. */
-interface Segment {
+/** In `Game?.Players`, `Players` is marked optional. */
+interface PathPart {
   name: string;
   optional: boolean;
 }
 
-// An alias of an alias of ... stops here, so a cycle cannot loop.
+type AccessPath = PathPart[];
+
+// Limit alias expansion so circular references cannot loop.
 const MAX_ALIAS_DEPTH = 10;
 
-/** A program over this one file alone: no libraries, no imports followed. */
+export function readsIn(fileName: string, text: string): Read[] {
+  const { program, file } = singleFileProgram(fileName, text);
+  const checker = program.getTypeChecker();
+  const reads: Read[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (isInSourceTest(node)) return;
+    if (ts.isPropertyAccessExpression(node) && !isInsideLongerAccess(node)) {
+      const path = fullPath(checker, node);
+      const entry = path && findEntry(path);
+      if (entry) reads.push({ ...entry, line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return reads;
+}
+
+/**
+ * Expand a dot path through local const aliases. If `players` is an alias for
+ * `query.Game.Players`, then `players.getValue` stands for `query.Game.Players.getValue`.
+ * Calls and bracket accesses cannot be expanded as paths.
+ */
+function fullPath(checker: ts.TypeChecker, expression: ts.Expression, aliasDepth = 0): AccessPath | null {
+  if (ts.isPropertyAccessExpression(expression)) {
+    const before = fullPath(checker, expression.expression, aliasDepth);
+    return before && [...before, { name: expression.name.text, optional: expression.questionDotToken !== undefined }];
+  }
+  // Parentheses, non-null assertions, and casts don't change the path.
+  if (ts.isParenthesizedExpression(expression) || ts.isNonNullExpression(expression) || ts.isAsExpression(expression)) {
+    return fullPath(checker, expression.expression, aliasDepth);
+  }
+  if (ts.isIdentifier(expression)) {
+    return aliasedPath(checker, expression, aliasDepth) ?? [{ name: expression.text, optional: false }];
+  }
+  return null;
+}
+
+/**
+ * Look up the value assigned to a const alias. Treat `const { query } = chain.individuality`
+ * like `const query = chain.individuality.query`. Don't follow `let`: it can be reassigned.
+ */
+function aliasedPath(checker: ts.TypeChecker, name: ts.Identifier, aliasDepth: number): AccessPath | null {
+  if (aliasDepth >= MAX_ALIAS_DEPTH) return null;
+  const declaration = checker.getSymbolAtLocation(name)?.declarations?.[0];
+  if (!declaration) return null;
+
+  if (ts.isVariableDeclaration(declaration)) {
+    if (!isConst(declaration) || !declaration.initializer) return null;
+    return fullPath(checker, declaration.initializer, aliasDepth + 1);
+  }
+  if (ts.isBindingElement(declaration)) {
+    const destructured = destructuredNames(declaration);
+    if (!destructured || !isConst(destructured.from) || !destructured.from.initializer) return null;
+    const assigned = fullPath(checker, destructured.from.initializer, aliasDepth + 1);
+    return assigned && [...assigned, ...destructured.names];
+  }
+  return null;
+}
+
+/**
+ * Follow the properties picked out by object destructuring. In
+ * `const { query: { Game: game } } = chain.individuality`, `game` picks out `query.Game`.
+ * Also return the declaration so the caller can find the value being destructured.
+ */
+function destructuredNames(element: ts.BindingElement): { from: ts.VariableDeclaration; names: AccessPath } | null {
+  const names: AccessPath = [];
+  let node: ts.Node = element;
+  while (ts.isBindingElement(node)) {
+    if (!ts.isObjectBindingPattern(node.parent)) return null;
+    const key = node.propertyName ?? node.name;
+    if (!ts.isIdentifier(key)) return null;
+    names.unshift({ name: key.text, optional: false });
+    node = node.parent.parent;
+  }
+  return ts.isVariableDeclaration(node) ? { from: node, names } : null;
+}
+
+/**
+ * Find the first PAPI-shaped access, such as `query.Game.Players`. The name just
+ * before `query` gives the chain if it is a known key: `individuality.query` names
+ * the chain, but `api.query` leaves it unknown.
+ */
+function findEntry(path: AccessPath): Omit<Read, "line"> | null {
+  for (let i = 0; i + 2 < path.length; i++) {
+    const kind = KINDS.find((k) => k === path[i]?.name);
+    const pallet = path[i + 1];
+    const entry = path[i + 2];
+    if (!kind || !pallet || !entry || !/^[A-Z]/.test(pallet.name)) continue;
+    const before = path[i - 1]?.name;
+    return {
+      selector: `${kind}:${pallet.name}.${entry.name}`,
+      chain: CHAIN_KEYS.find((key) => key === before) ?? null,
+      optional: pallet.optional || entry.optional,
+    };
+  }
+  return null;
+}
+
+/** Give TypeScript just this file so it can resolve local names without following imports. */
 function singleFileProgram(fileName: string, text: string): { program: ts.Program; file: ts.SourceFile } {
   const options: ts.CompilerOptions = { noLib: true, noResolve: true, allowJs: true, noEmit: true, types: [] };
   const file = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
@@ -39,106 +136,16 @@ function singleFileProgram(fileName: string, text: string): { program: ts.Progra
   return { program: ts.createProgram([fileName], options, host), file };
 }
 
-/** `a.b?.c!.d` -> its identifier root and the segments after it. Null when it starts at a call or similar. */
-function accessChain(expression: ts.Expression): { root: ts.Identifier; segments: Segment[] } | null {
-  const segments: Segment[] = [];
-  let current = expression;
-  for (;;) {
-    if (ts.isPropertyAccessExpression(current)) {
-      segments.unshift({ name: current.name.text, optional: current.questionDotToken !== undefined });
-      current = current.expression;
-    } else if (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current) || ts.isAsExpression(current)) {
-      current = current.expression;
-    } else if (ts.isIdentifier(current)) {
-      return { root: current, segments };
-    } else {
-      return null;
-    }
-  }
-}
-
-/** `{ query }` or `{ query: q }` in `const { query } = chain.individuality`: the names it takes, outermost first. */
-function bindingNames(element: ts.BindingElement): { declaration: ts.VariableDeclaration; segments: Segment[] } | null {
-  const segments: Segment[] = [];
-  let node: ts.Node = element;
-  while (ts.isBindingElement(node)) {
-    if (!ts.isObjectBindingPattern(node.parent)) return null; // array destructuring
-    const key = node.propertyName ?? node.name;
-    if (!ts.isIdentifier(key)) return null;
-    segments.unshift({ name: key.text, optional: false });
-    node = node.parent.parent;
-  }
-  return ts.isVariableDeclaration(node) ? { declaration: node, segments } : null;
-}
-
-const isConst = (declaration: ts.VariableDeclaration): boolean =>
-  (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0;
-
-/**
- * The full access path an identifier stands for: `query` declared as
- * `const query = chain.individuality.query` is `[chain, individuality, query]`. A name
- * that is not a const alias of an access chain stands for itself.
- */
-function resolve(checker: ts.TypeChecker, root: ts.Identifier, depth = 0): Segment[] {
-  const itself = [{ name: root.text, optional: false }];
-  const declaration = checker.getSymbolAtLocation(root)?.declarations?.[0];
-  if (!declaration || depth >= MAX_ALIAS_DEPTH) return itself;
-
-  let source: ts.Expression | undefined;
-  let taken: Segment[] = [];
-  if (ts.isVariableDeclaration(declaration) && isConst(declaration)) {
-    source = declaration.initializer;
-  } else if (ts.isBindingElement(declaration)) {
-    const binding = bindingNames(declaration);
-    if (binding && isConst(binding.declaration)) {
-      source = binding.declaration.initializer;
-      taken = binding.segments;
-    }
-  }
-  const chain = source && accessChain(source);
-  if (!chain) return itself;
-  return [...resolve(checker, chain.root, depth + 1), ...chain.segments, ...taken];
-}
-
-/** The first `<kind>.<Pallet>.<name>` in a path, and the chain key just before it. The kind is the API's own word. */
-function match(path: Segment[]): Omit<Read, "line"> | null {
-  for (let i = 0; i + 2 < path.length; i++) {
-    const kind = KINDS.find((k) => k === path[i]?.name);
-    const group = path[i + 1];
-    const name = path[i + 2];
-    if (!kind || !group || !name || !/^[A-Z]/.test(group.name)) continue;
-    const before = path[i - 1]?.name;
-    return {
-      selector: `${kind}:${group.name}.${name.name}`,
-      chain: CHAIN_KEYS.find((key) => key === before) ?? null,
-      optional: group.optional || name.optional,
-    };
-  }
-  return null;
+function isConst(declaration: ts.VariableDeclaration): boolean {
+  return (ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) !== 0;
 }
 
 /** `if (import.meta.vitest) { ... }`: tests kept inside a source file. */
-const isInSourceTest = (node: ts.Node): boolean =>
-  ts.isIfStatement(node) && node.expression.getText() === "import.meta.vitest";
+function isInSourceTest(node: ts.Node): boolean {
+  return ts.isIfStatement(node) && node.expression.getText() === "import.meta.vitest";
+}
 
-/** `a.b.c` inside `a.b.c.d`: only the outermost access of a chain is read. */
-const isInnerAccess = (node: ts.PropertyAccessExpression): boolean =>
-  ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node;
-
-export function readsIn(fileName: string, text: string): Read[] {
-  const { program, file } = singleFileProgram(fileName, text);
-  const checker = program.getTypeChecker();
-  const reads: Read[] = [];
-
-  const visit = (node: ts.Node): void => {
-    if (isInSourceTest(node)) return;
-    if (ts.isPropertyAccessExpression(node) && !isInnerAccess(node)) {
-      const chain = accessChain(node);
-      const found = chain && match([...resolve(checker, chain.root), ...chain.segments]);
-      if (found) reads.push({ ...found, line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1 });
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  return reads;
+/** Analyze `a.b.c` once, rather than also analyzing its `a.b` prefix. */
+function isInsideLongerAccess(node: ts.PropertyAccessExpression): boolean {
+  return ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node;
 }

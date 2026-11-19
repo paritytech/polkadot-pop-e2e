@@ -1,9 +1,5 @@
-// U: the chain entries a product-sdk's code reads.
-//
-// Point it at any folder: all of `product-sdk/packages`, one package, its `src/`
-// (TypeScript, as in the source repo) or its `dist/` (JavaScript, as npm ships it).
-// Each file belongs to the package of the nearest package.json above it, the way Node
-// resolves packages; reads.ts finds the entries in one file.
+// Find PAPI accesses across SDK folders, from TypeScript source or built JavaScript.
+// This module picks the files to scan; reads.ts looks for accesses inside each file.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -84,14 +80,11 @@ export default class RuntimeAccesses {
   }
 
   /**
-   * Every scanned file under each of `dirs`, except the descriptors package's own. An
-   * access's `file` is relative to its folder; when there are several, as for the packages
-   * npm installs, it is the package name and the path in the package instead
-   * (`@parity/product-sdk-tx/dist/index.js`).
+   * Report file paths relative to the scan root. With multiple roots, use the
+   * package name and the path inside it, e.g. `@parity/product-sdk-tx/dist/index.js`.
    *
-   * A package that depends on the descriptors but reads nothing (and is not in
-   * READS_NOTHING) means the scan missed something, such as a build change or a new
-   * access pattern, so it throws instead of reporting no accesses.
+   * Fail if a package depends on the descriptors but no accesses are found, unless
+   * it is listed in READS_NOTHING. An empty scan could mean we missed an access pattern.
    */
   static scan(...dirs: string[]): RuntimeAccesses {
     const packageOf = packageFinder();
@@ -113,7 +106,6 @@ export default class RuntimeAccesses {
         const found = readsIn(file, fs.readFileSync(file, "utf8")).map(
           (read): RuntimeAccess => ({
             ...read,
-            package: pkg.name,
             file: dirs.length > 1 ? path.join(pkg.name, path.relative(pkg.dir, file)) : path.relative(root, file),
           }),
         );
@@ -140,7 +132,7 @@ export default class RuntimeAccesses {
     return this.accesses.filter((access) => access.chain === chain);
   }
 
-  /** Reads through a local API whose chain the code does not show. */
+  /** Accesses for which the scanner couldn't identify a chain. */
   unattributed(): RuntimeAccess[] {
     return this.accesses.filter((access) => access.chain === null);
   }

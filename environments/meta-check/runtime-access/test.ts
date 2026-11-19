@@ -149,6 +149,68 @@ describe("readsIn", () => {
   });
 });
 
+// Accesses the scanner misses today. Each test states the detection we want; all fail until fixed.
+const NOT_DETECTED_YET = "follow-up: the scanner does not detect these accesses yet";
+
+describe("readsIn: accesses it does not detect yet", { skip: NOT_DETECTED_YET }, () => {
+  it("1. reads a bracket access with a string literal or a const string key as a dot access", () => {
+    const found = (source: string) => readsIn("snippet.ts", source).map((r) => `${r.selector} ${r.chain ?? "-"} ${r.optional}`);
+    assert.deepEqual(
+      found(`
+        chain.individuality.query.Game?.["Players"].getValue();
+        chain.individuality.query.Game['Players'];
+        chain.individuality.tx.Utility[\`batch_all\`](calls);
+        chain["individuality"].query.Score.Participants;
+        const entry = "Rounds";
+        chain.individuality.query.Game[entry];
+      `),
+      [
+        "query:Game.Players individuality true",
+        "query:Game.Players individuality false",
+        "tx:Utility.batch_all individuality false",
+        "query:Score.Participants individuality false",
+        "query:Game.Rounds individuality false",
+      ],
+    );
+  });
+
+  it("2. reads an access that starts at a call or an await, with the chain unknown", () => {
+    assert.deepEqual(
+      reads(`
+        getApi().query.Game.Players.getValue();
+        (await getApi()).tx.Coinage.transfer(args);
+        client.getTypedApi(people).query.Score.Participants;
+      `),
+      ["query:Game.Players - 2", "tx:Coinage.transfer - 3", "query:Score.Participants - 4"],
+    );
+  });
+
+  it("3. reads through `satisfies` and `<T>` casts, like `as`", () => {
+    assert.deepEqual(
+      reads(`
+        (chain satisfies Chains).individuality.query.Game.Players;
+        (<GameChain>chain).individuality.query.Game.Players;
+      `),
+      ["query:Game.Players individuality 2", "query:Game.Players individuality 3"],
+    );
+  });
+
+  // The entry cannot be known, so the access is recorded with `*` for it instead of being
+  // dropped. `*` is a proposal: the report does not know this form yet.
+  it("4. records a bracket access with a variable key as a dynamic access to the pallet", () => {
+    assert.deepEqual(
+      reads(`
+        const mode = options?.mode ?? "batch_all";
+        api.tx.Utility[mode]({ calls });
+        function read(entry: string) {
+          return chain.individuality.query.Game[entry].getValue();
+        }
+      `),
+      ["tx:Utility.* - 3", "query:Game.* individuality 5"],
+    );
+  });
+});
+
 describe("RuntimeAccesses.scan", () => {
   const packagesWith = (files: Record<string, string>): string => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-access-"));
@@ -162,7 +224,7 @@ describe("RuntimeAccesses.scan", () => {
     JSON.stringify({ name, devDependencies });
   const DESCRIPTORS = { "@parity/product-sdk-descriptors": "workspace:*" };
 
-  it("records each read with its package, file and line, and skips tests and the descriptors", () => {
+  it("records each read with its root-relative file and line, and skips tests and the descriptors", () => {
     const dir = packagesWith({
       "game/package.json": manifest("@x/game", DESCRIPTORS),
       "game/src/read.ts": "\nchain.individuality.query.Game.Players;",
@@ -171,8 +233,38 @@ describe("RuntimeAccesses.scan", () => {
       "descriptors/src/x.ts": "api.query.System.Account;",
     });
     assert.deepEqual(RuntimeAccesses.scan(dir).accesses, [
-      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 2, package: "@x/game", file: "game/src/read.ts" },
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 2, file: "game/src/read.ts" },
     ]);
+  });
+
+  it("distinguishes same-named files within and across packages by their paths", () => {
+    const dir = packagesWith({
+      "packages/a/package.json": manifest("@x/a"),
+      "packages/a/src/read.ts": "chain.individuality.query.Game.Players;",
+      "packages/a/src/nested/read.ts": "chain.individuality.query.Game.Players;",
+      "packages/b/package.json": manifest("@x/b"),
+      "packages/b/src/read.ts": "chain.individuality.query.Game.Players;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(dir).accesses.map((access) => access.file),
+      ["packages/a/src/nested/read.ts", "packages/a/src/read.ts", "packages/b/src/read.ts"],
+    );
+  });
+
+  it("prefixes files with package names when scanning multiple roots", () => {
+    const dir = packagesWith({
+      "a/package.json": manifest("@x/a"),
+      "a/src/read.ts": "chain.individuality.query.Game.Players;",
+      "b/package.json": manifest("@x/b"),
+      "b/src/read.ts": "chain.individuality.query.Game.Players;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(path.join(dir, "a", "src"), path.join(dir, "b", "src")).accesses,
+      [
+        { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "@x/a/src/read.ts" },
+        { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "@x/b/src/read.ts" },
+      ],
+    );
   });
 
   it("throws when a package that depends on the descriptors reads nothing", () => {
@@ -183,13 +275,13 @@ describe("RuntimeAccesses.scan", () => {
     assert.throws(() => RuntimeAccesses.scan(dir), /@x\/game depends on @parity\/product-sdk-descriptors/);
   });
 
-  it("scans one package's src/, naming the package from the package.json above it", () => {
+  it("scans one package's src/, using paths relative to that root", () => {
     const dir = packagesWith({
       "game/package.json": manifest("@x/game", DESCRIPTORS),
       "game/src/read.ts": "chain.individuality.query.Game.Players;",
     });
     assert.deepEqual(RuntimeAccesses.scan(path.join(dir, "game", "src")).accesses, [
-      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, package: "@x/game", file: "read.ts" },
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "read.ts" },
     ]);
   });
 
@@ -216,8 +308,8 @@ describe("RuntimeAccesses.scan", () => {
       "game/node_modules/dep/index.js": "chain.individuality.query.Game.Rounds;",
     });
     assert.deepEqual(
-      RuntimeAccesses.scan(path.join(dir, "game")).accesses.map((access) => `${access.package} ${access.file} ${access.selector}`),
-      ["@x/game dist/index.js query:Game.Players"],
+      RuntimeAccesses.scan(path.join(dir, "game")).accesses.map((access) => `${access.file} ${access.selector}`),
+      ["dist/index.js query:Game.Players"],
     );
   });
 
@@ -262,13 +354,13 @@ describe("RuntimeAccesses on the fixture SDKs", { skip }, () => {
     assert.equal(runtimeAccesses.forChain("individuality").length, 79);
     assert.equal(runtimeAccesses.forChain("assetHub").length, 12);
     assert.equal(runtimeAccesses.unattributed().length, 21);
-    assert.ok(runtimeAccesses.forChain("assetHub").every((access) => access.package === "@parity/product-sdk-nfts"));
+    assert.ok(runtimeAccesses.forChain("assetHub").every((access) => access.file.startsWith("nfts/")));
   });
 
   it("scans one package's src/ the same as it is found in the whole tree", () => {
     const individuality = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages", "individuality", "src");
     const alone = RuntimeAccesses.scan(individuality).accesses;
-    const inTree = scan("0.42.0").accesses.filter((access) => access.package === "@parity/product-sdk-individuality");
+    const inTree = scan("0.42.0").accesses.filter((access) => access.file.startsWith("individuality/"));
     assert.equal(alone.length, 74);
     assert.deepEqual(
       alone.map((u) => `${u.selector} individuality/src/${u.file}:${u.line}`),
@@ -284,5 +376,12 @@ describe("RuntimeAccesses on the fixture SDKs", { skip }, () => {
     assert.ok(current.selectors().has("tx:PeopleAirdrops.register"));
     // 0.42.0 reads everything 0.28.0 did, and more.
     assert.ok([...old.selectors()].every((s) => current.selectors().has(s)));
+  });
+
+  // Fails today: `api.tx.Utility[mode](...)` in tx/src/batch.ts is not recorded at all.
+  it("records the batch call product-sdk-tx makes with a dynamic entry name", { skip: NOT_DETECTED_YET }, () => {
+    assert.ok(
+      scan("0.42.0").accesses.some((access) => access.selector === "tx:Utility.*" && access.file === "tx/src/batch.ts" && access.line === 123),
+    );
   });
 });
