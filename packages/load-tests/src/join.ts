@@ -116,18 +116,21 @@ const BINDS_PER_WAVE = 50;
 
 /**
  * Binds every lite bot whose seat takes a bind, before the sign-up burst: `BINDS_PER_WAVE` at once,
- * the next wave once the last one is in a block, so no block takes more binds than fit.
+ * the next wave once the last one is in a block, so no block takes more binds than fit. `outcomes`
+ * counts the binds made and the seats that took none, `refusals` the binds refused, by reason.
  */
-export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<Record<string, number>> {
+export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<{ outcomes: Record<string, number>; refusals: Record<string, number> }> {
   const started = Date.now();
   const outcomes: Record<string, number> = {};
+  const refusals: Record<string, number> = {};
   for (let start = 0; start < players.length; start += BINDS_PER_WAVE) {
     for (const outcome of await Promise.all(players.slice(start, start + BINDS_PER_WAVE).map((player) => pool.bind(player)))) {
-      bump(outcomes, "bound" in outcome ? outcome.bound : "skipped" in outcome ? outcome.skipped : `refused: ${outcome.refusal}`);
+      if ("refusal" in outcome) bump(refusals, outcome.refusal);
+      else bump(outcomes, "bound" in outcome ? outcome.bound : outcome.skipped);
     }
   }
-  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}`);
-  return outcomes;
+  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
+  return { outcomes, refusals };
 }
 
 /** How long a game just scheduled may take to show in the finalized schedule the engine reads. */

@@ -204,10 +204,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     let phases = chainPhases;
     let gameAt = run.gameAt;
     // Before the game is scheduled, so the binds don't take registration's time.
-    const binds = isLite ? await bindLiteBots(pool, players) : {};
-    for (const [outcome, count] of Object.entries(binds)) {
-      if (outcome.startsWith("refused")) findings.push(`bind ${outcome}: ${count}`);
-    }
+    const { outcomes: binds, refusals: bindRefusals } = isLite ? await bindLiteBots(pool, players) : { outcomes: {}, refusals: {} };
+    for (const [reason, count] of Object.entries(bindRefusals)) findings.push(`bind refused, ${reason}: ${count}`);
     if (ownGame) {
       await clearAndFund(api, run, target.sudo!, isLite ? [] : players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
