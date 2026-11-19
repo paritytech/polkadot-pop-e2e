@@ -19,7 +19,7 @@ const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 Commands:
   mint        Write a statement allowance for players 0..players-1 of --layer as root (a fork or dev node)
   people      Make lite bots --lite-from.. of --players lite people as phones become one, with
-              truapi-host attest through the stack's identity backend (DUB); bots lite already are skipped
+              truapi-host attest through the stack's identity backend (DUB); bots that are lite people already are skipped
   signalling  Play one game per step with that many signalling-only ghosts on direct RPC
   host        Play one game per step with signalling ghosts inside truapi-host signing hosts
   chain       Play one game on chain, signing up and reporting with every player at once: on a
@@ -42,7 +42,7 @@ Players:
 Lite bots (lite people, signing up free as a lite person's phone does):
   --lite-from <index>   First bot index of the lite bots (default ${LITE_FIRST_INDEX}), above the
                         deposit-backed bots. A lite bot's keys follow from --seed, the network and its
-                        index alone, so the seed and the index range are all a later run needs
+                        index alone, so a later run with the same seed and range finds the same lite people
   --attest-concurrency <n>  people: attests running at once (default 3); DUB registers about 4.5
                         names a minute, and truapi-host waits 2 min for a name, so more fail
 
@@ -97,8 +97,9 @@ Chain (phases default to the chain's own):
                         every run with an Asset Hub does by default
   --lite                The players are lite bots: bound to their lite person before the game, they
                         sign up free with Game.sign_up_with_account_lite_invite and get no funds
-  --draw                Players enter the game's prize draws as the app enters them (not a player the
-                        game can't make a member), and the winners claim; an own game gets one draw
+  --draw                Players enter the game's prize draws as the app enters them, so a player the game
+                        can't make a member yet signs up without a ticket. Winners claim their prize. A
+                        game this run schedules gets one draw
 `;
 
 const { positionals, values } = parseArgs({
