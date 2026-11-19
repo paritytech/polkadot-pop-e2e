@@ -17,8 +17,8 @@ import { connectPeople, type Target } from "../target.js";
 import { sleep } from "../time.js";
 import { VideoStats } from "./stats.js";
 
-/** Tries per fetch, the waits before the second and the third, and the budget, as the app's `ice.ts`. */
-const MAX_TRIES = 3;
+/** Attempts per fetch, the waits before the second and the third, and the budget, as the app's `ice.ts`. */
+const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1_000, 2_000];
 const RETRY_BUDGET_MS = 15_000;
 /** A proof older than this is built again before a retry. */
@@ -51,9 +51,9 @@ async function proveTurn(prover: PersonhoodProver, setup: TurnProofSetup, stats:
 
 /**
  * One bot's TURN credentials as the app fetches them: `proof`, or a new one, posted to the
- * issuer, up to three tries with backoff for a timeout, a 5xx or a refused timestamp, proved again
- * before a try once the proof is 30 s old or its timestamp was refused. A 403, a 429 or another
- * 400 ends the fetch. Every try is counted in `stats` by outcome, with the issuer's answer time.
+ * issuer, up to three attempts with backoff for a timeout, a 5xx or a refused timestamp, proved again
+ * before an attempt once the proof is 30 s old or its timestamp was refused. A 403, a 429 or another
+ * 400 ends the fetch. Every attempt is counted in `stats` by outcome, with the issuer's answer time.
  */
 export async function fetchTurnPass(
   prover: PersonhoodProver,
@@ -63,8 +63,8 @@ export async function fetchTurnPass(
   proof?: TurnProof,
 ): Promise<TurnPass | undefined> {
   const startedAt = Date.now();
-  for (let tries = 1; ; tries++) {
-    if (!proof || (tries > 1 && Date.now() - proof.at > PROOF_MAX_AGE_MS)) proof = await proveTurn(prover, setup, stats);
+  for (let attempt = 1; ; attempt++) {
+    if (!proof || (attempt > 1 && Date.now() - proof.at > PROOF_MAX_AGE_MS)) proof = await proveTurn(prover, setup, stats);
     if (!proof) return undefined;
     const postedAt = Date.now();
     const result = await redeemTurnProof(issuer.fetch, issuer.base, proof.body);
@@ -76,8 +76,8 @@ export async function fetchTurnPass(
     bump(stats.turnFetches, `${result.cause}${result.status ? ` ${result.status}` : ""}`);
     if (result.cause === "timestamp-window") proof = undefined;
     const retryable = result.cause === "timeout" || result.cause === "server-error" || result.cause === "no-ring-roots" || result.cause === "timestamp-window";
-    const wait = BACKOFF_MS[tries - 1] * (0.75 + Math.random() * 0.5);
-    if (!retryable || tries >= MAX_TRIES || Date.now() - startedAt + wait > RETRY_BUDGET_MS) return undefined;
+    const wait = BACKOFF_MS[attempt - 1] * (0.75 + Math.random() * 0.5);
+    if (!retryable || attempt >= MAX_ATTEMPTS || Date.now() - startedAt + wait > RETRY_BUDGET_MS) return undefined;
     await sleep(wait);
   }
 }
@@ -85,7 +85,7 @@ export async function fetchTurnPass(
 /**
  * The TURN passes of a run's lite bots, fetched when the app fetches them: as soon as the bot
  * knows of its game, then 10 and 3 minutes before the game for a pass with under 10 minutes
- * left. A failed refresh keeps the pass it replaces while that one is valid.
+ * left. After a failed refresh the previous pass stays in use while it is valid.
  */
 export class TurnPasses {
   private readonly passes = new Map<number, TurnPass>();

@@ -39,7 +39,7 @@ describe("attestFailure", () => {
     expect(attestFailure("[truapi-host] attest failed: Error: dotNS username did not appear on Asset Hub after attestation")).toBe("pending");
   });
 
-  it("keeps any other failure's first line", () => {
+  it("reports any other failure by its first line", () => {
     expect(attestFailure("[truapi-host] attest failed: Error: ring member not found\nbacktrace")).toBe("Error: ring member not found");
   });
 });

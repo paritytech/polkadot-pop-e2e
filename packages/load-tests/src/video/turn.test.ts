@@ -67,7 +67,7 @@ describe("fetchTurnPass", () => {
     expect(stats.turnIssuerMs.total).toBe(1);
   });
 
-  it("tries an overloaded issuer three times with the same proof", { timeout: 10_000 }, async () => {
+  it("posts to an overloaded issuer three times with the same proof", { timeout: 10_000 }, async () => {
     const issuer = await startIssuer([
       { status: 503, body: { error: "no ring roots" } },
       { status: 500, body: { error: "boom" } },
@@ -112,7 +112,7 @@ describe("fetchTurnPass", () => {
 describe("TurnPasses", () => {
   // The app refreshes a pass before the game only when it has under 10 minutes left, so a run
   // must not send the issuer a burst of proofs at each refresh time that phones don't send.
-  it("refreshes a pass with under 10 minutes left before the game, and keeps it when the refresh fails", async () => {
+  it("refreshes a pass with under 10 minutes left before the game, and uses the old pass when the refresh fails", async () => {
     const shortPass = { ...CREDENTIALS, ttl: 300 };
     const issuer = await startIssuer([
       { status: 200, body: shortPass },
