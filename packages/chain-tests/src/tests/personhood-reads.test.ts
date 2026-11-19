@@ -7,7 +7,8 @@
 import { randomBytes } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { AccountId, type PolkadotClient } from "polkadot-api";
-import { fromHex } from "@polkadot-api/utils";
+import { decAnyMetadata, unifyMetadata } from "@polkadot-api/substrate-bindings";
+import { getDynamicBuilder, getLookupFn } from "@polkadot-api/metadata-builders";
 import {
   fromPapi,
   readPersonhoodState,
@@ -20,7 +21,7 @@ import { createPeopleClient, type PeopleApi } from "../lib/client.js";
 import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { getNetworkConfig } from "../config/networks.js";
 
-describe("Personhood reads (product-sdk)", () => {
+describe.skipIf(!getNetworkConfig().features.game)("Personhood reads (product-sdk)", () => {
   const accountAddress = AccountId().dec(randomBytes(32));
   let peopleClient: PolkadotClient;
   let chain: PapiIndividualityChain<PeopleApi, PolkadotClient>;
@@ -57,13 +58,13 @@ describe("Personhood reads (product-sdk)", () => {
 
   // Follows Score.Participants the way a product shows a player's progress live.
   it("watches the Score participant of an account Score never saw", async () => {
-    const first = await new Promise<PersonhoodParticipant | null>((resolve, reject) => {
+    const watched = await new Promise<PersonhoodParticipant | null>((resolve, reject) => {
       let stop: (() => void) | undefined;
-      let done = false;
+      let settled = false;
       const timer = setTimeout(() => finish(() => reject(new Error("no value within 60 s"))), 60_000);
       const finish = (settle: () => void) => {
-        if (done) return;
-        done = true;
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         stop?.();
         settle();
@@ -74,29 +75,24 @@ describe("Personhood reads (product-sdk)", () => {
         (participant) => finish(() => resolve(participant)),
         (error) => finish(() => reject(error)),
       );
-      if (done) stop();
+      if (settled) stop();
     });
-    expect(first).toBeNull();
+    expect(watched).toBeNull();
   });
 
-  // Reads the first Score.Participants key with a paged raw read at the finalized block. The
-  // key is the entry's 32-byte prefix, a 16-byte Blake2_128 hash, then the SCALE AccountOrPerson
-  // (variant byte, then 32 bytes). A Person key or an empty map skips with a reason.
+  // Takes the first Account among a page of Score.Participants keys at the finalized block.
   it("reads the personhood state of an enrolled participant", async (ctx) => {
     const { hash } = await peopleClient.getFinalizedBlock();
-    const entry = chain.individuality.query.Score.Participants;
-    const prefix = (await entry.getKey({ type: "Account", value: accountAddress })).slice(0, 2 + 64);
-    const [key] = await peopleClient._request<string[], [string, number, null, string]>(
+    const metadata = unifyMetadata(decAnyMetadata(await peopleClient.getMetadata(hash)));
+    const keys = getDynamicBuilder(getLookupFn(metadata)).buildStorage("Score", "Participants").keys;
+    const page = await peopleClient._request<string[], [string, number, null, string]>(
       "state_getKeysPaged",
-      [prefix, 1, null, hash],
+      [keys.enc(), 10, null, hash],
     );
-    if (key === undefined) return ctx.skip(`no participant is recorded on ${getNetworkConfig().name}`);
-    const body = fromHex(key).slice(32 + 16);
-    if (body[0] !== 0) return ctx.skip(`the first participant on ${getNetworkConfig().name} is keyed by Person`);
-    const account = AccountId().dec(body.slice(1));
-    if ((await entry.getKey({ type: "Account", value: account })) !== key) {
-      throw new Error("Score.Participants keys are not prefix, Blake2_128 hash, AccountOrPerson");
-    }
+    const account: string | undefined = page
+      .map((key) => keys.dec(key)[0])
+      .find((player) => player.type === "Account")?.value;
+    if (account === undefined) return ctx.skip(`no Account participant in the first 10 keys on ${getNetworkConfig().name}`);
 
     const personhood = await readPersonhoodState(chain, { account });
     if (!personhood.ok) throw personhood.error;
