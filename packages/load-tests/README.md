@@ -13,7 +13,8 @@ or Asset Hub.
 |---|---|
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
-| `bots_per_machine` | bots one parity-large machine runs (default 1000) |
+| `bots_per_machine` | bots one parity-large machine runs (default 1000); with `video`, 75 per 4-core `ubuntu-latest` machine instead |
+| `video` | bots play H.264 video to their group over real WebRTC links (see [Video](#video)) |
 | `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
 | `claim` | whether the bots claim their NFTs after the reports |
 | `game_at` | the play time of the game to join; empty joins the closest scheduled one |
@@ -137,6 +138,68 @@ channel, so a newer one can replace a statement before it reaches a co-player; i
 replaced one did, so a co-player that receives a statement counts every earlier one of that channel
 as delivered too. A receiver measures latency from when the statement went out when its sender
 runs in the same process, and otherwise from the time its expiry was stamped with.
+
+## Video
+
+With `--video` (the workflow's `video` input) a bot opens real WebRTC peer connections in place of
+the Chrome-sized descriptions, with [werift](https://github.com/shinyoshiaki/werift-webrtc), which
+runs in Node and in the bun script inside truapi-host. Each link is set up as the app's mesh
+(`lib/webrtc/mesh.ts`) sets it up:
+
+- The lower account offers a data-channel-only description over the same statement transport, and
+  candidates gathered after it trickle the same way. The app's `"data"` channel comes with it.
+- Once the channel opens, the offerer adds video and sends a full-SDP offer down the channel's
+  renegotiation lane (`encodeChannelMessage` and `PeerConnectionSignal` from statement-core); the
+  answer comes back the same way.
+- The camera goes to the first round's group from the room's opening. Co-players of the second
+  round are linked during the pre-connect too, on standby (`replaceTrack(null)`); when the first
+  round ends, the camera goes to the second round's group and links with no round left close.
+- The camera is `media/clip.h264`: H.264 Constrained Baseline (`42e01f`, `packetization-mode=1`),
+  360×360 at 24 fps, about 290 kbps, an IDR every 2 s, looped. The same packets go to every active
+  link. A PLI, or the app's keyframe request on the channel, gets the clip's next IDR. `pnpm clip`
+  writes the clip again with ffmpeg.
+- A receiver counts packets, frames (marker bits), keyframes and sequence gaps without decoding,
+  and sends a PLI when no keyframe has arrived since the camera came on or a loss persists.
+- ICE uses the app's six STUN servers (`--stun` changes them, `--stun ""` uses none) and policy
+  `all`; `--relay` allows relay candidates only.
+
+**TURN.** `host --lite --video` plays lite bots, the ones `chain --lite` signs up, each in its own
+truapi-host (each has its own wallet). Each fetches TURN credentials when the app does: as soon as
+the run knows its game, then 10 and 3 minutes before it. The proof is `buildTurnProof` from
+`@jollity/protocol` with the bot's lite key over its lite ring at People's finalized block, posted
+to the network's issuer (`--turn-issuer`, default the stack's identity backend), with the app's up
+to three tries. The runner proves and fetches for its machine's bots and gives each truapi-host
+its bot's TURN servers. Without `--lite`, bots have STUN only.
+
+A video bot sends and receives about 1.6 Mbit/s each way, so the workflow puts 75 on each 4-core
+`ubuntu-latest` machine. The summary gets a **Video on …** table per layer:
+
+- **Links up / attempted**: peer connections whose `"data"` channel opened; **With video**: those
+  whose video renegotiation completed. Each link counts once per side.
+- **Connect**: room open to the channel opening; **Candidate types**: the local candidate of each
+  connected link's selected pair (`host`, `srflx`, `prflx`, `relay`).
+- **First frame**: camera on (room open, or the second round's start) to the first whole keyframe.
+- **Frames received / expected**: frames that arrived in the window against 24 per second of every
+  stream's camera-on time after its video was negotiated. **Loss** is sequence gaps; **kbps per
+  stream** is received payload over camera-on time.
+- **PLI sent / received, IDRs forced**, and **TURN**: bots that had TURN servers when their room
+  opened, every credential request by outcome (`ok`, or the issuer's cause and HTTP status), and
+  the issuer's answer time.
+
+A 500-bot video run on previewnet takes the lite bots made once with `load people --players 500`,
+then the workflow with `network: previewnet`, `players: 500`, `video: true` and `args: --lite`:
+7 `ubuntu-latest` machines.
+
+Locally, 60 video bots on direct RPC against a previewnet fork's stack, STUN off and every link on
+the loopback address (`--ice-address`). Without it each link binds a socket on every interface,
+and on a Mac with VPN interfaces closing them at the end stalled the run for minutes:
+
+```bash
+export STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json
+pnpm load mint --players 60 --seed video-local
+pnpm load signalling --video --stun "" --ice-address 127.0.0.1 --steps 60 --seed video-local \
+  --ramp 5 --warmup 2 --drain 5 --cooldown 1
+```
 
 ## Reading the results
 
