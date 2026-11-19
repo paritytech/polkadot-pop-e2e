@@ -11,13 +11,16 @@ import {
   type TruApi,
 } from "@parity/product-sdk-host";
 import type { WireStatement } from "@jollity/statement-core";
-import { SignallingBot } from "./bot.js";
-import type { HostGhostPlan } from "./host.js";
+import { SignallingBot, type AppGame } from "./bot.js";
+import type { ChainSeats } from "./chain-seats.js";
+import type { HostGhostPlan, HostGhostResult } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
 import { roomOpensAt } from "./profile.js";
-import { coPlayersOf } from "./seating.js";
+import { tablesOf, timeRounds } from "./seating.js";
 import { SignallingStats } from "./stats.js";
-import { sleepUntil } from "./time.js";
+import { sleep, sleepUntil } from "./time.js";
+import { botVideo } from "./video/run.js";
+import { VideoStats } from "./video/stats.js";
 
 declare const truapi: Pick<TruApi, "statementStore">;
 declare const host: { productAccount(index: number): ProductAccountId };
@@ -93,21 +96,61 @@ function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore
 const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGhostPlan;
 const { profile, accounts } = plan;
 const stats = new SignallingStats();
+const video = plan.video && { ...plan.video, stats: new VideoStats() };
+const bots = new Set(accounts);
+
+/** The chain's seats once the runner writes them to `path`, or none by `until`. */
+async function waitForSeats(path: string, until: number): Promise<ChainSeats | undefined> {
+  while (Date.now() < until) {
+    try {
+      return JSON.parse(readFileSync(path, "utf8")) as ChainSeats;
+    } catch {
+      await sleep(1_000);
+    }
+  }
+  return undefined;
+}
+
+const chainSeats = plan.game && waitForSeats(plan.game.seatsPath, plan.stopAt);
+const appGame: Promise<AppGame | undefined> | undefined = chainSeats?.then((seats) => {
+  const room = plan.game?.room;
+  if (!seats || room === undefined) return undefined;
+  const identifiers = new Map(Object.entries(seats.identifiers).map(([peer, hex]) => [peer, Uint8Array.from(Buffer.from(hex.slice(2), "hex"))]));
+  return { room, identifiers, bots };
+});
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
-  const roster = coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
+  const self = accounts[index];
+  const seats = chainSeats && (await chainSeats);
+  if (chainSeats && !seats) return;
+  const game = await appGame;
+  // In a game, the chain's groups; else the run's own tables. Off the app's topics, only bots answer.
+  const seated = seats ? seats.rounds[self] : tablesOf(index, accounts.length, profile).map((group) => group.map((other) => accounts[other]));
+  if (!seated) return;
+  const groups = seats && !game ? seated.map((group) => group.filter((peer) => bots.has(peer))) : seated;
+  const roster = [...new Set(groups.flat())];
   const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost));
-  const bot = new SignallingBot({ self: accounts[index], roster, namespace: plan.namespace, profile, store, stats, window: plan.window });
+  const bot = new SignallingBot({
+    self,
+    roster,
+    namespace: plan.namespace,
+    profile,
+    store,
+    stats,
+    window: plan.window,
+    game,
+    video: video && botVideo(video.ice, video.turn[ghost], video.stats, timeRounds(groups, profile, plan.gameStart)),
+  });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();
   await sleepUntil(roomOpensAt(plan.phase, plan.gameStart));
   bot.open();
   await sleepUntil(plan.stopAt);
-  bot.close();
+  await bot.close();
   await sleepUntil(plan.leaveAt);
   bot.leave();
 }
 
 await Promise.all(Array.from({ length: plan.ghosts }, (_, ghost) => play(ghost)));
-writeFileSync(plan.resultPath, JSON.stringify(stats));
+writeFileSync(plan.resultPath, JSON.stringify({ stats, ...(video && { video: video.stats }) } satisfies HostGhostResult));

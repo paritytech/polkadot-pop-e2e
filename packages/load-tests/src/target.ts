@@ -19,8 +19,12 @@ export const APP_NETWORKS = { previewnet: "previewnet", "paseo-next-v2": "paseo"
 
 /** The product the app's game account plays as on `network`, such as `dim2.testnet`. */
 export function gameProductId(network: DescriptorNetwork): string {
-  const { productAccount, dotnsTLD } = NETWORK_CONFIG[APP_NETWORKS[network]];
-  return `${productAccount}.${dotnsTLD}`;
+  return `${NETWORK_CONFIG[APP_NETWORKS[network]].productAccount}.${networkTld(network)}`;
+}
+
+/** The DotNS TLD the app's products end in on `network`, such as `testnet`. */
+export function networkTld(network: DescriptorNetwork): string {
+  return NETWORK_CONFIG[APP_NETWORKS[network]].dotnsTLD;
 }
 
 /** The People chain a run loads: where to connect, how to sign as root, what to scrape. */

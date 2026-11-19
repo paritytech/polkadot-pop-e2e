@@ -1,10 +1,11 @@
 import type { Transaction } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import type { GameRegistrationCapabilities } from "@parity/product-sdk-individuality";
 import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, signEntry } from "./burst.js";
 import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
-import type { SigningOutcome, SigningPool } from "./signing-pool.js";
+import type { BindOutcome, SigningPool, SignUpOutcome } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep, withTimeout } from "./time.js";
@@ -23,12 +24,17 @@ const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0,
 /** The refusal of a player already signed up to the game, which a rerun meets for every earlier sign-up. */
 export const ALREADY_REGISTERED = "AlreadyRegistered";
 
+/** What a player brings to a sign-up beyond its account: a lite bot's personhood keys, and the VRF signer of a bot that enters the draws. */
+export type SignUpKeys = Pick<GameRegistrationCapabilities, "personhood" | "signVrf">;
+
 /**
  * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
- * `submit` that only signs, so a burst can send every player's at once.
+ * `submit` that only signs, so a burst can send every player's at once. It enters the draws the
+ * app's draw rule lets it, and reports why it entered none.
  */
-export async function signSignUp(engine: GameEngine, player: Player): Promise<SigningOutcome> {
+export async function signSignUp(engine: GameEngine, player: Player, keys: SignUpKeys): Promise<SignUpOutcome> {
   let extrinsic: string | undefined;
+  let draws: { entered: number; kind?: string } = { entered: 0 };
   const capabilities = {
     account: { address: player.address, publicKey: player.publicKey },
     signer: hostSigner(player),
@@ -36,28 +42,99 @@ export async function signSignUp(engine: GameEngine, player: Player): Promise<Si
       extrinsic = await signEntry({ creator, tx: tx as Transaction });
       return { ok: true as const };
     },
+    ...keys,
   };
   try {
-    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
+    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey), { onDraws: (outcome) => (draws = outcome) });
     if (!result.ok) return { refusal: result.error };
   } catch (error) {
     return { refusal: (error as Error).message };
   }
-  return extrinsic === undefined ? { refusal: "no sign-up to sign" } : { extrinsic };
+  if (extrinsic === undefined) return { refusal: "no sign-up to sign" };
+  return { extrinsic, drawsEntered: draws.entered, ...(draws.entered === 0 && draws.kind ? { drawSkip: draws.kind } : {}) };
 }
 
-/** Every player's `signSignUp`, spread over the pool's threads; `refusals` counts the players left out, by reason. */
-export async function signSignUps(pool: SigningPool, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
+/** What the app's draw rule leaves out: a player this game cannot make a member signs up without a ticket. */
+export const NOT_MEMBER_YET = "not-member-yet";
+
+export interface SignedSignUps {
+  extrinsics: string[];
+  /** Players the app's sign-up left out, by reason. */
+  refusals: Record<string, number>;
+  /** Sign-ups that enter the game's draws. */
+  drawEntries: number;
+  /** Draw tickets the sign-ups carry: one per sign-up and draw it enters. */
+  drawTickets: number;
+  /** Sign-ups that enter none, by the SDK's or the app's reason, such as `not-member-yet`. */
+  drawSkips: Record<string, number>;
+}
+
+/** Every player's `signSignUp`, spread over the pool's threads. */
+export async function signSignUps(pool: SigningPool, players: Player[], drawTicket: boolean): Promise<SignedSignUps> {
   const started = Date.now();
-  const refusals: Record<string, number> = {};
-  const extrinsics: string[] = [];
-  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player)))) {
-    if ("extrinsic" in outcome) extrinsics.push(outcome.extrinsic);
-    else bump(refusals, outcome.refusal);
+  const signed: SignedSignUps = { extrinsics: [], refusals: {}, drawEntries: 0, drawTickets: 0, drawSkips: {} };
+  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player, drawTicket)))) {
+    if ("refusal" in outcome) {
+      bump(signed.refusals, outcome.refusal);
+      continue;
+    }
+    signed.extrinsics.push(outcome.extrinsic);
+    if (outcome.drawsEntered > 0) signed.drawEntries++;
+    signed.drawTickets += outcome.drawsEntered;
+    if (outcome.drawSkip) bump(signed.drawSkips, outcome.drawSkip);
   }
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(refusals)}`);
-  return { extrinsics, refusals };
+  console.log(
+    `[sign-up] ${signed.extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(signed.refusals)}; ${signed.drawEntries} enter the draws ${JSON.stringify(signed.drawSkips)}`,
+  );
+  return signed;
+}
+
+/**
+ * A lite bot's game account bound to its lite person through the app engine's `bind`, which
+ * submits the unsigned bind itself and completes at the best block. Only a seat on the free route
+ * that isn't bound takes a bind, as in the app's flow: a returning player signs up as one, and a
+ * stale binding is revised by the sign-up itself.
+ */
+export async function bindSeat(engine: GameEngine, player: Player, personhood: GameRegistrationCapabilities["personhood"]): Promise<BindOutcome> {
+  const capabilities = {
+    account: { address: player.address, publicKey: player.publicKey },
+    signer: hostSigner(player),
+    submit: async () => ({ ok: false as const, code: "InvalidSignUp" as const, message: "a bind signs nothing" }),
+    personhood,
+  };
+  try {
+    const seat = await engine.seat(player.address, { litePerson: true });
+    if (seat.path !== "free") return { route: seat.path };
+    if (seat.ready) return { binding: "existing" };
+    const result = await engine.bind(capabilities);
+    if (result.kind === "refused") return { refusal: `${result.refusal}: ${result.code}` };
+    return { binding: result.kind === "bound" ? "new" : "existing" };
+  } catch (error) {
+    return { refusal: (error as Error).message };
+  }
+}
+
+/** A bind's ring proof check weighs 29.3 ms, so a 2 s block's 85% normal class takes 58 binds. */
+const BINDS_PER_WAVE = 50;
+
+/**
+ * Binds every lite bot whose seat takes a bind, before the sign-up burst: `BINDS_PER_WAVE` at once,
+ * the next wave once the last one is in a block, so no block takes more binds than fit. `outcomes`
+ * counts the binds made and the seats that took none, `refusals` the binds refused, by reason.
+ */
+export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<{ outcomes: Record<string, number>; refusals: Record<string, number> }> {
+  const startTime = Date.now();
+  const outcomes: Record<string, number> = {};
+  const refusals: Record<string, number> = {};
+  for (let start = 0; start < players.length; start += BINDS_PER_WAVE) {
+    for (const outcome of await Promise.all(players.slice(start, start + BINDS_PER_WAVE).map((player) => pool.bind(player)))) {
+      if ("refusal" in outcome) bump(refusals, outcome.refusal);
+      else bump(outcomes, "binding" in outcome ? `${outcome.binding} binding` : `${outcome.route} route`);
+    }
+  }
+  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - startTime) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
+  return { outcomes, refusals };
 }
 
 /** How long a game just scheduled may take to show in the finalized schedule the engine reads. */

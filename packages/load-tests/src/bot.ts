@@ -12,13 +12,12 @@ import { AccountId } from "@polkadot-api/substrate-bindings";
 import { communicationIdentifier, communicationSecret } from "./keys.js";
 import { createCountingStore, type CountingStore, type MeasurableStore } from "./measured-store.js";
 import type { SignallingProfile } from "./profile.js";
-import { iceCandidates, iceCredentials, sessionDescription, type IceCredentials } from "./sdp.js";
+import { StandInLinks, type LinkWire, type PeerLinks } from "./sdp.js";
 import { DeliveryCounter, SignallingStats, bump } from "./stats.js";
+import { VideoMesh, type BotVideo } from "./video/mesh.js";
 
-/** The room's key: one room for the whole game, as the app opens it. */
+/** The room's key out of a game: one room for the whole run. */
 const ROOM = "game";
-/** The app's mesh gathers candidates up to this long before a description goes out. */
-const GATHER_MS = 750;
 
 const accountId = AccountId();
 
@@ -32,33 +31,44 @@ export interface BotOptions {
   stats: SignallingStats;
   /** The measurement window: statements stamped in it count toward delivery. */
   window: { start: number; end: number };
+  /** Real peer connections with video in place of descriptions of Chrome's size. */
+  video?: BotVideo;
+  /** The player's registered communication secret; a bot's derives from its account. */
+  secret?: Uint8Array;
+  /** A game on the app's own topics, which real players use too. */
+  game?: AppGame;
 }
 
-interface Link {
-  credentials: IceCredentials;
-  sent: boolean;
-  description: boolean;
-  candidates: boolean;
-  up: boolean;
+export interface AppGame {
+  /** The app's room key, `g<game index>`. */
+  room: string;
+  /** Co-players' communication identifiers as registered on chain; a bot's derives from its account. */
+  identifiers: ReadonlyMap<string, Uint8Array>;
+  /** The run's bots: deliveries count between them alone. */
+  bots: ReadonlySet<string>;
 }
 
 /**
  * One player's signalling over a game as the Jollity app runs it: the app's statement transport,
  * configured as the app's game source configures it, driven as the app's mesh drives it for a
- * room of every co-player of every round, with descriptions and candidates of Chrome's size in
- * place of a WebRTC connection's.
+ * room of every co-player of every round. Without `video`, descriptions and candidates of
+ * Chrome's size stand in for a WebRTC connection's; with it, a `VideoMesh` negotiates real ones.
  */
 export class SignallingBot {
   private readonly clock = createStoreClock({ base: () => ({ ms: Date.now(), kind: "device" }) });
   private readonly countingStore: CountingStore;
   private readonly counter: DeliveryCounter;
-  private readonly links = new Map<string, Link>();
   private transport: SignalTransport | undefined;
+  private links: PeerLinks | undefined;
 
   constructor(private readonly options: BotOptions) {
-    // Every co-player listens on the player's topic, so each statement is due to each of them.
-    this.counter = new DeliveryCounter(options.stats, options.window, options.roster.length, options.self);
-    this.countingStore = createCountingStore(options.store, options.stats, this.counter);
+    const { roster, game } = options;
+    // Every bot co-player listens on the player's topic, so each statement is due to each of them.
+    const recipients = game ? roster.filter((peer) => game.bots.has(peer)).length : roster.length;
+    this.counter = new DeliveryCounter(options.stats, options.window, recipients, options.self);
+    const botSigners = game && new Set([...game.bots].map((bot) => toHex(accountId.enc(bot)).toLowerCase()));
+    const measured = botSigners && ((signer: string | undefined) => signer === undefined || botSigners.has(signer.toLowerCase()));
+    this.countingStore = createCountingStore(options.store, options.stats, this.counter, measured);
   }
 
   /** The waiting room's store clock calibration: one statement on the player's own channel. */
@@ -72,7 +82,7 @@ export class SignallingBot {
 
   /** Opens the room: from now on the transport signals, and its heartbeat re-sends. */
   open(): void {
-    const { self, roster, namespace, profile, stats } = this.options;
+    const { self, roster, namespace, profile, stats, video } = this.options;
     const signalling = statementTransport({
       resolveStore: async () => this.countingStore,
       storeClock: this.clock,
@@ -88,34 +98,24 @@ export class SignallingBot {
       bundle: true,
       deflateBundles: true,
       keys: {
-        secret: async () => communicationSecret(accountId.enc(self)),
-        peerIdentifier: async (peer) => communicationIdentifier(accountId.enc(peer)),
+        secret: async () => this.options.secret ?? communicationSecret(accountId.enc(self)),
+        peerIdentifier: async (peer) => this.options.game?.identifiers.get(peer) ?? communicationIdentifier(accountId.enc(peer)),
       },
       onSubmit: (event) => bump(stats.submitEvents, event.kind),
       log: (message) => {
         if (!/store live|subscribed/.test(message)) console.warn(`[${self}] ${message}`);
       },
     });
-    const update = (peer: string, link: Link) => {
-      const up = link.sent && link.description && link.candidates;
-      if (up === link.up) return;
-      link.up = up;
-      this.transport?.setLinked?.(peer, up);
-    };
-    // The app's mesh sends a description once gathering is done, then trickles candidates.
-    const sendDescription = (peer: string, type: "offer" | "answer", gen?: string) =>
-      setTimeout(() => {
-        const link = this.links.get(peer)!;
-        this.transport?.send(peer, { rtc: { desc: sessionDescription(type, link.credentials, profile.descriptionBytes), gen } });
-        for (const cand of iceCandidates(link.credentials, profile.candidates)) this.transport?.send(peer, { rtc: { cand } });
-        link.sent = true;
-        update(peer, link);
-      }, GATHER_MS);
-    for (const peer of roster) this.links.set(peer, { credentials: iceCredentials(), sent: false, description: false, candidates: false, up: false });
     stats.links += roster.length;
+    const wire: LinkWire = {
+      signal: (peer, payload) => this.transport?.send(peer, payload),
+      onLinked: (peer, linked) => this.transport?.setLinked?.(peer, linked),
+    };
+    const links = video ? new VideoMesh({ ...video, ...wire, self, window: this.options.window }) : new StandInLinks(self, profile, wire);
+    this.links = links;
     this.transport = signalling({
       base: "",
-      room: ROOM,
+      room: this.options.game?.room ?? ROOM,
       id: self,
       name: self,
       peers: roster,
@@ -123,23 +123,19 @@ export class SignallingBot {
         onPeerJoined: () => {},
         onPeerLeft: () => {},
         onSignal: (from, data) => {
-          const link = this.links.get(from);
-          if (!link || !isRtcPayload(data)) return;
-          const { desc, cand, gen } = data.rtc;
-          if (desc?.type === "offer") sendDescription(from, "answer", gen);
-          if (desc) link.description = true;
-          if (cand) link.candidates = true;
-          update(from, link);
+          if (isRtcPayload(data)) links.onSignal(from, data);
         },
       },
     });
-    // The lower id offers and the other answers, as the app's mesh decides.
-    for (const peer of roster) if (self < peer) sendDescription(peer, "offer");
+    links.open(roster);
   }
 
-  /** Closes the room: the transport sends bye and stops sending. */
-  close(): void {
-    for (const link of this.links.values()) if (link.up) this.options.stats.linksUp++;
+  /** Closes the room: the peer connections close, and the transport sends bye and stops sending. */
+  async close(): Promise<void> {
+    if (this.links) {
+      const linksUp = await this.links.close();
+      this.options.stats.linksUp += linksUp;
+    }
     this.transport?.close();
   }
 

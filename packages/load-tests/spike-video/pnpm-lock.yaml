@@ -1,0 +1,195 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      node-datachannel:
+        specifier: 0.33.6
+        version: 0.33.6
+      werift:
+        specifier: 0.28.0
+        version: 0.28.0
+
+packages:
+
+  '@leichtgewicht/ip-codec@2.0.5':
+    resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
+
+  '@node-datachannel/android-arm64@0.33.6':
+    resolution: {integrity: sha512-UzSnd1vSN//3pqyvuufbaIQemvRfIHn/7DAy7wjoYk9tzkJp4SMk1FrNhkhmev89SH/h7yTac6PlGxGe5oHcKw==}
+    cpu: [arm64]
+    os: [android]
+
+  '@node-datachannel/darwin-arm64@0.33.6':
+    resolution: {integrity: sha512-vE2fN6D0BJJ3yZo5guJo2j1q7JeQbl+VyIs6vbkjEp654tQtTo3y7a4l3xB0bwDD27TOlkOlaSLJQRj6ZXqQdQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@node-datachannel/darwin-x64@0.33.6':
+    resolution: {integrity: sha512-EtRB2THMR11XMzbNhMEwaZtipaUxFz+PgeVx7hE+er6Ai1Fzzv7XexrMWDG11ahdpEZ8fAxlxuyELs33/WH1Cg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@node-datachannel/linux-arm64-gnu@0.33.6':
+    resolution: {integrity: sha512-phMRjx8NEfW70i768LCQDEF2C6Q2vtYsS4DPXv/zbb2cJClaU5fjKFQfQ1XBCNIi1ClfpSd3Cl/rn/7SS+paTQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-datachannel/linux-arm64-musl@0.33.6':
+    resolution: {integrity: sha512-T9bqllJ9YkpgqgRFEfsPpfgfMDXdA7CIiJ4c1XXGPLSeqVFgDbf/WCewkE7q4xA+tKRLoOOtc2XgMGwVnlxXVQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-datachannel/linux-x64-gnu@0.33.6':
+    resolution: {integrity: sha512-NUTbne64++ZxwEJ9uppAAmYnFAfJAggf7gboioPdhr13P17GTQRCUgmipYrh1V0D4333x6NCBZyQaNv0n4WmpQ==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-datachannel/linux-x64-musl@0.33.6':
+    resolution: {integrity: sha512-dlWP4ycOJrTAl9UvxGofq0zwPhl6iAr1b0ZcBUgDfb2CXmbcJWCvg6OsJ6u8BVSV41eNXALmaRpU0wttas/f1g==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-datachannel/win32-arm64-msvc@0.33.6':
+    resolution: {integrity: sha512-ttly7XRUrSOcOOGJvtm9gh2beAPUNOBOUc3Hk82LfMHHP7jJMkXNDns/ML+UVGommAcNyPhoZkRH62O7tSVQYw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@node-datachannel/win32-x64-msvc@0.33.6':
+    resolution: {integrity: sha512-N5GW6XH11Iuu+kyHLTiCMcCHdwWwpKqvtYril0LzQm6xBgmGQN3JXxFmgi4g4usw1nLy6WhBWADjbhSXJiiEMA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@types/dom-mediacapture-transform@0.1.12':
+    resolution: {integrity: sha512-d7/QsLRwF864A5mgIM/YrfiglHoYn7zgCcAoJgW404r+2DwnNr7EBbLnCWpmOMgH8y0te73L1AV6H1bmauaWFw==}
+
+  '@types/dom-webcodecs@0.1.13':
+    resolution: {integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==}
+
+  base64-js@1.5.1:
+    resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
+
+  buffer@6.0.3:
+    resolution: {integrity: sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==}
+
+  detect-libc@2.1.2:
+    resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
+    engines: {node: '>=8'}
+
+  dns-packet@5.6.1:
+    resolution: {integrity: sha512-l4gcSouhcgIKRvyy99RNVOgxXiicE+2jZoNmaNmZ6JXiGajBOJAesk1OBlJuM5k2c+eudGdLxDqXuPCKIj6kpw==}
+    engines: {node: '>=6'}
+
+  ieee754@1.2.1:
+    resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
+
+  mediabunny@1.66.0:
+    resolution: {integrity: sha512-0Zff/qLkY1ZRyjBEt2vQjLeMigmU/dFKwJLpiPyCiskIel2f2R2kqMxaLYbeHN+rmyz4PVwwLSnU9anjUHHeJQ==}
+
+  multicast-dns@7.2.5:
+    resolution: {integrity: sha512-2eznPJP8z2BFLX50tf0LuODrpINqP1RVIm/CObbTcBRITQgmC/TjcREF1NeTBzIcR5XO/ukWo+YHOjBbFwIupg==}
+    hasBin: true
+
+  node-datachannel@0.33.6:
+    resolution: {integrity: sha512-n7RzImzysrOVFx/lXfkQQ4fL0wsuPXBFc8KM69V29iyIor/UX7Ej+edzNGWJm+3mApZG9nkLi7FsGAZhQCDA4w==}
+    engines: {node: '>=18.20.0'}
+
+  thunky@1.1.0:
+    resolution: {integrity: sha512-eHY7nBftgThBqOyHGVN+l8gF0BucP09fMo0oO/Lb0w1OF80dJv+lDVpXG60WMQvkcxAkNybKsrEIE3ZtKGmPrA==}
+
+  werift@0.28.0:
+    resolution: {integrity: sha512-Ro4r5OOtcLgx4VbrXGRS80sNZHptLIyJ2o/EGOj6dyRksTbiTLbtP/u2psDIpsXUOYl3vW+aK3YBPsKPl9SxJw==}
+    engines: {node: '>=22'}
+
+snapshots:
+
+  '@leichtgewicht/ip-codec@2.0.5': {}
+
+  '@node-datachannel/android-arm64@0.33.6':
+    optional: true
+
+  '@node-datachannel/darwin-arm64@0.33.6':
+    optional: true
+
+  '@node-datachannel/darwin-x64@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-arm64-gnu@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-arm64-musl@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-x64-gnu@0.33.6':
+    optional: true
+
+  '@node-datachannel/linux-x64-musl@0.33.6':
+    optional: true
+
+  '@node-datachannel/win32-arm64-msvc@0.33.6':
+    optional: true
+
+  '@node-datachannel/win32-x64-msvc@0.33.6':
+    optional: true
+
+  '@types/dom-mediacapture-transform@0.1.12':
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+
+  '@types/dom-webcodecs@0.1.13': {}
+
+  base64-js@1.5.1: {}
+
+  buffer@6.0.3:
+    dependencies:
+      base64-js: 1.5.1
+      ieee754: 1.2.1
+
+  detect-libc@2.1.2: {}
+
+  dns-packet@5.6.1:
+    dependencies:
+      '@leichtgewicht/ip-codec': 2.0.5
+
+  ieee754@1.2.1: {}
+
+  mediabunny@1.66.0:
+    dependencies:
+      '@types/dom-mediacapture-transform': 0.1.12
+      '@types/dom-webcodecs': 0.1.13
+
+  multicast-dns@7.2.5:
+    dependencies:
+      dns-packet: 5.6.1
+      thunky: 1.1.0
+
+  node-datachannel@0.33.6:
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@node-datachannel/android-arm64': 0.33.6
+      '@node-datachannel/darwin-arm64': 0.33.6
+      '@node-datachannel/darwin-x64': 0.33.6
+      '@node-datachannel/linux-arm64-gnu': 0.33.6
+      '@node-datachannel/linux-arm64-musl': 0.33.6
+      '@node-datachannel/linux-x64-gnu': 0.33.6
+      '@node-datachannel/linux-x64-musl': 0.33.6
+      '@node-datachannel/win32-arm64-msvc': 0.33.6
+      '@node-datachannel/win32-x64-msvc': 0.33.6
+
+  thunky@1.1.0: {}
+
+  werift@0.28.0:
+    dependencies:
+      buffer: 6.0.3
+      mediabunny: 1.66.0
+      multicast-dns: 7.2.5

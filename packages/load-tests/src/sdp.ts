@@ -1,4 +1,89 @@
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
+import type { RtcPayload } from "@jollity/statement-core";
+import type { SignallingProfile } from "./profile.js";
+
+/** How a bot's links connect to the statement transport. */
+export interface LinkWire {
+  /** Sends a description or candidate to `peer` over the transport. */
+  signal(peer: string, payload: RtcPayload): void;
+  /** The link to `peer` came up, or went down. */
+  onLinked(peer: string, linked: boolean): void;
+}
+
+/** A bot's links to its co-players: `VideoMesh`, or `StandInLinks` without video. */
+export interface PeerLinks {
+  open(peers: string[]): void;
+  onSignal(from: string, payload: RtcPayload): void;
+  /** Closes every link; resolves to how many were up until they closed. */
+  close(): Promise<number>;
+}
+
+/** The app's mesh gathers candidates up to this long before a description goes out. */
+const GATHER_MS = 750;
+
+interface StandInLink {
+  credentials: IceCredentials;
+  sent: boolean;
+  description: boolean;
+  candidates: boolean;
+  up: boolean;
+}
+
+/**
+ * Links negotiated as the app's mesh negotiates them, with descriptions and candidates of Chrome's
+ * size in place of a WebRTC connection's. A link is up once its description went out and the
+ * co-player's description and candidates came in.
+ */
+export class StandInLinks implements PeerLinks {
+  private readonly links = new Map<string, StandInLink>();
+  private readonly timers: NodeJS.Timeout[] = [];
+
+  constructor(
+    private readonly self: string,
+    private readonly profile: SignallingProfile,
+    private readonly wire: LinkWire,
+  ) {}
+
+  open(peers: string[]): void {
+    for (const peer of peers) this.links.set(peer, { credentials: iceCredentials(), sent: false, description: false, candidates: false, up: false });
+    // The lower id offers and the other answers, as the app's mesh decides.
+    for (const peer of peers) if (this.self < peer) this.sendDescription(peer, "offer");
+  }
+
+  onSignal(from: string, { rtc }: RtcPayload): void {
+    const link = this.links.get(from);
+    if (!link) return;
+    if (rtc.desc?.type === "offer") this.sendDescription(from, "answer", rtc.gen);
+    if (rtc.desc) link.description = true;
+    if (rtc.cand) link.candidates = true;
+    this.update(from, link);
+  }
+
+  async close(): Promise<number> {
+    this.timers.forEach((timer) => clearTimeout(timer));
+    return [...this.links.values()].filter((link) => link.up).length;
+  }
+
+  /** The app's mesh sends a description once gathering is done, then trickles candidates. */
+  private sendDescription(peer: string, type: "offer" | "answer", gen?: string): void {
+    this.timers.push(
+      setTimeout(() => {
+        const link = this.links.get(peer)!;
+        this.wire.signal(peer, { rtc: { desc: sessionDescription(type, link.credentials, this.profile.descriptionBytes), gen } });
+        for (const cand of iceCandidates(link.credentials, this.profile.candidates)) this.wire.signal(peer, { rtc: { cand } });
+        link.sent = true;
+        this.update(peer, link);
+      }, GATHER_MS),
+    );
+  }
+
+  private update(peer: string, link: StandInLink): void {
+    const up = link.sent && link.description && link.candidates;
+    if (up === link.up) return;
+    link.up = up;
+    this.wire.onLinked(peer, up);
+  }
+}
 
 const ICE_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const iceToken = (length: number) => Array.from({ length }, () => ICE_CHARACTERS[randomInt(ICE_CHARACTERS.length)]).join("");

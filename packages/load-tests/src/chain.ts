@@ -1,18 +1,21 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fromPapi, groupSeats, reportTx, type ReportVote } from "@parity/product-sdk-individuality";
-import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
+import type { GameEngine } from "@jollity/protocol/src/engine";
+import { GROUP_READ_MS, readGroups, waitForGroups } from "./chain-seats.js";
 import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from "./block-load.js";
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import { buildDraw, claimDrawPrizes, GAME_AIRDROP_SOURCE, type DrawResult } from "./draw.js";
+import { ALREADY_REGISTERED, bindLiteBots, NOT_MEMBER_YET, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
+import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { readAll, sleep } from "./time.js";
+import { readAll, retry, sleep, withTimeout } from "./time.js";
 
 /** How long the run waits after the game for its last blocks to be finalized and read. */
 const FINALIZED_WAIT_MS = 120_000;
@@ -53,6 +56,8 @@ export interface ChainRun {
   registrationWaitMs: number;
   /** Claims the credits the game awarded as NFTs on Asset Hub once they arrive there. */
   claim: boolean;
+  /** Every player enters the game's prize draws, and the winners claim; a game this run schedules gets one draw. */
+  draw: boolean;
 }
 
 export interface ChainResult {
@@ -78,6 +83,10 @@ export interface ChainResult {
   notes: string[];
   /** Where People blocks came close to their limits without failing the run. */
   capacity: string[];
+  /** Lite bots' binds by outcome, and how many have a deposit reserved after signing up; null for deposit-backed bots. */
+  lite: { binds: Record<string, number>; withDeposit: number } | null;
+  /** The prize draws: sign-ups that entered them and why the others didn't, then tickets, winners and claims; null without `draw`. */
+  draw: { entries: number; skips: Record<string, number>; outcome: DrawResult | null } | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -123,8 +132,9 @@ async function scheduleOwnGame(
   const now = Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
   // Slack of a few blocks: the chain starts the game only before its registration start.
   const gamePlayTime = Math.ceil(now / 1000) + phases.registration + phases.shuffle + phases.post_shuffle_margin + 30;
+  const airdrops = run.draw ? [await buildDraw(api)] : [];
   const schedule = api.tx.Game.schedule_games({
-    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops: [], tenure_claim_window: 0 }],
+    games_schedules: [{ game_play_time: gamePlayTime, rounds: run.rounds, max_group_size: run.maxGroupSize, airdrops, tenure_claim_window: 0 }],
   });
   await dispatchAsRoot(api, sudo, [api.tx.Game.set_game_phases({ phases }).decodedCall, schedule.decodedCall], 2, "schedule");
   return { gamePlayTime, phases, previous: Object.keys(run.phases).length > 0 ? chainPhases : undefined };
@@ -137,34 +147,15 @@ async function scheduleOwnGame(
  * inconsistent, for which the app shows no game view either.
  */
 export async function buildReport(engine: GameEngine, player: Player, playerCount: number, maxGroupSize: number): Promise<ReportVote[][] | undefined> {
-  const indices = await engine.playerIndices(player.address);
-  if (!indices) return undefined;
-  const rounds = await Promise.all(
-    indices.map(async (ownIndex, round) => {
-      const members = new Set((await engine.groupMembers(round, ownIndex, playerCount, maxGroupSize)).map((member) => member.index));
-      const chairs = groupSeats(ownIndex, playerCount, maxGroupSize);
-      if (members.size !== chairs.filter((chair) => chair.occupied).length || chairs.some((chair) => chair.occupied !== members.has(chair.index))) return undefined;
-      return chairs.filter((chair) => chair.occupied && chair.index !== ownIndex).map((): ReportVote => "Person");
-    }),
-  );
+  const groups = await readGroups(engine, player.address, playerCount, maxGroupSize);
+  if (!groups) return undefined;
+  const rounds = groups.map(({ ownIndex, members }) => {
+    const memberIndices = new Set(members.map((member) => member.index));
+    const chairs = groupSeats(ownIndex, playerCount, maxGroupSize);
+    if (memberIndices.size !== chairs.filter((chair) => chair.occupied).length || chairs.some((chair) => chair.occupied !== memberIndices.has(chair.index))) return undefined;
+    return chairs.filter((chair) => chair.occupied && chair.index !== ownIndex).map((): ReportVote => "Person");
+  });
   return rounds.every((votes): votes is ReportVote[] => votes !== undefined) ? rounds : undefined;
-}
-
-/**
- * Game `gameIndex` once the app's engine reads its roster, with the player count its groups
- * follow from. The engine reads at the finalized block, a few blocks behind the best one.
- */
-async function readRoster(engine: GameEngine, gameIndex: number): Promise<{ current: PalletGame; playerCount: number }> {
-  const until = Date.now() + 120_000;
-  for (;;) {
-    const current = await engine.game();
-    if (current?.index === gameIndex) {
-      const playerCount = statePlayerCount(current.state);
-      if (playerCount !== undefined) return { current, playerCount };
-    }
-    if (Date.now() > until) throw new Error(`game ${gameIndex} shows no roster at the finalized block within 120 s`);
-    await sleep(2_000);
-  }
 }
 
 /**
@@ -180,7 +171,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   const pool = SigningPool.open(target);
   const timeline: ChainResult["timeline"] = [];
   const findings: string[] = [];
-  const chainNow = async () => Number(await api.query.Timestamp.Now.getValue({ at: "best" }));
+  const chainNow = async () =>
+    Number(await retry(3, 1_000, () => withTimeout(api.query.Timestamp.Now.getValue({ at: "best" }), GROUP_READ_MS, "chain time read")));
   let previousPhases: Phases | undefined;
   let watching = true;
   // On a live network the next game starts as soon as this one ends, so the end is a new index.
@@ -189,12 +181,17 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
   try {
     const { players } = run;
+    // Lite bots sign up free after a bind, so they get no funds.
+    const isLite = players.length > 0 && players.every((player) => player.liteEntropy !== undefined);
     const ownGame = target.sudo !== undefined && run.gameAt === undefined;
     const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     let phases = chainPhases;
     let gameAt = run.gameAt;
+    // Before the game is scheduled, so the binds don't take registration's time.
+    const { outcomes: binds, refusals: bindRefusals } = isLite ? await bindLiteBots(pool, players) : { outcomes: {}, refusals: {} };
+    for (const [reason, count] of Object.entries(bindRefusals)) findings.push(`bind refused, ${reason}: ${count}`);
     if (ownGame) {
-      await clearAndFund(api, run, target.sudo!, players);
+      await clearAndFund(api, run, target.sudo!, isLite ? [] : players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
       gameAt = scheduled.gamePlayTime;
       phases = scheduled.phases;
@@ -231,11 +228,20 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
     blockFollower.followGame(game.index);
+    if (run.draw && game.airdrops_scheduled === 0) {
+      const remedy = ownGame ? `: fund ${GAME_AIRDROP_SOURCE} with the prize asset` : "";
+      findings.push(`draw: game ${game.index} has no prize draw${remedy}`);
+    }
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
-    if (!ownGame) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players);
+    if (!ownGame && !isLite) await topUpPlayers(target, api, players);
+    const { extrinsics: signUpExtrinsics, refusals, drawEntries, drawTickets, drawSkips } = await signSignUps(pool, players, run.draw);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
+    }
+    if (run.draw && game.airdrops_scheduled > 0) {
+      for (const [kind, count] of Object.entries(drawSkips)) {
+        if (kind !== NOT_MEMBER_YET) findings.push(`draw: ${count} sign-ups entered no draw, ${kind}`);
+      }
     }
 
     console.log(`[chain] game ${game.index}: ${signUpExtrinsics.length} players sign up`);
@@ -243,6 +249,13 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
     if (signUp.inTime < signUpExtrinsics.length) {
       findings.push(`sign-up: ${signUpExtrinsics.length - signUp.inTime} of ${signUpExtrinsics.length} not in before registration ended`);
+    }
+    let lite: ChainResult["lite"] = null;
+    if (isLite) {
+      const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
+      lite = { binds, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
+      console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
+      if (lite.withDeposit > 0) findings.push(`sign-up: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
     }
 
     const untilGame = game.game_date * 1000 - (await chainNow());
@@ -253,27 +266,47 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     if (!lastState.startsWith("Reporting")) {
       findings.push(`shuffle: the game went to ${lastState} instead of Reporting`);
     } else {
-      // Built and signed now, while the last turns play, and sent once the last turn is over.
-      const { current, playerCount } = await readRoster(engine, game.index);
-      if (current.rounds !== run.rounds || current.max_group_size !== run.maxGroupSize) {
-        findings.push(
-          `game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`,
+      // Built and signed now, while the last turns play, and sent once the last turn is over: over
+      // a fresh connection, since the run's own one sat idle through the shuffle and a congested
+      // node closes idle subscriptions. Every step ends by the end of reporting.
+      const reading = connectPeople(target);
+      let step = "roster read";
+      let reports: Array<{ player: Player; fullReport: ReportVote[][] }> = [];
+      let reportExtrinsics: string[] = [];
+      const prepareReports = async () => {
+        const { game: current, playerCount } = await waitForGroups(reading.engine, game.index, Date.now() + 120_000);
+        step = "seat reads";
+        const notBuilt: Record<string, number> = {};
+        const entries = await readAll(players, async (player) => ({
+          player,
+          fullReport: await withTimeout(buildReport(reading.engine, player, playerCount, current.max_group_size), GROUP_READ_MS, "seat read").catch((error: Error) => {
+            bump(notBuilt, error.message);
+            return undefined;
+          }),
+        }));
+        const built = entries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
+        step = "signing";
+        const chain = fromPapi(client, api);
+        const extrinsics = await pool.sign(
+          built.map(({ player, fullReport }) => ({ player, chain: "people" as const, signer: "participant" as const, tx: reportTx(chain, { fullReport }) })),
+          "report",
         );
+        return { current, notBuilt, built, extrinsics };
+      };
+      try {
+        const untilReportEnd = Math.max(0, game.report_ends * 1000 - (await chainNow()));
+        const { current, notBuilt, built, extrinsics } = await withTimeout(prepareReports(), untilReportEnd, "reporting end");
+        reports = built;
+        reportExtrinsics = extrinsics;
+        if (current.rounds !== run.rounds || current.max_group_size !== run.maxGroupSize) {
+          findings.push(`game shape: the game plays ${current.rounds} rounds in groups of up to ${current.max_group_size}, the bots' messages assume ${run.rounds} of ${run.maxGroupSize}`);
+        }
+        if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built ${JSON.stringify(notBuilt)}`);
+      } catch (error) {
+        findings.push(`report: ${step} stopped, ${(error as Error).message}`);
+      } finally {
+        reading.client.destroy();
       }
-      const reportEntries = await readAll(players, async (player) => ({
-        player,
-        fullReport: await buildReport(engine, player, playerCount, current.max_group_size).catch((error: Error) => {
-          console.warn(`[chain] report of ${player.address} not built: ${error.message}`);
-          return undefined;
-        }),
-      }));
-      const reports = reportEntries.filter((entry): entry is { player: Player; fullReport: ReportVote[][] } => entry.fullReport !== undefined);
-      if (reports.length < players.length) findings.push(`report: ${players.length - reports.length} of ${players.length} players' reports not built`);
-      const chain = fromPapi(client, api);
-      const reportExtrinsics = await pool.sign(
-        reports.map(({ player, fullReport }) => ({ player, chain: "people" as const, signer: "participant" as const, tx: reportTx(chain, { fullReport }) })),
-        "report",
-      );
       while ((await chainNow()) < game.game_date * 1000 + run.playMs) await sleep(1_000);
       console.log(`[chain] ${reports.length} players report`);
       const burst = await submitBurst(
@@ -311,6 +344,27 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
         findings.push(`player processing: ${(error as Error).message}`);
       }
     }
+    let draw: ChainResult["draw"] = null;
+    if (run.draw && game.airdrops_scheduled > 0) {
+      draw = { entries: drawEntries, skips: drawSkips, outcome: null };
+      if (drawEntries > 0 && timeline.at(-1)!.state === "None") {
+        try {
+          const outcome = await claimDrawPrizes(engine, pool, client, api, target, players, game.index, run.connections);
+          draw.outcome = outcome;
+          console.log(`[chain] draw: ${outcome.tickets} tickets, ${outcome.winners.length} wins, ${outcome.claimCount} claimed`);
+          if (outcome.tickets < drawTickets) findings.push(`draw: ${drawTickets - outcome.tickets} of ${drawTickets} tickets the sign-ups carried are not on chain`);
+          // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
+          if (outcome.winners.length === 0 && ownGame) findings.push("draw: no winner");
+          if (outcome.claimCount < outcome.winners.length) findings.push(`draw: ${outcome.winners.length - outcome.claimCount} of ${outcome.winners.length} prizes not claimed`);
+          for (const [reason, count] of Object.entries(outcome.ineligible)) findings.push(`draw claim not eligible, ${reason}: ${count}`);
+          for (const [failure, count] of Object.entries(outcome.claimFailures)) findings.push(`draw claim ${failure}: ${count}`);
+        } catch (error) {
+          findings.push(`draw: stopped on ${(error as Error).message}`);
+        }
+      } else if (drawEntries > 0) {
+        findings.push("draw: the game didn't end, so no prize was claimed");
+      }
+    }
     for (const [failure, count] of Object.entries(signUp.failures)) findings.push(`sign-up ${failure}: ${count}`);
     for (const [failure, count] of Object.entries(report?.failures ?? {})) findings.push(`report ${failure}: ${count}`);
     // The game's last blocks are best, not yet finalized, when the run sees the game end.
@@ -323,6 +377,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     findings.push(...limits.findings);
     const notes = blockFollower.notes();
     if (!blocksComplete) notes.push(`finalized blocks up to #${lastBestBlock} not read within ${FINALIZED_WAIT_MS / 1000} s of the game end`);
+    for (const [label, burst] of [["sign-up", signUp], ["report", report]] as const) {
+      for (const [error, count] of Object.entries(burst?.connectFailures ?? {})) notes.push(`${label}: ${count} of ${run.connections} connections not opened, ${error}`);
+    }
     let proposals: Proposal[] | null = null;
     const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
     if (target.network === "previewnet" && gameBlocks.length > 0) {
@@ -350,6 +407,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       proposals,
       notes,
       capacity: limits.capacity,
+      lite,
+      draw,
     };
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));

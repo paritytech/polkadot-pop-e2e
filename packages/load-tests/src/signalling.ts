@@ -6,10 +6,12 @@ import { derivePlayer, type Player } from "./keys.js";
 import { gameMs, type Phase, type SignallingProfile } from "./profile.js";
 import { scrapeAll, type NodeMetrics } from "./prometheus.js";
 import { RpcConnection } from "./rpc.js";
-import { coPlayersOf } from "./seating.js";
+import { coPlayersOf, roundsOf } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
 import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
+import { botVideo, type VideoRun } from "./video/run.js";
+import { VideoStats } from "./video/stats.js";
 
 export interface Shard {
   index: number;
@@ -36,6 +38,8 @@ export interface StepRun {
   phase: Phase;
   target: Target;
   outDir: string;
+  /** Real peer connections with video in place of Chrome-sized descriptions. */
+  video?: VideoRun;
 }
 
 /** CPU and memory of the truapi-host processes a host layer step started, per ghost they served. */
@@ -44,6 +48,8 @@ export interface HostUsage {
   ghosts: number;
   /** Processes that exited with an error, by exit code or signal. */
   failures: Record<string, number>;
+  /** In a game: bots without seats from the chain, by reason; they don't play. */
+  unseated?: Record<string, number>;
   cpuPercentPerGhost: number;
   rssMbPerGhost: number;
 }
@@ -63,6 +69,7 @@ export interface SignallingShardResult {
   /** Node metrics at the window's start and end, scraped by shard 0 only. */
   metrics?: { start: NodeMetrics; end: NodeMetrics };
   hosts?: HostUsage;
+  video?: VideoStats;
 }
 
 /** One step's game as every shard sees it. */
@@ -120,7 +127,16 @@ async function runStep(
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
   const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
-  const room: GhostRoom = { profile, phase: run.phase, namespace, gameStart: windowStart, window, stats };
+  const video = run.video && new VideoStats();
+  const room: GhostRoom = {
+    profile,
+    phase: run.phase,
+    namespace,
+    gameStart: windowStart,
+    window,
+    stats,
+    ...(video && { video }),
+  };
 
   await sleepUntil(stepStart);
   const players = await startPlayers({ count, stepStart, room });
@@ -134,6 +150,7 @@ async function runStep(
   players.stopSending();
   await sleepUntil(window.end + timing.drainMs);
   await players.leave();
+  if (video && run.video?.turn) video.add(run.video.turn.takeStats());
 
   return {
     layer,
@@ -152,6 +169,7 @@ async function runStep(
     },
     ...(metricsStart && metricsEnd && { metrics: { start: metricsStart, end: metricsEnd } }),
     ...(players.hosts && { hosts: players.hosts() }),
+    ...(video && { video }),
   };
 }
 
@@ -188,14 +206,17 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         connections.push(connection);
         const end = Math.min((connectionIndex + 1) * ghostsPerConnection, count);
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
-          const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room);
+          const addressOf = (other: number) => playerAt(other).address;
+          // Direct-RPC ghosts are never lite bots, so they have no TURN credentials.
+          const video = run.video && room.video && botVideo(run.video.ice, [], room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
+          const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();
         }
       }),
     );
     return {
-      stopSending: () => ghosts.forEach((ghost) => ghost.stopSending()),
+      stopSending: () => ghosts.forEach((ghost) => void ghost.stopSending()),
       async leave() {
         leaving = true;
         for (const ghost of ghosts) ghost.leave();

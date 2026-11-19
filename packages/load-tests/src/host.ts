@@ -1,14 +1,18 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import type { TurnServer } from "@jollity/protocol";
+import type { ChainSeats } from "./chain-seats.js";
 import { hostGhostPlayer, hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
+import type { RunIce } from "./video/run.js";
+import type { VideoStats } from "./video/stats.js";
 
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
@@ -28,15 +32,32 @@ export interface HostGhostPlan {
   stopAt: number;
   leaveAt: number;
   resultPath: string;
+  /** With video: the run's ICE settings, and each ghost's TURN servers. */
+  video?: { ice: RunIce; turn: TurnServer[][] };
+  /**
+   * In a game: where the runner writes the chain's seats, which the ghosts wait for before
+   * playing, and with video the app's room key, under the app's product account as namespace.
+   */
+  game?: { seatsPath: string; room?: string };
+}
+
+/** What a host's ghost script writes to `resultPath`. */
+export interface HostGhostResult {
+  stats: SignallingStats;
+  video?: VideoStats;
 }
 
 export interface HostOptions {
   ghostsPerHost: number;
+  /** The host index of player 0: lite bots are hosts from their first bot index on, one ghost each. */
+  firstHost: number;
   botsPerProcess: number;
   productId: string;
   binary: string;
   /** `--stack <location>` or `--network <key>`: the stack the hosts run against. */
   stackArgs: string[];
+  /** In a game: its index, and a read of the chain's seats of `bots` once the shuffle seats them. */
+  game?: { index: number; readSeats(bots: string[]): Promise<ChainSeats> };
 }
 
 const SCRIPT = resolve(import.meta.dirname, "host-ghost.ts");
@@ -103,24 +124,29 @@ export function shardProcesses(
  * are split over shards.
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
-  const { ghostsPerHost } = options;
-  const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, index).address);
+  const { ghostsPerHost, firstHost } = options;
+  const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, firstHost * ghostsPerHost + index).address);
   return async ({ count, stepStart, room }) => {
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
     const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts, 0);
     const workDir = resolve(run.outDir, "hosts", `n${count}`);
-    await mkdir(workDir, { recursive: true });
+    // Plans contain the bots' TURN credentials, so they stay out of the uploaded results.
+    const planDir = join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`);
+    await Promise.all([mkdir(workDir, { recursive: true }), mkdir(planDir, { recursive: true })]);
     const exits: Array<Promise<string | null>> = [];
     const processes: Array<{ child: ChildProcess; ghosts: number }> = [];
     const resultPaths: string[] = [];
+    // With video, the app's topics, which real players use too; stand-in links would send them fake descriptions.
+    const appRoom = options.game && run.video ? `g${options.game.index}` : undefined;
+    const game = options.game && { seatsPath: join(planDir, "seats.json"), ...(appRoom && { room: appRoom }) };
     let joined = 0;
     for (const { host, firstAccount, firstPlayer, ghosts } of owned) {
       const name = `host${host}-${firstAccount}`;
       const resultPath = join(workDir, `${name}.result.json`);
-      const planPath = join(workDir, `${name}.plan.json`);
+      const planPath = join(planDir, `${name}.plan.json`);
       const plan: HostGhostPlan = {
         profile: room.profile,
-        namespace: room.namespace,
+        namespace: appRoom ? options.productId : room.namespace,
         accounts: accounts.slice(0, count),
         phase: room.phase,
         gameStart: room.gameStart,
@@ -132,6 +158,13 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         stopAt: room.window.end,
         leaveAt: room.window.end + run.timing.drainMs,
         resultPath,
+        ...(run.video && {
+          video: {
+            ice: run.video.ice,
+            turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? []),
+          },
+        }),
+        ...(game && { game }),
       };
       await writeFile(planPath, JSON.stringify(plan));
       resultPaths.push(resultPath);
@@ -144,7 +177,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
             ...process.env,
             TRUAPI_HOST_NO_UPDATE: "1",
             TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, name),
-            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
+            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, firstHost + host),
             GHOST_PLAN: planPath,
           },
           stdio: ["ignore", "pipe", "pipe"],
@@ -160,6 +193,25 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         }),
       );
     }
+    const unseated: Record<string, number> = {};
+    const chainGame = options.game;
+    const seating =
+      chainGame && game
+        ? (async () => {
+            const bots = owned.flatMap(({ firstPlayer, ghosts }) => accounts.slice(firstPlayer, firstPlayer + ghosts));
+            try {
+              const seats = await chainGame.readSeats(bots);
+              // Moved into place once complete, so a ghost never reads a partial file.
+              await writeFile(`${game.seatsPath}.part`, JSON.stringify(seats));
+              await rename(`${game.seatsPath}.part`, game.seatsPath);
+              for (const [reason, count] of Object.entries(seats.unseated)) bump(unseated, reason, count);
+              console.log(`[host] ${Object.keys(seats.rounds).length} of ${bots.length} bots seated, ${Object.keys(seats.identifiers).length} co-players' identifiers read`);
+            } catch (error) {
+              bump(unseated, (error as Error).message, bots.length);
+              console.error(`[host] chain seats not read, the bots don't play: ${(error as Error).message}`);
+            }
+          })()
+        : undefined;
 
     const sample = async () => {
       const table = await readProcessTable();
@@ -183,9 +235,12 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         for (const failure of await Promise.all(exits)) if (failure) bump(failures, failure);
         clearTimeout(timer);
         await sampling;
+        await seating;
         for (const path of resultPaths) {
-          const stats = await readFile(path, "utf8").then((text) => JSON.parse(text) as SignallingStats, () => undefined);
-          if (stats) room.stats.add(stats);
+          const result = await readFile(path, "utf8").then((text) => JSON.parse(text) as HostGhostResult, () => undefined);
+          if (!result) continue;
+          room.stats.add(result.stats);
+          if (result.video) room.video?.add(result.video);
         }
       },
       hosts(): HostUsage {
@@ -205,6 +260,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
           processes: processes.length,
           ghosts: ownedGhosts,
           failures,
+          ...(chainGame && { unseated }),
           cpuPercentPerGhost: ghostsInSample > 0 ? (cpuSeconds / seconds / ghostsInSample) * 100 : 0,
           rssMbPerGhost: ghostsInSample > 0 ? rssKb / 1024 / ghostsInSample : 0,
         };

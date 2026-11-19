@@ -8,6 +8,7 @@ import { Histogram, type QuantileSummary } from "./histogram.js";
 import type { Keypair } from "./keys.js";
 import { RpcConnection } from "./rpc.js";
 import { bump, total } from "./stats.js";
+import { retry } from "./time.js";
 import type { AssetHubApi, PeopleApi } from "./target.js";
 
 /** A chain a burst goes to: its events and timestamp are read for each block a transaction lands in. */
@@ -36,6 +37,8 @@ interface BurstCounts {
   ok: number;
   /** Rejections by the RPC or pool, and dispatch errors, by error. */
   failures: Record<string, number>;
+  /** Connections the burst couldn't open after every attempt, by error; it sent over the others. */
+  connectFailures: Record<string, number>;
   /** Succeeded in a block whose timestamp is at most the burst's deadline. */
   inTime: number;
   firstBlock: number | null;
@@ -148,8 +151,9 @@ export async function submitLanes(
   deadline: (chainStart: number) => number,
   { progress }: LaneOptions = {},
 ): Promise<Burst> {
-  const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
-  const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
+  const burst: Burst = { submitted: 0, ok: 0, failures: {}, connectFailures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
+  const { connections, failures: connectFailures } = await openConnections(urls, connectionCount, (url) => RpcConnection.open(url, 15_000));
+  burst.connectFailures = connectFailures;
   const readBlock = createBlockReader(api, client);
   const latest = deadline(Number(await api.query.Timestamp.Now.getValue({ at: "best" })));
   const start = Date.now();
@@ -209,6 +213,32 @@ export async function submitLanes(
   burst.durationMs = Date.now() - start;
   for (const connection of connections) connection.close();
   return burst;
+}
+
+/** Attempts per connection a burst opens, `CONNECT_PAUSE_MS` apart. */
+const CONNECT_ATTEMPTS = 3;
+const CONNECT_PAUSE_MS = 1_000;
+
+/**
+ * `count` connections spread over `urls`, each opened with up to `CONNECT_ATTEMPTS` attempts, and
+ * the ones that didn't open, by their last error. Fails only when none opened.
+ */
+export async function openConnections<Connection>(
+  urls: string[],
+  count: number,
+  open: (url: string) => Promise<Connection>,
+  pauseMs = CONNECT_PAUSE_MS,
+): Promise<{ connections: Connection[]; failures: Record<string, number> }> {
+  const settled = await Promise.allSettled(Array.from({ length: count }, (_, i) => retry(CONNECT_ATTEMPTS, pauseMs, () => open(urls[i % urls.length]))));
+  const connections: Connection[] = [];
+  const failures: Record<string, number> = {};
+  for (const result of settled) {
+    if (result.status === "fulfilled") connections.push(result.value);
+    else bump(failures, (result.reason as Error).message);
+  }
+  if (connections.length === 0) throw new Error(`no connection of ${count} opened: ${Object.keys(failures).join("; ")}`);
+  if (connections.length < count) console.warn(`[burst] ${connections.length} of ${count} connections opened ${JSON.stringify(failures)}`);
+  return { connections, failures };
 }
 
 export function summarizeBurst(burst: Burst): BurstSummary {

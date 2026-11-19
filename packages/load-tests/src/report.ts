@@ -6,6 +6,8 @@ import type { ChainResult } from "./chain.js";
 import { summarizeGameProcessing, summarizePhases, type GameProcessing, type PhaseLoad } from "./phases.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
 import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
+import { summarizeVideo, videoFindings, videoMarkdown, type VideoSummary } from "./video/report.js";
+import { VideoStats } from "./video/stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -44,6 +46,7 @@ export interface StepSummary {
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
   hosts: HostUsage | null;
+  video: VideoSummary | null;
 }
 
 function nodeSummary(start: Sample, end: Sample, seconds: number): NodeSummary {
@@ -64,12 +67,17 @@ function mergeHosts(results: SignallingShardResult[]): HostUsage | null {
   if (usages.length === 0) return null;
   const ghosts = usages.reduce((sum, usage) => sum + usage.ghosts, 0);
   const failures: Record<string, number> = {};
-  for (const usage of usages) for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
+  const unseated: Record<string, number> = {};
+  for (const usage of usages) {
+    for (const [key, count] of Object.entries(usage.failures)) bump(failures, key, count);
+    for (const [key, count] of Object.entries(usage.unseated ?? {})) bump(unseated, key, count);
+  }
   const weighted = (pick: (usage: HostUsage) => number) => usages.reduce((sum, usage) => sum + pick(usage) * usage.ghosts, 0) / ghosts;
   return {
     processes: usages.reduce((sum, usage) => sum + usage.processes, 0),
     ghosts,
     failures,
+    unseated,
     cpuPercentPerGhost: weighted((usage) => usage.cpuPercentPerGhost),
     rssMbPerGhost: weighted((usage) => usage.rssMbPerGhost),
   };
@@ -94,6 +102,13 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     }
   }
   const hosts = mergeHosts(results);
+  const videoResults = results.flatMap((result) => (result.video ? [result.video] : []));
+  let video: VideoSummary | null = null;
+  if (videoResults.length > 0) {
+    const videoStats = new VideoStats();
+    for (const result of videoResults) videoStats.add(result);
+    video = summarizeVideo(videoStats, stats);
+  }
 
   const findings: string[] = [];
   const submitTotal = total(stats.submits);
@@ -117,14 +132,17 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
+  if (hosts?.unseated && total(hosts.unseated) > 0) findings.push(`seats: ${total(hosts.unseated)} of ${hosts.ghosts} bots without seats from the chain ${JSON.stringify(hosts.unseated)}`);
   if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
   if (loss > thresholds.maxLoss) findings.push(`delivery: ${(loss * 100).toFixed(2)}% lost`);
   if ((latency.p95 ?? Infinity) > thresholds.maxP95Ms) findings.push(`delivery: p95 ${latency.p95} ms`);
-  const clientBound = clientLagP99Ms > thresholds.maxClientLagMs;
-  if (clientBound) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);
+  const videoVerdict = video ? videoFindings(video) : { findings: [], clientBound: false };
+  findings.push(...videoVerdict.findings);
+  const clientBound = clientLagP99Ms > thresholds.maxClientLagMs || videoVerdict.clientBound;
+  if (clientLagP99Ms > thresholds.maxClientLagMs) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);
   // A machine that sent no result, or started late, makes the target look lossy when it isn't.
   const shardCount = results[0].shard.count;
   const missingShards = shardCount - results.length;
@@ -150,6 +168,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     clientLagP99Ms,
     nodes,
     hosts,
+    video,
   };
 }
 
@@ -285,6 +304,21 @@ export function chainMarkdown(result: ChainResult): string {
           "",
         ]
       : []),
+    ...(result.lite
+      ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots have a deposit reserved after signing up.`, ""]
+      : []),
+    ...(result.draw
+      ? [
+          `Prize draw entries: ${result.draw.entries} sign-ups entered, the others didn't ${JSON.stringify(result.draw.skips)} (\`not-member-yet\`: the game can't make the player a member, so the app leaves the ticket out).`,
+          ...(result.draw.outcome
+            ? [
+                `Prize draw: ${result.draw.outcome.draws} draws, ${result.draw.outcome.tickets} bot tickets, ${result.draw.outcome.winners.length} bot wins, ${result.draw.outcome.claimCount} prizes claimed (claim p50 / p95 / max ${result.draw.outcome.claimMs.p50 ?? "–"} / ${result.draw.outcome.claimMs.p95 ?? "–"} / ${result.draw.outcome.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.outcome.claimFailures)}); the winners own ${result.draw.outcome.prizeBalance} of the prize assets.`,
+                `Winners: ${result.draw.outcome.winners.join(", ") || "–"}`,
+              ]
+            : []),
+          "",
+        ]
+      : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
     ...phasesMarkdown(summarizePhases(result)),
@@ -309,7 +343,10 @@ export async function writeSummary(dir: string, thresholds: Thresholds): Promise
   const text = (["signalling", "host"] as const)
     .map((layer) => steps.filter((step) => step.layer === layer))
     .filter((layerSteps) => layerSteps.length > 0)
-    .map((layerSteps) => stepsMarkdown(target, layerSteps))
+    .map((layerSteps) => {
+      const withVideo = layerSteps.flatMap((step) => (step.video ? [{ players: step.players, video: step.video }] : []));
+      return [stepsMarkdown(target, layerSteps), ...(withVideo.length > 0 ? [videoMarkdown(target, withVideo)] : [])].join("\n");
+    })
     .join("\n");
   await writeFile(join(dir, "summary.json"), JSON.stringify({ target, thresholds, steps }, null, 2));
   await writeFile(join(dir, "summary.md"), text);

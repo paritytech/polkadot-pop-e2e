@@ -153,12 +153,17 @@ export class SignallingStats {
       const latest = (this.deliveredUpTo[receiver] ??= {});
       for (const [channel, expiry] of Object.entries(channels)) latest[channel] = laterExpiry(latest[channel], expiry);
     }
-    const own = this as unknown as Record<string, number | Histogram | Record<string, number>>;
-    for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
-      const field = own[key];
-      if (typeof value === "number") own[key] = (field as number) + value;
-      else if (field instanceof Histogram) field.merge(new Histogram((value as { counts: Record<number, number> }).counts));
-      else for (const [entry, count] of Object.entries(value as Record<string, number>)) bump(field as Record<string, number>, entry, count);
-    }
+    addCounts(this, counts);
+  }
+}
+
+/** Adds `counts`, a stats object or its JSON, to `target`'s fields of the same names: numbers, histograms and counts by key. */
+export function addCounts(target: object, counts: object): void {
+  const own = target as Record<string, number | Histogram | Record<string, number>>;
+  for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
+    const field = own[key];
+    if (typeof value === "number") own[key] = (field as number) + value;
+    else if (field instanceof Histogram) field.merge(new Histogram((value as { counts: Record<number, number> }).counts));
+    else for (const [entry, count] of Object.entries(value as Record<string, number>)) bump(field as Record<string, number>, entry, count);
   }
 }

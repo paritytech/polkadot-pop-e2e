@@ -29,6 +29,9 @@ export interface ClaimResult {
   playerMs: QuantileSummary | null;
 }
 
+/** How long one Asset Hub read of the claim phase may take before the phase stops on it. */
+const CHAIN_READ_MS = 60_000;
+
 /** Fees of a player's claims on Asset Hub. */
 const ASSET_HUB_FUNDS = 10_000_000_000n;
 /** How long the run waits for the game's credits to arrive on Asset Hub. */
@@ -52,14 +55,14 @@ interface CreditsRead {
 
 /** Tops every claiming player up to `ASSET_HUB_FUNDS` on Asset Hub: as root on a fork, else from the funder. */
 async function fundOnAssetHub(api: AssetHubApi, target: Target, players: Player[]): Promise<void> {
-  const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
+  const accounts = await withTimeout(api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" }), CHAIN_READ_MS, "Asset Hub balance read");
   const short = players.filter((_, position) => accounts[position].data.free < ASSET_HUB_FUNDS);
   if (short.length === 0) return;
   // Without a root key the funder pays, and must cover every player before the first transfer.
   const funder = target.sudo ? undefined : requireFunder(target);
   if (funder) {
     const needed = BigInt(short.length) * ASSET_HUB_FUNDS + ASSET_HUB_FUNDS;
-    const available = (await api.query.System.Account.getValue(funder.address, { at: "best" })).data.free;
+    const available = (await withTimeout(api.query.System.Account.getValue(funder.address, { at: "best" }), CHAIN_READ_MS, "funder balance read")).data.free;
     if (available < needed) {
       throw new Error(
         `${funder.address} has ${Number(available) / 1e10} UNIT on ${target.label}'s Asset Hub; send it at least ${Math.ceil(Number(needed - available) / 1e10)} UNIT more`,
@@ -89,7 +92,7 @@ async function readChestCollections(chain: ClaimsChain, target: Target): Promise
   const chestCollections: number[] = [];
   let fromId: number | undefined;
   for (;;) {
-    const result = await getClaimableCollections(chain, fromId === undefined ? {} : { fromId });
+    const result = await withTimeout(getClaimableCollections(chain, fromId === undefined ? {} : { fromId }), CHAIN_READ_MS, "claimable collections read");
     if (!result.ok) throw new Error(`claimable collections: ${result.error.message}`);
     chestCollections.push(...result.value.collections.map((collection) => collection.id).filter((id) => approved.has(id)));
     if (result.value.nextId === null) return chestCollections.sort((left, right) => left - right);
@@ -161,7 +164,7 @@ export async function claimCredits(
     const claimants = reads.filter((read) => read.claims.length > 0);
 
     await fundOnAssetHub(api, target, claimants.map((read) => read.player));
-    const nonces = await api.query.System.Account.getValues(claimants.map((read) => [read.player.address]), { at: "best" });
+    const nonces = await withTimeout(api.query.System.Account.getValues(claimants.map((read) => [read.player.address]), { at: "best" }), CHAIN_READ_MS, "claimant nonce read");
     const txs = claimants.map(({ player, claims }) =>
       claims.map((claim) =>
         api.tx.NftClaims.claim({
@@ -214,7 +217,7 @@ export async function claimCredits(
     // `getClaims` then shows the block's credits as earned in no game. The leaf ledger stays.
     const claimSubmissions = claimants.flatMap(({ claims }) => claims);
     const blocks = [...new Set(claimSubmissions.map((claim) => claim.awardBlock))];
-    const ledgers = await api.query.NftClaims.ClaimedLeaves.getValues(blocks.map((block) => [block]), { at: "best" });
+    const ledgers = await withTimeout(api.query.NftClaims.ClaimedLeaves.getValues(blocks.map((block) => [block]), { at: "best" }), CHAIN_READ_MS, "claimed leaves read");
     const ledgerOf = new Map(blocks.map((block, position) => [block, ledgers[position]]));
     const claimed = claimSubmissions.filter((claim) => ((ledgerOf.get(claim.awardBlock)?.[claim.leafIndex! >> 3] ?? 0) >> (claim.leafIndex! & 7)) & 1).length;
     console.log(`[claim] ${burst.ok}/${burst.submitted} claims executed in ${burst.durationMs} ms; ${claimed}/${claimable} credits claimed on chain`);
