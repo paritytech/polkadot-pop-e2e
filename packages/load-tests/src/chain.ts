@@ -373,6 +373,9 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     findings.push(...limits.findings);
     const notes = blockFollower.notes();
     if (!blocksComplete) notes.push(`finalized blocks up to #${lastBestBlock} not read within ${FINALIZED_WAIT_MS / 1000} s of the game end`);
+    for (const [label, burst] of [["sign-up", signUp], ["report", report]] as const) {
+      for (const [error, count] of Object.entries(burst?.connectFailures ?? {})) notes.push(`${label}: ${count} of ${run.connections} connections not opened, ${error}`);
+    }
     let proposals: Proposal[] | null = null;
     const gameBlocks = splitStates(blocks, game.index).flatMap((window) => window.blocks);
     if (target.network === "previewnet" && gameBlocks.length > 0) {

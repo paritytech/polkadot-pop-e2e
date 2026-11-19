@@ -46,6 +46,7 @@ function burst(firstBlock: number, lastBlock: number): BurstSummary {
     submitted: 1,
     ok: 1,
     failures: {},
+    connectFailures: {},
     inTime: 1,
     firstBlock,
     lastBlock,
