@@ -229,6 +229,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
         ]);
         releaseBlockContents(client, block.hash);
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
+        const stepGameIndex = latestGameIndex;
         if (followedGame !== undefined && game?.index === followedGame) lastFollowedGameBlock = Math.max(lastFollowedGameBlock, block.number);
         const inFollowedGame = followedGame !== undefined && (game?.index === followedGame || block.number === lastFollowedGameBlock + 1);
         blocks.push(
@@ -243,7 +244,7 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
               creditCursor,
               unincludedLength: unincluded.length,
               witnessBytes: inFollowedGame ? await readWitnessBytes(block.hash) : null,
-              stepGameIndex: latestGameIndex,
+              stepGameIndex,
             },
             limits,
           ),
