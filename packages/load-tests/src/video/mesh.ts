@@ -159,7 +159,7 @@ export class VideoMesh implements PeerLinks {
     pc.connectionStateChange.subscribe((state) => {
       if (state === "failed") bump(stats.failures, `connection failed: local ${describeCandidates(link.localCandidates)}, remote ${describeCandidates(link.remoteCandidates)}`);
     });
-    // 701: a STUN or TURN server that didn't answer; 401 or 403 from a TURN server that refused the credentials.
+    // 701: a STUN or TURN server that didn't answer; 401 or 403 from a TURN server that rejected the credentials.
     pc.onIceCandidateError.subscribe((event) => bump(stats.candidateErrors, `${event.errorCode} ${event.errorText ?? ""}`.trim()));
     pc.onDataChannel.subscribe((channel) => this.attachChannel(link, channel));
     // Where the app's answerer adds its track before the lane offer arrives, this one takes the
@@ -365,7 +365,8 @@ export class VideoMesh implements PeerLinks {
     // TURN servers that gave this link no relay candidate, such as with the server's relay ports all
     // allocated (508); counted from the candidates, since onIceCandidateError doesn't always fire.
     const turnUrls = this.options.ice.turn.filter((server) => /^turns?:/.test(String(server.urls))).length;
-    const relaysMissing = turnUrls - (link.localCandidates.relay ?? 0);
+    // A link that never sent its description gathered no candidates at all.
+    const relaysMissing = link.descriptionSent ? turnUrls - (link.localCandidates.relay ?? 0) : 0;
     if (relaysMissing > 0) bump(stats.candidateErrors, "TURN server without a relay candidate", relaysMissing);
     if (link.up) {
       // A co-player with no round left closes its side at the same moment, so a link closed by
