@@ -114,8 +114,17 @@ export interface ProvisionResult {
   durationMs: number;
 }
 
-/** A lite username base: 6+ lowercase letters, which DUB extends to a unique username. */
-const USERNAME_BASE = "loadbot";
+/**
+ * The bot's own lite username base: "loadbot" plus its index in letters. DUB extends a base with
+ * the digits 01 to 99, so one base shared by every bot runs out after 99 bots.
+ */
+export function usernameBase(index: number): string {
+  let letters = "";
+  for (let rest = index; rest > 0 || letters === ""; rest = Math.floor(rest / 26)) {
+    letters = String.fromCharCode(97 + (rest % 26)) + letters;
+  }
+  return `loadbot${letters}`;
+}
 
 /**
  * How an attest ended when `truapi-host attest` failed: `pending` when it stopped waiting for
@@ -167,7 +176,7 @@ export async function provisionLitePeople(
         const attestStart = Date.now();
         const seconds = () => ((Date.now() - attestStart) / 1000).toFixed(1);
         try {
-          const identity = await attest(bot.mnemonic, USERNAME_BASE);
+          const identity = await attest(bot.mnemonic, usernameBase(bot.player.index));
           if (identity.address !== bot.candidate.address) throw new Error(`attested ${identity.address}, not the bot's identity account ${bot.candidate.address}`);
           attestMs.add(Date.now() - attestStart);
           attestCount++;
