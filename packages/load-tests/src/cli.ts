@@ -200,11 +200,21 @@ function gamePlayers(target: Target, count: number): Player[] {
   return Array.from({ length: count }, (_, index) => hostGhostPlayer(gameSeed(target, count), productIdOf(target), ghostsPerHost, index));
 }
 
-/** Lite bots `--lite-from`.. of the network: the same bots on every run, since a lite person stays one. */
-function liteBots(target: Target, count: number): LiteBot[] {
-  const from = positiveInteger("lite-from", values["lite-from"]);
-  return Array.from({ length: count }, (_, offset) => deriveLiteBot(`${values.seed}/${target.network}`, productIdOf(target), networkTld(target.network), from + offset));
+/**
+ * Where the network's lite bots come from: host `from + i` of `seed`, one ghost each. Lite bots are
+ * the same on every run, since a lite person stays one.
+ */
+function liteRange(target: Target): { seed: string; from: number } {
+  return { seed: `${values.seed}/${target.network}`, from: positiveInteger("lite-from", values["lite-from"]) };
 }
+
+/** Lite bots `--lite-from + offset` of the network, for each of `offsets`: the chain layer's, the host layer's and their TURN passes'. */
+function liteBots(target: Target, offsets: number[]): LiteBot[] {
+  const { seed, from } = liteRange(target);
+  return offsets.map((offset) => deriveLiteBot(seed, productIdOf(target), networkTld(target.network), from + offset));
+}
+
+const firstOffsets = (count: number) => Array.from({ length: count }, (_, offset) => offset);
 
 switch (values.help ? undefined : command) {
   case "people": {
@@ -213,7 +223,7 @@ switch (values.help ? undefined : command) {
       throw new Error("people attests through the stack's identity backend: set STACK to the stack's descriptor, with --rpc only in place of its People endpoint");
     }
     const target = await resolveTarget(targetOptions);
-    const bots = liteBots(target, positiveInteger("players", values.players));
+    const bots = liteBots(target, firstOffsets(positiveInteger("players", values.players)));
     console.log(`[people] ${target.label}: lite bots ${bots[0].player.index}..${bots.at(-1)!.player.index} of seed ${values.seed}`);
     const result = await provisionLitePeople(target, bots, {
       concurrency: positiveInteger("attest-concurrency", values["attest-concurrency"]),
@@ -277,15 +287,11 @@ switch (values.help ? undefined : command) {
     const productId = productIdOf(target);
     if (values.lite && command !== "host") throw new Error("--lite plays lite bots in the host layer only: `host --lite`");
     if (values.relay && !(values.video && values.lite)) throw new Error("--relay sends media through TURN servers, which only lite bots get: `host --video --lite --relay`");
-    const liteFrom = positiveInteger("lite-from", values["lite-from"]);
     // A lite bot is the only product account of its own host, from host `--lite-from` on.
-    const layout = values.lite ? { ghostsPerHost: 1, firstHost: liteFrom } : { ghostsPerHost, firstHost: 0 };
+    const lite = values.lite ? liteRange(target) : undefined;
+    const layout = lite ? { ghostsPerHost: 1, firstHost: lite.from } : { ghostsPerHost, firstHost: 0 };
     // On a live network only the host bots the chain command signed up have a statement allowance.
-    const seed = values.lite
-      ? `${values.seed}/${target.network}`
-      : values["follow-game"] || (command === "host" && !target.sudo)
-        ? gameSeed(target, steps[0])
-        : values.seed;
+    const seed = lite ? lite.seed : values["follow-game"] || (command === "host" && !target.sudo) ? gameSeed(target, steps[0]) : values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
     if (Number.isNaN(startAt)) throw new Error(`--start-at must be ms or an ISO time, not '${startText}'`);
@@ -309,7 +315,7 @@ switch (values.help ? undefined : command) {
         const issuer = values["turn-issuer"] ?? config.identityBackend;
         if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
         const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-        const bots = new Map(own.map((index) => [index, deriveLiteBot(seed, productId, networkTld(target.network), liteFrom + index)]));
+        const bots = new Map(liteBots(target, own).map((bot, position) => [own[position], bot]));
         const turn = await openLiteTurnPasses(target, bots, productId, issuer);
         video.turn = turn.passes;
         closeTurn = turn.close;
@@ -379,7 +385,7 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      players: values.lite ? liteBots(target, positiveInteger("players", values.players)).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
+      players: values.lite ? liteBots(target, firstOffsets(positiveInteger("players", values.players))).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
       target,
       outDir,
       phases,
