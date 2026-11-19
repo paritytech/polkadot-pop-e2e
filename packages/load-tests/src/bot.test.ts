@@ -143,11 +143,9 @@ describe("SignallingBot", () => {
     await Promise.all(bots.map((bot) => bot.close()));
     for (const bot of bots) bot.leave();
 
-    expect(video.links).toBe(stats.links);
-    expect(video.linksConnected).toBe(video.links);
-    expect(video.linksWithVideo).toBe(video.links);
     expect(stats.linksUp).toBe(stats.links);
-    expect(video.candidateTypes).toEqual({ host: video.links });
+    expect(video.linksWithVideo).toBe(stats.links);
+    expect(video.candidateTypes).toEqual({ host: stats.links });
     expect(video.failures).toEqual({});
     // Each round's group sends both ways, and a group that starts in the second round starts
     // mid-GOP, so its first frame comes from a PLI answered with the next IDR.

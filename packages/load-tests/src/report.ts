@@ -102,7 +102,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (videoResults.length > 0) {
     const videoStats = new VideoStats();
     for (const result of videoResults) videoStats.add(result);
-    video = summarizeVideo(videoStats);
+    video = summarizeVideo(videoStats, stats);
   }
 
   const findings: string[] = [];

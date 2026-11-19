@@ -3,10 +3,6 @@ import { addCounts } from "../stats.js";
 
 /** What the video bots of one shard observed during one step; sums across shards like `SignallingStats`. */
 export class VideoStats {
-  /** Peer connections the bots opened, one per co-player and side. */
-  links = 0;
-  /** Peer connections whose "data" channel opened. */
-  linksConnected = 0;
   /** Peer connections whose video renegotiation over the "data" channel completed. */
   linksWithVideo = 0;
   /** Room open (or the link's creation) to its "data" channel opening. */

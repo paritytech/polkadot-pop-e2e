@@ -8,6 +8,7 @@ import {
   type RtcPayload,
 } from "@jollity/statement-core";
 import { RTCPeerConnection, type RTCDataChannel, type RTCRtpTransceiver } from "werift";
+import type { LinkWire, PeerLinks } from "../sdp.js";
 import { bump } from "../stats.js";
 import { Camera } from "./camera.js";
 import type { Clip } from "./clip.js";
@@ -34,13 +35,9 @@ export interface BotVideo {
   stats: VideoStats;
 }
 
-export interface VideoMeshOptions extends BotVideo {
+export interface VideoMeshOptions extends BotVideo, LinkWire {
   self: string;
   window: { start: number; end: number };
-  /** Sends a first-negotiation description or candidate over the statement transport. */
-  signal(peer: string, payload: RtcPayload): void;
-  /** The link's "data" channel opened, or the link closed. */
-  onLinked(peer: string, linked: boolean): void;
 }
 
 interface Link {
@@ -71,7 +68,7 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
  * round's group; links to a later round's co-players stay on standby (`replaceTrack(null)`), and
  * links with no round left close when the next round's group takes the camera.
  */
-export class VideoMesh {
+export class VideoMesh implements PeerLinks {
   private readonly links = new Map<string, Link>();
   private readonly camera: Camera;
   private readonly timers: NodeJS.Timeout[] = [];
@@ -87,7 +84,6 @@ export class VideoMesh {
     const { rounds, stats, self } = this.options;
     stats.bots++;
     if (this.options.ice.turn.length > 0) stats.botsWithTurn++;
-    stats.links += peers.length;
     this.camera.start();
     const now = Date.now();
     for (const peer of peers) this.createLink(peer, !rounds[0]?.group.includes(peer), self < peer, now);
@@ -224,7 +220,6 @@ export class VideoMesh {
     if (link.up || this.closed) return;
     const { stats, onLinked } = this.options;
     link.up = true;
-    stats.linksConnected++;
     stats.connectMs.add(Date.now() - link.createdAt);
     bump(stats.candidateTypes, link.pc.iceTransports[0]?.getSelectedCandidatePair()?.local.type ?? "unknown");
     onLinked(link.peer, true);

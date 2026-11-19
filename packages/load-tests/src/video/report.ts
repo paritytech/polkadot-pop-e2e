@@ -10,8 +10,9 @@ const MAX_SKIPPED_SHARE = 0.01;
 export interface VideoSummary {
   bots: number;
   botsWithTurn: number;
+  /** The step's links and those up when the game ended, as the signalling table counts them. */
   links: number;
-  linksConnected: number;
+  linksUp: number;
   linksWithVideo: number;
   connectMs: QuantileSummary;
   candidateTypes: Record<string, number>;
@@ -34,13 +35,13 @@ export interface VideoSummary {
   turnProofMs: QuantileSummary;
 }
 
-export function summarizeVideo(stats: VideoStats): VideoSummary {
+export function summarizeVideo(stats: VideoStats, links: { links: number; linksUp: number }): VideoSummary {
   const lossBase = stats.streamPackets + stats.packetsLost;
   return {
     bots: stats.bots,
     botsWithTurn: stats.botsWithTurn,
-    links: stats.links,
-    linksConnected: stats.linksConnected,
+    links: links.links,
+    linksUp: links.linksUp,
     linksWithVideo: stats.linksWithVideo,
     connectMs: stats.connectMs.summary(),
     candidateTypes: stats.candidateTypes,
@@ -66,8 +67,8 @@ export function summarizeVideo(stats: VideoStats): VideoSummary {
 /** What in a step's video points at a problem, and whether it points at the bots' machines. */
 export function videoFindings(video: VideoSummary): { findings: string[]; clientBound: boolean } {
   const findings: string[] = [];
-  if (video.linksConnected < video.links) findings.push(`video: ${video.links - video.linksConnected} of ${video.links} links never connected`);
-  if (video.linksWithVideo < video.linksConnected) findings.push(`video: ${video.linksConnected - video.linksWithVideo} of ${video.linksConnected} connected links never negotiated video`);
+  // Links that never came up are the signalling table's finding.
+  if (video.linksWithVideo < video.linksUp) findings.push(`video: ${video.linksUp - video.linksWithVideo} of ${video.linksUp} links up never negotiated video`);
   if (video.streamsWithFrames < video.streams) findings.push(`video: ${video.streams - video.streamsWithFrames} of ${video.streams} streams showed no frame`);
   if (video.frameShare < MIN_FRAME_SHARE) findings.push(`video: ${(video.frameShare * 100).toFixed(1)}% of the expected frames arrived`);
   if (total(video.failures) > 0) findings.push(`video: ${JSON.stringify(video.failures)}`);
@@ -102,7 +103,7 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
   const rows = steps.map(({ players, video }) =>
     [
       players,
-      `${video.linksConnected} / ${video.links}`,
+      `${video.linksUp} / ${video.links}`,
       video.linksWithVideo,
       ms(video.connectMs),
       counts(video.candidateTypes),
