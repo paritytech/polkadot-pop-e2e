@@ -205,7 +205,8 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         const end = Math.min((connectionIndex + 1) * ghostsPerConnection, count);
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
           const addressOf = (other: number) => playerAt(other).address;
-          const video = run.video && room.video && botVideo(run.video.ice, run.video.turn?.serversOf(index) ?? [], room.video, { index, players: count, profile: run.profile, roomOpenAt: room.gameStart }, addressOf);
+          // Direct-RPC ghosts are never lite bots, so they have no TURN credentials.
+          const video = run.video && room.video && botVideo(run.video.ice, [], room.video, { index, players: count, profile: run.profile, roomOpenAt: room.gameStart }, addressOf);
           const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();
