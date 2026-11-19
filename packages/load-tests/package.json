@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
+    "clip": "ffmpeg -hide_banner -loglevel error -y -f lavfi -i 'testsrc2=size=360x360:rate=24,noise=alls=6:allf=t' -t 4 -pix_fmt yuv420p -c:v libx264 -profile:v baseline -level:v 3.1 -preset veryfast -b:v 300k -maxrate 330k -bufsize 165k -x264-params keyint=48:min-keyint=48:scenecut=0:repeat-headers=1:aud=1:slices=1:sliced-threads=0:rc-lookahead=0:sync-lookahead=0 -f h264 media/clip.h264",
     "light-slots": "light-slots/run.sh",
     "load": "tsx src/cli.ts",
     "test": "vitest run",
@@ -32,6 +33,7 @@
     "@scure/sr25519": "^2.4.0",
     "polkadot-api": "^3.3.0",
     "smoldot": "3.8.0",
+    "werift": "0.28.0",
     "ws": "^8.23.0"
   },
   "devDependencies": {
