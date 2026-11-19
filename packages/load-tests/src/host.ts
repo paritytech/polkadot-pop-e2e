@@ -4,11 +4,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import type { TurnServer } from "@jollity/protocol";
 import { hostGhostPlayer, hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
+import type { RunIce } from "./video/run.js";
+import type { VideoStats } from "./video/stats.js";
 
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
@@ -28,10 +31,20 @@ export interface HostGhostPlan {
   stopAt: number;
   leaveAt: number;
   resultPath: string;
+  /** With video: the run's ICE settings, and each ghost's TURN servers. */
+  video?: { ice: RunIce; turn: TurnServer[][] };
+}
+
+/** What a host's ghost script writes to `resultPath`. */
+export interface HostGhostResult {
+  stats: SignallingStats;
+  video?: VideoStats;
 }
 
 export interface HostOptions {
   ghostsPerHost: number;
+  /** The host index of player 0: lite bots are hosts from their first bot index on, one ghost each. */
+  firstHost: number;
   botsPerProcess: number;
   productId: string;
   binary: string;
@@ -103,8 +116,8 @@ export function shardProcesses(
  * are split over shards.
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
-  const { ghostsPerHost } = options;
-  const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, index).address);
+  const { ghostsPerHost, firstHost } = options;
+  const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, firstHost * ghostsPerHost + index).address);
   return async ({ count, stepStart, room }) => {
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
     const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts, 0);
@@ -132,6 +145,12 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         stopAt: room.window.end,
         leaveAt: room.window.end + run.timing.drainMs,
         resultPath,
+        ...(room.video && {
+          video: {
+            ice: room.video.ice,
+            turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? []),
+          },
+        }),
       };
       await writeFile(planPath, JSON.stringify(plan));
       resultPaths.push(resultPath);
@@ -144,7 +163,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
             ...process.env,
             TRUAPI_HOST_NO_UPDATE: "1",
             TRUAPI_HOST_BASE_PATH: join(tmpdir(), "pop-e2e-load", run.runId, `n${count}`, name),
-            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, host),
+            HOST_CLI_SIGNER_MNEMONIC: hostMnemonic(run.seed, firstHost + host),
             GHOST_PLAN: planPath,
           },
           stdio: ["ignore", "pipe", "pipe"],
@@ -184,8 +203,10 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         clearTimeout(timer);
         await sampling;
         for (const path of resultPaths) {
-          const stats = await readFile(path, "utf8").then((text) => JSON.parse(text) as SignallingStats, () => undefined);
-          if (stats) room.stats.add(stats);
+          const result = await readFile(path, "utf8").then((text) => JSON.parse(text) as HostGhostResult, () => undefined);
+          if (!result) continue;
+          room.stats.add(result.stats);
+          if (result.video) room.video?.stats.add(result.video);
         }
       },
       hosts(): HostUsage {

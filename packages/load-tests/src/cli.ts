@@ -10,6 +10,9 @@ import { grantStatementAllowance } from "./root.js";
 import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
+import { APP_STUN_URLS } from "./video/ice.js";
+import type { VideoRun } from "./video/run.js";
+import { openLiteTurnPasses } from "./video/turn.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
@@ -55,6 +58,14 @@ Signalling:
                         (default); random: each up to one heartbeat later
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
+  --video               Real WebRTC peer connections (werift) in place of descriptions of Chrome's size:
+                        each link negotiated as the app's mesh does, H.264 360x360 at 24 fps to the
+                        current round's group, the next round's co-players on standby
+  --relay               With --video: only relay candidates, through the lite bots' TURN servers
+  --stun <url,...>      With --video: STUN servers (default the app's six); empty for none
+  --turn-issuer <url>   With --video --lite: the TURN credential issuer (default the stack's identity backend)
+  --ice-address <ip>    With --video: gather host candidates on this address alone, such as 127.0.0.1
+                        when every bot runs on one machine
 
 Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --ghosts-per-host <k> Ghosts whose keys derive from one host mnemonic, as its product accounts 0..k-1 (default 10)
@@ -64,6 +75,9 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --follow-game         Wait until the chain command has signed this run's players up to a game
                         (same --seed, network and player count), then play one step of --steps
                         with them, opening the room when the app does, 64 s before that game
+  --lite                The players are lite bots --lite-from.., one host each, as \`chain --lite\` signs
+                        them up; with --video each fetches TURN credentials when the app does: once its
+                        game is known, then 10 and 3 minutes before it
 
 Live networks (no root key): players join a scheduled game as regular players
   --game-at <s|iso>     Play time of the game to join (default: the closest scheduled one).
@@ -132,6 +146,11 @@ const { positionals, values } = parseArgs({
     "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
     "attest-concurrency": { type: "string", default: "3" },
     help: { type: "boolean", short: "h" },
+    video: { type: "boolean", default: false },
+    relay: { type: "boolean", default: false },
+    stun: { type: "string" },
+    "turn-issuer": { type: "string" },
+    "ice-address": { type: "string" },
   },
 });
 
@@ -256,20 +275,49 @@ switch (values.help ? undefined : command) {
     };
     const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
     const productId = productIdOf(target);
+    if (values.lite && command !== "host") throw new Error("--lite plays lite bots in the host layer only: `host --lite`");
+    if (values.relay && !(values.video && values.lite)) throw new Error("--relay sends media through TURN servers, which only lite bots get: `host --video --lite --relay`");
+    const liteFrom = positiveInteger("lite-from", values["lite-from"]);
+    // A lite bot is the only product account of its own host, from host `--lite-from` on.
+    const layout = values.lite ? { ghostsPerHost: 1, firstHost: liteFrom } : { ghostsPerHost, firstHost: 0 };
     // On a live network only the host bots the chain command signed up have a statement allowance.
-    const seed = values["follow-game"] || (command === "host" && !target.sudo) ? gameSeed(target, steps[0]) : values.seed;
+    const seed = values.lite
+      ? `${values.seed}/${target.network}`
+      : values["follow-game"] || (command === "host" && !target.sudo)
+        ? gameSeed(target, steps[0])
+        : values.seed;
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
     if (Number.isNaN(startAt)) throw new Error(`--start-at must be ms or an ISO time, not '${startText}'`);
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
-      const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-      if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${ghostsPerHost} than ${shardCount} machines`);
-      const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, ghostsPerHost, index));
+      const own = shardHosts(steps[0], layout.ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
+      if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${layout.ghostsPerHost} than ${shardCount} machines`);
+      const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, layout.ghostsPerHost, layout.firstHost * layout.ghostsPerHost + index));
       console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to a game`);
       const game = await waitForSignUp(target, watched, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       startAt = game.game_date * 1000 - profile.preconnectMs - timing.rampMs - timing.warmupMs;
       console.log(`[host] game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}`);
+    }
+    let video: VideoRun | undefined;
+    let closeTurn = () => {};
+    if (values.video) {
+      video = { ice: { stunUrls: values.stun === undefined ? APP_STUN_URLS : list([values.stun]), relay: values.relay, interfaceAddress: values["ice-address"] } };
+      if (values.lite) {
+        // Loaded on use, as for stackArgs above: the module reads STACK or NETWORK when it loads.
+        const config = (await import("@pop-e2e/chain-tests/src/config/networks.js")).getNetworkConfig();
+        const issuer = values["turn-issuer"] ?? config.identityBackend;
+        if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
+        const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
+        const bots = new Map(own.map((index) => [index, deriveLiteBot(seed, productId, networkTld(target.network), liteFrom + index)]));
+        const turn = await openLiteTurnPasses(target, bots, productId, issuer);
+        video.turn = turn.passes;
+        closeTurn = turn.close;
+        // The app fetches as soon as it knows of its game: the first step's game, after the pre-connect.
+        await turn.passes.warm(startAt + timing.rampMs + timing.warmupMs + profile.preconnectMs);
+        const withTurn = own.filter((index) => turn.passes.serversOf(index).length > 0).length;
+        console.log(`[${command}] TURN credentials from ${issuer}: ${withTurn} of ${own.length} lite bots`);
+      }
     }
     const run: StepRun = {
       runId: values["run-id"],
@@ -282,13 +330,14 @@ switch (values.help ? undefined : command) {
       phase: values.phase as Phase,
       target,
       outDir,
+      video,
     };
     // A machine that boots late still plays the rest of the step and reports how late it was.
     if (startAt + stepMs(run) < Date.now()) throw new Error(`--start-at ${new Date(startAt).toISOString()}: the first step is already over`);
     console.log(
       `[${command}] ${target.label} via ${target.rpc.join(", ")}: steps ${run.steps.join(", ")}, ${stepMs(run) / 1000} s each, shard ${values.shard}, start ${new Date(startAt).toISOString()}`,
     );
-    const botsPerProcess = positiveInteger("bots-per-process", values["bots-per-process"] ?? String(ghostsPerHost));
+    const botsPerProcess = positiveInteger("bots-per-process", values["bots-per-process"] ?? String(layout.ghostsPerHost));
     if (values["rpc-limit"] !== undefined) {
       // A truapi-host process opens a People connection per subscription, plus its own, all to the
       // stack's People endpoint; ghosts on direct RPC share theirs over `--rpc`. A step over the
@@ -297,7 +346,7 @@ switch (values.help ? undefined : command) {
       const largest = Math.max(...run.steps);
       const [connections, nodes, remedy] =
         command === "host"
-          ? [largest + shardProcesses(largest, ghostsPerHost, botsPerProcess, { index: 0, count: 1 }).length, 1, "play fewer players"]
+          ? [largest + shardProcesses(largest, layout.ghostsPerHost, botsPerProcess, { index: 0, count: 1 }).length, 1, "play fewer players"]
           : [Math.ceil(largest / ghostsPerConnection), target.rpc.length, "raise --ghosts-per-connection"];
       const perNode = Math.ceil(connections / nodes);
       if (perNode > limit - RPC_LIMIT_RESERVE) {
@@ -309,7 +358,8 @@ switch (values.help ? undefined : command) {
     const players =
       command === "host"
         ? hostGhosts(run, {
-            ghostsPerHost,
+            ghostsPerHost: layout.ghostsPerHost,
+            firstHost: layout.firstHost,
             botsPerProcess,
             productId,
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
@@ -317,6 +367,7 @@ switch (values.help ? undefined : command) {
           })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);
+    closeTurn();
     if (shardCount === 1) console.log(await writeSummary(outDir, DEFAULT_THRESHOLDS));
     break;
   }

@@ -12,12 +12,14 @@ import {
 } from "@parity/product-sdk-host";
 import type { WireStatement } from "@jollity/statement-core";
 import { SignallingBot } from "./bot.js";
-import type { HostGhostPlan } from "./host.js";
+import type { HostGhostPlan, HostGhostResult } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
 import { roomOpensAt } from "./profile.js";
 import { coPlayersOf } from "./seating.js";
 import { SignallingStats } from "./stats.js";
 import { sleepUntil } from "./time.js";
+import { botVideo } from "./video/run.js";
+import { VideoStats } from "./video/stats.js";
 
 declare const truapi: Pick<TruApi, "statementStore">;
 declare const host: { productAccount(index: number): ProductAccountId };
@@ -93,21 +95,31 @@ function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore
 const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGhostPlan;
 const { profile, accounts } = plan;
 const stats = new SignallingStats();
+const video = plan.video && { ice: plan.video.ice, stats: new VideoStats() };
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
   const roster = coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
   const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost));
-  const bot = new SignallingBot({ self: accounts[index], roster, namespace: plan.namespace, profile, store, stats, window: plan.window });
+  const bot = new SignallingBot({
+    self: accounts[index],
+    roster,
+    namespace: plan.namespace,
+    profile,
+    store,
+    stats,
+    window: plan.window,
+    video: video && botVideo(video, { index, players: accounts.length, profile, roomOpenAt: plan.gameStart }, (other) => accounts[other], plan.video?.turn[ghost] ?? []),
+  });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();
   await sleepUntil(roomOpensAt(plan.phase, plan.gameStart));
   bot.open();
   await sleepUntil(plan.stopAt);
-  bot.close();
+  await bot.close();
   await sleepUntil(plan.leaveAt);
   bot.leave();
 }
 
 await Promise.all(Array.from({ length: plan.ghosts }, (_, ghost) => play(ghost)));
-writeFileSync(plan.resultPath, JSON.stringify(stats));
+writeFileSync(plan.resultPath, JSON.stringify({ stats, ...(video && { video: video.stats }) } satisfies HostGhostResult));

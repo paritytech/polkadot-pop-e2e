@@ -17,6 +17,8 @@ import type { DeliveredStatement, MeasurableStore } from "./measured-store.js";
 import { roomOpensAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection } from "./rpc.js";
 import type { SignallingStats } from "./stats.js";
+import type { BotVideo } from "./video/mesh.js";
+import type { VideoRoom } from "./video/run.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
@@ -27,6 +29,7 @@ export interface GhostRoom {
   gameStart: number;
   window: { start: number; end: number };
   stats: SignallingStats;
+  video?: VideoRoom;
 }
 
 const SUBSCRIBE = "statement_subscribeStatement";
@@ -92,12 +95,12 @@ function rpcStatementStore(connection: RpcConnection, player: Player): Measurabl
   };
 }
 
-/** A player that only signals, over a direct RPC connection, as the app's transport signals. */
+/** A player that signals, over a direct RPC connection, as the app's transport signals; with `video`, it plays video too. */
 export class Ghost {
   private readonly bot: SignallingBot;
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(player: Player, roster: Player[], connection: RpcConnection, private readonly room: GhostRoom) {
+  constructor(player: Player, roster: Player[], connection: RpcConnection, private readonly room: GhostRoom, video?: BotVideo) {
     this.bot = new SignallingBot({
       self: player.address,
       roster: roster.map((other) => other.address),
@@ -106,6 +109,7 @@ export class Ghost {
       store: rpcStatementStore(connection, player),
       stats: room.stats,
       window: room.window,
+      video,
     });
   }
 
@@ -116,9 +120,9 @@ export class Ghost {
   }
 
   /** Closes the room; deliveries still count until `leave`. */
-  stopSending(): void {
+  stopSending(): Promise<void> {
     clearTimeout(this.timer);
-    this.bot.close();
+    return this.bot.close();
   }
 
   leave(): void {
