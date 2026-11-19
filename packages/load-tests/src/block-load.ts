@@ -72,6 +72,85 @@ function isStepCall(extrinsic: Uint8Array, callIndices: Uint8Array[], gameIndex:
   );
 }
 
+type Weight = { ref_time: bigint; proof_size: bigint };
+
+/** A `System.Events` record, as far as a block's measure reads it. */
+export interface ChainEvent {
+  phase: { type: string; value?: unknown };
+  event: { type: string; value: { type: string; value?: unknown } };
+}
+
+type ExtrinsicFailed = { dispatch_error: unknown };
+type ExtrinsicSuccess = { dispatch_info: { weight: Weight } };
+
+/** The chain's limits a block's weight is measured against. */
+export interface ChainLimits {
+  maxBlock: Weight;
+  maxNormal: Weight;
+  /** Ref time a Game step call may use: half the normal class's `max_extrinsic`. */
+  stepBudget: bigint;
+  /** Pallet and call index of each Game step call; empty on a runtime that runs the steps in its hooks. */
+  stepCalls: Uint8Array[];
+}
+
+/** What the run reads of one block, at its hash. */
+export interface BlockReads {
+  number: number;
+  arrivalTime: number | null;
+  finalityLag: number;
+  timestamp: number;
+  body: Uint8Array[];
+  events: ChainEvent[];
+  weight: { normal: Weight; mandatory: Weight };
+  game: { index: number; state: { type: string; value?: unknown } } | undefined;
+  creditCursor: number;
+  unincludedLength: number;
+  witnessBytes: number | null;
+  /** The game whose step calls count: the latest game seen up to this block. */
+  stepGameIndex: number | undefined;
+}
+
+function share(used: Weight, limit: Weight): WeightShare {
+  return { refTime: Number(used.ref_time) / Number(limit.ref_time), proofSize: Number(used.proof_size) / Number(limit.proof_size) };
+}
+
+export function measureBlock(reads: BlockReads, limits: ChainLimits): BlockLoad {
+  const failures: Record<string, number> = {};
+  const gameEvents: Record<string, number> = {};
+  let stepShare: number | null = limits.stepCalls.length > 0 ? 0 : null;
+  for (const { phase, event } of reads.events) {
+    if (event.type === "Game") bump(gameEvents, event.value.type);
+    if (event.type !== "System") continue;
+    if (event.value.type === "ExtrinsicFailed") {
+      const failed = event.value.value as ExtrinsicFailed;
+      bump(failures, describeError(failed.dispatch_error));
+    } else if (event.value.type === "ExtrinsicSuccess" && stepShare !== null && phase.type === "ApplyExtrinsic" && reads.stepGameIndex !== undefined) {
+      const extrinsic = reads.body[phase.value as number];
+      if (extrinsic && isStepCall(extrinsic, limits.stepCalls, reads.stepGameIndex)) {
+        const success = event.value.value as ExtrinsicSuccess;
+        stepShare = Math.max(stepShare, Number(success.dispatch_info.weight.ref_time) / Number(limits.stepBudget));
+      }
+    }
+  }
+  return {
+    number: reads.number,
+    timestamp: reads.timestamp,
+    arrivalTime: reads.arrivalTime,
+    extrinsics: reads.body.length,
+    bytes: reads.body.reduce((sum, extrinsic) => sum + extrinsic.length, 0),
+    normal: share(reads.weight.normal, limits.maxNormal),
+    mandatory: share(reads.weight.mandatory, limits.maxBlock),
+    stepShare,
+    game: reads.game ? { index: reads.game.index, state: stateLabel(reads.game) } : null,
+    failures,
+    gameEvents,
+    creditTrees: Math.max(0, reads.creditCursor - reads.number + 1),
+    unincluded: reads.unincludedLength,
+    finalityLag: reads.finalityLag,
+    witnessBytes: reads.witnessBytes,
+  };
+}
+
 /** Finalized blocks read so far, in the order their reads complete. */
 export interface BlockFollower {
   blocks: BlockLoad[];
@@ -85,13 +164,12 @@ export interface BlockFollower {
 export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): Promise<BlockFollower> {
   const blocks: BlockLoad[] = [];
   const { max_block: maxBlock, per_class: perClass } = await api.constants.System.BlockWeights();
-  const maxNormal = perClass.normal.max_total!;
-  const stepBudget = Number(perClass.normal.max_extrinsic!.ref_time) / 2;
-  const stepCallIndices = await readStepCallIndices(api);
-  const share = (used: { ref_time: bigint; proof_size: bigint }, limit: { ref_time: bigint; proof_size: bigint }): WeightShare => ({
-    refTime: Number(used.ref_time) / Number(limit.ref_time),
-    proofSize: Number(used.proof_size) / Number(limit.proof_size),
-  });
+  const limits: ChainLimits = {
+    maxBlock,
+    maxNormal: perClass.normal.max_total!,
+    stepBudget: perClass.normal.max_extrinsic!.ref_time / 2n,
+    stepCalls: await readStepCallIndices(api),
+  };
   let bestNumber = 0;
   // Null for the blocks of the first best chain, which the node imported before the run followed it.
   const arrivalTimes = new Map<number, number | null>();
@@ -133,38 +211,25 @@ export async function followBlockLoad(client: PolkadotClient, api: PeopleApi): P
           readWitnessBytes(block.hash),
         ]);
         if (game) latestGameIndex = Math.max(latestGameIndex ?? 0, game.index);
-        const failures: Record<string, number> = {};
-        const gameEvents: Record<string, number> = {};
-        let stepShare: number | null = stepCallIndices.length > 0 ? 0 : null;
-        for (const { phase, event } of events) {
-          if (event.type === "Game") bump(gameEvents, event.value.type);
-          if (event.type !== "System") continue;
-          if (event.value.type === "ExtrinsicFailed") {
-            bump(failures, describeError(event.value.value.dispatch_error));
-          } else if (event.value.type === "ExtrinsicSuccess" && stepShare !== null && phase.type === "ApplyExtrinsic" && latestGameIndex !== undefined) {
-            const extrinsic = body[phase.value];
-            if (extrinsic && isStepCall(extrinsic, stepCallIndices, latestGameIndex)) {
-              stepShare = Math.max(stepShare, Number(event.value.value.dispatch_info.weight.ref_time) / stepBudget);
-            }
-          }
-        }
-        blocks.push({
-          number: block.number,
-          timestamp: Number(timestamp),
-          arrivalTime,
-          extrinsics: body.length,
-          bytes: body.reduce((sum, extrinsic) => sum + extrinsic.length, 0),
-          normal: share(weight.normal, maxNormal),
-          mandatory: share(weight.mandatory, maxBlock),
-          stepShare,
-          game: game ? { index: game.index, state: stateLabel(game) } : null,
-          failures,
-          gameEvents,
-          creditTrees: Math.max(0, creditCursor - block.number + 1),
-          unincluded: unincluded.length,
-          finalityLag,
-          witnessBytes,
-        });
+        blocks.push(
+          measureBlock(
+            {
+              number: block.number,
+              arrivalTime,
+              finalityLag,
+              timestamp: Number(timestamp),
+              body,
+              events,
+              weight,
+              game,
+              creditCursor,
+              unincludedLength: unincluded.length,
+              witnessBytes,
+              stepGameIndex: latestGameIndex,
+            },
+            limits,
+          ),
+        );
       } catch (error) {
         console.warn(`[chain] block #${block.number} not read: ${(error as Error).message}`);
       }

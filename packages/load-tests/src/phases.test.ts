@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BlockLoad } from "./block-load.js";
 import type { BurstSummary } from "./burst.js";
-import { findBlockLimits, summarizePhases } from "./phases.js";
+import { findBlockLimits, summarizeGameProcessing, summarizePhases } from "./phases.js";
 
 const GAME = 7;
 
@@ -84,6 +84,32 @@ describe("summarizePhases", () => {
       phase: "Registration",
       firstBlock: 106,
     });
+  });
+});
+
+describe("summarizeGameProcessing", () => {
+  const game = { index: GAME, gamePlayTime: 0, registrationEnds: 0, reportEnds: 0 };
+
+  // The shuffle waits for the game date once its work is done; counting that wait would hide how
+  // long the work itself took.
+  it("counts the shuffle's work without its wait, and player processing from the report end to GameEnded", () => {
+    const blocks = gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } });
+    expect(summarizeGameProcessing({ blocks, game })).toMatchObject({
+      shuffle: { blocks: 2, ms: 12_000 },
+      playerProcess: { reportEndBlock: 114, gameEndBlock: 116, blocks: 2, ms: 12_000 },
+    });
+  });
+
+  it("takes the heaviest step from step calls where the runtime has them", () => {
+    const blocks = gameBlocks({ 108: { stepShare: 0.7 }, 115: { stepShare: 0.4, mandatory: { refTime: 0.9, proofSize: 0 } } });
+    expect(summarizeGameProcessing({ blocks, game }).heaviestStep).toEqual({ share: 0.7, block: 108, source: "step call" });
+  });
+
+  // Without step calls the steps run in the runtime's hooks, which count as mandatory weight; the
+  // shuffle's wait for the game date does no step work, so its blocks don't count.
+  it("falls back to mandatory weight of the processing blocks without step calls", () => {
+    const blocks = gameBlocks({ 109: { mandatory: { refTime: 0.9, proofSize: 0 } }, 115: { mandatory: { refTime: 0.3, proofSize: 0 } } });
+    expect(summarizeGameProcessing({ blocks, game }).heaviestStep).toEqual({ share: 0.3, block: 115, source: "mandatory weight" });
   });
 });
 
