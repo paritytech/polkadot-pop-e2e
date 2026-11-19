@@ -1,13 +1,14 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
+import { readChainSeats } from "./chain-seats.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, type LiteBot } from "./lite.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
+import { hostGhosts, shardHosts, shardProcesses, type HostOptions } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
 import { APP_STUN_URLS } from "./video/ice.js";
@@ -296,6 +297,7 @@ switch (values.help ? undefined : command) {
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
     if (Number.isNaN(startAt)) throw new Error(`--start-at must be ms or an ISO time, not '${startText}'`);
+    let chainGame: HostOptions["game"];
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
       const own = shardHosts(steps[0], layout.ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
@@ -305,6 +307,17 @@ switch (values.help ? undefined : command) {
       const game = await waitForSignUp(target, watched, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       startAt = game.game_date * 1000 - profile.preconnectMs - timing.rampMs - timing.warmupMs;
       console.log(`[host] game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}`);
+      chainGame = {
+        index: game.index,
+        async readSeats(bots) {
+          const { client, engine } = connectPeople(target);
+          try {
+            return await readChainSeats(engine, game.index, bots, game.game_date * 1000 + 60_000);
+          } finally {
+            client.destroy();
+          }
+        },
+      };
     }
     let video: VideoRun | undefined;
     let closeTurn = () => {};
@@ -371,6 +384,7 @@ switch (values.help ? undefined : command) {
             productId,
             binary: process.env.TRUAPI_HOST_BIN ?? "truapi-host",
             stackArgs,
+            game: chainGame,
           })
         : rpcGhosts(run, ghostsPerConnection);
     await runSteps(run, command === "host" ? "host" : "signalling", players);

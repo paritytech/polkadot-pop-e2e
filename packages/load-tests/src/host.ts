@@ -1,10 +1,11 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { TurnServer } from "@jollity/protocol";
+import type { ChainSeats } from "./chain-seats.js";
 import { hostGhostPlayer, hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
@@ -33,6 +34,11 @@ export interface HostGhostPlan {
   resultPath: string;
   /** With video: the run's ICE settings, and each ghost's TURN servers. */
   video?: { ice: RunIce; turn: TurnServer[][] };
+  /**
+   * In a game: the app's room key, and where the runner writes the chain's seats, which the
+   * ghosts wait for before playing. The namespace is then the app's product account.
+   */
+  game?: { room: string; seatsPath: string };
 }
 
 /** What a host's ghost script writes to `resultPath`. */
@@ -50,6 +56,8 @@ export interface HostOptions {
   binary: string;
   /** `--stack <location>` or `--network <key>`: the stack the hosts run against. */
   stackArgs: string[];
+  /** In a game: its index, and a read of the chain's seats of `bots` once the shuffle seats them. */
+  game?: { index: number; readSeats(bots: string[]): Promise<ChainSeats> };
 }
 
 const SCRIPT = resolve(import.meta.dirname, "host-ghost.ts");
@@ -128,6 +136,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
     const exits: Array<Promise<string | null>> = [];
     const processes: Array<{ child: ChildProcess; ghosts: number }> = [];
     const resultPaths: string[] = [];
+    const game = options.game && { room: `g${options.game.index}`, seatsPath: join(planDir, "seats.json") };
     let joined = 0;
     for (const { host, firstAccount, firstPlayer, ghosts } of owned) {
       const name = `host${host}-${firstAccount}`;
@@ -135,7 +144,8 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const planPath = join(planDir, `${name}.plan.json`);
       const plan: HostGhostPlan = {
         profile: room.profile,
-        namespace: room.namespace,
+        // In a game, the app's topics, so real players and bots hear each other.
+        namespace: game ? options.productId : room.namespace,
         accounts: accounts.slice(0, count),
         phase: room.phase,
         gameStart: room.gameStart,
@@ -153,6 +163,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
             turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? []),
           },
         }),
+        ...(game && { game }),
       };
       await writeFile(planPath, JSON.stringify(plan));
       resultPaths.push(resultPath);
@@ -180,6 +191,20 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
           child.once("exit", (code, signal) => done(code === 0 ? null : signal ? `signal ${signal}` : `exit ${code}`));
         }),
       );
+    }
+    if (options.game && game) {
+      const { seatsPath } = game;
+      const bots = owned.flatMap(({ firstPlayer, ghosts }) => accounts.slice(firstPlayer, firstPlayer + ghosts));
+      // Moved into place once complete, so a ghost never reads a partial file.
+      void options.game
+        .readSeats(bots)
+        .then(async (seats) => {
+          await writeFile(`${seatsPath}.part`, JSON.stringify(seats));
+          await rename(`${seatsPath}.part`, seatsPath);
+          const seated = bots.filter((bot) => seats.rounds[bot].length > 0).length;
+          console.log(`[host] ${seated} of ${bots.length} bots seated, ${Object.keys(seats.identifiers).length} co-players' identifiers read`);
+        })
+        .catch((error: Error) => console.error(`[host] chain seats not read, the bots don't play: ${error.message}`));
     }
 
     const sample = async () => {

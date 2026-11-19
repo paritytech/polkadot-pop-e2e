@@ -12,12 +12,13 @@ import {
 } from "@parity/product-sdk-host";
 import type { WireStatement } from "@jollity/statement-core";
 import { SignallingBot } from "./bot.js";
+import type { ChainSeats } from "./chain-seats.js";
 import type { HostGhostPlan, HostGhostResult } from "./host.js";
 import type { MeasurableStore } from "./measured-store.js";
 import { roomOpensAt } from "./profile.js";
-import { coPlayersOf } from "./seating.js";
+import { coPlayersOf, roundsOf, timeRounds } from "./seating.js";
 import { SignallingStats } from "./stats.js";
-import { sleepUntil } from "./time.js";
+import { sleep, sleepUntil } from "./time.js";
 import { botVideo } from "./video/run.js";
 import { VideoStats } from "./video/stats.js";
 
@@ -96,20 +97,47 @@ const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGh
 const { profile, accounts } = plan;
 const stats = new SignallingStats();
 const video = plan.video && { ...plan.video, stats: new VideoStats() };
+const bots = new Set(accounts);
+
+/** The chain's seats once the runner writes them to `path`, or none by `until`. */
+async function waitForSeats(path: string, until: number): Promise<ChainSeats | undefined> {
+  while (Date.now() < until) {
+    try {
+      return JSON.parse(readFileSync(path, "utf8")) as ChainSeats;
+    } catch {
+      await sleep(1_000);
+    }
+  }
+  return undefined;
+}
+
+const chainSeats = plan.game && waitForSeats(plan.game.seatsPath, plan.stopAt);
+const identifiers = chainSeats?.then(
+  (seats) => seats && new Map(Object.entries(seats.identifiers).map(([peer, hex]) => [peer, Uint8Array.from(Buffer.from(hex.slice(2), "hex"))])),
+);
 
 async function play(ghost: number): Promise<void> {
   const index = plan.firstPlayer + ghost;
-  const roster = coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
+  const self = accounts[index];
+  // In a game, the rooms are the chain's groups, which real players share; else the run's own tables.
+  const seats = chainSeats && (await chainSeats);
+  if (chainSeats && !seats) return;
+  const groups = seats && (seats.rounds[self] ?? []);
+  const roster = groups ? [...new Set(groups.flat())] : coPlayersOf(index, accounts.length, profile).map((other) => accounts[other]);
+  const rounds = groups ? timeRounds(groups, profile, plan.gameStart) : roundsOf(index, accounts.length, profile, plan.gameStart, (other) => accounts[other]);
   const store = hostStatementStore(host.productAccount(plan.firstAccount + ghost));
   const bot = new SignallingBot({
-    self: accounts[index],
+    self,
     roster,
     namespace: plan.namespace,
+    room: plan.game?.room,
     profile,
     store,
     stats,
     window: plan.window,
-    video: video && botVideo(video.ice, video.turn[ghost], video.stats, { index, players: accounts.length, profile, roomOpenAt: plan.gameStart }, (other) => accounts[other]),
+    identifiers: await identifiers,
+    measuredPeers: roster.filter((peer) => bots.has(peer)).length,
+    video: video && botVideo(video.ice, video.turn[ghost], video.stats, rounds),
   });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();

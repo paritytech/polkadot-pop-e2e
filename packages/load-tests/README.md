@@ -40,8 +40,9 @@ A run has three parts:
 The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play
 deposit once. They don't need a person, an alias or an attestation: the app's sign-up takes
 `Game.sign_up_with_account` for a player without personhood, they share groups with the game's
-real players, and they vote `Person` for every co-player. They never join the video call, so to a
-real player they are seats that don't connect.
+real players, and they vote `Person` for every co-player. In a game their rooms are the game's
+groups on chain, under the app's own topics, so a real player's phone links with its bot
+co-players and, with `video`, sees their camera.
 
 A bot that misses games loses score; at 0 the chain archives it and removes its statement
 allowance, so a replay needs bots that played a recent game. A game run signs them up again.
@@ -131,14 +132,20 @@ link is up. `timing: random` opens each bot's room up to 8 s later instead.
 The app no longer has a room that every phone of a game posts to and listens on, so the bots no
 longer have one either.
 
-Bots signal under their run's own namespace, so they never reach real players. A bot's
-communication key derives from its account, and so does the identifier it signs up with, so bots
-seal to each other without reading the chain. Every statement a bot's store accepts is due to
-each of its co-players, which is how many deliveries a run expects. A bot has one statement per
-channel, so a newer one can replace a statement before it reaches a co-player; it carries what the
-replaced one did, so a co-player that receives a statement counts every earlier one of that channel
-as delivered too. A receiver measures latency from when the statement went out when its sender
-runs in the same process, and otherwise from the time its expiry was stamped with.
+In a game (`--follow-game`, as the workflow runs it), the runner reads each bot's groups by round
+once the shuffle has seated the players, as the app's game view reads them (`playerIndices`,
+`groupMembers`), and every co-player's communication identifier as registered on chain
+(`communicationIdentifier` of the engine), and the bots signal under the app's product account in
+its room `g<game index>`, so real players and bots hear each other. A bot's communication key
+derives from its account, and so does the identifier it signs up with. Out of a game, bots signal
+under their run's own namespace and seat themselves at tables of their own, so they never reach
+real players and seal to each other without reading the chain. Every statement a bot's store
+accepts is due to each of its bot co-players, which is how many deliveries a run expects. A bot
+has one statement per channel, so a newer one can replace a statement before it reaches a
+co-player; it carries what the replaced one did, so a co-player that receives a statement counts
+every earlier one of that channel as delivered too. A receiver measures latency from when the
+statement went out when its sender runs in the same process, and otherwise from the time its
+expiry was stamped with.
 
 ## Video
 
