@@ -54,8 +54,7 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
     expect(available.value).toBe(true);
   });
 
-  // The known name is registered, so it is not claimable. Resolving it first confirms that
-  // the "not available" answer comes from registration, not from a reservation.
+  // The known name resolves, so it is registered and not claimable.
   it("reports the known registered name as not available", async () => {
     const resolved = await resolveDotNs(KNOWN_NAME, { runtime });
     if (!resolved.ok) throw resolved.error;
@@ -74,9 +73,7 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
     expect(name.value).toBeNull();
   });
 
-  // The docs fix only two outcomes, a name or null. A name must forward-resolve back to the address. The test
-  // reverses the owner when the name has no forward address, a choice of this test. The SDK
-  // has no such fallback.
+  // nameOf only promises registry.owner(node) == address, so a returned name must be owned by the target.
   it("reverse-resolves the known name's address to a name or null", async () => {
     const record = await resolveDotNs(KNOWN_NAME, { runtime });
     if (!record.ok) throw record.error;
@@ -89,15 +86,13 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
     if (name.value !== null) {
       const forward = await resolveDotNs(name.value, { runtime });
       if (!forward.ok) throw forward.error;
-      expect(forward.value?.address?.toLowerCase()).toBe(target!.toLowerCase());
+      expect(forward.value?.owner.toLowerCase()).toBe(target!.toLowerCase());
     }
   });
 
-  // Previewnet's DotnsGateway.DispatcherAddress is the PoP controller, not a RootGatewayDispatcher,
-  // so the walk's TARGET() call reverts there. See `dotnsDiscovery` in config/stack-config.ts.
+  // Previewnet has no dispatcher to walk, see dotnsDiscovery in config/stack-config.ts.
   describe.skipIf(!getNetworkConfig().features.dotnsDiscovery)("address discovery", () => {
-    // Discovery walks DotnsGateway on chain. A complete set of six H160 addresses that match the
-    // pinned table means the walk reached every role and the pinned table is current.
+    // The walk must reach all six roles and match the pinned table.
     it("discovers all six DotNS addresses from the gateway", async () => {
       const discovered = await discoverDotNsAddresses({ runtime });
       if (!discovered.ok) throw discovered.error;
@@ -112,11 +107,11 @@ describe.skipIf(!getNetworkConfig().features.dotns)("DotNS: reads beyond resolut
       if (!verified.ok) throw verified.error;
     });
 
-    // Resolving the known name through chain-discovered addresses must give the same record as
-    // the pinned default. This checks that discovery and the pinned table agree on what is used.
+    // Discovered and pinned addresses must resolve the known name the same.
     it("resolves the known name the same through discovered addresses", async () => {
       const discovered = await resolveDotNsAddresses({ runtime, addressSource: "discovered" });
       if (!discovered.ok) throw discovered.error;
+      expect(lowercased(discovered.value)).toEqual(lowercased(DOTNS_ADDRESSES));
 
       const pinned = await resolveDotNs(KNOWN_NAME, { runtime });
       const viaChain = await resolveDotNs(KNOWN_NAME, { runtime, addressSource: "discovered" });
