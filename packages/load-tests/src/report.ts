@@ -299,14 +299,14 @@ export function chainMarkdown(result: ChainResult): string {
         ]
       : []),
     ...(result.lite
-      ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots hold a deposit after signing up.`, ""]
+      ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots have a deposit reserved after signing up.`, ""]
       : []),
     ...(result.draw
       ? [
           `Prize draw entries: ${result.draw.entries} sign-ups entered, the others didn't ${JSON.stringify(result.draw.skips)} (\`not-member-yet\`: the game can't make the player a member, so the app leaves the ticket out).`,
           ...(result.draw.outcome
             ? [
-                `Prize draw: ${result.draw.outcome.draws} draws, ${result.draw.outcome.tickets} bot tickets, ${result.draw.outcome.winners.length} bot wins, ${result.draw.outcome.claimCount} prizes claimed (claim p50 / p95 / max ${result.draw.outcome.claimMs.p50 ?? "–"} / ${result.draw.outcome.claimMs.p95 ?? "–"} / ${result.draw.outcome.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.outcome.claimFailures)}); the winners hold ${result.draw.outcome.prizeBalance} of the prize assets.`,
+                `Prize draw: ${result.draw.outcome.draws} draws, ${result.draw.outcome.tickets} bot tickets, ${result.draw.outcome.winners.length} bot wins, ${result.draw.outcome.claimCount} prizes claimed (claim p50 / p95 / max ${result.draw.outcome.claimMs.p50 ?? "–"} / ${result.draw.outcome.claimMs.p95 ?? "–"} / ${result.draw.outcome.claimMs.max ?? "–"} ms, failures ${JSON.stringify(result.draw.outcome.claimFailures)}); the winners own ${result.draw.outcome.prizeBalance} of the prize assets.`,
                 `Winners: ${result.draw.outcome.winners.join(", ") || "–"}`,
               ]
             : []),

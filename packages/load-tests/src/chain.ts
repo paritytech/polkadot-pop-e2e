@@ -81,7 +81,7 @@ export interface ChainResult {
   notes: string[];
   /** Where People blocks came close to their limits without failing the run. */
   capacity: string[];
-  /** Lite bots' binds by outcome, and how many hold a deposit after signing up; null for deposit-backed bots. */
+  /** Lite bots' binds by outcome, and how many have a deposit reserved after signing up; null for deposit-backed bots. */
   lite: { binds: Record<string, number>; withDeposit: number } | null;
   /** The prize draws: sign-ups that entered them and why the others didn't, then tickets, winners and claims; null without `draw`. */
   draw: { entries: number; skips: Record<string, number>; outcome: DrawResult | null } | null;
@@ -270,8 +270,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     if (isLite) {
       const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
       lite = { binds, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
-      console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots hold a deposit`);
-      if (lite.withDeposit > 0) findings.push(`sign-up: ${lite.withDeposit} of ${players.length} lite bots hold a deposit`);
+      console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
+      if (lite.withDeposit > 0) findings.push(`sign-up: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
     }
 
     const untilGame = game.game_date * 1000 - (await chainNow());

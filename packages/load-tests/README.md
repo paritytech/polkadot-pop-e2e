@@ -313,7 +313,7 @@ pnpm load chain --rpc ws://127.0.0.1:10010 --sudo //Alice --players 30 --lite --
 
 The ports are a previewnet fork's (`ppn start --fork` in previewnet-engine), where `//Alice` is
 sudo and People builds lite rings and draws as it does live. The chain summary then has a line
-for the binds and how many lite bots hold a deposit after signing up, and one for the draw's
+for the binds and how many lite bots have a deposit reserved after signing up, and one for the draw's
 tickets, winners and claims.
 
 ## Running it locally

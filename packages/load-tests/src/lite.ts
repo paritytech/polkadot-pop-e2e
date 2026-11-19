@@ -16,7 +16,7 @@ import { readAll, sleep } from "./time.js";
  */
 export const LITE_FIRST_INDEX = 100_000;
 
-/** A bot with a wallet of its own, the way a phone holds one person: the lite person and the game account it plays with. */
+/** A bot with a wallet of its own, as a phone has one person: the lite person and the game account it plays with. */
 export interface LiteBot {
   /** The wallet's mnemonic, which truapi-host attests as a phone's host does. */
   mnemonic: string;
@@ -56,7 +56,7 @@ export class RingSnapshots {
     private readonly client: PolkadotClient,
   ) {}
 
-  /** The lite key of `liteEntropy`: whether the lite ring holds it, and proofs with it over that ring at the finalized block. */
+  /** The lite key of `liteEntropy`: whether the lite ring contains it, and proofs with it over that ring at the finalized block. */
   prover(liteEntropy: Uint8Array): PersonhoodProver {
     const verifiable = verifiableFor();
     const memberKey = Binary.toHex(verifiable.member_from_entropy(liteEntropy)) as `0x${string}`;
