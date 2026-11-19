@@ -362,6 +362,11 @@ export class VideoMesh implements PeerLinks {
     const { stats } = this.options;
     for (const [type, count] of Object.entries(link.localCandidates)) bump(stats.localCandidates, type, count);
     for (const [type, count] of Object.entries(link.remoteCandidates)) bump(stats.remoteCandidates, type, count);
+    // TURN servers that gave this link no relay candidate, such as with the server's relay ports all
+    // allocated (508); counted from the candidates, since onIceCandidateError doesn't always fire.
+    const turnUrls = this.options.ice.turn.filter((server) => /^turns?:/.test(String(server.urls))).length;
+    const relaysMissing = turnUrls - (link.localCandidates.relay ?? 0);
+    if (relaysMissing > 0) bump(stats.candidateErrors, "TURN server without a relay candidate", relaysMissing);
     if (link.up) {
       // A co-player with no round left closes its side at the same moment, so a link closed by
       // the round switch may already read closed here: only a failed connection counts as down.
