@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import type { PipelineCheck, RuntimeCheck } from "../check/types.ts";
 import SdkDescriptor from "../descriptor/index.ts";
+import { violatesVersionLock } from "../diff/index.ts";
 import type { EntryChange, PipelineChange, RuntimeDiff, TypePath } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import buildRequirements from "../requirements/index.ts";
@@ -23,7 +24,6 @@ const access = (file: string, line: number, selector: Selector = "query:Game.Pla
   selector,
   chain: "individuality",
   optional: false,
-  package: "@x/app",
   file,
   line,
 });
@@ -197,6 +197,84 @@ describe("renderMarkdown", () => {
     assert.ok(markdown.includes("Candidate reorders the extensions the SDK signs with.  "));
     assert.ok(markdown.includes("| 2 | ~~B~~ | B | A |"));
     assert.ok(markdown.includes("| 3 | C | C | **D** |"));
+  });
+
+  it("reports an extension version changed in place, even one the SDK does not break on", () => {
+    // The SDK has no v1 to sign with, so its verdict is ok: the version lock is not about the SDK.
+    const lists = { live: ["A", "B", "C"], candidate: ["C", "A", "D"] };
+    const markdown = renderMarkdown(
+      run(
+        report({
+          pipelines: [
+            pipeline({
+              version: 1,
+              expected: null,
+              before: "Present",
+              after: "Present",
+              ...lists,
+              change: pipelineChange({
+                version: 1,
+                ...lists,
+                removed: ["B"],
+                added: ["D"],
+                reordered: true,
+                retyped: [{ identifier: "C", types: [{ path: "type", status: "changed", before: "u32", after: "u64" }], truncated: false }],
+              }),
+            }),
+          ],
+        }),
+      ),
+    );
+    const lines = markdown.split("\n");
+    assert.equal(lines[0], "### 🔴 Metadata check: 1 version-lock violation");
+    assert.ok(lines.includes("| People | 1 → 2 | 0 | 0 | 1 |"));
+    assert.ok(lines.includes("#### People: 1 version-lock violation"));
+    const at = lines.indexOf("**Transaction extensions v1: changed in place** (existing versions must stay unchanged)  ");
+    assert.deepEqual(lines.slice(at + 1, at + 6), ["Removes `B`  ", "Adds `D`  ", "Reorders the rest  ", "Retypes `C`  ", ""]);
+  });
+
+  it("counts a version that breaks the SDK and changed in place as both, in one block", () => {
+    const lists = { live: ["A", "B", "C"], candidate: ["A", "B"] };
+    const markdown = renderMarkdown(
+      run(
+        report({
+          entries: [entry("query:Game.Players", "breaking", "Identical", "Missing")],
+          pipelines: [pipeline({ ...lists, after: "Incompatible", verdict: "breaking", change: pipelineChange({ ...lists, removed: ["C"] }) })],
+        }),
+        report({
+          chain: "assetHub",
+          pipelines: [pipeline({ ...lists, expected: null, change: pipelineChange({ ...lists, removed: ["C"] }) })],
+        }),
+      ),
+    );
+    const lines = markdown.split("\n");
+    assert.equal(lines[0], "### 🔴 Metadata check: 2 breaking changes for the product-sdk, 2 version-lock violations");
+    assert.ok(lines.includes("#### People: 2 breaking, 1 version-lock violation"));
+    assert.ok(lines.includes("#### Asset Hub: 1 version-lock violation"));
+    const block = lines.slice(lines.indexOf("**Transaction extensions v0: breaking** (Identical → Incompatible)  "));
+    assert.deepEqual(block.slice(1, 3), [
+      "Candidate lacks what the SDK signs with: `C`  ",
+      "Changed in place between live and candidate: a version-lock violation.  ",
+    ]);
+    // People's is in its breaking block; only Asset Hub's gets a block of its own.
+    assert.equal(lines.filter((line) => line.includes("changed in place**")).length, 1);
+  });
+
+  it("leaves a version the candidate adds or removes out of the version lock", () => {
+    const markdown = renderMarkdown(
+      run(
+        report({
+          pipelines: [
+            pipeline({}),
+            pipeline({ version: 1, expected: null, live: null, before: "Missing", after: "Present", change: pipelineChange({ version: 1, status: "added", live: null, added: ["A", "B", "C"] }) }),
+            pipeline({ version: 2, expected: null, candidate: null, before: "Present", after: "Missing", change: pipelineChange({ version: 2, status: "removed", candidate: null, removed: ["A", "B", "C"] }) }),
+          ],
+        }),
+      ),
+    );
+    assert.ok(markdown.startsWith("### 🟢 Metadata check: no breaking change for the product-sdk\n"));
+    assert.ok(markdown.includes("#### People\n"));
+    assert.ok(!markdown.includes("version-lock") && !markdown.includes("changed in place"));
   });
 
   it("lists what changed between live and candidate, whatever its verdict, collapsed", async () => {
@@ -401,10 +479,17 @@ describe("toJson", () => {
         direction: "both",
         optional: false,
         placedBy: "chain",
-        uses: [{ package: "@x/app", file: "a.ts", line: 7 }],
+        uses: [{ file: "a.ts", line: 7 }],
       },
     ]);
     assert.deepEqual(json.chains[0]?.pipelines[0]?.retypedFromSdk, ["B"]);
+    // Changed in place, whatever the verdict; a version the candidate adds is not.
+    assert.deepEqual([json.chains[0]?.pipelines[0]?.verdict, json.chains[0]?.pipelines[0]?.lockViolation], ["ok", true]);
+    const addsVersion = pipeline({ version: 1, live: null, change: pipelineChange({ version: 1, status: "added", live: null }) });
+    assert.deepEqual(
+      toJson(run(report({ pipelines: [pipeline({}), addsVersion] }))).chains[0]?.pipelines.map((p) => p.lockViolation),
+      [false, false],
+    );
     // The lists themselves are the pipeline's live and candidate.
     assert.deepEqual(json.chains[0]?.pipelines[0]?.change, {
       status: "changed",
@@ -532,6 +617,20 @@ describe("buildReport on the fixtures", { skip }, () => {
     assert.deepEqual(pipelines(r), ["v0 ok Incompatible->Identical", "v1 ok Missing->Identical"]);
     // Read by the SDK as a fallback for older runtimes; neither runtime has it.
     assert.deepEqual(notOk(r), ["pre-existing constants:Score.Suffix Missing->Missing"]);
+  });
+
+  // The same upgrade: nothing breaks that SDK, but v0 lost the person extensions in place (v1 has them now).
+  it("reports v0 changed in place, even for the SDK generated from the candidate", async () => {
+    const violated = (r: Report) => r.pipelines.filter((p) => violatesVersionLock(p.change)).map((p) => `v${p.version} ${p.verdict}`);
+    const r = await fixtureReport("0.42.0");
+    assert.deepEqual(breaking(r), []);
+    assert.deepEqual(violated(r), ["v0 ok"]);
+    const lines = renderMarkdown({ reports: [r], unplaced: [], failed: [] }).split("\n");
+    assert.equal(lines[0], "### 🔴 Metadata check: 1 version-lock violation");
+    assert.ok(lines.includes("**Transaction extensions v0: changed in place** (existing versions must stay unchanged)  "));
+    assert.ok(lines.includes("Adds `CheckMetadataHash`  "));
+    // The next upgrade leaves both versions as they are.
+    assert.deepEqual(violated(await fixtureReport("0.42.0", { live: "0.3.4", candidate: "nightly-3004007" })), []);
   });
 
   // Demo 1, the gate's case: the next runtime drops a constant the current SDK reads.

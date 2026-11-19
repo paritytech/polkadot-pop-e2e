@@ -1,9 +1,10 @@
 // A run as markdown for the job summary: the verdict first, breaking findings in full,
 // pre-existing ones collapsed, ok ones only counted, then what the upgrade changed,
-// collapsed. The JSON has the rest, up to its own limits.
+// collapsed. An extension version changed in place is counted and shown in full too,
+// whatever its verdict. The JSON has the rest, up to its own limits.
 
-import { listChange } from "../diff/index.ts";
-import type { ExtrinsicVersionChange, TypeChange } from "../diff/types.ts";
+import { listChange, violatesVersionLock } from "../diff/index.ts";
+import type { ExtrinsicVersionChange, PipelineChange, TypeChange } from "../diff/types.ts";
 import type { Verdict } from "../regression/types.ts";
 import type { ChainKey, Level } from "../types.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";
@@ -26,6 +27,11 @@ const shortHash = (hash: string): string => `${hash.slice(0, 6)}…${hash.slice(
 const findings = (report: Report): (EntryFinding | PipelineFinding)[] => [...report.entries, ...report.pipelines];
 const count = (report: Report, verdict: Verdict): number =>
   findings(report).filter((finding) => finding.verdict === verdict).length;
+
+/** The extension versions the candidate changed in place; see `violatesVersionLock`. */
+const lockViolations = (report: Report): PipelineFinding[] =>
+  report.pipelines.filter((pipeline) => violatesVersionLock(pipeline.change));
+const violationCount = (violations: number): string => `${violations} version-lock violation${violations === 1 ? "" : "s"}`;
 
 /** `a.ts:292`, `:318`, `b.ts:132`: a file named once per run of accesses in it. */
 function readAt(accesses: RuntimeAccess[]): string {
@@ -123,9 +129,23 @@ function pipelineTable(pipeline: PipelineFinding): string[] {
   return ["| # | SDK (D) | Live | Candidate |", "|---|---|---|---|", ...rows];
 }
 
+/** What the candidate did within a version both runtimes have: `removes A`, `adds B`, `reorders the rest`, `retypes C`. */
+function inPlaceChanges(change: PipelineChange): string[] {
+  const [live, candidate] = [change.live ?? [], change.candidate ?? []];
+  return [
+    ...(change.removed.length > 0 ? [`removes ${counted(change.removed, live, candidate)}`] : []),
+    ...(change.added.length > 0 ? [`adds ${counted(change.added, live, candidate)}`] : []),
+    ...(change.reordered ? ["reorders the rest"] : []),
+    ...(change.retyped.length > 0 ? [`retypes ${names(change.retyped.map((extension) => extension.identifier))}`] : []),
+  ];
+}
+
 function breakingPipeline(pipeline: PipelineFinding): string[] {
   // Two trailing spaces: a line break inside the paragraph.
-  const difference = pipelineDifference(pipeline).map((line) => `${line}  `);
+  const difference = [
+    ...pipelineDifference(pipeline),
+    ...(violatesVersionLock(pipeline.change) ? ["Changed in place between live and candidate: a version-lock violation."] : []),
+  ].map((line) => `${line}  `);
   return [
     `**Transaction extensions v${pipeline.version}: breaking** (${pipeline.before} → ${pipeline.after})  `,
     ...difference,
@@ -134,6 +154,18 @@ function breakingPipeline(pipeline: PipelineFinding): string[] {
     "",
     ...pipelineTable(pipeline),
     "</details>",
+    "",
+  ];
+}
+
+/** A version changed in place that the SDK does not break on: a block of its own, as a breaking one has. */
+function lockViolation(pipeline: PipelineFinding): string[] {
+  const { change } = pipeline;
+  if (!change) return [];
+  const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}  `;
+  return [
+    `**Transaction extensions v${pipeline.version}: changed in place** (existing versions must stay unchanged)  `,
+    ...inPlaceChanges(change).map(sentence),
     "",
   ];
 }
@@ -186,18 +218,12 @@ function entryChangeRows(finding: EntryFinding): string[] {
 function pipelineChangeLine(finding: PipelineFinding): string {
   const { change } = finding;
   if (!change) return "";
-  const [live, candidate] = [change.live ?? [], change.candidate ?? []];
   const what =
     change.status === "added"
       ? [`new, with ${extensions(change.added)}`]
       : change.status === "removed"
         ? [`gone; live had ${extensions(change.removed)}`]
-        : [
-            ...(change.removed.length > 0 ? [`removes ${counted(change.removed, live, candidate)}`] : []),
-            ...(change.added.length > 0 ? [`adds ${counted(change.added, live, candidate)}`] : []),
-            ...(change.reordered ? ["reorders the rest"] : []),
-            ...(change.retyped.length > 0 ? [`retypes ${names(change.retyped.map((extension) => extension.identifier))}`] : []),
-          ];
+        : inPlaceChanges(change);
   return `- ${MARK[finding.verdict]} Transaction extensions v${change.version}: ${what.join("; ")}`;
 }
 
@@ -244,13 +270,21 @@ function chainSection(report: Report): string[] {
   const entries = report.entries.filter((f) => f.verdict === "breaking");
   const pipelines = report.pipelines.filter((f) => f.verdict === "breaking");
   const breaking = entries.length + pipelines.length;
+  const violations = lockViolations(report);
+  // A violated version has a change, so `rest` is never empty for it.
   const rest = [...preExisting(report), ...changes(report)];
   if (breaking === 0 && rest.length === 0) return [];
+  const counts = [
+    ...(breaking > 0 ? [`${breaking} breaking`] : []),
+    ...(violations.length > 0 ? [violationCount(violations.length)] : []),
+  ];
   return [
-    `#### ${CHAIN[report.chain]}${breaking > 0 ? `: ${breaking} breaking` : ""}`,
+    `#### ${CHAIN[report.chain]}${counts.length > 0 ? `: ${counts.join(", ")}` : ""}`,
     "",
     ...(entries.length > 0 ? [...ENTRY_TABLE, ...entries.map((f) => entryRow(f, true)), ""] : []),
     ...pipelines.flatMap(breakingPipeline),
+    // A breaking version's block already says it changed in place.
+    ...violations.filter((f) => f.verdict !== "breaking").flatMap(lockViolation),
     ...rest,
   ];
 }
@@ -271,9 +305,15 @@ export default function renderMarkdown(run: Run): string {
     return "### ⚪ Metadata check: no runtime upgraded in this run";
   }
   const breaking = run.reports.reduce((sum, report) => sum + count(report, "breaking"), 0);
+  // Counted apart: a version changed in place need not break the SDK, and one that does counts as both.
+  const violations = run.reports.reduce((sum, report) => sum + lockViolations(report).length, 0);
+  const problems = [
+    ...(breaking > 0 ? [`${breaking} breaking change${breaking === 1 ? "" : "s"} for the product-sdk`] : []),
+    ...(violations > 0 ? [violationCount(violations)] : []),
+  ];
   const headline =
-    breaking > 0
-      ? `### 🔴 Metadata check: ${breaking} breaking change${breaking === 1 ? "" : "s"} for the product-sdk`
+    problems.length > 0
+      ? `### 🔴 Metadata check: ${problems.join(", ")}`
       : "### 🟢 Metadata check: no breaking change for the product-sdk";
   const failed = run.failed.map(({ chain, error }) => `> ⚠️ ${code(chain)} was not checked: ${error}`);
   // Not graded, so the headline stays as it is; but the SDK may build one of these versions.

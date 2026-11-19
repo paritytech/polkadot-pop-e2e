@@ -122,6 +122,14 @@ function pipelineChanges(live: Runtime, candidate: Runtime, changes: Changes): P
     });
 }
 
+/**
+ * The version lock: an extension version both runtimes have must stay as it is, so that
+ * clients can keep using it; a format that has to change gets a new version. Any change to
+ * the version's extension list or to their types violates it, whatever the SDK expects of
+ * that version. A version the candidate adds or removes does not.
+ */
+export const violatesVersionLock = (change: PipelineChange | null): boolean => change?.status === "changed";
+
 /** The extrinsic format versions A and A' accept, when they differ. */
 function extrinsicVersionChange(live: Runtime, candidate: Runtime): ExtrinsicVersionChange | null {
   const before = [...live.metadata.extrinsic.version].sort((a, b) => a - b);

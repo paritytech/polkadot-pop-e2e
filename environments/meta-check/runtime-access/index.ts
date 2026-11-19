@@ -89,38 +89,41 @@ export default class RuntimeAccesses {
   static scan(...dirs: string[]): RuntimeAccesses {
     const packageOf = packageFinder();
     const accesses: RuntimeAccess[] = [];
-    const readsPerPackage = new Map<string, { pkg: Package; count: number }>();
+    const scanByPackage = new Map<string, { pkg: Package; hasAccesses: boolean }>();
+    const multipleRoots = dirs.length > 1;
+
     for (const dir of dirs) {
       const root = path.resolve(dir);
       const files = fs
         .readdirSync(root, { recursive: true, encoding: "utf8" })
         .filter(isScanned)
-        .sort()
-        .map((file) => path.join(root, file));
+        .sort();
 
-      for (const file of files) {
+      for (const relativeFile of files) {
+        const file = path.join(root, relativeFile);
         const pkg = packageOf(path.dirname(file));
         if (!pkg) throw new Error(`${file}: no package.json above it`);
         if (pkg.name === DESCRIPTORS) continue;
 
-        const found = readsIn(file, fs.readFileSync(file, "utf8")).map(
-          (read): RuntimeAccess => ({
-            ...read,
-            file: dirs.length > 1 ? path.join(pkg.name, path.relative(pkg.dir, file)) : path.relative(root, file),
-          }),
-        );
-        const tally = readsPerPackage.get(pkg.name) ?? { pkg, count: 0 };
-        tally.count += found.length;
-        readsPerPackage.set(pkg.name, tally);
-        accesses.push(...found);
+        const fileReads = readsIn(file, fs.readFileSync(file, "utf8"));
+        const reportedFile = multipleRoots
+          ? path.join(pkg.name, path.relative(pkg.dir, file))
+          : relativeFile;
+
+        accesses.push(...fileReads.map((read) => ({ ...read, file: reportedFile })));
+
+        const packageScan = scanByPackage.get(pkg.name) ?? { pkg, hasAccesses: false };
+        packageScan.hasAccesses ||= fileReads.length > 0;
+        scanByPackage.set(pkg.name, packageScan);
       }
     }
 
-    for (const { pkg, count } of readsPerPackage.values()) {
-      if (pkg.dependsOnDescriptors && !READS_NOTHING.has(pkg.name) && count === 0) {
+    for (const { pkg, hasAccesses } of scanByPackage.values()) {
+      if (pkg.dependsOnDescriptors && !READS_NOTHING.has(pkg.name) && !hasAccesses) {
         throw new Error(`${pkg.name} depends on ${DESCRIPTORS} but no chain read was found in its files`);
       }
     }
+
     return new RuntimeAccesses(accesses);
   }
 

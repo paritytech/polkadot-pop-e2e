@@ -11,21 +11,22 @@
 //   identifier lists `expected` (D's), `live` and `candidate`. `retypedFromSdk`: identifiers
 //   whose types on A' are not Identical to D's. `change`: A against A', or null: the
 //   identifiers `added`, `removed` and `reordered`, and in `retyped[]` the extensions whose
-//   types differ, with their `types[]` as an entry's.
+//   types differ, with their `types[]` as an entry's. `lockViolation`: A and A' both have
+//   the version and it differs (`change.status` is `changed`), whatever its `verdict`.
 // - `extrinsicVersions`: the versions A and A' accept when they differ, ungraded; else null.
 // Empty `pipelines` and a null `extrinsicVersions` also mean the SDK uses no transactions there.
 
+import { violatesVersionLock } from "../diff/index.ts";
 import type { EntryChange, PipelineChange, TypeChange } from "../diff/types.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";
 import type { Run } from "./types.ts";
 
 export const SCHEMA_VERSION = 1;
 
-const access = ({ selector, chain, optional, package: pkg, file, line }: RuntimeAccess) => ({
+const access = ({ selector, chain, optional, file, line }: RuntimeAccess) => ({
   selector,
   chain,
   optional,
-  package: pkg,
   file,
   line,
 });
@@ -66,11 +67,12 @@ export default function toJson(run: Run) {
         direction: requirement.direction,
         optional: requirement.optional,
         placedBy: requirement.placedBy,
-        uses: requirement.accesses.map(({ package: pkg, file, line }) => ({ package: pkg, file, line })),
+        uses: requirement.accesses.map(({ file, line }) => ({ file, line })),
       })),
       pipelines: report.pipelines.map(({ version, verdict, before, after, expected, live, candidate, retypedFromSdk, change }) => ({
         version,
         verdict,
+        lockViolation: violatesVersionLock(change),
         before,
         after,
         expected,
