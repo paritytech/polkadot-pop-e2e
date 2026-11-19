@@ -195,9 +195,9 @@ A 500-bot video run on previewnet takes the lite bots made once with `load peopl
 then the workflow with `network: previewnet`, `players: 500`, `lite: true` and `video: true`:
 17 `ubuntu-latest` machines.
 
-Locally, 60 video bots on direct RPC against a previewnet fork's stack, STUN off and every link on
-the loopback address (`--ice-address`). Without it each link binds a socket on every interface,
-and on a Mac with VPN interfaces closing them at the end stalled the run for minutes:
+To run 60 video bots locally on direct RPC against a previewnet fork's stack, turn STUN off and put
+every link on the loopback address with `--ice-address`. Without it each link binds a socket on
+every interface, and on a Mac with VPN interfaces closing those sockets takes minutes:
 
 ```bash
 export STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json
@@ -279,8 +279,8 @@ hundreds: a bot with a deposit-backed player record would keep signing up as a r
 
 `load people --players <n>` makes lite bots `--lite-from`..+n lite people the way a phone becomes
 one: `truapi-host attest` with the bot's wallet, through DUB, which attests its identity account,
-registers a lite username and waits until the lite key is a ring member. DUB names about 4.5
-identities a minute (its dotNS lane writes 3 per Asset Hub batch) and truapi-host waits 2 min for
+registers a lite username and waits until the lite key is a ring member. DUB registers about 4.5
+names a minute (its dotNS lane writes 3 per Asset Hub batch) and truapi-host waits 2 min for
 a name, so `--attest-concurrency` defaults to 3, and the run prints the time to expect: about 7 h
 for 2,000 bots. An attest the CLI stopped waiting on counts as pending, since DUB still finishes
 it; the run then reads the chain until every bot not refused is in a ring root. The summary gives
