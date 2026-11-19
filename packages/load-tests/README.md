@@ -23,6 +23,7 @@ or Asset Hub.
 | `chain_backend` | how the bots' truapi-host connects to People: `rpc` (default) or `light-client`, its embedded smoldot; previewnet takes `rpc` only |
 | `host_log` | truapi-host's log level; `debug` records why each connection ended |
 | `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots; `--bots-per-process 1` runs every bot in its own truapi-host, as on a phone |
+| `people_only` | runs `load people --players <players>` alone, on one parity-large for up to 12 h, to make lite bots `--lite-from`.. lite people (see [Lite bots](#lite-bots-and-the-prize-draw)); a rerun continues where the last one stopped, and a game run on the same network doesn't wait for it |
 
 A run has three parts:
 

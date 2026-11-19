@@ -14,7 +14,7 @@ on:
         default: previewnet
         options: [previewnet, paseo-next-v2]
       players:
-        description: Bots in the game, up to 5000
+        description: Bots in the game, up to 5000; with people_only, the lite bots to make
         type: string
         default: "300"
       bots_per_machine:
@@ -60,13 +60,18 @@ on:
         description: More load CLI options, such as "--connections 16". Changing --ghosts-per-host or --seed plays new, unfunded bots
         type: string
         default: ""
+      people_only:
+        description: "Only make lite bots --lite-from.. of players lite people (`load people`), resuming where an earlier run stopped; no game. Attests 3 at a time, or --attest-concurrency in args"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# A game run lasts until its game closes; a replay doesn't wait behind it.
+# A game run lasts until its game closes; a replay doesn't wait behind it, nor a game behind
+# making lite people, which takes hours.
 concurrency:
-  group: load-test-${{ inputs.network }}-${{ inputs.replay_at == '' && 'game' || 'replay' }}
+  group: load-test-${{ inputs.network }}-${{ inputs.people_only && 'people' || inputs.replay_at == '' && 'game' || 'replay' }}
   cancel-in-progress: false
 
 env:
@@ -85,6 +90,7 @@ env:
 jobs:
   plan:
     name: plan
+    if: ${{ !inputs.people_only }}
     runs-on: ubuntu-latest
     outputs:
       machines: ${{ steps.plan.outputs.machines }}
@@ -122,7 +128,7 @@ jobs:
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
   chain:
     name: chain · sign-up, reports, NFT claims
-    if: inputs.replay_at == ''
+    if: ${{ !inputs.people_only && inputs.replay_at == '' }}
     runs-on: ubuntu-latest
     # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
     timeout-minutes: 360
@@ -223,7 +229,7 @@ jobs:
   summary:
     name: summary
     needs: [chain, messages]
-    if: always()
+    if: ${{ always() && !inputs.people_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -254,3 +260,28 @@ jobs:
           name: load-results-${{ inputs.network }}-${{ inputs.players }}
           path: load-results/
           retention-days: 14
+
+  # Resumable: a rerun skips the bots that are lite people already, so a timeout or a cancel
+  # loses only the attests in flight.
+  people:
+    name: people · make lite bots
+    if: ${{ inputs.people_only }}
+    runs-on: parity-large
+    timeout-minutes: 720
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/install-truapi-host
+      - name: Make the lite people
+        run: |
+          set -euo pipefail
+          read -ra extra <<< "$ARGS"
+          status=0
+          pnpm --silent --filter @pop-e2e/load-tests load people --players "$PLAYERS" "${extra[@]}" 2>&1 | tee people.log || status=$?
+          sed -n '/^### Lite people/,$p' people.log >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
