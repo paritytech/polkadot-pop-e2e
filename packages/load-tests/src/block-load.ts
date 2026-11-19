@@ -41,7 +41,7 @@ export interface BlockLoad {
   witnessBytes: number | null;
 }
 
-/** The pallet's limit on credit trees waiting to be built; a report that would exceed it fails with `CreditCapacityExhausted`. */
+/** The most NFT credit trees that can wait to be built; credits that don't fit fail with `CreditCapacityExhausted`. */
 export const MAX_CREDIT_TREES = 8;
 
 const STEP_CALLS = ["end_registration", "advance_shuffle", "end_reporting", "process_players", "advance_cancelling"] as const;

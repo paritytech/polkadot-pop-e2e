@@ -153,8 +153,9 @@ hash.
   proof size the node reports with `dev_getBlockStats`.
 - **Max unincluded** is `ParachainSystem.UnincludedSegment`: blocks the relay chain hasn't
   included yet.
-- **Max credit trees** is the NFT credit trees waiting to be built. At 8 the chain takes no more
-  credits: reports fail with `CreditCapacityExhausted` and player processing waits.
+- **Max credit trees** is the NFT credit trees waiting to be built, at most 8. A block builds one,
+  so 8 waiting doesn't reject anything by itself: a report fails with `CreditCapacityExhausted`
+  only when its credits don't fit the room left, and player processing waits while room is low.
 - **Max finality lag** is how many blocks the best block was ahead when a block was finalized.
 - **Collator 1 block ends**, on previewnet only, counts why building each block ended, from the
   collator's public log. When the log can't be read, a line under the table says so.
@@ -163,10 +164,11 @@ hash.
 the end of reporting to `GameEnded`, and the heaviest step as a share of a block's ref time:
 from the step calls' own weight on previewnet, from the mandatory class on paseo-next-v2.
 
-The run fails when any extrinsic fails with `CreditCapacityExhausted`, 8 credit trees are waiting,
-or `GameEnded` is later than the report end plus `player_process`. A **Capacity** line under the
-findings lists blocks of a burst that took over twice the game's median block time and blocks
-whose normal class reached 90%; these don't fail the run.
+The run fails when `GameEnded` is later than the report end plus `player_process`, and a report
+that fails with `CreditCapacityExhausted` is one of the report burst's failures. A **Capacity**
+line under the findings lists blocks of a burst that took over twice the game's median block
+time, blocks whose normal class reached 90%, and blocks after which 8 credit trees were waiting;
+these don't fail the run.
 
 The messages table has one row per run:
 

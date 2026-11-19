@@ -116,16 +116,14 @@ describe("findBlockLimits", () => {
     expect(limits(gameBlocks({ 105: { normal: { refTime: 0.89, proofSize: 0.89 } } })).capacity).toEqual([]);
   });
 
-  it("flags any report that failed on exhausted credit capacity", () => {
-    expect(limits(gameBlocks({ 112: { failures: { "Module.Game.CreditCapacityExhausted": 3 } } })).findings).toEqual([
-      "credit capacity exhausted: 3 extrinsics failed with CreditCapacityExhausted, from #112",
-    ]);
-  });
-
-  // At 8 waiting trees the pallet takes no more credits, so reports fail and processing stalls.
-  it("flags credit buffers at the pallet's limit of 8 trees, not at 7", () => {
-    expect(limits(gameBlocks({ 113: { creditTrees: 8 } })).findings).toEqual(["credit buffers full: 8 credit trees waiting after 1 blocks, from #113"]);
-    expect(limits(gameBlocks({ 113: { creditTrees: 7 } })).findings).toEqual([]);
+  // 8 waiting trees is the pallet's limit, but the next block builds one and opens room again:
+  // only a report whose credits don't fit fails, and the report burst counts that.
+  it("notes credit trees at the pallet's limit of 8 without failing, not at 7", () => {
+    expect(limits(gameBlocks({ 113: { creditTrees: 8 } }))).toEqual({
+      findings: [],
+      capacity: ["credit trees at the pallet's limit of 8 waiting after 1 blocks, from #113"],
+    });
+    expect(limits(gameBlocks({ 113: { creditTrees: 7 } })).capacity).toEqual([]);
   });
 
   // The game's schedule gives player processing `player_process` seconds after reports end; the

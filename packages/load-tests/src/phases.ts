@@ -166,9 +166,9 @@ const percent = (share: number) => `${Math.round(share * 100)}%`;
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 export interface BlockLimits {
-  /** Effects on the game that fail the run: credits the chain rejected, credit buffers full, a late game end. */
+  /** Effects on the game that fail the run: a game end later than its schedule allows. Rejected reports are the report burst's findings. */
   findings: string[];
-  /** Where blocks came close to their limits without failing anything: slow blocks in a burst, full blocks. */
+  /** Where blocks came close to their limits without failing anything: slow blocks in a burst, full blocks, credit trees at the pallet's limit. */
   capacity: string[];
 }
 
@@ -210,19 +210,9 @@ export function findBlockLimits(result: Pick<ChainResult, "blocks" | "game" | "p
     );
   }
 
-  const capacityFailures = gameBlocks.filter((block) => Object.keys(block.failures).some((failure) => failure.endsWith("CreditCapacityExhausted")));
-  if (capacityFailures.length > 0) {
-    const count = capacityFailures.reduce(
-      (sum, block) =>
-        sum + Object.entries(block.failures).reduce((blockSum, [failure, failureCount]) => blockSum + (failure.endsWith("CreditCapacityExhausted") ? failureCount : 0), 0),
-      0,
-    );
-    findings.push(`credit capacity exhausted: ${count} extrinsics failed with CreditCapacityExhausted, from #${capacityFailures[0].number}`);
-  }
-
   const creditBacklog = gameBlocks.filter((block) => block.creditTrees >= MAX_CREDIT_TREES);
   if (creditBacklog.length > 0) {
-    findings.push(`credit buffers full: ${MAX_CREDIT_TREES} credit trees waiting after ${creditBacklog.length} blocks, from #${creditBacklog[0].number}`);
+    capacity.push(`credit trees at the pallet's limit of ${MAX_CREDIT_TREES} waiting after ${creditBacklog.length} blocks, from #${creditBacklog[0].number}`);
   }
 
   const gameEndBlock = gameBlocks.find((block) => block.gameEvents.GameEnded);
