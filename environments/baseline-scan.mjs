@@ -39,8 +39,16 @@ export async function rpc(url, method, params = []) {
       ws.onopen = () => ws.send(JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }));
       ws.onmessage = (m) => {
         clearTimeout(t);
-        const body = JSON.parse(m.data);
-        body.error ? reject(new Error(`${method}: ${JSON.stringify(body.error)}`)) : resolve(body.result);
+        // A malformed frame must reject this call. Thrown from the socket callback it
+        // would crash the scan: later chains go unreported and --write skips later manifests.
+        try {
+          const body = JSON.parse(m.data);
+          if (body.error) reject(new Error(`${method}: ${JSON.stringify(body.error)}`));
+          else if (body.result === undefined) reject(new Error(`${method}: malformed response: no result`));
+          else resolve(body.result);
+        } catch (err) {
+          reject(new Error(`${method}: malformed response: ${err.message}`));
+        }
       };
       ws.onerror = () => {
         clearTimeout(t);

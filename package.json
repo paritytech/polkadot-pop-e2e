@@ -15,6 +15,16 @@
       "esbuild"
     ],
     "overrides": {
+      "@individuality/game-outcome": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-game-outcome",
+      "@individuality/name-link": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-name-link",
+      "@individuality/people-chain": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-people-chain",
+      "@individuality/prize": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-prize",
+      "@individuality/shared-records": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/shared-records",
+      "@individuality/sign-up": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-sign-up",
+      "@jollity/collectables": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-collectables",
+      "@jollity/game-chain": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-game-chain",
+      "@jollity/protocol": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-protocol",
+      "@jollity/statement-core": "github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core",
       "@polkadot-api/json-rpc-provider": "^0.2.0"
     }
   },
