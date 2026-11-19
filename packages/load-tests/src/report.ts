@@ -6,6 +6,8 @@ import type { ChainResult } from "./chain.js";
 import { summarizeGameProcessing, summarizePhases, type GameProcessing, type PhaseLoad } from "./phases.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
 import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
+import { summarizeVideo, videoFindings, videoMarkdown, type VideoSummary } from "./video/report.js";
+import { VideoStats } from "./video/stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -44,6 +46,7 @@ export interface StepSummary {
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
   hosts: HostUsage | null;
+  video: VideoSummary | null;
 }
 
 function nodeSummary(start: Sample, end: Sample, seconds: number): NodeSummary {
@@ -94,6 +97,13 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     }
   }
   const hosts = mergeHosts(results);
+  const videoResults = results.flatMap((result) => (result.video ? [result.video] : []));
+  let video: VideoSummary | null = null;
+  if (videoResults.length > 0) {
+    const videoStats = new VideoStats();
+    for (const result of videoResults) videoStats.add(result);
+    video = summarizeVideo(videoStats);
+  }
 
   const findings: string[] = [];
   const submitTotal = total(stats.submits);
@@ -123,8 +133,10 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   }
   if (loss > thresholds.maxLoss) findings.push(`delivery: ${(loss * 100).toFixed(2)}% lost`);
   if ((latency.p95 ?? Infinity) > thresholds.maxP95Ms) findings.push(`delivery: p95 ${latency.p95} ms`);
-  const clientBound = clientLagP99Ms > thresholds.maxClientLagMs;
-  if (clientBound) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);
+  const videoVerdict = video ? videoFindings(video) : { findings: [], clientBound: false };
+  findings.push(...videoVerdict.findings);
+  const clientBound = clientLagP99Ms > thresholds.maxClientLagMs || videoVerdict.clientBound;
+  if (clientLagP99Ms > thresholds.maxClientLagMs) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);
   // A machine that sent no result, or started late, makes the target look lossy when it isn't.
   const shardCount = results[0].shard.count;
   const missingShards = shardCount - results.length;
@@ -150,6 +162,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     clientLagP99Ms,
     nodes,
     hosts,
+    video,
   };
 }
 
@@ -319,7 +332,10 @@ export async function writeSummary(dir: string, thresholds: Thresholds): Promise
   const text = (["signalling", "host"] as const)
     .map((layer) => steps.filter((step) => step.layer === layer))
     .filter((layerSteps) => layerSteps.length > 0)
-    .map((layerSteps) => stepsMarkdown(target, layerSteps))
+    .map((layerSteps) => {
+      const withVideo = layerSteps.flatMap((step) => (step.video ? [{ players: step.players, video: step.video }] : []));
+      return [stepsMarkdown(target, layerSteps), ...(withVideo.length > 0 ? [videoMarkdown(target, withVideo)] : [])].join("\n");
+    })
     .join("\n");
   await writeFile(join(dir, "summary.json"), JSON.stringify({ target, thresholds, steps }, null, 2));
   await writeFile(join(dir, "summary.md"), text);

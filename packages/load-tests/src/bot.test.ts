@@ -1,6 +1,11 @@
 import { toHex, type WireStatement } from "@jollity/statement-core";
 import { describe, expect, it } from "vitest";
 import { SignallingBot } from "./bot.js";
+import { loadClip } from "./video/clip.js";
+import { videoMarkdown } from "./video/report.js";
+import { VideoStats } from "./video/stats.js";
+import { coPlayersOf, roundsOf } from "./seating.js";
+import type { SignallingProfile } from "./profile.js";
 import { derivePlayer, type Player } from "./keys.js";
 import type { DeliveredStatement, MeasurableStore } from "./measured-store.js";
 import { PROFILES } from "./profile.js";
@@ -103,5 +108,70 @@ describe("SignallingBot", () => {
     expect(new Set(memory.submitted.map((wire) => wire.channel)).size).toBe(3);
     expect(memory.submitted.some((wire) => wire.data.startsWith("0x01"))).toBe(true);
     expect(memory.submitted.some((wire) => Buffer.from(wire.data.slice(2), "hex").toString().includes("a=fingerprint"))).toBe(false);
+  });
+
+  // 12 bots are the fewest whose two rounds of 6 seat every bot with new co-players in round 2.
+  it("plays video to the current group over real peer connections set up through the transport", { timeout: 60_000 }, async () => {
+    const memory = new MemoryStore();
+    const stats = new SignallingStats();
+    const video = new VideoStats();
+    const profile: SignallingProfile = { ...PROFILES.jollity, preconnectMs: 6_000, roundMs: 5_000, breakMs: 1_000 };
+    const players = Array.from({ length: 12 }, (_, index) => derivePlayer("video-test", index));
+    const clip = loadClip();
+    const roomOpenAt = Date.now();
+    const bots = players.map((player, index) => {
+      const addressOf = (other: number) => players[other].address;
+      return new SignallingBot({
+        self: player.address,
+        roster: coPlayersOf(index, players.length, profile).map(addressOf),
+        namespace: "video-test",
+        profile,
+        store: memory.storeOf(player),
+        stats,
+        window: { start: 0, end: Number.MAX_SAFE_INTEGER },
+        video: {
+          rounds: roundsOf(index, players.length, profile, roomOpenAt).map(({ activeFrom, group }) => ({ activeFrom, group: group.map(addressOf) })),
+          clip,
+          ice: { stunUrls: [], turn: [], relay: false, interfaceAddress: "127.0.0.1" },
+          stats: video,
+        },
+      });
+    });
+    for (const bot of bots) bot.open();
+    // Past the switch to the second round's groups at 11 s, with time for its keyframes.
+    await sleep(16_000);
+    await Promise.all(bots.map((bot) => bot.close()));
+    for (const bot of bots) bot.leave();
+
+    expect(video.links).toBe(stats.links);
+    expect(video.linksConnected).toBe(video.links);
+    expect(video.linksWithVideo).toBe(video.links);
+    expect(stats.linksUp).toBe(stats.links);
+    expect(video.candidateTypes).toEqual({ host: video.links });
+    expect(video.failures).toEqual({});
+    // Each round's group sends both ways, and a group that starts in the second round starts
+    // mid-GOP, so its first frame comes from a PLI answered with the next IDR.
+    expect(video.streamsWithFrames).toBe(video.streams);
+    expect(video.pliSent).toBeGreaterThan(0);
+    expect(video.pliReceived).toBeGreaterThan(0);
+    expect(video.keyframesForced).toBeGreaterThan(0);
+    expect(video.packetsLost).toBe(0);
+    const result = {
+      layer: "signalling",
+      runId: "video-test",
+      players: players.length,
+      shard: { index: 0, count: 1 },
+      target: "memory",
+      profile,
+      window: { start: 0, end: Number.MAX_SAFE_INTEGER },
+      lateMs: 0,
+      stats,
+      clientLoopDelayMs: { p50: 0, p99: 0, max: 0 },
+      video,
+    };
+    const summary = summarizeStep([JSON.parse(JSON.stringify(result)) as SignallingShardResult], DEFAULT_THRESHOLDS);
+    console.log(videoMarkdown("memory", [{ players: players.length, video: summary.video! }]));
+    expect(summary.video?.frameShare).toBeGreaterThan(0.9);
+    expect(summary.findings.filter((finding) => /^(video|TURN)/.test(finding))).toEqual([]);
   });
 });
