@@ -9,7 +9,7 @@ import type { Player } from "./keys.js";
 import type { SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import type { PeopleApi, Target } from "./target.js";
-import { readAll, sleep } from "./time.js";
+import { readAll, sleep, withTimeout } from "./time.js";
 
 type ScheduledAirdrop = Parameters<PeopleApi["tx"]["Game"]["schedule_games"]>[0]["games_schedules"][number]["airdrops"][number];
 
@@ -53,6 +53,9 @@ const slotKey = (slot: string) => slot.replace(/^0x/i, "").toLowerCase();
 
 const accountId = AccountId();
 
+/** How long one People read of the draw may take before it counts as unanswered. */
+const DRAW_READ_MS = 60_000;
+
 /**
  * Once every prize draw of game `gameIndex` has its winners, counts the bots' tickets and wins,
  * and each winner the app would let claim claims its prize into its own game account with the
@@ -73,7 +76,10 @@ export async function claimDrawPrizes(
   const until = Date.now() + 600_000;
   let draws: PalletDraw[];
   for (;;) {
-    draws = await engine.draws(players[0].address, gameIndex);
+    draws = await withTimeout(engine.draws(players[0].address, gameIndex), DRAW_READ_MS, "draw read").catch((error: Error) => {
+      console.warn(`[draw] ${error.message}`);
+      return [];
+    });
     if (draws.length > 0 && draws.every((draw) => !DRAWING[draw.status])) break;
     if (Date.now() > until) throw new Error(`game ${gameIndex}'s draws have no winners within 10 min: ${draws.map((draw) => draw.status).join(", ") || "no draw"}`);
     await sleep(5_000);
@@ -96,7 +102,7 @@ export async function claimDrawPrizes(
       return bot ? [{ bot, slot: slotKey(slot) }] : [];
     });
     const eligible: typeof wins = [];
-    for (const [position, eligibility] of (await readAll(wins, ({ bot }) => engine.eligibility(bot.address, gameIndex))).entries()) {
+    for (const [position, eligibility] of (await readAll(wins, ({ bot }) => withTimeout(engine.eligibility(bot.address, gameIndex), DRAW_READ_MS, "eligibility read"))).entries()) {
       if (eligibility.eligible) eligible.push(wins[position]);
       else bump(ineligible, eligibility.reason ?? "unknown");
     }
@@ -109,12 +115,13 @@ export async function claimDrawPrizes(
     for (const [failure, count] of Object.entries(burst.failures)) bump(claimFailures, failure, count);
     // A claim removes its winner from `Airdrop.Winners`.
     const eventId = gameAirdropEventId({ base, gameIndex, airdropIndex: draw.airdropIndex });
-    const remainingWinners = new Set((await api.query.Airdrop.Winners.getEntries(eventId, { at: "best" })).map(({ value }) => slotKey(value)));
+    const winnerEntries = await withTimeout(api.query.Airdrop.Winners.getEntries(eventId, { at: "best" }), DRAW_READ_MS, "winners read");
+    const remainingWinners = new Set(winnerEntries.map(({ value }) => slotKey(value)));
     claimCount += wins.filter(({ slot }) => !remainingWinners.has(slot)).length;
     winners.push(...wins.map(({ bot }) => bot.address));
     console.log(`[draw] game ${gameIndex} draw ${draw.airdropIndex}: ${draw.status}, ${wins.length} bots won of ${draw.winningTickets.length} winners`);
   }
-  const balances = await readAll([...new Set(winners)], (winner) => engine.prizeBalances(winner));
+  const balances = await readAll([...new Set(winners)], (winner) => withTimeout(engine.prizeBalances(winner), DRAW_READ_MS, "prize balance read"));
   return {
     draws: draws.length,
     tickets,
