@@ -398,7 +398,6 @@ switch (values.help ? undefined : command) {
       gameAt,
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
       claim: target.assetHubRpc !== undefined && !values["skip-claim"],
-      lite: values.lite,
       draw: values.draw,
     });
     const text = chainMarkdown(result);

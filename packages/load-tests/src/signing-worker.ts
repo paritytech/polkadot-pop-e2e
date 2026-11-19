@@ -7,7 +7,7 @@ import { accountSigner, hostSigner, signEntry } from "./burst.js";
 import { bindSeat, signSignUp } from "./join.js";
 import { playerFromSecret, type Player } from "./keys.js";
 import { litePersonhood, RingSnapshots } from "./lite.js";
-import type { BindOutcome, SignerKind, SigningJob, SigningOutcome, SigningReply } from "./signing-pool.js";
+import type { OutcomeOf, SignerKind, SigningJob, SigningReply } from "./signing-pool.js";
 import { connectAssetHub, connectPeople, type AssetHubApi, type Endpoints, type PeopleConnection } from "./target.js";
 
 const endpoints = workerData as Endpoints;
@@ -27,7 +27,7 @@ function personhoodOf(connection: PeopleConnection, player: Player) {
   return litePersonhood(connection.api, connection.client, player.liteEntropy, snapshots);
 }
 
-async function runJob(job: SigningJob): Promise<SigningOutcome | BindOutcome> {
+async function runJob(job: SigningJob): Promise<OutcomeOf<SigningJob>> {
   const { index, secretKey, liteEntropy } = job.player;
   const player: Player = { ...playerFromSecret(index, secretKey), liteEntropy };
   if (job.kind === "signUp" || job.kind === "bind") {

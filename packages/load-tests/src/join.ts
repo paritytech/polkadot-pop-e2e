@@ -5,7 +5,7 @@ import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, signEntry } from "./burst.js";
 import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
-import type { BindOutcome, SigningOutcome, SigningPool } from "./signing-pool.js";
+import type { BindOutcome, SigningPool, SignUpOutcome } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep, withTimeout } from "./time.js";
@@ -29,10 +29,12 @@ export type SignUpKeys = Pick<GameRegistrationCapabilities, "personhood" | "sign
 
 /**
  * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
- * `submit` that only signs, so a burst can send every player's at once.
+ * `submit` that only signs, so a burst can send every player's at once. It enters the draws the
+ * app's draw rule lets it, and says why it entered none.
  */
-export async function signSignUp(engine: GameEngine, player: Player, keys: SignUpKeys): Promise<SigningOutcome> {
+export async function signSignUp(engine: GameEngine, player: Player, keys: SignUpKeys): Promise<SignUpOutcome> {
   let extrinsic: string | undefined;
+  let draws: { entered: number; kind?: string } = { entered: 0 };
   const capabilities = {
     account: { address: player.address, publicKey: player.publicKey },
     signer: hostSigner(player),
@@ -43,31 +45,53 @@ export async function signSignUp(engine: GameEngine, player: Player, keys: SignU
     ...keys,
   };
   try {
-    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
+    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey), { onDraws: (outcome) => (draws = outcome) });
     if (!result.ok) return { refusal: result.error };
   } catch (error) {
     return { refusal: (error as Error).message };
   }
-  return extrinsic === undefined ? { refusal: "no sign-up to sign" } : { extrinsic };
+  if (extrinsic === undefined) return { refusal: "no sign-up to sign" };
+  return { extrinsic, drawsEntered: draws.entered, ...(draws.entered === 0 && draws.kind ? { drawSkip: draws.kind } : {}) };
 }
 
-/** Every player's `signSignUp`, spread over the pool's threads; `refusals` counts the players left out, by reason. */
-export async function signSignUps(pool: SigningPool, players: Player[], drawTicket: boolean): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
+/** What the app's draw rule leaves out: a player this game cannot make a member signs up without a ticket. */
+export const NOT_MEMBER_YET = "not-member-yet";
+
+export interface SignedSignUps {
+  extrinsics: string[];
+  /** Players the app's sign-up left out, by reason. */
+  refusals: Record<string, number>;
+  /** Sign-ups that enter the game's draws. */
+  drawEntries: number;
+  /** Sign-ups that enter none, by the SDK's or the app's reason, such as `not-member-yet`. */
+  drawSkips: Record<string, number>;
+}
+
+/** Every player's `signSignUp`, spread over the pool's threads. */
+export async function signSignUps(pool: SigningPool, players: Player[], drawTicket: boolean): Promise<SignedSignUps> {
   const started = Date.now();
-  const refusals: Record<string, number> = {};
-  const extrinsics: string[] = [];
+  const signed: SignedSignUps = { extrinsics: [], refusals: {}, drawEntries: 0, drawSkips: {} };
   for (const outcome of await Promise.all(players.map((player) => pool.signUp(player, drawTicket)))) {
-    if ("extrinsic" in outcome) extrinsics.push(outcome.extrinsic);
-    else bump(refusals, outcome.refusal);
+    if ("refusal" in outcome) {
+      bump(signed.refusals, outcome.refusal);
+      continue;
+    }
+    signed.extrinsics.push(outcome.extrinsic);
+    if (outcome.drawsEntered > 0) signed.drawEntries++;
+    if (outcome.drawSkip) bump(signed.drawSkips, outcome.drawSkip);
   }
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(refusals)}`);
-  return { extrinsics, refusals };
+  console.log(
+    `[sign-up] ${signed.extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(signed.refusals)}; ${signed.drawEntries} enter the draws ${JSON.stringify(signed.drawSkips)}`,
+  );
+  return signed;
 }
 
 /**
  * A lite bot's game account bound to its lite person through the app engine's `bind`, which
- * submits the unsigned bind itself and settles at the best block.
+ * submits the unsigned bind itself and settles at the best block. Only a seat on the free route
+ * that isn't bound takes a bind, as in the app's flow: a returning player signs up as one, and a
+ * stale binding is revised by the sign-up itself.
  */
 export async function bindSeat(engine: GameEngine, player: Player, personhood: GameRegistrationCapabilities["personhood"]): Promise<BindOutcome> {
   const capabilities = {

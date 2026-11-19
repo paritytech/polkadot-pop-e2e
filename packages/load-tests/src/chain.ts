@@ -7,7 +7,7 @@ import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { buildDraw, GAME_AIRDROP_SOURCE, settleDraw, type DrawResult } from "./draw.js";
-import { ALREADY_REGISTERED, bindLiteBots, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import { ALREADY_REGISTERED, bindLiteBots, NOT_MEMBER_YET, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
@@ -54,8 +54,6 @@ export interface ChainRun {
   registrationWaitMs: number;
   /** Claims the credits the game awarded as NFTs on Asset Hub once they arrive there. */
   claim: boolean;
-  /** The players are lite bots, which sign up free after a bind and get no funds. */
-  lite: boolean;
   /** Every player enters the game's prize draws, and the winners claim; a game this run schedules gets one draw. */
   draw: boolean;
 }
@@ -118,7 +116,7 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
       await sleep(2_000);
     }
   }
-  if (!run.lite) await fundPlayers(api, sudo, players, PLAYER_FUNDS);
+  await fundPlayers(api, sudo, players, PLAYER_FUNDS);
 }
 
 /** As root: schedules one game with `run.phases` from now, returning its play time and the phases to set back. */
@@ -253,10 +251,15 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       findings.push(`draw: game ${game.index} has no prize draw${remedy}`);
     }
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
-    if (!ownGame && !run.lite) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players, run.draw);
+    if (!ownGame && !isLite) await topUpPlayers(target, api, players);
+    const { extrinsics: signUpExtrinsics, refusals, drawEntries, drawSkips } = await signSignUps(pool, players, run.draw);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
+    }
+    if (run.draw && game.airdrops_scheduled > 0) {
+      for (const [kind, count] of Object.entries(drawSkips)) {
+        if (kind !== NOT_MEMBER_YET) findings.push(`draw: ${count} sign-ups entered no draw, ${kind}`);
+      }
     }
 
     console.log(`[chain] game ${game.index}: ${signUpExtrinsics.length} players sign up`);
