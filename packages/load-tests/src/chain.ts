@@ -250,7 +250,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     }
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
     if (!ownGame && !isLite) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals, drawEntries, drawSkips } = await signSignUps(pool, players, run.draw);
+    const { extrinsics: signUpExtrinsics, refusals, drawEntries, drawTickets, drawSkips } = await signSignUps(pool, players, run.draw);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
@@ -348,8 +348,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
           const settled = await settleDraw(engine, pool, client, api, target, players, game.index, run.connections);
           draw.settled = settled;
           console.log(`[chain] draw: ${settled.tickets} tickets, ${settled.winners.length} wins, ${settled.claimed} claimed`);
-          const expected = drawEntries * settled.draws;
-          if (settled.tickets < expected) findings.push(`draw: ${expected - settled.tickets} of ${expected} tickets the sign-ups carried are not on chain`);
+          if (settled.tickets < drawTickets) findings.push(`draw: ${drawTickets - settled.tickets} of ${drawTickets} tickets the sign-ups carried are not on chain`);
           // In a game of the run's own only bots enter, so one wins; real players may win a live game's.
           if (settled.winners.length === 0 && ownGame) findings.push("draw: no winner");
           if (settled.claimed < settled.winners.length) findings.push(`draw: ${settled.winners.length - settled.claimed} of ${settled.winners.length} prizes not claimed`);

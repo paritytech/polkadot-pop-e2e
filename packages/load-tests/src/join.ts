@@ -63,6 +63,8 @@ export interface SignedSignUps {
   refusals: Record<string, number>;
   /** Sign-ups that enter the game's draws. */
   drawEntries: number;
+  /** Draw tickets the sign-ups carry: one per sign-up and draw it enters. */
+  drawTickets: number;
   /** Sign-ups that enter none, by the SDK's or the app's reason, such as `not-member-yet`. */
   drawSkips: Record<string, number>;
 }
@@ -70,7 +72,7 @@ export interface SignedSignUps {
 /** Every player's `signSignUp`, spread over the pool's threads. */
 export async function signSignUps(pool: SigningPool, players: Player[], drawTicket: boolean): Promise<SignedSignUps> {
   const started = Date.now();
-  const signed: SignedSignUps = { extrinsics: [], refusals: {}, drawEntries: 0, drawSkips: {} };
+  const signed: SignedSignUps = { extrinsics: [], refusals: {}, drawEntries: 0, drawTickets: 0, drawSkips: {} };
   for (const outcome of await Promise.all(players.map((player) => pool.signUp(player, drawTicket)))) {
     if ("refusal" in outcome) {
       bump(signed.refusals, outcome.refusal);
@@ -78,6 +80,7 @@ export async function signSignUps(pool: SigningPool, players: Player[], drawTick
     }
     signed.extrinsics.push(outcome.extrinsic);
     if (outcome.drawsEntered > 0) signed.drawEntries++;
+    signed.drawTickets += outcome.drawsEntered;
     if (outcome.drawSkip) bump(signed.drawSkips, outcome.drawSkip);
   }
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
