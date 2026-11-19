@@ -82,6 +82,8 @@ Chain (phases default to the chain's own):
   --take-over           Cancel a running game and remove scheduled ones before scheduling one
   --skip-claim          Don't claim the game's credits as NFTs on Asset Hub after the reports, as
                         every run with an Asset Hub does by default
+  --lite                The players are lite bots: bound to their lite person before the game, they
+                        sign up free with Game.sign_up_with_account_lite_invite and get no funds
 `;
 
 const { positionals, values } = parseArgs({
@@ -124,6 +126,7 @@ const { positionals, values } = parseArgs({
     "rpc-limit": { type: "string" },
     "follow-game": { type: "boolean", default: false },
     "skip-claim": { type: "boolean", default: false },
+    lite: { type: "boolean", default: false },
     "lite-from": { type: "string", default: String(LITE_FIRST_INDEX) },
     "allow-live-lite": { type: "boolean", default: false },
     help: { type: "boolean", short: "h" },
@@ -328,13 +331,14 @@ switch (values.help ? undefined : command) {
   }
   case "chain": {
     const target = await resolveTarget(targetOptions);
+    if (values.lite) await requireLiteTarget(target);
     const overrides = { registration: values.registration, shuffle: values.shuffle, post_shuffle_margin: values.margin, reporting: values.reporting, player_process: values["player-process"] };
     const phases = Object.fromEntries(
       Object.entries(overrides).flatMap(([phase, text]) => (text === undefined ? [] : [[phase, seconds(phase, text) / 1000]])),
     );
     const result = await runChain({
       runId: values["run-id"],
-      players: gamePlayers(target, positiveInteger("players", values.players)),
+      players: values.lite ? liteBots(target, positiveInteger("players", values.players)).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
       target,
       outDir,
       phases,
@@ -347,6 +351,7 @@ switch (values.help ? undefined : command) {
       gameAt,
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
       claim: target.assetHubRpc !== undefined && !values["skip-claim"],
+      lite: values.lite,
     });
     const text = chainMarkdown(result);
     await writeFile(`${outDir}/chain.n${result.players}.md`, text);

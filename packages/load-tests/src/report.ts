@@ -285,6 +285,9 @@ export function chainMarkdown(result: ChainResult): string {
           "",
         ]
       : []),
+    ...(result.lite
+      ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots hold a deposit after signing up.`, ""]
+      : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
     ...phasesMarkdown(summarizePhases(result)),

@@ -6,7 +6,7 @@ import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from 
 import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
-import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import { ALREADY_REGISTERED, bindLiteBots, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
@@ -53,6 +53,8 @@ export interface ChainRun {
   registrationWaitMs: number;
   /** Claims the credits the game awarded as NFTs on Asset Hub once they arrive there. */
   claim: boolean;
+  /** The players are lite bots, which sign up free after a bind and get no funds. */
+  lite: boolean;
 }
 
 export interface ChainResult {
@@ -78,6 +80,8 @@ export interface ChainResult {
   notes: string[];
   /** Where People blocks came close to their limits without failing the run. */
   capacity: string[];
+  /** Lite bots' binds by outcome, and how many hold a deposit after signing up; null for deposit-backed bots. */
+  lite: { binds: Record<string, number>; withDeposit: number } | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -109,7 +113,7 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
       await sleep(2_000);
     }
   }
-  await fundPlayers(api, sudo, players, PLAYER_FUNDS);
+  if (!run.lite) await fundPlayers(api, sudo, players, PLAYER_FUNDS);
 }
 
 /** As root: schedules one game with `run.phases` from now, returning its play time and the phases to set back. */
@@ -200,6 +204,11 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       phases = scheduled.phases;
       previousPhases = scheduled.previous;
     }
+    // Before the game opens, so the binds don't take registration's blocks.
+    const binds = run.lite ? await bindLiteBots(pool, players) : {};
+    for (const [outcome, count] of Object.entries(binds)) {
+      if (outcome.startsWith("refused")) findings.push(`bind ${outcome}: ${count}`);
+    }
 
     blockFollower = await followBlockLoad(client, api);
     void (async () => {
@@ -232,8 +241,8 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     gameIndex = game.index;
     blockFollower.followGame(game.index);
     // Funded only now on a live network: a deposit of the previous game counts until that game lets it go.
-    if (!ownGame) await topUpPlayers(target, api, players);
-    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players);
+    if (!ownGame && !run.lite) await topUpPlayers(target, api, players);
+    const { extrinsics: signUpExtrinsics, refusals } = await signSignUps(pool, players, false);
     for (const [reason, count] of Object.entries(refusals)) {
       if (reason !== ALREADY_REGISTERED) findings.push(`sign-up not built, ${reason}: ${count}`);
     }
@@ -243,6 +252,13 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
     if (signUp.inTime < signUpExtrinsics.length) {
       findings.push(`sign-up: ${signUpExtrinsics.length - signUp.inTime} of ${signUpExtrinsics.length} not in before registration ended`);
+    }
+    let lite: ChainResult["lite"] = null;
+    if (run.lite) {
+      const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
+      lite = { binds, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
+      console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots hold a deposit`);
+      if (lite.withDeposit > 0) findings.push(`sign-up: ${lite.withDeposit} of ${players.length} lite bots hold a deposit`);
     }
 
     const untilGame = game.game_date * 1000 - (await chainNow());
@@ -350,6 +366,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       proposals,
       notes,
       capacity: limits.capacity,
+      lite,
     };
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));

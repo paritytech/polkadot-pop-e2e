@@ -1,10 +1,11 @@
 import type { Transaction } from "polkadot-api";
 import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import type { GameRegistrationCapabilities } from "@parity/product-sdk-individuality";
 import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { hostSigner, signEntry } from "./burst.js";
 import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
-import type { SigningOutcome, SigningPool } from "./signing-pool.js";
+import type { BindOutcome, SigningOutcome, SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
 import { readAll, sleep, withTimeout } from "./time.js";
@@ -23,11 +24,14 @@ const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0,
 /** The refusal of a player already signed up to the game, which a rerun meets for every earlier sign-up. */
 export const ALREADY_REGISTERED = "AlreadyRegistered";
 
+/** What a player brings to a sign-up beyond its account: a lite bot's personhood keys, and the VRF signer of a bot that enters the draws. */
+export type SignUpKeys = Pick<GameRegistrationCapabilities, "personhood" | "signVrf">;
+
 /**
  * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
  * `submit` that only signs, so a burst can send every player's at once.
  */
-export async function signSignUp(engine: GameEngine, player: Player): Promise<SigningOutcome> {
+export async function signSignUp(engine: GameEngine, player: Player, keys: SignUpKeys): Promise<SigningOutcome> {
   let extrinsic: string | undefined;
   const capabilities = {
     account: { address: player.address, publicKey: player.publicKey },
@@ -36,6 +40,7 @@ export async function signSignUp(engine: GameEngine, player: Player): Promise<Si
       extrinsic = await signEntry({ creator, tx: tx as Transaction });
       return { ok: true as const };
     },
+    ...keys,
   };
   try {
     const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
@@ -47,17 +52,56 @@ export async function signSignUp(engine: GameEngine, player: Player): Promise<Si
 }
 
 /** Every player's `signSignUp`, spread over the pool's threads; `refusals` counts the players left out, by reason. */
-export async function signSignUps(pool: SigningPool, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
+export async function signSignUps(pool: SigningPool, players: Player[], drawTicket: boolean): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
   const started = Date.now();
   const refusals: Record<string, number> = {};
   const extrinsics: string[] = [];
-  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player)))) {
+  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player, drawTicket)))) {
     if ("extrinsic" in outcome) extrinsics.push(outcome.extrinsic);
     else bump(refusals, outcome.refusal);
   }
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(refusals)}`);
   return { extrinsics, refusals };
+}
+
+/**
+ * A lite bot's game account bound to its lite person through the app engine's `bind`, which
+ * submits the unsigned bind itself and settles at the best block.
+ */
+export async function bindSeat(engine: GameEngine, player: Player, personhood: GameRegistrationCapabilities["personhood"]): Promise<BindOutcome> {
+  const capabilities = {
+    account: { address: player.address, publicKey: player.publicKey },
+    signer: hostSigner(player),
+    submit: async () => ({ ok: false as const, code: "InvalidSignUp" as const, message: "a bind signs nothing" }),
+    personhood,
+  };
+  try {
+    const result = await engine.bind(capabilities);
+    return result.kind === "refused" ? { refusal: `${result.refusal}: ${result.code}` } : { bound: result.kind };
+  } catch (error) {
+    return { refusal: (error as Error).message };
+  }
+}
+
+/** A bind's ring proof check weighs 29.3 ms, so a 2 s block's 85% normal class takes 58 binds. */
+const BINDS_PER_WAVE = 50;
+
+/**
+ * Binds every lite bot that isn't bound yet, before the sign-up burst: `BINDS_PER_WAVE` at once,
+ * the next wave once the last one is in a block, so no block takes more binds than fit. A bot
+ * bound already, also from an earlier game, counts as `already-bound`.
+ */
+export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<Record<string, number>> {
+  const started = Date.now();
+  const outcomes: Record<string, number> = {};
+  for (let start = 0; start < players.length; start += BINDS_PER_WAVE) {
+    for (const outcome of await Promise.all(players.slice(start, start + BINDS_PER_WAVE).map((player) => pool.bind(player)))) {
+      bump(outcomes, "bound" in outcome ? outcome.bound : `refused: ${outcome.refusal}`);
+    }
+  }
+  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - started) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}`);
+  return outcomes;
 }
 
 /** How long a game just scheduled may take to show in the finalized schedule the engine reads. */
