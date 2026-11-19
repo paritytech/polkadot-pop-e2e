@@ -59,21 +59,72 @@ describe('node-scan', () => {
   });
 
   it('reports match, drift, untagged and the services it cannot read', async () => {
-    assert.deepEqual(await scan(), [
+    const { lines, pins } = await scan();
+    assert.deepEqual(lines, [
       `- relay (polkadot): pinned paritytech/polkadot-sdk@polkadot-stable2509, live ${versions.relay}, match`,
       `- people (polkadot-omni-node): pinned nothing, live polkadot-stable2512 (${versions.people})`,
       '- eth-rpc: pinned paritytech/polkadot-sdk@polkadot-stable2509, live eth-rpc/HEAD-deadbee/x86_64-unknown-linux-gnu/rustc1.93.0, no polkadot-sdk tag has commit deadbee',
       '- not scanned: kubo',
     ]);
+    assert.deepEqual(pins, {});
   });
 
   it('turns a failed or unreadable reply into its own line', async () => {
-    const lines = await scan({
+    const { lines } = await scan({
       rpc: async (url) => (url.includes('people') ? 'parity-polkadot' : Promise.reject(new Error('refused'))),
       fetch: async () => ({ ok: false, status: 502 }),
     });
     assert.match(lines[0], /relay .*unreachable: refused$/);
     assert.match(lines[1], /people .*unrecognised version "parity-polkadot"$/);
     assert.match(lines[2], /eth-rpc: .*unreachable: HTTP 502$/);
+  });
+
+  // A release publishes the slot only when it carries every file the engine delivers for it.
+  const release = (...missing) => async (repo, tag) => ({
+    tag_name: tag,
+    assets: ['polkadot', 'polkadot-execute-worker', 'polkadot-prepare-worker', 'polkadot-omni-node']
+      .filter((name) => !missing.includes(name))
+      .map((name) => ({ name })),
+  });
+  const stable2512 = `1.21.0-${STABLE2512_COMMIT.slice(0, 11)}`;
+  const pinScan = (chainVersions, releaseOf) =>
+    scanNodes(
+      {
+        network: 'previewnet',
+        chains: Object.fromEntries(Object.keys(chainVersions).map((chain) => [chain, {}])),
+        binaries: {
+          polkadot: 'paritytech/release-automation@polkadot-stable2509',
+          'polkadot-omni-node': 'paritytech/release-automation@polkadot-stable2509',
+        },
+      },
+      {
+        rpc: async (url) => chainVersions[Object.keys(chainVersions).find((chain) => url.includes(chain))],
+        loadTags: async () => TAGS,
+        releaseOf,
+      },
+    );
+
+  it('pins each slot to the release its nodes run, from the pinned repo', async () => {
+    const { pins } = await pinScan({ relay: stable2512, people: stable2512 }, release());
+    assert.deepEqual(pins, {
+      polkadot: 'paritytech/release-automation@polkadot-stable2512',
+      'polkadot-omni-node': 'paritytech/release-automation@polkadot-stable2512',
+    });
+  });
+
+  it('leaves the pin when the release lacks a file of the slot', async () => {
+    const { pins } = await pinScan({ relay: stable2512, people: stable2512 }, release('polkadot-prepare-worker'));
+    assert.deepEqual(pins, { 'polkadot-omni-node': 'paritytech/release-automation@polkadot-stable2512' });
+  });
+
+  it("takes the release from the slot's other repo when the pinned repo doesn't publish it", async () => {
+    const onlySdk = async (repo, tag) => (repo === 'paritytech/polkadot-sdk' ? release()(repo, tag) : Promise.reject(new Error('404')));
+    const { pins } = await pinScan({ relay: stable2512 }, onlySdk);
+    assert.deepEqual(pins, { polkadot: 'paritytech/polkadot-sdk@polkadot-stable2512' });
+  });
+
+  it("leaves the pin when the slot's chains run different releases", async () => {
+    const { pins } = await pinScan({ people: stable2512, 'asset-hub': versions.relay }, release());
+    assert.deepEqual(pins, {});
   });
 });

@@ -24,14 +24,14 @@
 //     the allowed release sources per chain/service for the manifest's network —
 //     what a tester may put in an overlay; used by the issue-ops rejection comment
 //
-//   node environments/resolve.mjs candidates <canonical.json> [--base <X.json>] [--target <overlay.json>]
+//   node environments/resolve.mjs candidates <canonical.json> [--base <X.json>] [--target <overlay.json>] [--target-only]
 //     the candidate matrix for a gate run, as compact JSON for `fromJSON()` in the
 //     workflow. X defaults to the canonical file itself; --base overrides it (the
 //     PR flow: X = the file on the base branch, Y = the file at HEAD — the diff IS
 //     the ask). --target overlays a sparse ask onto the canonical instead (the
 //     dispatch/issue flow: no diff, Y = canonical ⊕ overlay). Neither → a single
 //     steady-state assertion run. Both dimensions moved → target plus the two
-//     informational cross terms.
+//     informational cross terms, unless --target-only.
 //
 // "latest" tags resolve to the concrete tag so logs name what was actually gated.
 // Every pinned source is public, so GITHUB_TOKEN is optional — set it to lift the
@@ -146,7 +146,7 @@ if (mode === 'binaries') {
   const base = basePath ? JSON.parse(fs.readFileSync(basePath, 'utf8')) : manifest;
   const target = targetPath ? JSON.parse(fs.readFileSync(targetPath, 'utf8')) : null;
   const effective = target ? validateManifest(mergeTarget(manifest, target)) : manifest;
-  const matrix = candidateMatrix(base, effective);
+  const matrix = candidateMatrix(base, effective, { targetOnly: rest.includes('--target-only') });
   for (const c of matrix) validateManifest(c.manifest);
   for (const c of matrix) {
     console.error(`  ${c.id} (gating=${c.gating}): ${c.purpose}`);

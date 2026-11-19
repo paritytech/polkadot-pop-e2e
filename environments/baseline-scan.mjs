@@ -206,13 +206,23 @@ if (isMain) {
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
     }
-    // Report only (#53): the rows feed this printout and nothing else. The try keeps a
-    // node-scan failure away from the runtime scan above.
+    // A failed tag listing leaves the binary pins as they are and doesn't fail the scan.
     try {
       nodeTags ??= sdkTagLoader();
-      console.log(renderNodeSummary(manifest.network, await scanNodes(manifest, { rpc, loadTags: nodeTags })));
+      const nodes = await scanNodes(manifest, { rpc, loadTags: nodeTags });
+      console.log(renderNodeSummary(manifest.network, nodes.lines));
+      const slots = Object.keys(nodes.pins);
+      for (const slot of slots) console.log(`  ↻ ${slot}: ${manifest.binaries[slot]} → ${nodes.pins[slot]}`);
+      if (slots.length) {
+        sawDrift = true;
+        if (write) {
+          Object.assign(manifest.binaries, nodes.pins);
+          fs.writeFileSync(p, `${JSON.stringify(manifest, null, 2)}\n`);
+          console.log(`  wrote ${p} (${slots.join(', ')})`);
+        }
+      }
     } catch (err) {
-      console.log(`- ${manifest.network} nodes: skipped (${err?.message ?? err}), report only`);
+      console.log(`- ${manifest.network} nodes: skipped (${err?.message ?? err})`);
     }
   }
   // Exit contract for the workflow: 0 = record is true (or was just rewritten),
