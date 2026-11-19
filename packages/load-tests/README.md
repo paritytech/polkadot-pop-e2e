@@ -161,7 +161,7 @@ hash.
   collator's public log. When the log can't be read, the **Notes** list at the end says so, along
   with blocks or PoV sizes the run couldn't read.
 
-**Game processing** gives the shuffle's work without its wait for the game date, the blocks from
+**Game processing** shows the shuffle's work without its wait for the game date, the blocks from
 the end of reporting to `GameEnded`, and the heaviest step. Where the runtime runs the game's steps
 as calls, that is the step call's weight over the step budget, half the normal class's
 `max_extrinsic`; otherwise it is the mandatory class's share of a block's ref time.

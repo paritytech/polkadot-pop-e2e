@@ -59,9 +59,9 @@ describe("measureBlock", () => {
     expect([90, 99, 100, 107].map((creditCursor) => measureBlock(reads({ creditCursor }), limits).creditTrees)).toEqual([0, 0, 1, 8]);
   });
 
-  // A step call's weight shows how close one step comes to the budget the pallet gives it; other
+  // A step call's weight shows how close one step comes to its budget from the pallet; other
   // extrinsics, and the steps of another game, must not count.
-  it("gives the heaviest step call of the game as a share of the step budget", () => {
+  it("measures the heaviest step call of the game against the step budget", () => {
     const body = [extrinsic(ADVANCE_SHUFFLE, 43), extrinsic(ADVANCE_SHUFFLE, 42), extrinsic(Uint8Array.of(0x37, 0x03), 43), extrinsic(ADVANCE_SHUFFLE, 43)];
     const events = [success(0, 200n), success(1, 450n), success(2, 480n), success(3, 300n)];
     expect(measureBlock(reads({ body, events }), limits).stepShare).toBe(0.6);

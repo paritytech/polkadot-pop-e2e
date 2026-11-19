@@ -114,7 +114,7 @@ describe("summarizeGameProcessing", () => {
 });
 
 describe("findBlockLimits", () => {
-  it("finds nothing in a game the chain kept up with", () => {
+  it("finds nothing when blocks stay within limits", () => {
     expect(limits(gameBlocks({ 116: { gameEvents: { GameEnded: 1 } } }))).toEqual({ findings: [], capacity: [] });
   });
 
@@ -152,7 +152,7 @@ describe("findBlockLimits", () => {
     expect(limits(gameBlocks({ 113: { creditTrees: 7 } })).capacity).toEqual([]);
   });
 
-  // The game's schedule gives player processing `player_process` seconds after reports end; the
+  // The game's schedule allows player processing `player_process` seconds after reports end; the
   // next game's registration assumes it is over by then.
   it("flags a game that ended after report end plus player_process", () => {
     // Block 116 is at 696 s; reports end at 600 s and processing has 60 s.
