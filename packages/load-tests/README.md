@@ -14,8 +14,7 @@ or Asset Hub.
 | `network` | previewnet or paseo-next-v2 |
 | `players` | bots in the game, up to 5000 |
 | `bots_per_machine` | bots one parity-large machine runs (default 1000) |
-| `signalling` | `co-players`, as the app does now (default), or `game`, the app before https://github.com/paritytech/individuality-apps/pull/1972 |
-| `timing` | `sync`, the app's one shared re-send beat (default), or `random`, each bot on a beat of its own |
+| `timing` | `sync`, every bot opening its room at the same instant as the app does (default), or `random`, each up to one heartbeat later |
 | `claim` | whether the bots claim their NFTs after the reports |
 | `game_at` | the play time of the game to join; empty joins the closest scheduled one |
 | `replay_at` | a start time: the bots of an earlier game exchange the same messages then, without a game, sign-up, reports or claims |
@@ -37,10 +36,10 @@ A run has three parts:
 - **`summary`** merges every machine's result into one table.
 
 The bots are the same accounts from game to game on each network, so each pays its 2 UNIT play
-deposit once. They don't need a person, an alias or an attestation: they sign up with
-`Game.sign_up_with_account`, share groups with the game's real players, and vote `Person` for
-every co-player. They never join the video call, so to a real player they are seats that don't
-connect.
+deposit once. They don't need a person, an alias or an attestation: the app's sign-up takes
+`Game.sign_up_with_account` for a player without personhood, they share groups with the game's
+real players, and they vote `Person` for every co-player. They never join the video call, so to a
+real player they are seats that don't connect.
 
 A bot that misses games loses score; at 0 the chain archives it and removes its statement
 allowance, so a replay needs bots that played a recent game. A game run signs them up again.
@@ -54,27 +53,78 @@ Two limits outside the test decide what a run can show:
   every collator, so a light-client run above that measures this limit:
   https://github.com/paritytech/devops/issues/5871
 
+## What runs the app's code
+
+The bots run the Jollity app's own packages from
+[individuality-apps](https://github.com/paritytech/individuality-apps/tree/2560663a232cb710b10b7f5417fc300cd830efbe)
+wherever the app does something a bot can do. Those packages aren't published and depend on each
+other by name, so the root `package.json` maps each of them, through `pnpm.overrides`, to its
+directory at one pinned commit, and `@pop-e2e/load-tests` depends on them as `*`. Moving the pin
+means changing the commit in those overrides.
+
+- **Sign-up**: `register` of the app's chain engine (`@jollity/game-chain`), the sign-up the app's
+  flow calls, over the SDK's `registerForGame`. For an account without personhood it reads the
+  seat and builds `Game.sign_up_with_account`, signed plainly for a new player and as the score
+  participant for a returning one. Its `submit` only signs, so the run still sends every sign-up at
+  once. The bots get no VRF signer, so they enter no prize draw.
+- **Signer**: every People transaction of a bot carries its signature in `VerifyMultiSignature`,
+  as a phone's host signs. The run builds and signs its bots' sign-ups, reports and claims on one
+  worker thread per core: polkadot-api's signers decode the whole runtime metadata for every
+  transaction, which on one thread takes about 0.6 s per sign-up on a CI runner.
+- **Report**: each bot reads its seats through the engine (`playerIndices`, `groupMembers`) and the
+  SDK's `groupSeats`, as the app's game view does, lays out the votes as the app's `buildReport`
+  does, and builds `Game.report` with the SDK's `reportTx`, signed with `withScoreParticipant`
+  as the engine's `report` signs it. `buildReport` lives in the app itself, under
+  `apps/jollity-app/lib`, beside its UI, so the run repeats its few lines.
+- **Game reads**: which game to join, its schedule and its roster come from the engine.
+- **Credits**: the read the app's `readGameCredits` makes, `getClaims` of the nfts SDK, counted
+  with `gameCredits` of `@individuality/game-outcome`, until they are claimable. Once every credit
+  of an award block is claimed, Asset Hub deletes the block's tree, and the read then shows those
+  credits as earned in no game. So a credit without a game counts only from the game's first
+  report on, and which were claimed is read from Asset Hub's `NftClaims.ClaimedLeaves`.
+- **NFT claims**: the Jollity app doesn't claim; the stash does, outside individuality-apps. Each
+  credit goes to the collection the app's chest shows it in (`defaultCollectionFor` of
+  `@jollity/collectables`, over the SDK's approved claimable collections), and the run builds
+  `NftClaims.claim` itself, since no package of the app or the nfts SDK builds it.
+- **Signalling**: the app's `statementTransport`, below.
+
+The rest is the run's own, because the app doesn't do it: root's clearing, funding and scheduling
+of a game and its phase durations, funding the bots, and the timeline of game states with their
+steps, read at the best block every second.
+
 ## How a bot signals
 
-A bot behaves like a player's statement transport in the Jollity app since
-https://github.com/paritytech/individuality-apps/pull/1972: it posts its bundle under a topic of
-its own and subscribes to the topics of its co-players, the 10 players it shares a table with over
-two rounds of 6, so a bundle goes only to them. A bundle with offers in it goes deflated, about 45%
-smaller, as the app sends it. `signalling: game` plays the app before that change: one room topic
-every bot posts under and subscribes to, so every bot receives every bundle and deliveries grow
-with the square of the players.
+A bot runs the Jollity app's own signalling: `statementTransport` from
+[`@jollity/statement-core`](https://github.com/paritytech/individuality-apps/tree/2560663a232cb710b10b7f5417fc300cd830efbe/packages/jollity-statement-core),
+which the root `package.json` pins to a commit of individuality-apps, configured as the app's game source
+configures it. Each bot keeps one statement live, a bundle under a topic of its own, deflated once it
+carries more than a hello; every offer and candidate in it is sealed to the co-player's
+communication key; a statement signed by another account than the one it names is dropped. A bot
+listens to its co-players' topics alone, the 10 players it shares a table with over two rounds of
+6, and calibrates its store clock with one statement before its room opens, as the waiting room
+does.
 
-Every bot opens its subscription at the same instant, 64 s before the first round (the
-pre-connect), negotiates every co-player of every round then, and re-sends on one beat from that
-instant: every 8 s while links are negotiated, every 16 s once they are up, with at most two
-submits waiting. A game's re-sends therefore arrive at the store in the same second;
-`timing: random` assigns each bot its own beat instead.
+In place of WebRTC, a bot plays the app's mesh for that room. Every bot opens its room at the same
+instant, 64 s before the first round (the pre-connect), and negotiates every co-player of every
+round then: the lower account offers and the other answers, each with a Chrome data-channel-only
+description (about 1 KB of SDP) and 8 trickled candidates (about 1.7 KB of JSON), 750 ms after the
+step that starts it, the time the app gathers for. A link counts as up once a bot has sent its
+description and received the co-player's description and candidates, and the bot then tells the
+transport so, as the app does when a connection connects. What is re-sent and when is the
+transport's own: its heartbeat every 8 s while a link negotiates, a hello every 16 s once every
+link is up. `timing: random` opens each bot's room up to 8 s later instead.
 
-The bundle sizes come from Chrome's data-channel-only offer (about 1 KB of SDP, 1.7 KB of
-candidates), sealed for each of the 10 co-players; the store carries only that first
-negotiation, and the video offer goes down the data channel. See `PROFILES` in `src/profile.ts`.
-Each bundle carries the time it was sent, so every receiver measures delivery latency, and each
-sender counts how many bots listen on its topic, which is how many deliveries a run expects.
+The app no longer has a room that every phone of a game posts to and listens on, so the bots no
+longer have one either.
+
+Bots signal under their run's own namespace, so they never reach real players. A bot's
+communication key derives from its account, and so does the identifier it signs up with, so bots
+seal to each other without reading the chain. Every statement a bot's store accepts is due to
+each of its co-players, which is how many deliveries a run expects. A bot has one statement per
+channel, so a newer one can replace a statement before it reaches a co-player; it carries what the
+replaced one did, so a co-player that receives a statement counts every earlier one of that channel
+as delivered too. A receiver measures latency from when the statement went out when its sender
+runs in the same process, and otherwise from the time its expiry was stamped with.
 
 ## Reading the results
 
@@ -99,8 +149,8 @@ The messages table has one row per run:
 - **Node submit avg** and **Node CPU cores** need `--metrics` with the People nodes' Prometheus
   endpoints, which a live network doesn't expose; they show `–` in CI.
 - **Findings** list what failed: rejected or dropped connections, subscriptions the node ended (a
-  subscriber that falls 128 statements behind is dropped), submits not accepted, truapi-host
-  processes that exited with an error.
+  subscriber that falls 128 statements behind is dropped), submits not accepted, links not up when
+  the game ended, truapi-host processes that exited with an error.
 
 `summary.json` and the per-machine files contain the full counts and histograms.
 
@@ -141,8 +191,11 @@ pnpm load chain --rpc ws://127.0.0.1:9944 --sudo //Alice --players 300 --registr
 ```
 
 A dev node's chain clock does not follow the wall clock; the `chain` command reads every deadline
-from the chain, so set a long `--reporting` there. `host` doesn't take `--rpc`: truapi-host
-connects to chains only through a stack descriptor, so run it with `STACK` or `NETWORK`.
+from the chain, so set a long `--reporting` there. With `--rpc` alone the run reads the chain
+through previewnet's descriptors; when the node's runtime differs from previewnet's, reads fail
+with `Incompatible runtime entry`, and `--network paseo-next-v2` picks that network's descriptors.
+`host` doesn't take `--rpc`: truapi-host connects to chains only through a stack descriptor, so
+run it with `STACK` or `NETWORK`.
 `--shard i/n` splits the bots over processes or machines that share `--start-at`, and `summary`
 merges their result files.
 

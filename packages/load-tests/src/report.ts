@@ -4,7 +4,7 @@ import type { QuantileSummary } from "./histogram.js";
 import type { Sample } from "./prometheus.js";
 import type { ChainResult } from "./chain.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
-import { STALL_MS, SignallingStats, bump, total } from "./stats.js";
+import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -31,8 +31,10 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "acceptedExpiries" | "deliveredUpTo" | "add">;
   expectedDeliveries: number;
+  /** Deliveries of statements accepted in the window, a statement replaced before it arrived counted with the one that replaced it. */
+  deliveries: number;
   loss: number;
   latencyMs: QuantileSummary;
   submitRttMs: QuantileSummary;
@@ -79,7 +81,8 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   for (const result of results) stats.add(result.stats);
   const clientLagP99Ms = Math.max(...results.map((result) => result.clientLoopDelayMs.p99));
   const { expectedDeliveries } = stats;
-  const loss = expectedDeliveries > 0 ? Math.max(0, 1 - stats.deliveredInWindow / expectedDeliveries) : 1;
+  const deliveries = creditedDeliveries(stats);
+  const loss = expectedDeliveries > 0 ? Math.max(0, 1 - deliveries / expectedDeliveries) : 1;
   const nodes: Record<string, NodeSummary> = {};
   const metered = results.find((result) => result.metrics);
   if (metered?.metrics) {
@@ -110,9 +113,10 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
   }
   if (stats.deliveredInWindow > expectedDeliveries) {
-    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
+    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
+  if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
@@ -128,7 +132,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, subscriptionLifetimeMs, ...counts } = stats;
+  const { latency: _latency, submitRtt, subscriptionLifetimeMs, acceptedExpiries: _accepted, deliveredUpTo: _deliveredUpTo, ...counts } = stats;
   return {
     layer,
     players,
@@ -137,6 +141,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings,
     stats: counts,
     expectedDeliveries,
+    deliveries,
     loss,
     latencyMs: latency,
     submitRttMs: submitRtt.summary(),

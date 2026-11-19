@@ -1,5 +1,6 @@
 import type { PolkadotClient, Transaction } from "polkadot-api";
-import { getTxCreator } from "polkadot-api/tx-creator";
+import { getTxCreator, getVerifyMultiSignatureTxCreator } from "polkadot-api/tx-creator";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
 import { toHex } from "@polkadot-api/utils";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
 import { Histogram, type QuantileSummary } from "./histogram.js";
@@ -13,10 +14,21 @@ import type { AssetHubApi, PeopleApi } from "./target.js";
 type BurstApi = PeopleApi | AssetHubApi;
 
 export interface BurstEntry {
-  signer: Keypair;
+  creator: CommonSignerTxCreator;
   tx: Transaction;
   /** The chain's next nonce of the signer when undefined. */
   nonce?: number;
+}
+
+/** `keypair` as a plain signer: the account's signature in the extrinsic's signature field. */
+export function accountSigner(keypair: Keypair): CommonSignerTxCreator {
+  return getTxCreator(keypair.publicKey, "Sr25519", (input) => keypair.sign(input));
+}
+
+/** `keypair` as a phone's host signs on People: the account's signature in `VerifyMultiSignature`. */
+export function hostSigner(keypair: Keypair): CommonSignerTxCreator {
+  // Typed with one more optional argument, `extensionVersion`, than the common creator the SDK wraps.
+  return getVerifyMultiSignatureTxCreator(keypair.publicKey, "Sr25519", (input) => keypair.sign(input)) as unknown as CommonSignerTxCreator;
 }
 
 interface BurstCounts {
@@ -94,31 +106,13 @@ function createBlockReader(api: BurstApi, client: PolkadotClient): (hash: string
   return (hash) => cache.get(hash) ?? cache.set(hash, read(hash)).get(hash)!;
 }
 
-/** An upper bound of polkadot-api's time to sign one transaction on a CI runner. */
-export const SIGNING_MS = 150;
-
 /**
  * `entry` as a signed extrinsic in hex. Immortal: a run signs thousands up front, which can take
  * longer than a mortal transaction stays valid; the nonce still makes each one single-use.
  */
-export async function signEntry({ signer, tx, nonce }: BurstEntry): Promise<string> {
-  const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
+export async function signEntry({ creator, tx, nonce }: BurstEntry): Promise<string> {
   const options = { ...(nonce !== undefined && { nonce }), mortality: { mortal: false }, customSignedExtensions: PEOPLE_CLAIM_EXTENSIONS };
   return toHex(await tx.create(creator, options as never));
-}
-
-/**
- * Every entry signed, before a burst's window opens: polkadot-api takes tens of milliseconds per
- * transaction.
- */
-export async function signEntries(entries: BurstEntry[], label: string): Promise<string[]> {
-  const started = Date.now();
-  const signed: string[] = [];
-  for (let start = 0; start < entries.length; start += 200) {
-    signed.push(...(await Promise.all(entries.slice(start, start + 200).map(signEntry))));
-  }
-  console.log(`[${label}] ${signed.length} transactions signed in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-  return signed;
 }
 
 /**
@@ -148,18 +142,15 @@ export function submitBurst(
   return submitLanes(lanes, api, client, urls, connectionCount, deadline);
 }
 
-/** How `submitLanes` counts its transactions. */
+/** How `submitLanes` reports its progress. */
 export interface LaneOptions {
-  /** Reads each transaction's block for its outcome and time (default); without, one in a block counts as succeeded. */
-  readBlocks?: boolean;
   /** Logs the counts under this label every 30 s while the lanes run. */
   progress?: string;
 }
 
 /**
  * Runs every lane at once, as `submitBurst` does with one transaction per lane, and counts all
- * their transactions. Without `readBlocks` a transaction counts as succeeded once it is in a
- * block, unread: for thousands of transactions a caller checks the outcome on chain afterwards.
+ * their transactions: one succeeds once it executed without a dispatch error in its block.
  */
 export async function submitLanes(
   lanes: Lane[],
@@ -168,7 +159,7 @@ export async function submitLanes(
   urls: string[],
   connectionCount: number,
   deadline: (chainStart: number) => number,
-  { readBlocks = true, progress }: LaneOptions = {},
+  { progress }: LaneOptions = {},
 ): Promise<Burst> {
   const burst: Burst = { submitted: 0, ok: 0, failures: {}, inclusionMs: new Histogram(), inTime: 0, firstBlock: null, lastBlock: null, durationMs: 0 };
   const connections = await Promise.all(Array.from({ length: connectionCount }, (_, i) => RpcConnection.open(urls[i % urls.length], 15_000)));
@@ -193,11 +184,6 @@ export async function submitLanes(
       const timer = setTimeout(() => finish("timeout"), TX_TIMEOUT_MS);
       const included = async (hash: string) => {
         burst.inclusionMs.add(Date.now() - submittedAt);
-        if (!readBlocks) {
-          burst.ok++;
-          burst.inTime++;
-          return finish();
-        }
         const block = await readBlock(hash);
         burst.firstBlock = Math.min(burst.firstBlock ?? Infinity, block.number);
         burst.lastBlock = Math.max(burst.lastBlock ?? 0, block.number);

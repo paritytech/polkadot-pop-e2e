@@ -1,62 +1,80 @@
-import { Enum, type SizedHex } from "polkadot-api";
-import { toHex } from "@polkadot-api/utils";
-import { blake2b256 } from "@polkadot-labs/hdkd-helpers";
-import type { BurstEntry } from "./burst.js";
-import type { Keypair, Player } from "./keys.js";
+import type { Transaction } from "polkadot-api";
+import type { CommonSignerTxCreator } from "@polkadot-api/signers-common";
+import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
+import { hostSigner, signEntry } from "./burst.js";
+import { communicationIdentifier, type Keypair, type Player } from "./keys.js";
 import { submitToBestBlock } from "./root.js";
+import type { SigningOutcome, SigningPool } from "./signing-pool.js";
+import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { sleep, withTimeout } from "./time.js";
+import { readAll, sleep, withTimeout } from "./time.js";
 
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
 export const PLAYER_FUNDS = 30_000_000_000n;
 
-/** The game a player signs up to: its index and deadlines, in chain seconds. */
-export interface OpenGame {
-  index: number;
-  registration_ends: number;
-  game_date: number;
-  report_ends: number;
-}
+/**
+ * The CPU time one sign-up takes on one core of a CI runner, its fee estimate and its signature
+ * each decoding the whole runtime metadata: 172.5 s for 300 players on previewnet, on one thread.
+ */
+export const SIGN_UP_MS = 600;
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
 
-/** A deterministic stand-in for the player's P-256 communication key, which the chain only stores. */
-function identifierKey(player: Player): SizedHex<65> {
-  const seed = blake2b256(player.publicKey);
-  return toHex(new Uint8Array([4, ...seed, ...blake2b256(seed)])) as SizedHex<65>;
-}
-
-/** Each player's `sign_up_with_account`; without `nonce`, the chain's next nonce of each player. */
-export function signUpEntries(api: PeopleApi, players: Player[], nonce?: number): BurstEntry[] {
-  return players.map((player) => ({
-    signer: player,
-    tx: api.tx.Game.sign_up_with_account({ identifier_key: identifierKey(player), airdrops: undefined }),
-    nonce,
-  }));
-}
-
-/** The players not yet signed up to the game in progress, so a rerun skips the others. */
-export async function findUnregisteredPlayers(api: PeopleApi, players: Player[]): Promise<Player[]> {
-  const rows = await api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" });
-  return players.filter((_, position) => !rows[position]?.registered);
-}
+/** The refusal of a player already signed up to the game, which a rerun meets for every earlier sign-up. */
+export const ALREADY_REGISTERED = "AlreadyRegistered";
 
 /**
- * The game players sign up to, once it is in registration with at least `minRemainingMs` of it
- * left by chain time: the one playing at `gameAt` (chain seconds), or else the closest one
- * scheduled. Fails at once when that game plays later than `timeoutMs` from now, and after
- * `timeoutMs` in any case.
+ * `player`'s sign-up as the app makes it, signed but not sent: the app engine's `register`, with a
+ * `submit` that only signs, so a burst can send every player's at once.
  */
-export async function waitForGame(api: PeopleApi, gameAt: number | undefined, minRemainingMs: number, timeoutMs: number): Promise<OpenGame> {
-  const until = Date.now() + timeoutMs;
+export async function signSignUp(engine: GameEngine, player: Player): Promise<SigningOutcome> {
+  let extrinsic: string | undefined;
+  const capabilities = {
+    account: { address: player.address, publicKey: player.publicKey },
+    signer: hostSigner(player),
+    submit: async (tx: unknown, creator: CommonSignerTxCreator) => {
+      extrinsic = await signEntry({ creator, tx: tx as Transaction });
+      return { ok: true as const };
+    },
+  };
+  try {
+    const result = await engine.register(capabilities, communicationIdentifier(player.publicKey));
+    if (!result.ok) return { refusal: result.error };
+  } catch (error) {
+    return { refusal: (error as Error).message };
+  }
+  return extrinsic === undefined ? { refusal: "no sign-up to sign" } : { extrinsic };
+}
+
+/** Every player's `signSignUp`, spread over the pool's threads; `refusals` counts the players left out, by reason. */
+export async function signSignUps(pool: SigningPool, players: Player[]): Promise<{ extrinsics: string[]; refusals: Record<string, number> }> {
+  const started = Date.now();
+  const refusals: Record<string, number> = {};
+  const extrinsics: string[] = [];
+  for (const outcome of await Promise.all(players.map((player) => pool.signUp(player)))) {
+    if ("extrinsic" in outcome) extrinsics.push(outcome.extrinsic);
+    else bump(refusals, outcome.refusal);
+  }
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(`[sign-up] ${extrinsics.length} of ${players.length} sign-ups signed in ${seconds} s on ${pool.size} threads ${JSON.stringify(refusals)}`);
+  return { extrinsics, refusals };
+}
+
+/** How long a game just scheduled may take to show in the finalized schedule the engine reads. */
+const SCHEDULE_FINALITY_MS = 60_000;
+
+/**
+ * The game players sign up to, once the app's engine reads it in registration with at least
+ * `minRemainingMs` of it left by chain time: the one playing at `gameAt` (chain seconds), or else
+ * the closest one scheduled. Fails at once when that game plays later than `timeoutMs` from now,
+ * and after `timeoutMs` in any case.
+ */
+export async function waitForGame(engine: GameEngine, gameAt: number | undefined, minRemainingMs: number, timeoutMs: number): Promise<PalletGame> {
+  const started = Date.now();
+  const until = started + timeoutMs;
   let reported: string | undefined;
   for (;;) {
-    const [game, now, schedules] = await Promise.all([
-      api.query.Game.Game.getValue({ at: "best" }),
-      api.query.Timestamp.Now.getValue({ at: "best" }),
-      api.query.Game.GameSchedules.getValue({ at: "best" }),
-    ]);
-    const nowSeconds = Number(now) / 1000;
+    const [game, nowSeconds, schedules] = await Promise.all([engine.game(), engine.now(), engine.schedules()]);
     // The run lasts until the game is over, so the wait bounds when the game plays, not only when it opens.
     const requirePlayWithinWait = (playTime: number) => {
       if (playTime > nowSeconds + (until - Date.now()) / 1000) {
@@ -72,8 +90,14 @@ export async function waitForGame(api: PeopleApi, gameAt: number | undefined, mi
       throw new Error(`game ${game.index} at ${iso(gameAt)} UTC is past its registration (${game.state.type})`);
     }
     const position = gameAt === undefined ? 0 : schedules.findIndex((schedule) => schedule.game_play_time === gameAt);
-    if (!schedules[position]) throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)} UTC`);
-    const next = schedules[position].game_play_time;
+    const next = schedules[position]?.game_play_time;
+    if (next === undefined) {
+      if (gameAt !== undefined && Date.now() - started < SCHEDULE_FINALITY_MS) {
+        await sleep(5_000);
+        continue;
+      }
+      throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)} UTC`);
+    }
     requirePlayWithinWait(next);
     const state = game ? `game ${game.index} at ${iso(game.game_date)} UTC is in ${game.state.type}` : "no game is running";
     if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${iso(next)} UTC to open registration`);
@@ -123,29 +147,25 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
  * message machine finds the game a separate chain run signs its bots up to. Fails after
  * `timeoutMs`, also when the chain stops answering, with the last failed check's error.
  */
-export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<OpenGame> {
-  let { client, api } = connectPeople(target);
+export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<PalletGame> {
+  let { client, engine } = connectPeople(target);
   const until = Date.now() + timeoutMs;
   let lastError: string | undefined;
   try {
     for (;;) {
       try {
         const [game, rows, now] = await withTimeout(
-          Promise.all([
-            api.query.Game.Game.getValue({ at: "best" }),
-            api.query.Game.Players.getValues(players.map((player) => [Enum("Account", player.address)]), { at: "best" }),
-            api.query.Timestamp.Now.getValue({ at: "best" }),
-          ]),
+          Promise.all([engine.game(), readAll(players, (player) => engine.player(player.address)), engine.now()]),
           30_000,
           "sign-up check",
         );
         const signedUp = rows.some((row) => row?.registered);
-        if (game && signedUp && game.game_date * 1000 > Number(now)) return game;
+        if (game && signedUp && game.game_date > now) return game;
       } catch (error) {
         lastError = (error as Error).message;
         console.warn(`[host] ${lastError}; reconnecting`);
         client.destroy();
-        ({ client, api } = connectPeople(target));
+        ({ client, engine } = connectPeople(target));
       }
       if (Date.now() > until) {
         const cause = lastError ? `; last check failed: ${lastError}` : "";
