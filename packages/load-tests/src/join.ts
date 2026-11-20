@@ -296,16 +296,27 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
 }
 
 /**
- * The game any of `players` is signed up to, once one is and that game hasn't started: how a
- * message machine finds the game a separate chain run signs its bots up to, whichever game the
- * chain run picked. A sign-up goes only into a game in registration, so the game in registration
- * or its shuffle is that one. Fails after `timeoutMs`, also when the chain stops answering, with
- * the last failed check's error.
+ * Whether a message machine plays `game` now: some of its bots are signed up, the game hasn't
+ * started, and it is the run's game, the one playing at `gameAt` (chain seconds) when given. A
+ * sign-up goes only into a game in registration, so without `gameAt` the game in registration or
+ * its shuffle is the one the bots signed up to; with it, bots another run signed up to an earlier
+ * game don't count.
  */
-export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<PalletGame> {
+export function isFollowedGame(game: PalletGame, signedUp: boolean, now: number, gameAt: number | undefined): boolean {
+  const seating = game.state.type === "Registration" || game.state.type === "Shuffle";
+  return seating && signedUp && game.game_date > now && (gameAt === undefined || game.game_date === gameAt);
+}
+
+/**
+ * The game a separate chain run signs `players` up to, once one of them is signed up and the
+ * game hasn't started, by `isFollowedGame`. Fails after `timeoutMs`, also when the chain stops
+ * answering, with the last failed check's error.
+ */
+export async function waitForSignUp(target: Target, players: Player[], gameAt: number | undefined, timeoutMs: number): Promise<PalletGame> {
   let { client, engine } = connectPeople(target);
   const until = Date.now() + timeoutMs;
   let lastError: string | undefined;
+  let reported: number | undefined;
   try {
     for (;;) {
       try {
@@ -315,8 +326,11 @@ export async function waitForSignUp(target: Target, players: Player[], timeoutMs
           "sign-up check",
         );
         const signedUp = rows.some((row) => row?.registered);
-        const seating = game?.state.type === "Registration" || game?.state.type === "Shuffle";
-        if (game && seating && signedUp && game.game_date > now) return game;
+        if (game && isFollowedGame(game, signedUp, now, gameAt)) return game;
+        if (game && signedUp && gameAt !== undefined && reported !== game.index) {
+          console.log(`[host] game ${game.index} at ${iso(game.game_date)} has this machine's bots; waiting for the run's game at ${iso(gameAt)}`);
+          reported = game.index;
+        }
       } catch (error) {
         lastError = (error as Error).message;
         console.warn(`[host] ${lastError}; reconnecting`);
@@ -325,7 +339,8 @@ export async function waitForSignUp(target: Target, players: Player[], timeoutMs
       }
       if (Date.now() > until) {
         const cause = lastError ? `; last check failed: ${lastError}` : "";
-        throw new Error(`none of this machine's bots was signed up to a game within ${timeoutMs / 60_000} min${cause}`);
+        const game = gameAt === undefined ? "a game" : `the game at ${iso(gameAt)}`;
+        throw new Error(`none of this machine's bots was signed up to ${game} within ${timeoutMs / 60_000} min${cause}`);
       }
       await sleep(5_000);
     }

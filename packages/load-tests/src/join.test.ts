@@ -1,6 +1,6 @@
 import type { PalletGame } from "@jollity/protocol/src/engine";
 import { describe, expect, it } from "vitest";
-import { pickGame, type GameCalendar } from "./join.js";
+import { isFollowedGame, pickGame, type GameCalendar } from "./join.js";
 
 const now = 1_800_000_000;
 const phases = { registration: 600, shuffle: 60, post_shuffle_margin: 30 };
@@ -28,5 +28,25 @@ describe("pickGame", () => {
   it("binds before a scheduled game opens registration, and signs up once it is open", () => {
     const plan = pickGame(calendar, now + 3_600, { bindMs: 971_000, signUpMs: 200_000 });
     expect(plan).toEqual({ index: 358, playsAt: now + 3_600, registrationEnds: now + 3_510, neededMs: (3_600 - 690) * 1000 + 200_000 });
+  });
+});
+
+// The same lite bots play every run, so another run may have them signed up to an earlier game:
+// a message machine that played that game would leave its own run's game without players.
+describe("isFollowedGame", () => {
+  const earlier = { ...open, index: 164, game_date: now + 600 } as PalletGame;
+  const target = now + 3_000;
+
+  it("skips a game its bots are signed up to that isn't the run's game", () => {
+    expect(isFollowedGame(earlier, true, now, target)).toBe(false);
+  });
+
+  it("plays the run's game once its bots are signed up to it", () => {
+    expect(isFollowedGame({ ...earlier, index: 165, game_date: target }, true, now, target)).toBe(true);
+    expect(isFollowedGame({ ...earlier, index: 165, game_date: target }, false, now, target)).toBe(false);
+  });
+
+  it("without a target, plays the game its bots are signed up to", () => {
+    expect(isFollowedGame(earlier, true, now, undefined)).toBe(true);
   });
 });

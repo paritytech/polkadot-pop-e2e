@@ -1,4 +1,5 @@
 import { appendFile, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { readChainSeats } from "./chain-seats.js";
@@ -6,7 +7,7 @@ import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, type LiteBot } from "./lite.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
-import { bindLiteBots, unboundBots, waitForSignUp } from "./join.js";
+import { BIND_MS, bindLiteBots, planGame, signUpLeadMs, unboundBots, waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
 import { SigningPool } from "./signing-pool.js";
 import { total } from "./stats.js";
@@ -16,6 +17,7 @@ import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } 
 import { APP_STUN_URLS } from "./video/ice.js";
 import type { VideoRun } from "./video/run.js";
 import { openLiteTurnPasses } from "./video/turn.js";
+import { iso } from "./time.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
@@ -28,6 +30,8 @@ Commands:
   chain       Play one game on chain, signing up and reporting with every player at once: on a
               fork a game this run schedules as root, else the closest scheduled game (or --game-at)
   summary     Merge the shard results in --out into summary.json and summary.md
+  target      Print the play time of the game a chain run of --players (--lite, --game-at) would play,
+              failing as the chain command fails on a game its binds and sign-ups can't make
 
 Target (default: the stack STACK or NETWORK selects, as for the chain-tests):
   --rpc <ws,...>        People RPC endpoints: the whole target, or with STACK in place of its People endpoint;
@@ -77,7 +81,8 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
   --product-id <id>     Product the ghosts sign as (default the app's: dim2.testnet, dim2.paseo)
   --follow-game         Wait until the chain command has signed this run's players up to a game
                         (same --seed, network and player count), then play one step of --steps
-                        with them, opening the room when the app does, 64 s before that game
+                        with them, opening the room when the app does, 64 s before that game; with
+                        --game-at only that game, ignoring sign-ups of the same bots to others
   --lite                The players are lite bots --lite-from.., one host each, as \`chain --lite\` signs
                         them up; with --video each fetches TURN credentials when the app does: once its
                         game is known, then 10 and 3 minutes before it
@@ -220,6 +225,12 @@ function deriveLiteBots(target: Target, offsets: number[]): LiteBot[] {
 
 const firstOffsets = (count: number) => Array.from({ length: count }, (_, offset) => offset);
 
+/** The accounts a chain run of `--players` signs up: lite bots with `--lite`, else deposit-backed ones. */
+function chainPlayers(target: Target): Player[] {
+  const count = positiveInteger("players", values.players);
+  return values.lite ? deriveLiteBots(target, firstOffsets(count)).map(({ player }) => player) : gamePlayers(target, count);
+}
+
 switch (values.help ? undefined : command) {
   case "people": {
     // truapi-host connects to DUB and People through STACK or NETWORK alone, never `--rpc`.
@@ -314,8 +325,8 @@ switch (values.help ? undefined : command) {
       const own = shardHosts(steps[0], layout.ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
       if (own.length === 0) throw new Error(`machine ${shardIndex} has no bots: ${steps[0]} bots fill fewer hosts of ${layout.ghostsPerHost} than ${shardCount} machines`);
       const watched = own.slice(0, 50).map((index) => hostGhostPlayer(seed, productId, layout.ghostsPerHost, layout.firstHost * layout.ghostsPerHost + index));
-      console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to a game`);
-      const game = await waitForSignUp(target, watched, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
+      console.log(`[host] waiting for this machine's ${own.length} bots to be signed up to ${gameAt === undefined ? "a game" : `the game at ${iso(gameAt)}`}`);
+      const game = await waitForSignUp(target, watched, gameAt, positiveInteger("registration-wait", values["registration-wait"]) * 60_000);
       startAt = game.game_date * 1000 - profile.preconnectMs - timing.rampMs - timing.warmupMs;
       console.log(`[host] game ${game.index} plays at ${new Date(game.game_date * 1000).toISOString()}`);
       chainGame = {
@@ -411,7 +422,7 @@ switch (values.help ? undefined : command) {
     );
     const result = await runChain({
       runId: values["run-id"],
-      players: values.lite ? deriveLiteBots(target, firstOffsets(positiveInteger("players", values.players))).map(({ player }) => player) : gamePlayers(target, positiveInteger("players", values.players)),
+      players: chainPlayers(target),
       target,
       outDir,
       phases,
@@ -440,6 +451,21 @@ switch (values.help ? undefined : command) {
     const text = await writeSummary(outDir, DEFAULT_THRESHOLDS);
     console.log(text);
     if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
+    break;
+  }
+  case "target": {
+    const target = await resolveTarget(targetOptions);
+    const players = chainPlayers(target);
+    const { client, api, engine } = connectPeople(target);
+    try {
+      // The chain command's own lead, on a runner of the same size: its signing threads are one per core.
+      const unbound = values.lite ? await unboundBots(api, players) : [];
+      const plan = await planGame(engine, gameAt, { bindMs: unbound.length * BIND_MS, signUpMs: signUpLeadMs(players.length, availableParallelism()) });
+      console.log(`[plan] target game ${plan.index ?? "next"} plays at ${iso(plan.playsAt)}, registration ends ${iso(plan.registrationEnds)}, needs ${Math.round(plan.neededMs / 1000)} s`);
+      if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `game_at=${plan.playsAt}\n`);
+    } finally {
+      client.destroy();
+    }
     break;
   }
   default:
