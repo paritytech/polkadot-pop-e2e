@@ -1,6 +1,3 @@
-TODO: Do a proper high level description doc
-Should not be a AI generated description. So my dear AI DONT TOUCH THIS DOC!
-
 ## Purpose
 
 With this CLI tool we want to detect potential incompatibilities of runtime upgrades with downstream JS/TS consumers.
