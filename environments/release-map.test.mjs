@@ -619,14 +619,18 @@ describe('binary builds from the calling run', () => {
   it('are what the engine is checked against', async () => {
     const { assertEngineAgrees } = await import('./assert-engine.mjs');
     const manifest = buildWestendManifest('file:/work/incoming/node/polkadot');
-    const sdk = { repo: 'paritytech/polkadot-sdk', tag: 'polkadot-stable2609-1', overridden: true };
+    // Tags come from the manifest: the baseline sync bumps them, and a hardcoded
+    // tag here would drift and fail the agreement check.
+    const sdkAt = (pin) => ({ repo: 'paritytech/polkadot-sdk', tag: pin.split('@')[1], overridden: true });
+    const parachain = sdkAt(westend.binaries['polkadot-parachain']);
+    const ethRpc = sdkAt(westend.services['eth-rpc']);
     const show = {
       chains: [
         { key: 'relay', binary: { name: 'polkadot', repo: 'file:/work/incoming/node/polkadot', tag: 'local', overridden: true } },
-        { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...sdk } },
-        { key: 'people', binary: { name: 'polkadot-parachain', ...sdk } },
+        { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...parachain } },
+        { key: 'people', binary: { name: 'polkadot-parachain', ...parachain } },
       ],
-      binaries: [{ name: 'eth-rpc', ...sdk }],
+      binaries: [{ name: 'eth-rpc', ...ethRpc }],
     };
     assert.deepEqual(assertEngineAgrees(manifest, show).errors, []);
   });
