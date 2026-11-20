@@ -1,2 +1,0 @@
-- [ ] go through all modules and check if their types are sound / make sense
-- [ ] diff: a changed `BitVec` store type (`BitVec<u8>` -> `BitVec<u32>`) is not detected, so neither is a version-lock violation made of only that. PAPI's type model keeps the bit order and drops the store type (`@polkadot-api/metadata-builders`, `lookups.js`); detecting it means reading the raw metadata type.

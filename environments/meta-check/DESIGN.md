@@ -168,6 +168,8 @@ A version-lock violation is a separate finding from the live-to-candidate diff. 
 - **Transaction extension pipelines:** On chains with a `tx:` requirement, report added and removed versions. For versions on both runtimes, report changes to the extension list, its order, or either payload type (`type` and `additionalSigned`).
 - **Extrinsic format versions:** On those same chains, list which format versions the candidate starts or stops accepting. These are separate from extension pipeline versions and aren't graded.
 
+**Known limitation:** The diff detects changes to `BitVec` bit order, but not to its storage type (for example, `u8` → `u32`). If that's the only change to a transaction extension pipeline, the report won't flag a version-lock violation.
+
 For example, suppose the SDK reads `query:Game.Rounds` but has no expected type for it. If the output changes from `u32` to `(u32, u32)`, both runtimes still get `Present`, so the verdict is `ok`. The diff shows `output: u32 → (u32, u32)`.
 
 
