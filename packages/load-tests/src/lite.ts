@@ -138,6 +138,14 @@ export function attestFailure(message: string): string {
   return (message.replace(/^\[truapi-host\] attest failed: /, "").split("\n")[0] ?? "").slice(0, 120);
 }
 
+/** The CLI output without truapi-host's notice that a newer published stack descriptor is in use. */
+function withoutDescriptorNotice(message: string): string {
+  return message
+    .split("\n")
+    .filter((line) => !/published \S+ stack descriptor \(sequence \d+\)/.test(line))
+    .join("\n");
+}
+
 /**
  * DUB's dotNS lane writes about 3 names per Asset Hub batch, waiting for finality between
  * batches: about 4.5 a minute, whatever the attests' concurrency.
@@ -182,10 +190,11 @@ export async function provisionLitePeople(
           attestCount++;
           console.log(`[people] bot ${bot.player.index}: ${identity.liteUsername} in ${seconds()} s`);
         } catch (error) {
-          const outcome = attestFailure((error as Error).message);
+          const message = withoutDescriptorNotice((error as Error).message);
+          const outcome = attestFailure(message);
           if (outcome === "pending") waiting++;
           else bump(failures, outcome);
-          console.warn(`[people] bot ${bot.player.index}: ${outcome} after ${seconds()} s: ${(error as Error).message.slice(0, 300)}`);
+          console.warn(`[people] bot ${bot.player.index}: ${outcome} after ${seconds()} s: ${message.slice(0, 300)}`);
         }
       },
       options.concurrency,

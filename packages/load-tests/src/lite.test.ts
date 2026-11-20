@@ -2,7 +2,7 @@ import { mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { identityKey, liteRingEntropy } from "@pop-e2e/chain-tests/src/lib/truapi-identity.js";
 import { describe, expect, it } from "vitest";
 import { hostMnemonic } from "./keys.js";
-import { attestFailure, deriveLiteBot, LITE_FIRST_INDEX } from "./lite.js";
+import { attestFailure, deriveLiteBot, LITE_FIRST_INDEX, withoutDescriptorNotice } from "./lite.js";
 
 describe("deriveLiteBot", () => {
   // A lite bot is attested as truapi's identity account, so a rerun finds the same lite person.
@@ -41,5 +41,13 @@ describe("attestFailure", () => {
 
   it("reports any other failure by its first line", () => {
     expect(attestFailure("[truapi-host] attest failed: Error: ring member not found\nbacktrace")).toBe("Error: ring member not found");
+  });
+
+  // truapi-host opens every run on paseo-next-v2 with this notice, so it can't name the failure.
+  it("reports the error behind truapi-host's descriptor notice", () => {
+    const message = withoutDescriptorNotice(
+      "[truapi-host] attest failed: the published paseo-next-v2 stack descriptor (sequence 1794930301) changes the copy this truapi-host ships (sequence 1793615287) and is in use; a later truapi-host release ships it\nError: ring member not found",
+    );
+    expect(attestFailure(message)).toBe("Error: ring member not found");
   });
 });
