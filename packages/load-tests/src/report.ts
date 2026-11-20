@@ -35,6 +35,8 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
+  /** What the counts show without failing the step. */
+  notes: string[];
   stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "acceptedExpiries" | "deliveredUpTo" | "add">;
   expectedDeliveries: number;
   /** Deliveries of statements accepted in the window, a statement replaced before it arrived counted with the one that replaced it. */
@@ -129,9 +131,8 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (stats.stalledSubscriptions > 0) {
     findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
   }
-  if (stats.deliveredInWindow > expectedDeliveries) {
-    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late`);
-  }
+  // The counter's view of a submit that timed out and was accepted late, not a loss.
+  const notes = stats.deliveredInWindow > expectedDeliveries ? ["delivery: more arrived than were counted as sent, so some submits that timed out were accepted late"] : [];
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
   if (hosts?.unseated && total(hosts.unseated) > 0) findings.push(`seats: ${total(hosts.unseated)} of ${hosts.ghosts} bots without seats from the chain ${JSON.stringify(hosts.unseated)}`);
   if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
@@ -159,6 +160,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     shards: results.length,
     verdict: findings.length === 0 ? "pass" : inconclusive ? "inconclusive" : "fail",
     findings,
+    notes,
     stats: counts,
     expectedDeliveries,
     deliveries,
@@ -213,6 +215,8 @@ function stepsMarkdown(target: string, steps: StepSummary[]): string {
     `|${header.map(() => "---").join("|")}|`,
     ...rows.map((row) => `| ${row} |`),
     "",
+    ...steps.flatMap((step) => step.notes.map((note) => `- ${step.players} players: ${note}`)),
+    ...(steps.some((step) => step.notes.length > 0) ? [""] : []),
   ].join("\n");
 }
 

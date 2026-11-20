@@ -49,6 +49,16 @@ describe("summarizeStep", () => {
     expect(summary.verdict).toBe("fail");
   });
 
+  // A submit that timed out at the client and was accepted late arrives without being counted as
+  // sent: the counts are off, nothing was lost, so the step must not fail on it.
+  it("notes more deliveries than were counted as sent without failing the step", () => {
+    const late = shard(1, 10, 990);
+    late.stats.deliveredInWindow = 1_000;
+    const summary = summarizeStep([shard(0, 10, 990), late], DEFAULT_THRESHOLDS);
+    expect(summary.verdict).toBe("pass");
+    expect(summary.notes).toEqual(["delivery: more arrived than were counted as sent, so some submits that timed out were accepted late"]);
+  });
+
   it("does not blame the target when a load process fell behind", () => {
     const summary = summarizeStep([shard(0, 10, 990), shard(1, 10, 900, 400)], DEFAULT_THRESHOLDS);
     expect(summary.verdict).toBe("inconclusive");
