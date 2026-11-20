@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import { CHAINS, findAsset, runtimePlan, validateManifest } from './release-map.mjs';
 import { getRelease, listReleases, downloadAssetBytes } from './github.mjs';
 import { runtimeSpecOf } from './wasm-spec.mjs';
+import { scanNodes, renderNodeSummary, sdkTagLoader } from './node-scan.mjs';
 
 const CODE_KEY = '0x3a636f6465'; // ":code"
 const RPC_TIMEOUT_MS = 20_000;
@@ -38,8 +39,16 @@ export async function rpc(url, method, params = []) {
       ws.onopen = () => ws.send(JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }));
       ws.onmessage = (m) => {
         clearTimeout(t);
-        const body = JSON.parse(m.data);
-        body.error ? reject(new Error(`${method}: ${JSON.stringify(body.error)}`)) : resolve(body.result);
+        // A malformed frame must reject this call. Thrown from the socket callback it
+        // would crash the scan: later chains go unreported and --write skips later manifests.
+        try {
+          const body = JSON.parse(m.data);
+          if (body.error) reject(new Error(`${method}: ${JSON.stringify(body.error)}`));
+          else if (body.result === undefined) reject(new Error(`${method}: malformed response: no result`));
+          else resolve(body.result);
+        } catch (err) {
+          reject(new Error(`${method}: malformed response: ${err.message}`));
+        }
       };
       ws.onerror = () => {
         clearTimeout(t);
@@ -191,6 +200,7 @@ if (isMain) {
 
   let sawDrift = false;
   let sawBroken = false;
+  let nodeTags; // one polkadot-sdk tag listing per run, loaded on first use (#53)
   for (const p of manifests) {
     const manifest = validateManifest(JSON.parse(fs.readFileSync(p, 'utf8')));
     const results = await scanManifest(manifest);
@@ -203,6 +213,24 @@ if (isMain) {
         fs.writeFileSync(p, `${JSON.stringify(manifest, null, 2)}\n`);
         console.log(`  wrote ${p} (${changed.join(', ')})`);
       }
+    }
+    // A failed tag listing leaves the binary pins as they are and doesn't fail the scan.
+    try {
+      nodeTags ??= sdkTagLoader();
+      const nodes = await scanNodes(manifest, { rpc, loadTags: nodeTags });
+      console.log(renderNodeSummary(manifest.network, nodes.lines));
+      const slots = Object.keys(nodes.pins);
+      for (const slot of slots) console.log(`  ↻ ${slot}: ${manifest.binaries[slot]} → ${nodes.pins[slot]}`);
+      if (slots.length) {
+        sawDrift = true;
+        if (write) {
+          Object.assign(manifest.binaries, nodes.pins);
+          fs.writeFileSync(p, `${JSON.stringify(manifest, null, 2)}\n`);
+          console.log(`  wrote ${p} (${slots.join(', ')})`);
+        }
+      }
+    } catch (err) {
+      console.log(`- ${manifest.network} nodes: skipped (${err?.message ?? err})`);
     }
   }
   // Exit contract for the workflow: 0 = record is true (or was just rewritten),

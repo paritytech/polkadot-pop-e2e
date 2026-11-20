@@ -24,6 +24,9 @@ function chainCode(junction: string): Uint8Array {
 
 const indexBytes = (value: number) => contextSuffixBytes({ tag: "Index", value });
 
+/** The personhood product's id: it owns the identity account and the ring-VRF keys. */
+export const personhoodProductId = (networkSuffix: string) => `peopl.${networkSuffix}`;
+
 export interface IdentityKey {
   secretKey: Uint8Array;
   publicKey: Uint8Array;
@@ -31,12 +34,17 @@ export interface IdentityKey {
   sign: (message: Uint8Array) => Uint8Array;
 }
 
-/** `//product//<productId>` hard, then the soft `index_bytes(index)`: a product account truapi derives. */
-export function productAccountKey(entropy: Uint8Array, productId: string, index: number): IdentityKey {
+/** The `//product//<productId>` hard secret of `entropy`, which every account of that product derives from. */
+export function deriveProductSecret(entropy: Uint8Array, productId: string): Uint8Array {
   let secret: Uint8Array = secretFromSeed(entropyToMiniSecret(entropy));
   for (const junction of ["product", productId]) {
     secret = HDKD.secretHard(secret, chainCode(junction));
   }
+  return secret;
+}
+
+/** Product account `index` under a product secret: its soft `index_bytes(index)`. */
+export function deriveProductAccount(secret: Uint8Array, index: number): IdentityKey {
   const secretKey = HDKD.secretSoft(secret, indexBytes(index));
   const publicKey = getPublicKey(secretKey);
   return {
@@ -47,15 +55,20 @@ export function productAccountKey(entropy: Uint8Array, productId: string, index:
   };
 }
 
-/** The `uid.<suffix>` product account at index 0: the person's identity account. */
+/** `//product//<productId>` hard, then the soft `index_bytes(index)`: a product account truapi derives. */
+export function productAccountKey(entropy: Uint8Array, productId: string, index: number): IdentityKey {
+  return deriveProductAccount(deriveProductSecret(entropy, productId), index);
+}
+
+/** The `peopl.<suffix>` product account at index 0: the person's identity account (RFC-0028). */
 export function identityKey(entropy: Uint8Array, networkSuffix: string): IdentityKey {
-  return productAccountKey(entropy, `uid.${networkSuffix}`, 0);
+  return productAccountKey(entropy, personhoodProductId(networkSuffix), 0);
 }
 
 /** Ring-VRF entropy of the person's `index`th member key under `peopl.<suffix>`. */
 function ringEntropyAt(entropy: Uint8Array, networkSuffix: string, index: number): Uint8Array {
   const root = blake2b256(entropy, new TextEncoder().encode("ring-vrf"));
-  const domain = blake2b256(root, chainCode(`peopl.${networkSuffix}`));
+  const domain = blake2b256(root, chainCode(personhoodProductId(networkSuffix)));
   return blake2b256(domain, indexBytes(index));
 }
 

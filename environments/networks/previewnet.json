@@ -2,21 +2,21 @@
   "network": "previewnet",
   "base": "fork",
   "binaries": {
-    "polkadot": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
-    "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
+    "polkadot": "paritytech/release-automation@polkadot-weekly2026w47-rc1",
+    "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w47-rc1"
   },
   "chains": {
     "relay": {
       "runtime": "paseo-network/runtimes@v2.4.4"
     },
     "asset-hub": {
-      "runtime": "paritytech/individuality-community@v0.3.4"
+      "runtime": "paritytech/individuality-community@v0.3.5"
     },
     "people": {
-      "runtime": "paritytech/individuality-community@v0.3.4"
+      "runtime": "paritytech/individuality-community@v0.3.5"
     },
     "bulletin": {
-      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.28-paseo"
+      "runtime": "paritytech/polkadot-bulletin-chain@v0.0.29-paseo"
     },
     "web3-storage": {
       "runtime": "paritytech/web3-storage@v0.4.1-paseo"

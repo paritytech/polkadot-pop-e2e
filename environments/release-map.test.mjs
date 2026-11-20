@@ -84,17 +84,15 @@ describe('the checked-in previewnet manifest', () => {
   it('downloads nothing itself — every pin is engine-delivered (overrides or env tags)', () => {
     const { plan } = binaryPlan(previewnet, '');
     assert.deepEqual(plan, []);
-    // The canonical deliberately leaves identity-backend to the engine's default
-    // tag — no DUB_TAG export on baseline runs.
+    // previewnet doesn't pin identity-backend, so its baseline runs the engine's default tag.
     assert.deepEqual(envTagPins(previewnet), {});
-    // A candidate override naming it exports DUB_TAG even though the canonical
-    // doesn't pin it.
+    // A candidate override naming it exports DUB_TAG.
     const overridden = mergeTarget(previewnet, {
-      services: { 'identity-backend': 'paritytech/device-uniqueness-backend@v0.4.0' },
+      services: { 'identity-backend': 'paritytech/device-uniqueness-backend-community@v0.4.0' },
     });
     assert.deepEqual(envTagPins(overridden), { DUB_TAG: 'v0.4.0' });
     assert.deepEqual(transitions(previewnet, overridden), [
-      'identity-backend: (engine default) → paritytech/device-uniqueness-backend@v0.4.0',
+      'identity-backend: (engine default) → paritytech/device-uniqueness-backend-community@v0.4.0',
     ]);
   });
 
@@ -137,6 +135,13 @@ describe('candidateMatrix', () => {
   it('a single-dimension PR collapses to one gating run', () => {
     assert.deepEqual(candidateMatrix(previewnet, bumpBinaries).map((c) => c.id), ['target']);
     assert.deepEqual(candidateMatrix(previewnet, bumpRuntimes).map((c) => c.id), ['target']);
+  });
+
+  it("a baseline bump moving both dimensions gates the target alone, with the record's transitions", () => {
+    const [target, ...rest] = candidateMatrix(previewnet, bumpBoth, { targetOnly: true });
+    assert.equal(target.id, 'target');
+    assert.deepEqual(rest, []);
+    assert.ok(target.transitions.length > 0);
   });
 
   it('no base (dispatch), no pin movement, and chain-set changes all mean a single run', () => {
@@ -278,7 +283,7 @@ describe('guard rails', () => {
     assert.match(text, /binary polkadot \(runs relay\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
     assert.match(text, /binary polkadot-omni-node \(runs asset-hub, people, bulletin, web3-storage\) from paritytech\/polkadot-sdk or paritytech\/release-automation/);
     assert.match(text, /people: runtime from paritytech\/individuality-community/);
-    assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend/);
+    assert.match(text, /identity-backend: from paritytech\/device-uniqueness-backend-community/);
     assert.match(text, /kubo: from ipfs\/kubo \(pin recorded, not yet swapped\)/);
     assert.throws(() => allowedSources('nonexistent'), /unknown network/);
   });
@@ -614,14 +619,18 @@ describe('binary builds from the calling run', () => {
   it('are what the engine is checked against', async () => {
     const { assertEngineAgrees } = await import('./assert-engine.mjs');
     const manifest = buildWestendManifest('file:/work/incoming/node/polkadot');
-    const sdk = { repo: 'paritytech/polkadot-sdk', tag: 'polkadot-stable2609-1', overridden: true };
+    // Tags come from the manifest: the baseline sync bumps them, and a hardcoded
+    // tag here would drift and fail the agreement check.
+    const sdkAt = (pin) => ({ repo: 'paritytech/polkadot-sdk', tag: pin.split('@')[1], overridden: true });
+    const parachain = sdkAt(westend.binaries['polkadot-parachain']);
+    const ethRpc = sdkAt(westend.services['eth-rpc']);
     const show = {
       chains: [
         { key: 'relay', binary: { name: 'polkadot', repo: 'file:/work/incoming/node/polkadot', tag: 'local', overridden: true } },
-        { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...sdk } },
-        { key: 'people', binary: { name: 'polkadot-parachain', ...sdk } },
+        { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...parachain } },
+        { key: 'people', binary: { name: 'polkadot-parachain', ...parachain } },
       ],
-      binaries: [{ name: 'eth-rpc', ...sdk }],
+      binaries: [{ name: 'eth-rpc', ...ethRpc }],
     };
     assert.deepEqual(assertEngineAgrees(manifest, show).errors, []);
   });

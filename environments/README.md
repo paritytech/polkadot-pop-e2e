@@ -12,7 +12,7 @@ Doors 2 and 3 share one field list, [`gate-form.mjs`](./gate-form.mjs), which as
 { "chains": { "bulletin": { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" } } }
 ```
 
-Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage`, `individuality-community` and `device-uniqueness-backend`, but a trap on two sources (verified 2026-09-03):
+Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage`, `individuality-community` and `device-uniqueness-backend-community`, but a trap on two sources (verified 2026-09-03):
 
 | Source | `@latest` resolves to | Why it bites |
 |---|---|---|
@@ -50,7 +50,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.18.0`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.18.1`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
@@ -116,7 +116,7 @@ A workflow call may also pin a slot to a build from its own run, `artifact:<name
 
 Runtimes are allow-listed the same way, with the asset name looked up **per repo** (naming conventions differ): previewnet's people and asset-hub runtimes may pin `paritytech/individuality-community` (the public nightlies) or `paritytech/individuality` (the upstream source of the next-* runtimes, `.compact.compressed.wasm`). Every chain now pins the repo that builds its runtime. Westend's runtimes carry their spec version in the asset name (`westend_runtime-v1025004.compact.compressed.wasm`), so the map names them with one `*` (`westend_runtime-v*.compact.compressed.wasm`); a pattern has to match exactly one asset of the pinned release, and two matches fail the resolution. They come from release-automation's weekly releases or from polkadot-sdk's stable and rc releases; polkadot-sdk's patch releases carry no runtimes.
 
-`identity-backend` names the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend`'s own releases since its v0.2.0. The canonical manifest deliberately does **not** pin it: the engine's own default tag (previewnet-engine `config/versions.env`) governs the baseline, so this pin can never go stale here. A candidate override may still name it — then the resolver's `overrides` mode emits the engine's `DUB_TAG` env var alongside `PPN_BINARIES`, which is how a new dub release gets gated.
+`identity-backend` names the identity service quadruple (identity-api, identity-chain-writer, registration-queue, username-indexer — they travel together), shipped on `paritytech/device-uniqueness-backend-community`'s releases. A manifest that doesn't pin it runs the engine's default tag (previewnet-engine `config/versions.env`). DUB's testnet build contains one People runtime's metadata, and its attester exits on a People runtime with another `attest` shape, so a network whose People runtime differs from the one the engine's default build targets pins the matching build (`networks/paseo-next-v2.json`). A pin, or a candidate override naming it, makes the resolver's `overrides` mode emit the engine's `DUB_TAG` env var alongside `PPN_BINARIES`.
 
 Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, doppelganger (bite-time only), the portable Postgres the identity services use, `chain-spec-builder` (genesis mode only; a fork uses the bundle's specs). Those version the *engine*, not the environment under test, and stay pinned in previewnet-engine's `versions.env`.
 
@@ -125,6 +125,8 @@ Deliberately **not** pinnable: the engine's own machinery — `zombie-cli`, dopp
 The networks these manifests describe upgrade on their own schedule; a pin that was true on Monday is a lie by Friday, and the gate's downgrade guard turns that lie into a red run (observed five times in one month before this existed). `pnpm scan:baseline` closes the loop: for every pinned chain it reads the LIVE runtime — spec version, block, and the raw `:code` bytes — and attributes it to a release by **byte equality** with the release asset. Attribution is proof, never a tag-name guess. With `--write` it rewrites drifted pins; the scheduled workflow (`baseline-scan.yml`, every 6h) commits those to `baseline/bump` and keeps one auto-PR open, whose own release-gate run validates the new baseline before a human merges it.
 
 Two honest exceptions: the public Paseo relay is upstream-operated and its deployed blob byte-matches no published asset (same declared spec, different build), and Westend is upgraded with builds no release publishes byte for byte. Chains marked `scanPolicy: 'spec'` in the map are compared by the RuntimeVersion the pinned artifact declares (parsed from the wasm itself — `wasm-spec.mjs`) instead of bytes, and render as `[spec]` in the summary.
+
+Binary pins follow the nodes. Every chain's `system_version` ends in the polkadot-sdk commit its node was built from, and the scan maps that commit to the polkadot-sdk tags at it. When all chains a binary slot runs agree on a tag other than the pinned one, the slot is pinned to the release under that tag that carries every linux file of the slot (`polkadot` with its two PVF workers), from the pinned repo first and else the slot's other allowed repo. A slot whose chains run different builds, or a build without a tag, stays as pinned and doesn't fail the scan. eth-rpc pins don't move this way yet. The scan's own PR gates only the target candidate: it records what production already runs in both dimensions, so the rollout-order cross terms don't apply.
 
 The scan goes red only when a human is needed: **unattributed** (production runs bytes/spec no allow-listed release carries — someone deployed unpublished code) or an unreachable scan endpoint. Drift alone is not a failure; the auto-PR is the fix. The gate never uses the scan's endpoints — forks get state from the engine's bite; the pre-existing downgrade guard stays as the backstop for the hours between scans.
 
@@ -135,9 +137,9 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 ## How the gate drives the engine
 
-The engine builds nothing itself — binaries come from `paritytech/release-automation` (weekly cuts from polkadot-sdk master), runtimes from their upstreams, the identity quadruple from `paritytech/device-uniqueness-backend` — and the engine is driven through the `ppn` CLI. What that means here:
+The engine builds nothing itself — binaries come from `paritytech/release-automation` (weekly cuts from polkadot-sdk master), runtimes from their upstreams, the identity quadruple from `paritytech/device-uniqueness-backend-community` — and the engine is driven through the `ppn` CLI. What that means here:
 
-- Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality-community`, bulletin/web3-storage from their repos; identity-backend rides the engine's default (`device-uniqueness-backend`, overridable per candidate). Westend pins its binaries, eth-rpc and relay runtime to the polkadot-sdk releases live Westend runs, and its Asset Hub and People runtimes to release-automation weeklies.
+- Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality-community`, bulletin/web3-storage from their repos; identity-backend from `device-uniqueness-backend-community`, at the engine's default tag unless the manifest pins one. Westend pins its binaries, eth-rpc and relay runtime to the polkadot-sdk releases live Westend runs, and its Asset Hub and People runtimes to release-automation weeklies.
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
 - `PPN_REF_DEFAULT` is a released engine tag, so an engine merge cannot change what a rerun does; a dispatch can pin `ppn_ref` via the advanced overlay to run against a branch.
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).

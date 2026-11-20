@@ -5,6 +5,16 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@individuality/game-outcome': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-game-outcome
+  '@individuality/name-link': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-name-link
+  '@individuality/people-chain': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-people-chain
+  '@individuality/prize': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-prize
+  '@individuality/shared-records': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/shared-records
+  '@individuality/sign-up': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-sign-up
+  '@jollity/collectables': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-collectables
+  '@jollity/game-chain': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-game-chain
+  '@jollity/protocol': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-protocol
+  '@jollity/statement-core': github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core
   '@polkadot-api/json-rpc-provider': ^0.2.0
 
 importers:
@@ -52,25 +62,25 @@ importers:
         version: 0.12.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/bulletin-sdk':
         specifier: 0.5.0
-        version: 0.5.0(multiformats@14.0.5)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+        version: 0.5.0(multiformats@14.0.6)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
       '@parity/product-sdk':
-        specifier: 0.44.0
-        version: 0.44.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
+        specifier: 0.45.0
+        version: 0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-cloud-storage':
-        specifier: 0.13.9
-        version: 0.13.9(esbuild@0.28.2)(rxjs@7.8.2)
+        specifier: 0.13.10
+        version: 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-contracts':
-        specifier: 0.11.9
-        version: 0.11.9(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
+        specifier: 0.11.10
+        version: 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-individuality':
-        specifier: 0.11.6
-        version: 0.11.6(esbuild@0.28.2)(rxjs@7.8.2)
+        specifier: 0.11.7
+        version: 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-statement-store':
-        specifier: 0.7.9
-        version: 0.7.9(esbuild@0.28.2)(rxjs@7.8.2)
+        specifier: 0.7.10
+        version: 0.7.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-tx':
-        specifier: 0.5.9
-        version: 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+        specifier: 0.5.10
+        version: 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/trinity-stack':
         specifier: ^0.2.1
         version: 0.2.1
@@ -111,8 +121,8 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1(esbuild@0.28.2)(rxjs@7.8.2)
       multiformats:
-        specifier: ^14.0.0
-        version: 14.0.5
+        specifier: ^14.0.6
+        version: 14.0.6
       polkadot-api:
         specifier: ^3.3.0
         version: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
@@ -120,12 +130,12 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       viem:
-        specifier: ^2.57.20
-        version: 2.57.20(typescript@7.0.2)(zod@4.6.7)
+        specifier: ^2.58.0
+        version: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     devDependencies:
       '@parity/truapi':
-        specifier: 0.30.0
-        version: 0.30.0
+        specifier: 0.31.0
+        version: 0.31.0
       solc:
         specifier: ^0.8.38
         version: 0.8.38
@@ -136,17 +146,47 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vitest:
-        specifier: ^5.1.0
-        version: 5.1.0(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+        specifier: ^5.1.1
+        version: 5.1.1(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/load-tests:
     dependencies:
-      '@novasamatech/sdk-statement':
-        specifier: ^0.6.0
-        version: 0.6.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@individuality/game-outcome':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-game-outcome
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-game-outcome(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-nfts@0.4.1)(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/people-chain':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/individuality-people-chain
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@jollity/collectables':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-collectables
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-collectables(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@jollity/game-chain':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-game-chain
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-game-chain(esbuild@0.28.2)(rxjs@7.8.2)
+      '@jollity/protocol':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-protocol
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@jollity/statement-core':
+        specifier: github:paritytech/individuality-apps#2560663a232cb710b10b7f5417fc300cd830efbe&path:/packages/jollity-statement-core
+        version: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core
+      '@noble/curves':
+        specifier: ^2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
+      '@parity/product-sdk-host':
+        specifier: 0.34.0
+        version: 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-individuality':
+        specifier: 0.11.7
+        version: 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-nfts':
         specifier: 0.4.1
         version: 0.4.1
+      '@polkadot-api/signers-common':
+        specifier: ^0.4.0
+        version: 0.4.0(rxjs@7.8.2)
       '@polkadot-api/substrate-bindings':
         specifier: ^0.21.2
         version: 0.21.2
@@ -191,8 +231,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vitest:
-        specifier: ^5.1.0
-        version: 5.1.0(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+        specifier: ^5.1.1
+        version: 5.1.1(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/papi:
     dependencies:
@@ -378,12 +418,69 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@individuality/game-outcome@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-game-outcome':
+    resolution: {path: /packages/individuality-game-outcome, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+    peerDependencies:
+      '@parity/product-sdk-nfts': 0.4.1
+      polkadot-api: ^3.2.1
+
+  '@individuality/name-link@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-name-link':
+    resolution: {path: /packages/individuality-name-link, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+    peerDependencies:
+      '@parity/product-sdk-individuality': 0.11.4
+      '@polkadot-api/signers-common': ^0.4.0
+      polkadot-api: ^3.2.1
+
+  '@individuality/people-chain@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain':
+    resolution: {path: /packages/individuality-people-chain, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+    peerDependencies:
+      '@parity/product-sdk-descriptors': 0.14.0
+      '@polkadot-api/signers-common': ^0.4.0
+      polkadot-api: ^3.2.1
+
+  '@individuality/prize@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize':
+    resolution: {path: /packages/individuality-prize, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+    peerDependencies:
+      '@parity/product-sdk-individuality': 0.11.4
+      polkadot-api: ^3.2.1
+
+  '@individuality/shared-records@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/shared-records':
+    resolution: {path: /packages/shared-records, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+
+  '@individuality/sign-up@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up':
+    resolution: {path: /packages/individuality-sign-up, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+    peerDependencies:
+      '@parity/product-sdk-individuality': 0.11.4
+      polkadot-api: ^3.2.1
+
   '@ipld/dag-pb@4.2.0':
     resolution: {integrity: sha512-T2hsy18NNAUkIiQgvtrhKJXIkTjKcGHPJzp6mYp/tx4x0X9wedUTrCNADEP4hAS7Vy4/bJtc37eX4GSDFiKLhw==}
     engines: {node: '>=16.0.0', npm: '>=7.0.0'}
 
-  '@jridgewell/resolve-uri@3.1.2':
-    resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
+  '@jollity/collectables@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-collectables':
+    resolution: {path: /packages/jollity-collectables, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+
+  '@jollity/game-chain@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-game-chain':
+    resolution: {path: /packages/jollity-game-chain, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+
+  '@jollity/protocol@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol':
+    resolution: {path: /packages/jollity-protocol, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+
+  '@jollity/statement-core@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core':
+    resolution: {path: /packages/jollity-statement-core, tarball: https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe}
+    version: 0.1.0
+
+  '@jridgewell/resolve-uri@3.1.3':
+    resolution: {integrity: sha512-lhTtjtoEArWBjismtfS761S9Hlyn+nIZqOZVYoZ1Xn82PMNMVnk+jj/NhC4fAXGTs7ydONcJiR5vyQBTMDu27g==}
     engines: {node: '>=6.0.0'}
 
   '@jridgewell/sourcemap-codec@1.6.0':
@@ -460,14 +557,14 @@ packages:
   '@parity/product-sdk-address@0.3.1':
     resolution: {integrity: sha512-DZ4JCHfxA9uUJeD35MYyir/eU+SeJa0Y/GXLWqYPE3BMdVa599kx0In2Ww+xkUYizDRIx91vGZ5G2ordqUgC8g==}
 
-  '@parity/product-sdk-chain-client@0.13.9':
-    resolution: {integrity: sha512-9XQQFkjPgJ7qxQ8oDbocbZNzee8XYGkwMWSppGtgfj0+ehbNfZxa6MncliQWf+AspaIMcsjW2uq5/jmOowjyoA==}
+  '@parity/product-sdk-chain-client@0.13.10':
+    resolution: {integrity: sha512-1rby97O3x28cSgGuP12/qjeTQHUQ+ewmbbhiiEY7v6V//iuWDA1+BKfWu08jx6hdkToBHTxGJzBth9oubzuNLQ==}
 
-  '@parity/product-sdk-cloud-storage@0.13.9':
-    resolution: {integrity: sha512-F4e1X7uYoTHY2tqeC4nDcUjzN+0cLpygP3Me+PPFhi6Lp3Qlwdb9vEQEknKFl25SuaP2x/rzbvn9htp7KtEumg==}
+  '@parity/product-sdk-cloud-storage@0.13.10':
+    resolution: {integrity: sha512-DlXQ/lnoxhJHnKllOIF+MERjlPeXXXBxoMC6MnsrFucTOnvIyCw2fX9tG1pTqybKO3TVjEjSAkStDFRS7vz4Kw==}
 
-  '@parity/product-sdk-contracts@0.11.9':
-    resolution: {integrity: sha512-SVHq5XV5UURSejJ2/XeEp5wgnwiR5dJHtcGSU1WqTk46uON6yOuqChlWqrigSeuLczCKVyMT6cO7/e6BHVYRZQ==}
+  '@parity/product-sdk-contracts@0.11.10':
+    resolution: {integrity: sha512-mVHk3Q0jzoyiv6h5ZzDpWL/OgyX6GfA64FRKLAs1acD60IQ1IhZkh1kq7OZtZlqIPp7BMv0a8iudhY3xFBsVdg==}
 
   '@parity/product-sdk-crypto@0.1.1':
     resolution: {integrity: sha512-No6AyTLw1Nv3ym8SDdXh/tnezdClNOL9pJgaciVr9Ny6hIL5rs6MQiXsP0+1bc1Nwymz5Q4FqsYg/htE4lejNg==}
@@ -478,17 +575,29 @@ packages:
   '@parity/product-sdk-errors@0.2.0':
     resolution: {integrity: sha512-2rvJV0iJyNAxSjm+RHcoch3GRGYgfMDd2wCha+LmykIDZ06oUfFo+wY6Jf8z56ZMMqHvBvDO1ZNrstVgUZxlEQ==}
 
-  '@parity/product-sdk-host@0.33.0':
-    resolution: {integrity: sha512-jCVuSH6OOTHnpVDeZSx22Yv9cBwNxFof1REtfwucioisREtlEw2aGfdOAAZCXvXii2VRi7CQKFb5IvIpi/WOxg==}
+  '@parity/product-sdk-host@0.31.0':
+    resolution: {integrity: sha512-yrow5Pywg+6pX7EA9doxC+UHD0dNoKIMocj+TxatOWirzTvXBe2kT9mD5zBuWWAKajN5fdbKFrcwpWH1WeQrEw==}
 
-  '@parity/product-sdk-individuality@0.11.6':
-    resolution: {integrity: sha512-JfDUQQzIJjKfpJ+VOpMRO4DGirqTPaCwSCKpEp8a2wERzH/JQu+JNoUrNcnIDv4Q5RP58fBxv4GosW6aDJEEXQ==}
+  '@parity/product-sdk-host@0.34.0':
+    resolution: {integrity: sha512-kT1pQed9P6CL3hAMgYx/JBbVSiS9Zn0vIR+EIkuYFeROeizrRs0D3HEgS1nFA5//AnkiM1sHNvQp8/Cgei9xkg==}
 
-  '@parity/product-sdk-keys@0.5.9':
-    resolution: {integrity: sha512-7fsqKiVSrQKR8Tl6Oyrk5I3Vu0EFeY8OFmdRE+FF2gQpk6TvdzfBAEvK732SdT0uuw66YF+YZ1U9FptoNndeeA==}
+  '@parity/product-sdk-individuality@0.11.4':
+    resolution: {integrity: sha512-otir10OAijUbbLSjzgWnaLFRljvLqFCCluCKwotzGGcjLb/CKVS182BWeL39t70XSXdhDOAQAybMPAeReM2J2w==}
 
-  '@parity/product-sdk-local-storage@0.3.25':
-    resolution: {integrity: sha512-z14p2EncXncRMAdb7fCFe5ukgK7PWHQ61ZoKVTNX2XYy8Vissiu893GOkHvueuu+uGT4HUe9+svcDjpAybpVXA==}
+  '@parity/product-sdk-individuality@0.11.7':
+    resolution: {integrity: sha512-qeZRVTWPU3NIMXyiRWhOCuhK2e2F3MvBs27OMsX4Z1NRlmcPKuBiVf6l9AuLBgW6eBerjQbZfPTqbz5YRArqvw==}
+
+  '@parity/product-sdk-keys@0.5.10':
+    resolution: {integrity: sha512-MbKHGZ4BGZVLJFRYpcJEyuOttKe5pQCkUABUGC2N7eXtqK6r9aSB6rW4L9IASXs1U21gA4DpK3PyrwrESRVWOg==}
+
+  '@parity/product-sdk-keys@0.5.7':
+    resolution: {integrity: sha512-UK9YwgrPT+mjmMk2KWe0j6OfWx30/QcxeCzvMIZrFVmUhoBfvuELKYbf1z0eOZ08SytAcbMJKJJc1tnoxnPo4Q==}
+
+  '@parity/product-sdk-local-storage@0.3.23':
+    resolution: {integrity: sha512-lGmyjdPLuFaAXtJTRrvlMabF2XYd5Rb8NDuS1QjjwTWZv0lFDipfzf11PWxyG1nZ03Wij1XGNsd5sfIX1xWdLQ==}
+
+  '@parity/product-sdk-local-storage@0.3.26':
+    resolution: {integrity: sha512-oo3JsE6kY0BdUZTeq1C9lHxnUzEiPLCV9k9f/JL42Uv99DhTrYkstM4NB83Axvy9e8dyagkkyFsMFTLIjQnWwA==}
 
   '@parity/product-sdk-logger@0.1.2':
     resolution: {integrity: sha512-cBPz337C+kLadv5UDa9TL8GyJlfGvIAilnWG9pkb2RVSC19lEDZf1zYj+fnAAjMx4aDS6hYSwFJ84qrV3mtipg==}
@@ -496,26 +605,29 @@ packages:
   '@parity/product-sdk-nfts@0.4.1':
     resolution: {integrity: sha512-utiHviIuXJBI1xbVNYA7xspnexsxb31zQbM197ZqnJ5df5g5erWS2OqbAbYER8zjS4BM2Qil1zOMONjkffy6Eg==}
 
-  '@parity/product-sdk-renderer@0.11.0':
-    resolution: {integrity: sha512-co9MMdWpWYUepdvzFA6BeOTOdN4iugsvsdYNalYNvwQmp1yGe6GrbQmgCAMA/LDuV0YGfKxu6NLCSrflQDJ1gA==}
+  '@parity/product-sdk-renderer@0.12.0':
+    resolution: {integrity: sha512-9f2aDwdvA8dRM++1SLmZhl6k8U0xe8XLGMIsfX6MwpXWn7EQ7iZMLvPLhdD25s20CKz+eRwgfKi+aviYBH6fjQ==}
 
-  '@parity/product-sdk-reputation@0.1.2':
-    resolution: {integrity: sha512-edtvGh/PQO+1+mVroAPv1wDvrO5i7MdEop203LFk5+PntSTAYkAoHyAo4XL64mlq3tIGf1Pcc0lxWhNosOYkrg==}
+  '@parity/product-sdk-reputation@0.1.3':
+    resolution: {integrity: sha512-7B54LXXtaHHAuGcSfGZVnxg7YqnbinNRCurD36HXDigS5EKpWVf5g0mSvFRJ+Kdrc61Y26C81D1UqISpvFNcyQ==}
 
-  '@parity/product-sdk-signer@0.17.9':
-    resolution: {integrity: sha512-6gp3y9krKaTDie6XcxQFLW7hmbafrZGGgALqcdLt/ssT0EcNhxBIBBf7oaQD7phQO5rq619itLxyWgP2mYH9Ow==}
+  '@parity/product-sdk-signer@0.17.10':
+    resolution: {integrity: sha512-KqAsxYGLpQZ4hUr9HnpG/qKDixR3nkyVVOrACVnjS/ndGGO+8CA8asYcJHLjJ91J17gcquJi/EDVcbJu4RetZQ==}
 
-  '@parity/product-sdk-statement-store@0.7.9':
-    resolution: {integrity: sha512-wpQRyyuC0JG5FTzmc+s8iTOuSuZj1Hj3RU98opAZ7ddR6z70HiePNAYTksQvmIJJsUlRGxRrD2W2UMWGjtdwQw==}
+  '@parity/product-sdk-statement-store@0.7.10':
+    resolution: {integrity: sha512-vkHzmg47ndskPP9Uo+w/kBMhxCPTrsdiOiOiLzalIdrXaT9DhEv88HsvJuvVIJ1fIdF79obCUBbNxjpUE4WgPw==}
 
-  '@parity/product-sdk-tx@0.5.9':
-    resolution: {integrity: sha512-B6Hb41Z+xTtQNQUaEOWJ8LlAg9d944kzxpoeaZSJKSwVKTlUMK38sgSJuUb/AuwiS3pVIY93bPUtt+g44mdPHw==}
+  '@parity/product-sdk-tx@0.5.10':
+    resolution: {integrity: sha512-n/vceEERC3VYrxtvufEe13VKhGxoFoChqrXuvLnN8QDzTf7HmwZEmqGrw3wUfzq0+ukUoyAAAwhuVKrPEOg52g==}
+
+  '@parity/product-sdk-tx@0.5.7':
+    resolution: {integrity: sha512-4egzEXaaaHncGuq6FSO0WPW9foOhwBMBma8gkBWjYukc6jtlSIaGQnrcVZ8Vkl2I//ThW32MOcKUREmYmsOm3Q==}
 
   '@parity/product-sdk-utils@0.2.1':
     resolution: {integrity: sha512-s8IzXXy+XhxxSHeXA7ABEJTvGgn3JwbdBmh2IY2gPja9ZgqRsDLYV0u0/Jr7DLOtXFRm2KNKokF7UdfWOS1hmw==}
 
-  '@parity/product-sdk@0.44.0':
-    resolution: {integrity: sha512-vrX9HarztVEhCvWdlCw7JP3ttzkG0wwJh2+3NbYCDjXpArCKWIRFL8iqoNH4CjOLO2HMNq69M/sXgUjVf96+IQ==}
+  '@parity/product-sdk@0.45.0':
+    resolution: {integrity: sha512-ocC3A1AE2ame9uE+Uw5SpBtwIxnnEch9PP2Bwuh5YHYsG0rZk1t18zzMmYjuofGli2zy8x/CgVWLSxj5KZjwcQ==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
     peerDependenciesMeta:
@@ -530,11 +642,11 @@ packages:
     engines: {node: '>=22.3'}
     hasBin: true
 
-  '@parity/truapi@0.29.0':
-    resolution: {integrity: sha512-+AVyOygAcewybCHYZQDhxLzf6qcL4BRusHLMPE8UPJBMWDh5xzs9iU6YVUrEm1OvSHh/Oahk+vU8jzc3IOQk8Q==}
+  '@parity/truapi@0.27.0':
+    resolution: {integrity: sha512-qZYvR6CrmfMOhbDxLIvcWoDOlP488VR8MMsqFMDA0a5GTB8UhpdU3LZRUpyNDE1DvOiD5Ut5bmYrqGJiT1S2CA==}
 
-  '@parity/truapi@0.30.0':
-    resolution: {integrity: sha512-th4puHU2z0LYwkLBEXJxbsLgZhBASSWN7/NKfGdz1T15b+Z7GfrPq9J62QfJxrkpRvNDYQGF7QGbKJ1m7ZsOkQ==}
+  '@parity/truapi@0.31.0':
+    resolution: {integrity: sha512-i/pYGj13WZvP49XCtFNwJUnRaOXO/tbFhA2KKnV4lMxsdDVq0+PGyLe10IJgD9qjxoQ+3ItH/YLsQEJEaCqaUA==}
 
   '@polkadot-api/cli@0.21.10':
     resolution: {integrity: sha512-i2Z1Xv6BJOAhdzRKfTGao4WMo+Zv2UsHiKz9CDcaYL290ueYM6T9k32l043opBDQT1EdcUQH7I7hDiwP125neA==}
@@ -883,8 +995,8 @@ packages:
     cpu: [arm]
     os: [android]
 
-  '@rollup/rollup-android-arm-eabi@4.68.3':
-    resolution: {integrity: sha512-mqfypgH/liYjaSCoPI4erckUcROgZtmFUUmyOJ05oyayi/tVqOEYAzWP7ufqCoCT3xB31Fw4XIVO/jX42hYvKA==}
+  '@rollup/rollup-android-arm-eabi@4.68.7':
+    resolution: {integrity: sha512-ZL7MgOeMUiBum1bjzzyBotE3DuHVz+UUxcDVlLL7gpdhDM4RpjG4bZOIly7ensIcXw9jhWl7HTIIQ9KsgjykGQ==}
     cpu: [arm]
     os: [android]
 
@@ -898,8 +1010,8 @@ packages:
     cpu: [arm64]
     os: [android]
 
-  '@rollup/rollup-android-arm64@4.68.3':
-    resolution: {integrity: sha512-5tY+GC/1gpt79cKS2DQzu6iD824j6BmI4q5Zb6qftZ4kWqIQmvR3DD4eJ2Gclu6/nVMYDk2IVpqxypWOiAuWJg==}
+  '@rollup/rollup-android-arm64@4.68.7':
+    resolution: {integrity: sha512-cKZ2Hz/xt5DLY/vdUmMXEn3gnjLgwdeB/npHagbdTljLvBE6b/xKcPCcRWTiT0pHeVf8akl5Cb9K7ylRxbtHng==}
     cpu: [arm64]
     os: [android]
 
@@ -908,8 +1020,8 @@ packages:
     cpu: [x64]
     os: [android]
 
-  '@rollup/rollup-android-x64@4.68.3':
-    resolution: {integrity: sha512-nDBcQ/o3PMmGxmAzGBJFn+n1rb83Va9WSdFIq1AHmlEF3tuibVsyJ3kG5x13r7VIy6WI8SvzCdHVNSlSDIdj8w==}
+  '@rollup/rollup-android-x64@4.68.7':
+    resolution: {integrity: sha512-P9vs1uCC2drepKKuiXrhY+r7ry/jtDCrBS8SUCYm2Rr7rVTR9eFH6XVAmD9TdfYFlDgRe5r1eH8tLQVuz+l/VA==}
     cpu: [x64]
     os: [android]
 
@@ -923,8 +1035,8 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@rollup/rollup-darwin-arm64@4.68.3':
-    resolution: {integrity: sha512-dra5zl0QWKkIkaMgNDNPC19gkMlPAfAf41yWlkGztXMIvUQrX9XWZFQRw7abhH3nks+XZGQpybINAxT2pKdFew==}
+  '@rollup/rollup-darwin-arm64@4.68.7':
+    resolution: {integrity: sha512-Lgu2AV7jbOTNNhkQ/OurNm7Snqu1Ux/3y7k8q47fbpPa3q63aIzKKp1xFzax5KH4pcdUzbnX/riuFsxKflsF+g==}
     cpu: [arm64]
     os: [darwin]
 
@@ -938,8 +1050,8 @@ packages:
     cpu: [x64]
     os: [darwin]
 
-  '@rollup/rollup-darwin-x64@4.68.3':
-    resolution: {integrity: sha512-xo5xeo/AjEB/ArzQjGn0JRDZuybZicQ5O3VPfko6ocH1li/qNrN4p5+R/WgjavzRz6UwAOaqsau7VvRQA6i6AA==}
+  '@rollup/rollup-darwin-x64@4.68.7':
+    resolution: {integrity: sha512-wKo6rOzla+/3rN8QBqTgcrsQMfyqwa3y14TvCTotLLib/ACWTxX1zWDTYze90s2RWtYiSfTlavHLmZv0Jsafrw==}
     cpu: [x64]
     os: [darwin]
 
@@ -953,8 +1065,8 @@ packages:
     cpu: [arm64]
     os: [freebsd]
 
-  '@rollup/rollup-freebsd-arm64@4.68.3':
-    resolution: {integrity: sha512-zdckkcxHDEEKyDbC1t21DeaaiKGymxbkBU9c3zyfaaz+8N96ItJw4nmzHhZF+Mukgt906fnf2tsc90pVyStuHA==}
+  '@rollup/rollup-freebsd-arm64@4.68.7':
+    resolution: {integrity: sha512-vAeCwbFyEu/vBt9O/uHCHJSvwtOpTSssnM/PoZgn8rmvAkS+9ixaUfJZ2IP3ltom+rvpuQQEIEqltPY7qhC9lQ==}
     cpu: [arm64]
     os: [freebsd]
 
@@ -968,8 +1080,8 @@ packages:
     cpu: [x64]
     os: [freebsd]
 
-  '@rollup/rollup-freebsd-x64@4.68.3':
-    resolution: {integrity: sha512-9oXqI7g/ycEz7TyicdGBC4sL6PfWMXAx8u15f/nd7lYkCLJd8U8VdBfbpc4SSnRBU/e7aPALve3mhzasGDeCYg==}
+  '@rollup/rollup-freebsd-x64@4.68.7':
+    resolution: {integrity: sha512-HvjSxOKI+6Si4ytmaoCEpjwDMrH/1s0uWeTAhdE5oXY8/RMI92hCePI/psZuJtY5EHWoT7MfyvTz0HBDZb1ZwQ==}
     cpu: [x64]
     os: [freebsd]
 
@@ -985,8 +1097,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-arm-gnueabihf@4.68.3':
-    resolution: {integrity: sha512-hbgT4NlaOELE3D5UUzSqF+OFgwz4Scvo2SQD9nZJUFjdIsg9Kg3FabQauUxkHKY9N5yjNXfXRRmiKNN4JpLmFA==}
+  '@rollup/rollup-linux-arm-gnueabihf@4.68.7':
+    resolution: {integrity: sha512-nz/Eu1sag3w5gPiKLJhAbKa4D9hUUJpDc9XzKXxGNHZqwgT2AbuVS2e4k9CIoLQp5dPhSN9ntiEVuz2jTzu1Gg==}
     cpu: [arm]
     os: [linux]
     libc: [glibc]
@@ -1003,8 +1115,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-arm-musleabihf@4.68.3':
-    resolution: {integrity: sha512-yECcXZ/Bl+JVRhLFgld42rYrXgPdE0LtySGAmmmH6OtkaJM17A4cWG/eCzDymMVb52/jZjW0R54YrTHj4xXlSA==}
+  '@rollup/rollup-linux-arm-musleabihf@4.68.7':
+    resolution: {integrity: sha512-05CEv2G/kI261A1WQBZL8gx6xXULjPfVnTKAkfnV/0uqHeLo+dNEOeUzMaiK/HDGR0Z1Nn7KJjm/34bNbNcfTA==}
     cpu: [arm]
     os: [linux]
     libc: [musl]
@@ -1021,8 +1133,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-arm64-gnu@4.68.3':
-    resolution: {integrity: sha512-q4Q4/B7wyqM+TFqY5tJYQlaz5+ksGopcRmMeMdu4q6eaPK7N1PymTjIaH5LL32mMJBqIzpRof7BhlYLim5JgNQ==}
+  '@rollup/rollup-linux-arm64-gnu@4.68.7':
+    resolution: {integrity: sha512-wrqk3EkxQt98lTdiYhjcaWmFHwvKiSgHFi7XmPTSF4X8+uGUTBOAc0CaynEvpUhBgkPRbwASrYoU/5uJPF+LFA==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
@@ -1039,8 +1151,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-arm64-musl@4.68.3':
-    resolution: {integrity: sha512-Ich3TGl/7GqhQ6G6jVPzgGQGJjd3E5hECxSVanPYchy6Vwcq+WI8wG/gmEMilHNy+ZYCR6U8EN50EejG3TaIgw==}
+  '@rollup/rollup-linux-arm64-musl@4.68.7':
+    resolution: {integrity: sha512-DnuEUWvzeSxHxzu5lvrN+I/UzrcQkR/fQ4Bibetdp73Rf7aP0XgFpalSDuHmVWsCLETE+Lrl3GVOqIvFP7rcjw==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
@@ -1057,8 +1169,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-loong64-gnu@4.68.3':
-    resolution: {integrity: sha512-URBmOhwv4Y0Hi5Hhxc3cmqZLtQlx55DOs5PUhhITDC3zu0qwAfhcNAFAIwAhOUdA6NFVEck07CNZX6cBEs1vTg==}
+  '@rollup/rollup-linux-loong64-gnu@4.68.7':
+    resolution: {integrity: sha512-n0sr2s+rzVw8ntRucOxGhWeJ9lEl9KxCRzF3RmnZLE/tRnfKiloLuK8UqWrKFqVigEAh0IkRkPz5LVaV9/ZfvA==}
     cpu: [loong64]
     os: [linux]
     libc: [glibc]
@@ -1075,8 +1187,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-loong64-musl@4.68.3':
-    resolution: {integrity: sha512-PTdJXuZplRyaE3ECArlbZubI2LlUHWm0oCipCexnE/8LM+L7qIqUiNbU0piBxt46EB5zxXX+cpmDvHX4Z3WwcQ==}
+  '@rollup/rollup-linux-loong64-musl@4.68.7':
+    resolution: {integrity: sha512-qDVJyMCbh7ekjt1kM9CZsyCFZvv5UW1QTIx3YfJ/gh8LkqpoPNpl9dCeYeOa+bsDOGTWZiMG2riXuoFSRISimQ==}
     cpu: [loong64]
     os: [linux]
     libc: [musl]
@@ -1093,8 +1205,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-ppc64-gnu@4.68.3':
-    resolution: {integrity: sha512-IlSQPDExSm9YdtrWeZIHj87GPXI9lYygRvHVwQ1o9t91JHIiB2CihrvNIASpc/zI28atqm04jS3proaQuaJMww==}
+  '@rollup/rollup-linux-ppc64-gnu@4.68.7':
+    resolution: {integrity: sha512-GiIOHHIzgpMoR5DT1pA1b9qMk5i0Ngg2FRj4D6XFSBC8e/axHuIdB7K/OBozO2RtCVAMnH1rXcuJrGScg+bvzA==}
     cpu: [ppc64]
     os: [linux]
     libc: [glibc]
@@ -1111,8 +1223,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-ppc64-musl@4.68.3':
-    resolution: {integrity: sha512-O2ssyDcBTZkH5v2P/9ZaXJreL0hCKvUA5UwuHn0jCKeMLKi4GhspZJ1I5FT5QsHtJ/dPx4pup7pg/Lw0emeY0Q==}
+  '@rollup/rollup-linux-ppc64-musl@4.68.7':
+    resolution: {integrity: sha512-B132V2fwDl7UGLhvK6s3Ay7eNQ4dmDSDgsBm/Wwbz+Wgnunz0le4R2wzDp6TL5ExMu3MC1auJIrVtk2gOyxbyw==}
     cpu: [ppc64]
     os: [linux]
     libc: [musl]
@@ -1129,8 +1241,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-riscv64-gnu@4.68.3':
-    resolution: {integrity: sha512-fesqagxcnc87lH2+aBWne/tFCmQVIGH+YezjY1wQwbUODuTBBlhHoyxju6umwn8LnjHVanjpoeaQdLsXP8JQSQ==}
+  '@rollup/rollup-linux-riscv64-gnu@4.68.7':
+    resolution: {integrity: sha512-3NueHQilbssjxgJMx9hXBV+U5keb3CBzmW5WhoBG3iSLFcmz9U2FVoG4MUYpZoZ+KSNMQPN2AA79dTxlEF0VxQ==}
     cpu: [riscv64]
     os: [linux]
     libc: [glibc]
@@ -1147,8 +1259,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-riscv64-musl@4.68.3':
-    resolution: {integrity: sha512-WAjFDtLW3HjJ2RAytKoWdFwlK/hW8rJHrjhRZFw14nR+c9JN//WIlSBkyXUjEYCNOFs2sGLNutOEPQG4iVYHgA==}
+  '@rollup/rollup-linux-riscv64-musl@4.68.7':
+    resolution: {integrity: sha512-8XRwbf76oAF1zZzg6OT8EY3swvCptZnLmiqMgO5+STyhTZ9s7rXa+tY8jESZW9IDyKACcVBGqa/RACDaLzRVjQ==}
     cpu: [riscv64]
     os: [linux]
     libc: [musl]
@@ -1165,8 +1277,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-s390x-gnu@4.68.3':
-    resolution: {integrity: sha512-+fZiTeHV/1fy/14dRqE4thjYwUOABL6qQjxElOEQg2oHLkCamO8dxhHphVgD4+pFxtVEUIWxsGVduPtwnAlvbg==}
+  '@rollup/rollup-linux-s390x-gnu@4.68.7':
+    resolution: {integrity: sha512-pvqqfjNdxVLvmovH681K5cPIL9DXj5n1RROaa0vb9JrtHddiScLrkHPRKj5flTKHF1M7xvRy0SS2yTRIc2TO0Q==}
     cpu: [s390x]
     os: [linux]
     libc: [glibc]
@@ -1183,8 +1295,8 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rollup/rollup-linux-x64-gnu@4.68.3':
-    resolution: {integrity: sha512-pfn4Zd9Ic3lEaSwW3GsQhTIDd7929C+eiEkOutsSCT2IHD6rDLblwmMQkgeGOso0oDo9Jk/ERtFdtFr9ElLs+g==}
+  '@rollup/rollup-linux-x64-gnu@4.68.7':
+    resolution: {integrity: sha512-rsTjTf5HAm6F4sI6uUfJf2pc+7AWBKxgc2RveGvwB2OvVa1GezSSCDD1rtXPuFhcg3itPv7iHgcZsq/RwWvJ4Q==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
@@ -1201,8 +1313,8 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rollup/rollup-linux-x64-musl@4.68.3':
-    resolution: {integrity: sha512-eUXzaeNQbKXKNqseL3g/usUqOPmRu+DbQsvwr9MXMdV+VQFUNb9bcWSNAAs/TRV95PCbFK46kLzHEOhFSzujsg==}
+  '@rollup/rollup-linux-x64-musl@4.68.7':
+    resolution: {integrity: sha512-VNLvsYMD5+zLCi5SohwDdL8PpicC9PnArLwyMJXXUcAduzrM3k9aZT9XiHw+mn5dOWr3UEyfyqJbOvxwJ2fCWQ==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
@@ -1217,8 +1329,8 @@ packages:
     cpu: [x64]
     os: [openbsd]
 
-  '@rollup/rollup-openbsd-x64@4.68.3':
-    resolution: {integrity: sha512-OiUclE7QDU4H/hr3ACRHhVGKWl+gNx+6Emignfq0hmNmzzTkZnT79wzB9NXKd0QH16S4t/wVqlAFBfC17nkZ5A==}
+  '@rollup/rollup-openbsd-x64@4.68.7':
+    resolution: {integrity: sha512-7aOjdahkwiECWWOmjAemPd21yeQ18TW59DUiLWttzolMe5tDwHyBhlOfmxRUHOQnepTNkZ2Qwp1T6LxFZ5v7yQ==}
     cpu: [x64]
     os: [openbsd]
 
@@ -1232,8 +1344,8 @@ packages:
     cpu: [arm64]
     os: [openharmony]
 
-  '@rollup/rollup-openharmony-arm64@4.68.3':
-    resolution: {integrity: sha512-s6EclDWmk6zvIfk1yixgYthk7xHNx0xu5cEF5RDpS4IHNTpfswRX6xOXVG5cHF5xWn0B6EpDGARhPQ520KTlsA==}
+  '@rollup/rollup-openharmony-arm64@4.68.7':
+    resolution: {integrity: sha512-BnNkTwE4FMCAoz3UYiJ6D6Y3pGozYIYZ2W+onH64uhiTI2iwD3KOaNSlkuHYfupZVemls3YTlvbPnuKwHsraiQ==}
     cpu: [arm64]
     os: [openharmony]
 
@@ -1247,8 +1359,8 @@ packages:
     cpu: [arm64]
     os: [win32]
 
-  '@rollup/rollup-win32-arm64-msvc@4.68.3':
-    resolution: {integrity: sha512-G2xnmxGnU8XHLwtjnnXNRcLrub+Af3nm9VQ1QzL2aEiAL7woBdRgTCZBslJl8umA+YMqdEFpUh9kJB/Vyzk2wQ==}
+  '@rollup/rollup-win32-arm64-msvc@4.68.7':
+    resolution: {integrity: sha512-OH8tGWsJcRW6Vn0dmndyWJGdQa46bH2/2/PVfleBGUWuBd5/HVkIvw2UslgBwUZdtV78bJaoCNBmYI5+bcTJ4A==}
     cpu: [arm64]
     os: [win32]
 
@@ -1262,8 +1374,8 @@ packages:
     cpu: [ia32]
     os: [win32]
 
-  '@rollup/rollup-win32-ia32-msvc@4.68.3':
-    resolution: {integrity: sha512-Y/4tApNVrMUYWbAHsyRWJgwuuJOfhTNhA2B04Xpa6+G9btkPZ9kU3XagUKzPTwF3hg36NpQk748JsnoTVho67Q==}
+  '@rollup/rollup-win32-ia32-msvc@4.68.7':
+    resolution: {integrity: sha512-SpYx5X9+2JOF3hXe1cRaiFn562h4AMJhfgxkyHyiuh9dJ7PanPm7FTp8GJReSbS9N+TfjRiBbKacVk1g35kKxg==}
     cpu: [ia32]
     os: [win32]
 
@@ -1277,8 +1389,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rollup/rollup-win32-x64-gnu@4.68.3':
-    resolution: {integrity: sha512-i2vH/OA5BcW+TdNg12ZTRC4rn+vILaPMP9CvHqnv+QEpMjBHGGNLo4k4EnEqzjYvTD6x1Xark9WhsQbH4bTzUQ==}
+  '@rollup/rollup-win32-x64-gnu@4.68.7':
+    resolution: {integrity: sha512-0ncKtQ55fqElV9Sk4cZ/4tiXVGlWxaH5PvDOlx1Sx8GuHIpSWgYrTcyrO51JnVFfy7LvAJiffkEg63ZHKwTMag==}
     cpu: [x64]
     os: [win32]
 
@@ -1292,8 +1404,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rollup/rollup-win32-x64-msvc@4.68.3':
-    resolution: {integrity: sha512-ADb1Uz2MNM0sxVpAlMNdQG16Hw4sgW1aqVL7NeqBMpcZeiHb192d7W6shZdMQs33D+w9ihDYBBPsYqqc4MlD8w==}
+  '@rollup/rollup-win32-x64-msvc@4.68.7':
+    resolution: {integrity: sha512-XY9DYHO5UxxVR8G6AErXDlccQmDpvGTLgKHFpvkgsyjwG/PrQuInRjQQfpEzBRuT+bhBtwfS8yDe9sPhVcq/9A==}
     cpu: [x64]
     os: [win32]
 
@@ -1497,8 +1609,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@vitest/mocker@5.1.0':
-    resolution: {integrity: sha512-5umB9/jlWcqVS6fsrFmv5Gdnpu6wAUio/lEOwAmvB7v+lFo/IW2B9FhAD0p19GCULTgMzLCdUmuCDCnAzWgppQ==}
+  '@vitest/mocker@5.1.1':
+    resolution: {integrity: sha512-b2OgTB4+3ImWIVafXKazJXwLKwQxUNnix6b3xUvUTMh7RyXlrtzoxfZr8aEz9zkHOMAS4K5lu3TvFWoiVeVTQg==}
     peerDependencies:
       msw: ^2.4.9 || ^3.0.0
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
@@ -1508,8 +1620,8 @@ packages:
       vite:
         optional: true
 
-  '@vitest/spy@5.1.0':
-    resolution: {integrity: sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==}
+  '@vitest/spy@5.1.1':
+    resolution: {integrity: sha512-6K8C6alQG1/Yc8/ZI22iJS7JEsxPdVzqtqDq+/xM4Z0mGVykemMVjLhqMy/q6/IHYG3kKD8hKSwRen/ZdyI9vQ==}
 
   abitype@1.2.3:
     resolution: {integrity: sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg==}
@@ -1759,8 +1871,8 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
-  multiformats@14.0.5:
-    resolution: {integrity: sha512-vbIm83F2yZ1pWJGS0yl0ysracIvv56LtbrIyiIQHoLdYDJOMoLfVFsXhh9DUH4SFdkdkFhucyWniihsNzVEjkQ==}
+  multiformats@14.0.6:
+    resolution: {integrity: sha512-0YlOSF+MAPh+68ao+Qcya4SkiF/amdpAe0jmOsCH7ztKoWiQJbVjkVKqjgyJK5TApL5zyDExT56aFf6A+H/WIA==}
 
   nanoid@3.3.20:
     resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
@@ -1898,8 +2010,8 @@ packages:
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
 
-  rollup@4.68.3:
-    resolution: {integrity: sha512-wd2gavj7CEQv52rdcVqfUupO/KPIKcoJKxyFWl4cOqYZGMQEOSijJRkliz0dRa7gpkj/h4TRqyWa+dJJi6T0OA==}
+  rollup@4.68.7:
+    resolution: {integrity: sha512-CxhzUIc+ocxPAWxHuff+PAluoW1otD6dHqqPK2h2Q38WA1VYk+3gizX6NEg5t2a8yNGQaiHM1R7V+qdwWuvp5Q==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
 
@@ -2083,8 +2195,8 @@ packages:
   verifiablejs@1.6.0:
     resolution: {integrity: sha512-JFkmQQsf4NHNng10cUl+0G+Hkb0W722r7BbDI7iheXG3o3Ux0XawNKYxh3rXiBmUCbRw3AcZHx+Rcw1a+xW6GQ==}
 
-  viem@2.57.20:
-    resolution: {integrity: sha512-LSvREzKT7xFXpmxW2YFJ/OtcZRkSGLp5zywSgadBf0qQCeqh2+FxHHWyrS2zEG7ZfBWQQvk8HI1i4HPzSMD14g==}
+  viem@2.58.0:
+    resolution: {integrity: sha512-oBGZGy6VptLmAATtEua71a7FzCXT5y74dQoeDP8EDHmBsWhQ34rXeHKz6tHeciKWnJ3zBT1u8sby8tAtg0gouA==}
     peerDependencies:
       mppx: '>=0.17.0'
       typescript: '>=5.0.4'
@@ -2134,20 +2246,20 @@ packages:
       yaml:
         optional: true
 
-  vitest@5.1.0:
-    resolution: {integrity: sha512-MzmNFnrwa8v8lF1bLxw3UJ4EREwVOVb75VqJZmUDRjJ6EluK/x9th7qTbaeDk41WxE1GxWqmTXcdsfobfH5sOA==}
+  vitest@5.1.1:
+    resolution: {integrity: sha512-trVmzUFOSraCZcI3uZIMD5FqBh4atFkC/XuJP/IU7qtyQay0FCs3Ia+0QiQ2JJwGyWG/xrcBoJNel2+O7kEZ0g==}
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 5.1.0
-      '@vitest/browser-preview': 5.1.0
+      '@vitest/browser-playwright': 5.1.1
+      '@vitest/browser-preview': 5.1.1
       '@vitest/browser-webdriverio': ^5.0.0-beta.5 || >=5.0.0
-      '@vitest/coverage-istanbul': 5.1.0
-      '@vitest/coverage-v8': 5.1.0
-      '@vitest/ui': 5.1.0
+      '@vitest/coverage-istanbul': 5.1.1
+      '@vitest/coverage-v8': 5.1.1
+      '@vitest/ui': 5.1.1
       happy-dom: '*'
       jsdom: '*'
       vite: ^6.4.0 || ^7.0.0 || ^8.0.0
@@ -2336,17 +2448,175 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@individuality/game-outcome@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-game-outcome(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-nfts@0.4.1)(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-nfts': 0.4.1
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@polkadot-api/signers-common'
+
+  '@individuality/name-link@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-name-link(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@noble/hashes': 2.4.0
+      '@parity/product-sdk-individuality': 0.11.4(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+
+  '@individuality/name-link@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-name-link(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@noble/hashes': 2.4.0
+      '@parity/product-sdk-individuality': 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+
+  '@individuality/people-chain@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@parity/product-sdk-descriptors': 0.14.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+
+  '@individuality/prize@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-individuality': 0.11.4(esbuild@0.28.2)(rxjs@7.8.2)
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@polkadot-api/signers-common'
+
+  '@individuality/prize@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-individuality': 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@polkadot-api/signers-common'
+
+  '@individuality/shared-records@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/shared-records': {}
+
+  '@individuality/sign-up@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/name-link': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-name-link(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/shared-records': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/shared-records
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@parity/product-sdk-individuality': 0.11.4(esbuild@0.28.2)(rxjs@7.8.2)
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@polkadot-api/signers-common'
+
+  '@individuality/sign-up@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+    dependencies:
+      '@individuality/name-link': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-name-link(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/shared-records': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/shared-records
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@parity/product-sdk-individuality': 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@polkadot-api/signers-common'
+
   '@ipld/dag-pb@4.2.0':
     dependencies:
-      multiformats: 14.0.5
+      multiformats: 14.0.6
 
-  '@jridgewell/resolve-uri@3.1.2': {}
+  '@jollity/collectables@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-collectables(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)':
+    dependencies:
+      '@jollity/protocol': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@parity/product-sdk-nfts': 0.4.1
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@parity/product-sdk-individuality'
+      - bufferutil
+      - esbuild
+      - polkadot-api
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@jollity/game-chain@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-game-chain(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/prize': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/sign-up': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@jollity/protocol': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@parity/product-sdk-descriptors': 0.14.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-individuality': 0.11.4(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@jollity/protocol@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/prize': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/sign-up': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-host': 0.31.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@parity/product-sdk-individuality'
+      - bufferutil
+      - esbuild
+      - polkadot-api
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@jollity/protocol@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-protocol(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(esbuild@0.28.2)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))(rxjs@7.8.2)':
+    dependencies:
+      '@individuality/people-chain': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-people-chain(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/prize': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-prize(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@individuality/sign-up': https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/individuality-sign-up(@parity/product-sdk-descriptors@0.14.0(esbuild@0.28.2)(rxjs@7.8.2))(@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2))(@polkadot-api/signers-common@0.4.0(rxjs@7.8.2))(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-host': 0.31.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - '@parity/product-sdk-descriptors'
+      - '@parity/product-sdk-individuality'
+      - bufferutil
+      - esbuild
+      - polkadot-api
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@jollity/statement-core@https://codeload.github.com/paritytech/individuality-apps/tar.gz/2560663a232cb710b10b7f5417fc300cd830efbe#path:/packages/jollity-statement-core':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      scale-ts: 1.6.1
+
+  '@jridgewell/resolve-uri@3.1.3': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
-      '@jridgewell/resolve-uri': 3.1.2
+      '@jridgewell/resolve-uri': 3.1.3
       '@jridgewell/sourcemap-codec': 1.6.0
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
@@ -2423,13 +2693,13 @@ snapshots:
 
   '@novasamatech/substrate-slot-sr25519-wasm@0.12.0': {}
 
-  '@parity/bulletin-sdk@0.5.0(multiformats@14.0.5)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
+  '@parity/bulletin-sdk@0.5.0(multiformats@14.0.6)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))':
     dependencies:
       '@ipld/dag-pb': 4.2.0
       '@noble/hashes': 2.4.0
       '@polkadot-labs/hdkd-helpers': 0.0.34
       ipfs-unixfs: 13.1.2
-      multiformats: 14.0.5
+      multiformats: 14.0.6
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
 
   '@parity/product-sdk-address@0.3.1':
@@ -2437,10 +2707,10 @@ snapshots:
       '@noble/hashes': 2.4.0
       '@polkadot-api/substrate-bindings': 0.21.2
 
-  '@parity/product-sdk-chain-client@0.13.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-chain-client@0.13.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-descriptors': 0.14.0(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
     transitivePeerDependencies:
@@ -2450,18 +2720,18 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-cloud-storage@0.13.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-cloud-storage@0.13.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
-      '@parity/bulletin-sdk': 0.5.0(multiformats@14.0.5)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
-      '@parity/product-sdk-chain-client': 0.13.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/bulletin-sdk': 0.5.0(multiformats@14.0.6)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
+      '@parity/product-sdk-chain-client': 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-descriptors': 0.14.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
-      '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
-      multiformats: 14.0.5
+      multiformats: 14.0.6
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
     transitivePeerDependencies:
       - bufferutil
@@ -2470,19 +2740,19 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-contracts@0.11.9(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
+  '@parity/product-sdk-contracts@0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-keys': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-keys': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
-      '@parity/product-sdk-signer': 0.17.9(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-signer': 0.17.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd-helpers': 0.0.30
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
-      viem: 2.57.20(typescript@7.0.2)(zod@4.6.7)
+      viem: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2512,12 +2782,12 @@ snapshots:
 
   '@parity/product-sdk-errors@0.2.0': {}
 
-  '@parity/product-sdk-host@0.33.0(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-host@0.31.0(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-logger': 0.1.2
       '@parity/result': 0.2.0
-      '@parity/truapi': 0.29.0
+      '@parity/truapi': 0.27.0
       '@polkadot-api/json-rpc-provider': 0.2.0
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-api/substrate-bindings': 0.21.2
@@ -2531,12 +2801,31 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-individuality@0.11.6(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-host@0.34.0(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@parity/product-sdk-errors': 0.2.0
+      '@parity/product-sdk-logger': 0.1.2
+      '@parity/result': 0.2.0
+      '@parity/truapi': 0.31.0
+      '@polkadot-api/json-rpc-provider': 0.2.0
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@polkadot-api/substrate-bindings': 0.21.2
+      '@polkadot-api/tx-creator': 0.2.0(rxjs@7.8.2)
+      neverthrow: 8.2.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@parity/product-sdk-individuality@0.11.4(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@noble/curves': 2.4.0
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.31.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.7(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-utils': 0.2.1
       '@parity/result': 0.2.0
       '@polkadot-api/metadata-builders': 0.15.2
@@ -2553,11 +2842,33 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-keys@0.5.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-individuality@0.11.7(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@parity/product-sdk-errors': 0.2.0
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-utils': 0.2.1
+      '@parity/result': 0.2.0
+      '@polkadot-api/metadata-builders': 0.15.2
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@polkadot-api/substrate-bindings': 0.21.2
+      '@polkadot-api/tx-creator': 0.2.0(rxjs@7.8.2)
+      '@polkadot-api/utils': 0.4.0
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@parity/product-sdk-keys@0.5.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
       '@parity/product-sdk-crypto': 0.1.1
-      '@parity/product-sdk-local-storage': 0.3.25(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-local-storage': 0.3.26(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-utils': 0.2.1
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd': 0.0.28
@@ -2571,9 +2882,38 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-local-storage@0.3.25(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-keys@0.5.7(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-address': 0.3.1
+      '@parity/product-sdk-crypto': 0.1.1
+      '@parity/product-sdk-local-storage': 0.3.23(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-utils': 0.2.1
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@polkadot-labs/hdkd': 0.0.28
+      '@polkadot-labs/hdkd-helpers': 0.0.30
+      '@scure/sr25519': 2.4.0
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@parity/product-sdk-local-storage@0.3.23(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@parity/product-sdk-host': 0.31.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-logger': 0.1.2
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@parity/product-sdk-local-storage@0.3.26(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
     transitivePeerDependencies:
       - bufferutil
@@ -2590,17 +2930,17 @@ snapshots:
       '@parity/product-sdk-utils': 0.2.1
       '@parity/result': 0.2.0
 
-  '@parity/product-sdk-renderer@0.11.0':
+  '@parity/product-sdk-renderer@0.12.0':
     dependencies:
-      '@parity/truapi': 0.29.0
+      '@parity/truapi': 0.31.0
 
-  '@parity/product-sdk-reputation@0.1.2(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
+  '@parity/product-sdk-reputation@0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
-      '@parity/product-sdk-contracts': 0.11.9(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
+      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
-      viem: 2.57.20(typescript@7.0.2)(zod@4.6.7)
+      viem: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2611,12 +2951,12 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@parity/product-sdk-signer@0.17.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-signer@0.17.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-keys': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-keys': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
       '@parity/result': 0.2.0
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
@@ -2628,10 +2968,10 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-statement-store@0.7.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-statement-store@0.7.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
       '@parity/product-sdk-utils': 0.2.1
       '@parity/result': 0.2.0
@@ -2644,10 +2984,26 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-tx@0.5.9(esbuild@0.28.2)(rxjs@7.8.2)':
+  '@parity/product-sdk-tx@0.5.10(esbuild@0.28.2)(rxjs@7.8.2)':
     dependencies:
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-keys': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-keys': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-logger': 0.1.2
+      '@parity/result': 0.2.0
+      '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
+      '@polkadot-labs/hdkd-helpers': 0.0.30
+      polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
+    transitivePeerDependencies:
+      - bufferutil
+      - esbuild
+      - rxjs
+      - supports-color
+      - utf-8-validate
+
+  '@parity/product-sdk-tx@0.5.7(esbuild@0.28.2)(rxjs@7.8.2)':
+    dependencies:
+      '@parity/product-sdk-errors': 0.2.0
+      '@parity/product-sdk-keys': 0.5.7(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
       '@parity/result': 0.2.0
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
@@ -2665,24 +3021,24 @@ snapshots:
       '@noble/hashes': 2.4.0
       '@parity/product-sdk-logger': 0.1.2
 
-  '@parity/product-sdk@0.44.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
+  '@parity/product-sdk@0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
-      '@parity/product-sdk-chain-client': 0.13.9(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-cloud-storage': 0.13.9(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-contracts': 0.11.9(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
+      '@parity/product-sdk-chain-client': 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-cloud-storage': 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-crypto': 0.1.1
       '@parity/product-sdk-errors': 0.2.0
-      '@parity/product-sdk-host': 0.33.0(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-individuality': 0.11.6(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-keys': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-local-storage': 0.3.25(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-individuality': 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-keys': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-local-storage': 0.3.26(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-logger': 0.1.2
       '@parity/product-sdk-nfts': 0.4.1
-      '@parity/product-sdk-renderer': 0.11.0
-      '@parity/product-sdk-reputation': 0.1.2(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
-      '@parity/product-sdk-signer': 0.17.9(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-tx': 0.5.9(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-renderer': 0.12.0
+      '@parity/product-sdk-reputation': 0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
+      '@parity/product-sdk-signer': 0.17.10(esbuild@0.28.2)(rxjs@7.8.2)
+      '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
     transitivePeerDependencies:
@@ -2699,13 +3055,13 @@ snapshots:
 
   '@parity/trinity-stack@0.2.1': {}
 
-  '@parity/truapi@0.29.0':
+  '@parity/truapi@0.27.0':
     dependencies:
       '@noble/hashes': 2.4.0
       neverthrow: 8.2.0
       scale-ts: 1.6.1
 
-  '@parity/truapi@0.30.0':
+  '@parity/truapi@0.31.0':
     dependencies:
       '@noble/hashes': 2.4.0
       neverthrow: 8.2.0
@@ -3372,7 +3728,7 @@ snapshots:
   '@rollup/rollup-android-arm-eabi@4.68.2':
     optional: true
 
-  '@rollup/rollup-android-arm-eabi@4.68.3':
+  '@rollup/rollup-android-arm-eabi@4.68.7':
     optional: true
 
   '@rollup/rollup-android-arm64@4.65.1':
@@ -3381,13 +3737,13 @@ snapshots:
   '@rollup/rollup-android-arm64@4.68.2':
     optional: true
 
-  '@rollup/rollup-android-arm64@4.68.3':
+  '@rollup/rollup-android-arm64@4.68.7':
     optional: true
 
   '@rollup/rollup-android-x64@4.68.2':
     optional: true
 
-  '@rollup/rollup-android-x64@4.68.3':
+  '@rollup/rollup-android-x64@4.68.7':
     optional: true
 
   '@rollup/rollup-darwin-arm64@4.65.1':
@@ -3396,7 +3752,7 @@ snapshots:
   '@rollup/rollup-darwin-arm64@4.68.2':
     optional: true
 
-  '@rollup/rollup-darwin-arm64@4.68.3':
+  '@rollup/rollup-darwin-arm64@4.68.7':
     optional: true
 
   '@rollup/rollup-darwin-x64@4.65.1':
@@ -3405,7 +3761,7 @@ snapshots:
   '@rollup/rollup-darwin-x64@4.68.2':
     optional: true
 
-  '@rollup/rollup-darwin-x64@4.68.3':
+  '@rollup/rollup-darwin-x64@4.68.7':
     optional: true
 
   '@rollup/rollup-freebsd-arm64@4.65.1':
@@ -3414,7 +3770,7 @@ snapshots:
   '@rollup/rollup-freebsd-arm64@4.68.2':
     optional: true
 
-  '@rollup/rollup-freebsd-arm64@4.68.3':
+  '@rollup/rollup-freebsd-arm64@4.68.7':
     optional: true
 
   '@rollup/rollup-freebsd-x64@4.65.1':
@@ -3423,7 +3779,7 @@ snapshots:
   '@rollup/rollup-freebsd-x64@4.68.2':
     optional: true
 
-  '@rollup/rollup-freebsd-x64@4.68.3':
+  '@rollup/rollup-freebsd-x64@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-arm-gnueabihf@4.65.1':
@@ -3432,7 +3788,7 @@ snapshots:
   '@rollup/rollup-linux-arm-gnueabihf@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-arm-gnueabihf@4.68.3':
+  '@rollup/rollup-linux-arm-gnueabihf@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-arm-musleabihf@4.65.1':
@@ -3441,7 +3797,7 @@ snapshots:
   '@rollup/rollup-linux-arm-musleabihf@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-arm-musleabihf@4.68.3':
+  '@rollup/rollup-linux-arm-musleabihf@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-arm64-gnu@4.65.1':
@@ -3450,7 +3806,7 @@ snapshots:
   '@rollup/rollup-linux-arm64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-arm64-gnu@4.68.3':
+  '@rollup/rollup-linux-arm64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-arm64-musl@4.65.1':
@@ -3459,7 +3815,7 @@ snapshots:
   '@rollup/rollup-linux-arm64-musl@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-arm64-musl@4.68.3':
+  '@rollup/rollup-linux-arm64-musl@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-loong64-gnu@4.65.1':
@@ -3468,7 +3824,7 @@ snapshots:
   '@rollup/rollup-linux-loong64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-loong64-gnu@4.68.3':
+  '@rollup/rollup-linux-loong64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-loong64-musl@4.65.1':
@@ -3477,7 +3833,7 @@ snapshots:
   '@rollup/rollup-linux-loong64-musl@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-loong64-musl@4.68.3':
+  '@rollup/rollup-linux-loong64-musl@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-ppc64-gnu@4.65.1':
@@ -3486,7 +3842,7 @@ snapshots:
   '@rollup/rollup-linux-ppc64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-ppc64-gnu@4.68.3':
+  '@rollup/rollup-linux-ppc64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-ppc64-musl@4.65.1':
@@ -3495,7 +3851,7 @@ snapshots:
   '@rollup/rollup-linux-ppc64-musl@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-ppc64-musl@4.68.3':
+  '@rollup/rollup-linux-ppc64-musl@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-riscv64-gnu@4.65.1':
@@ -3504,7 +3860,7 @@ snapshots:
   '@rollup/rollup-linux-riscv64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-riscv64-gnu@4.68.3':
+  '@rollup/rollup-linux-riscv64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-riscv64-musl@4.65.1':
@@ -3513,7 +3869,7 @@ snapshots:
   '@rollup/rollup-linux-riscv64-musl@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-riscv64-musl@4.68.3':
+  '@rollup/rollup-linux-riscv64-musl@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-s390x-gnu@4.65.1':
@@ -3522,7 +3878,7 @@ snapshots:
   '@rollup/rollup-linux-s390x-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-s390x-gnu@4.68.3':
+  '@rollup/rollup-linux-s390x-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-x64-gnu@4.65.1':
@@ -3531,7 +3887,7 @@ snapshots:
   '@rollup/rollup-linux-x64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-x64-gnu@4.68.3':
+  '@rollup/rollup-linux-x64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-linux-x64-musl@4.65.1':
@@ -3540,7 +3896,7 @@ snapshots:
   '@rollup/rollup-linux-x64-musl@4.68.2':
     optional: true
 
-  '@rollup/rollup-linux-x64-musl@4.68.3':
+  '@rollup/rollup-linux-x64-musl@4.68.7':
     optional: true
 
   '@rollup/rollup-openbsd-x64@4.65.1':
@@ -3549,7 +3905,7 @@ snapshots:
   '@rollup/rollup-openbsd-x64@4.68.2':
     optional: true
 
-  '@rollup/rollup-openbsd-x64@4.68.3':
+  '@rollup/rollup-openbsd-x64@4.68.7':
     optional: true
 
   '@rollup/rollup-openharmony-arm64@4.65.1':
@@ -3558,7 +3914,7 @@ snapshots:
   '@rollup/rollup-openharmony-arm64@4.68.2':
     optional: true
 
-  '@rollup/rollup-openharmony-arm64@4.68.3':
+  '@rollup/rollup-openharmony-arm64@4.68.7':
     optional: true
 
   '@rollup/rollup-win32-arm64-msvc@4.65.1':
@@ -3567,7 +3923,7 @@ snapshots:
   '@rollup/rollup-win32-arm64-msvc@4.68.2':
     optional: true
 
-  '@rollup/rollup-win32-arm64-msvc@4.68.3':
+  '@rollup/rollup-win32-arm64-msvc@4.68.7':
     optional: true
 
   '@rollup/rollup-win32-ia32-msvc@4.65.1':
@@ -3576,7 +3932,7 @@ snapshots:
   '@rollup/rollup-win32-ia32-msvc@4.68.2':
     optional: true
 
-  '@rollup/rollup-win32-ia32-msvc@4.68.3':
+  '@rollup/rollup-win32-ia32-msvc@4.68.7':
     optional: true
 
   '@rollup/rollup-win32-x64-gnu@4.65.1':
@@ -3585,7 +3941,7 @@ snapshots:
   '@rollup/rollup-win32-x64-gnu@4.68.2':
     optional: true
 
-  '@rollup/rollup-win32-x64-gnu@4.68.3':
+  '@rollup/rollup-win32-x64-gnu@4.68.7':
     optional: true
 
   '@rollup/rollup-win32-x64-msvc@4.65.1':
@@ -3594,7 +3950,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.68.2':
     optional: true
 
-  '@rollup/rollup-win32-x64-msvc@4.68.3':
+  '@rollup/rollup-win32-x64-msvc@4.68.7':
     optional: true
 
   '@rx-state/core@0.1.4(rxjs@7.8.2)':
@@ -3755,16 +4111,16 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitest/mocker@5.1.0(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))':
+  '@vitest/mocker@5.1.1(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.1.0
+      '@vitest/spy': 5.1.1
       estree-walker: 3.0.3
       magic-string: 1.4.5
     optionalDependencies:
       vite: 7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)
 
-  '@vitest/spy@5.1.0': {}
+  '@vitest/spy@5.1.1': {}
 
   abitype@1.2.3(typescript@7.0.2)(zod@4.6.7):
     optionalDependencies:
@@ -3998,7 +4354,7 @@ snapshots:
 
   ms@2.1.3: {}
 
-  multiformats@14.0.5: {}
+  multiformats@14.0.6: {}
 
   nanoid@3.3.20: {}
 
@@ -4006,7 +4362,7 @@ snapshots:
 
   neverthrow@8.2.0:
     optionalDependencies:
-      '@rollup/rollup-linux-x64-gnu': 4.68.2
+      '@rollup/rollup-linux-x64-gnu': 4.68.7
 
   node-domexception@1.0.0: {}
 
@@ -4265,36 +4621,36 @@ snapshots:
       '@rollup/rollup-win32-x64-msvc': 4.68.2
       fsevents: 2.3.3
 
-  rollup@4.68.3:
+  rollup@4.68.7:
     dependencies:
       '@types/estree': 1.0.10
     optionalDependencies:
-      '@rollup/rollup-android-arm-eabi': 4.68.3
-      '@rollup/rollup-android-arm64': 4.68.3
-      '@rollup/rollup-android-x64': 4.68.3
-      '@rollup/rollup-darwin-arm64': 4.68.3
-      '@rollup/rollup-darwin-x64': 4.68.3
-      '@rollup/rollup-freebsd-arm64': 4.68.3
-      '@rollup/rollup-freebsd-x64': 4.68.3
-      '@rollup/rollup-linux-arm-gnueabihf': 4.68.3
-      '@rollup/rollup-linux-arm-musleabihf': 4.68.3
-      '@rollup/rollup-linux-arm64-gnu': 4.68.3
-      '@rollup/rollup-linux-arm64-musl': 4.68.3
-      '@rollup/rollup-linux-loong64-gnu': 4.68.3
-      '@rollup/rollup-linux-loong64-musl': 4.68.3
-      '@rollup/rollup-linux-ppc64-gnu': 4.68.3
-      '@rollup/rollup-linux-ppc64-musl': 4.68.3
-      '@rollup/rollup-linux-riscv64-gnu': 4.68.3
-      '@rollup/rollup-linux-riscv64-musl': 4.68.3
-      '@rollup/rollup-linux-s390x-gnu': 4.68.3
-      '@rollup/rollup-linux-x64-gnu': 4.68.3
-      '@rollup/rollup-linux-x64-musl': 4.68.3
-      '@rollup/rollup-openbsd-x64': 4.68.3
-      '@rollup/rollup-openharmony-arm64': 4.68.3
-      '@rollup/rollup-win32-arm64-msvc': 4.68.3
-      '@rollup/rollup-win32-ia32-msvc': 4.68.3
-      '@rollup/rollup-win32-x64-gnu': 4.68.3
-      '@rollup/rollup-win32-x64-msvc': 4.68.3
+      '@rollup/rollup-android-arm-eabi': 4.68.7
+      '@rollup/rollup-android-arm64': 4.68.7
+      '@rollup/rollup-android-x64': 4.68.7
+      '@rollup/rollup-darwin-arm64': 4.68.7
+      '@rollup/rollup-darwin-x64': 4.68.7
+      '@rollup/rollup-freebsd-arm64': 4.68.7
+      '@rollup/rollup-freebsd-x64': 4.68.7
+      '@rollup/rollup-linux-arm-gnueabihf': 4.68.7
+      '@rollup/rollup-linux-arm-musleabihf': 4.68.7
+      '@rollup/rollup-linux-arm64-gnu': 4.68.7
+      '@rollup/rollup-linux-arm64-musl': 4.68.7
+      '@rollup/rollup-linux-loong64-gnu': 4.68.7
+      '@rollup/rollup-linux-loong64-musl': 4.68.7
+      '@rollup/rollup-linux-ppc64-gnu': 4.68.7
+      '@rollup/rollup-linux-ppc64-musl': 4.68.7
+      '@rollup/rollup-linux-riscv64-gnu': 4.68.7
+      '@rollup/rollup-linux-riscv64-musl': 4.68.7
+      '@rollup/rollup-linux-s390x-gnu': 4.68.7
+      '@rollup/rollup-linux-x64-gnu': 4.68.7
+      '@rollup/rollup-linux-x64-musl': 4.68.7
+      '@rollup/rollup-openbsd-x64': 4.68.7
+      '@rollup/rollup-openharmony-arm64': 4.68.7
+      '@rollup/rollup-win32-arm64-msvc': 4.68.7
+      '@rollup/rollup-win32-ia32-msvc': 4.68.7
+      '@rollup/rollup-win32-x64-gnu': 4.68.7
+      '@rollup/rollup-win32-x64-msvc': 4.68.7
       fsevents: 2.3.3
 
   rxjs@7.8.2:
@@ -4462,7 +4818,7 @@ snapshots:
 
   uint8arrays@6.1.1:
     dependencies:
-      multiformats: 14.0.5
+      multiformats: 14.0.6
 
   undici-types@7.24.6: {}
 
@@ -4486,7 +4842,7 @@ snapshots:
 
   verifiablejs@1.6.0: {}
 
-  viem@2.57.20(typescript@7.0.2)(zod@4.6.7):
+  viem@2.58.0(typescript@7.0.2)(zod@4.6.7):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
@@ -4509,7 +4865,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
       postcss: 8.5.33
-      rollup: 4.68.3
+      rollup: 4.68.7
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 26.6.6
@@ -4518,10 +4874,10 @@ snapshots:
       tsx: 4.23.15
       yaml: 2.9.0
 
-  vitest@5.1.0(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@5.1.1(@types/node@26.6.6)(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+      '@vitest/mocker': 5.1.1(vite@7.3.7(@types/node@26.6.6)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
