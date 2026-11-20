@@ -11,7 +11,17 @@ runs:
         TRUAPI_HOST_VERSION="$(node -p "require(process.env.GITHUB_ACTION_PATH + '/../../../packages/chain-tests/package.json').devDependencies['@parity/truapi']")"
         export TRUAPI_HOST_VERSION
         installer="$RUNNER_TEMP/truapi-host-installer.sh"
-        curl -fsSL -o "$installer" "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@${TRUAPI_HOST_VERSION}/scripts/truapi-host-installer.sh"
-        bash "$installer"
+        curl -fsSL --retry 3 --retry-all-errors -o "$installer" "https://raw.githubusercontent.com/paritytech/trinity-user-agents/refs/tags/@parity/truapi@${TRUAPI_HOST_VERSION}/scripts/truapi-host-installer.sh"
+        # The installer downloads the release archive with a single curl call and
+        # no retry. A rerun replaces any partial install, so retry the whole run.
+        for attempt in 1 2 3; do
+          bash "$installer" && break
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::truapi-host install failed after $attempt attempts"
+            exit 1
+          fi
+          echo "::warning::truapi-host install attempt $attempt failed, retrying in $((attempt * 10))s"
+          sleep $((attempt * 10))
+        done
         echo "$TRUAPI_HOST_BIN_DIR" >> "$GITHUB_PATH"
         "$TRUAPI_HOST_BIN_DIR/truapi-host" --version
