@@ -139,11 +139,12 @@ export function attestFailure(message: string): string {
 }
 
 /** The CLI output without truapi-host's notice that a newer published stack descriptor is in use. */
-function withoutDescriptorNotice(message: string): string {
+export function withoutDescriptorNotice(message: string): string {
   return message
     .split("\n")
     .filter((line) => !/published \S+ stack descriptor \(sequence \d+\)/.test(line))
-    .join("\n");
+    .join("\n")
+    .trim();
 }
 
 /**
