@@ -1,7 +1,7 @@
 import { appendFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { parseArgs } from "node:util";
-import { runChain } from "./chain.js";
+import { ChainStopped, runChain } from "./chain.js";
 import { readChainSeats } from "./chain-seats.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, type LiteBot } from "./lite.js";
@@ -441,7 +441,8 @@ switch (values.help ? undefined : command) {
       draw: values.draw,
     }).catch(async (error: Error) => {
       // A run that stops before its result, such as on a game it can't make, still says why on the run's page.
-      if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Chain game on ${target.label}: fail\n\n- ${error.message}\n`);
+      const skipped = error instanceof ChainStopped && error.skipped.length > 0 ? `- skipped, since the job ended early: ${error.skipped.join(", ")}\n` : "";
+      if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Chain game on ${target.label}: fail\n\n- ${error.message}\n${skipped}`);
       throw error;
     });
     const text = chainMarkdown(result);
