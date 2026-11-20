@@ -10,6 +10,7 @@ import {
 import { RTCPeerConnection, type RTCDataChannel, type RTCRtpTransceiver } from "werift";
 import type { LinkWire, PeerLinks } from "../sdp.js";
 import { bump } from "../stats.js";
+import { sleep } from "../time.js";
 import { Camera } from "./camera.js";
 import type { Clip } from "./clip.js";
 import { peerConfig, type IceSetup } from "./ice.js";
@@ -53,6 +54,8 @@ interface Link {
   descriptionSent: boolean;
   /** The co-player's description over the statement transport, from when it starts to apply. */
   remoteSdp?: string;
+  /** The co-player's offers, answered one at a time. */
+  answering: Promise<void>;
   /** The co-player's video SSRC, which a PLI addresses. */
   remoteSsrc?: number;
   pendingCandidates: RTCIceCandidateInit[];
@@ -60,6 +63,14 @@ interface Link {
   /** Candidates by type this side gathered and the co-player sent, in descriptions and trickled. */
   localCandidates: Record<string, number>;
   remoteCandidates: Record<string, number>;
+}
+
+/** The `o=` line's session id: one per peer connection, kept through its renegotiations and ICE restarts. */
+const sessionOf = (sdp: string) => /^o=\S+ (\S+)/m.exec(sdp)?.[1];
+
+/** Once `pc` has no negotiation under way, or after `ms`. */
+async function waitForStable(pc: RTCPeerConnection, ms: number): Promise<void> {
+  for (const until = Date.now() + ms; pc.signalingState !== "stable" && Date.now() < until; ) await sleep(100);
 }
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 80);
@@ -110,11 +121,16 @@ export class VideoMesh implements PeerLinks {
 
   /** A description or candidate from `from` over the statement transport. */
   onSignal(from: string, { rtc }: RtcPayload): void {
-    const link = this.links.get(from);
+    let link = this.links.get(from);
     if (!link) return;
     const { desc, cand, gen } = rtc;
-    if (desc?.type === "offer" && desc.sdp) void this.answer(link, desc.sdp, gen);
-    else if (desc?.type === "answer" && desc.sdp) void this.applyAnswer(link, desc.sdp);
+    if (desc?.type === "offer" && desc.sdp) {
+      // An offer from another connection of the co-player's (it rebuilt its link or reloaded):
+      // this one is done, and a fresh one takes the offer, as the app's mesh rebuilds.
+      if (link.remoteSdp !== undefined && sessionOf(link.remoteSdp) !== sessionOf(desc.sdp)) link = this.replaceLink(link);
+      const answered = link;
+      answered.answering = answered.answering.then(() => this.answer(answered, desc.sdp!, gen));
+    } else if (desc?.type === "answer" && desc.sdp) void this.applyAnswer(link, desc.sdp);
     if (cand) {
       countCandidate(link.remoteCandidates, cand.candidate);
       void this.addCandidate(link, cand);
@@ -130,7 +146,8 @@ export class VideoMesh implements PeerLinks {
     return this.linksUp;
   }
 
-  private createLink(peer: string, standby: boolean, initiator: boolean, now: number): void {
+  /** A link to `peer`; with `offers`, it opens the data channel and makes the first offer. */
+  private createLink(peer: string, standby: boolean, initiator: boolean, now: number, offers = initiator): Link {
     const { stats, window } = this.options;
     const pc = new RTCPeerConnection(peerConfig(this.options.ice));
     const link: Link = {
@@ -141,6 +158,7 @@ export class VideoMesh implements PeerLinks {
       receive: new ReceiveStream(stats, window, () => this.sendPli(link)),
       standby,
       descriptionSent: false,
+      answering: Promise.resolve(),
       pendingCandidates: [],
       up: false,
       localCandidates: {},
@@ -169,11 +187,18 @@ export class VideoMesh implements PeerLinks {
       transceiver.setDirection("sendrecv");
       this.watchVideo(link, transceiver);
     });
-    if (initiator) {
+    if (offers) {
       // The channel exists before the offer, so the offer's only m-line is the application one.
       this.attachChannel(link, pc.createDataChannel("data"));
       void this.offer(link);
     }
+    return link;
+  }
+
+  /** A fresh connection to `link`'s co-player in place of `link`'s, which closes; it waits for the co-player's offer. */
+  private replaceLink(link: Link): Link {
+    void this.closeLink(link, "rebuild");
+    return this.createLink(link.peer, link.standby, link.initiator, Date.now(), false);
   }
 
   private async offer(link: Link): Promise<void> {
@@ -188,12 +213,21 @@ export class VideoMesh implements PeerLinks {
     }
   }
 
+  /**
+   * Answers the co-player's offer `sdp` as the app's mesh answers one: a re-send changes nothing,
+   * and a renegotiation or ICE restart on the same connection is answered on it. An offer that
+   * meets one of this side's own is ignored by the initiator, the app's impolite side; the other
+   * side waits for its own negotiation to end first.
+   */
   private async answer(link: Link, sdp: string, gen: string | undefined): Promise<void> {
     // The transport delivers an offer again with every re-send until the link is up.
-    if (link.initiator || link.remoteSdp === sdp) return;
-    if (link.remoteSdp !== undefined) {
-      bump(this.options.stats.failures, "second offer on one connection");
-      return;
+    if (this.closed || this.links.get(link.peer) !== link || link.remoteSdp === sdp) return;
+    if (link.pc.signalingState !== "stable") {
+      if (link.initiator) {
+        bump(this.options.stats.failures, "offer ignored in glare");
+        return;
+      }
+      await waitForStable(link.pc, 5_000);
     }
     link.remoteSdp = sdp;
     countSdpCandidates(link.remoteCandidates, sdp);
@@ -353,11 +387,13 @@ export class VideoMesh implements PeerLinks {
   }
 
   /**
-   * Closes `link`, at the end of play or at a round switch. A round switch closes the peer
-   * connection alone, as the app's `dropPeer` does, and leaves the transport's linked flag set.
+   * Closes `link`, at the end of play, at a round switch, or for a fresh connection to the same
+   * co-player. A round switch closes the peer connection alone, as the app's `dropPeer` does, and
+   * leaves the transport's linked flag set; so does a rebuild, whose fresh link counts on its own.
    */
-  private async closeLink(link: Link, when: "end" | "round"): Promise<void> {
-    if (!this.links.delete(link.peer)) return;
+  private async closeLink(link: Link, when: "end" | "round" | "rebuild"): Promise<void> {
+    if (this.links.get(link.peer) !== link) return;
+    this.links.delete(link.peer);
     link.receive.finish(Date.now());
     const { stats } = this.options;
     for (const [type, count] of Object.entries(link.localCandidates)) bump(stats.localCandidates, type, count);
@@ -368,7 +404,7 @@ export class VideoMesh implements PeerLinks {
     // A link that never sent its description gathered no candidates at all.
     const relaysMissing = link.descriptionSent ? turnUrls - (link.localCandidates.relay ?? 0) : 0;
     if (relaysMissing > 0) bump(stats.candidateErrors, "TURN server without a relay candidate", relaysMissing);
-    if (link.up) {
+    if (link.up && when !== "rebuild") {
       // A co-player with no round left closes its side at the same moment, so a link closed by
       // the round switch may already read closed here: only a failed connection counts as down.
       if (link.pc.connectionState !== "failed") this.linksUp++;
