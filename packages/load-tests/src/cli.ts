@@ -6,8 +6,10 @@ import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { deriveLiteBot, LITE_FIRST_INDEX, provisionLitePeople, type LiteBot } from "./lite.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
-import { waitForSignUp } from "./join.js";
+import { bindLiteBots, unboundBots, waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
+import { SigningPool } from "./signing-pool.js";
+import { total } from "./stats.js";
 import { hostGhosts, shardHosts, shardProcesses, type HostOptions } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
@@ -231,6 +233,12 @@ switch (values.help ? undefined : command) {
       concurrency: positiveInteger("attest-concurrency", values["attest-concurrency"]),
       inclusionTimeoutMs: 20 * 60_000,
     });
+    // Bound here once, so a game run doesn't spend its registration time on binds.
+    const players = bots.map(({ player }) => player);
+    const { client, api } = connectPeople(target);
+    const pool = SigningPool.open(target);
+    const unbound = await unboundBots(api, players).finally(() => client.destroy());
+    const bind = await bindLiteBots(pool, unbound).finally(() => pool.close());
     const { p50, p95, max } = result.attestMs;
     console.log(
       [
@@ -239,9 +247,12 @@ switch (values.help ? undefined : command) {
         `- ${bots.length} lite bots, ${bots[0].player.index}..${bots.at(-1)!.player.index}: ${result.alreadyLite} lite people already, ${result.attestCount} attested now, ${result.pending} pending at DUB, failures ${JSON.stringify(result.failures)}`,
         `- attest p50 / p95 / max: ${[p50, p95, max].map((ms) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`)).join(" / ")}, ${values["attest-concurrency"]} at a time`,
         `- ${result.inRing} of ${bots.length} in a lite ring root after ${(result.durationMs / 1000).toFixed(1)} s`,
+        `- game accounts: ${bots.length - unbound.length} bound already, ${unbound.length} bound now in ${(bind.durationMs / 1000).toFixed(1)} s ${JSON.stringify(bind.outcomes)}, refused ${JSON.stringify(bind.refusals)}`,
       ].join("\n"),
     );
     if (result.inRing < bots.length) throw new Error(`${bots.length - result.inRing} of ${bots.length} lite bots are in no ring root`);
+    const refused = total(bind.refusals);
+    if (refused > 0) throw new Error(`${refused} of ${unbound.length} binds refused: ${JSON.stringify(bind.refusals)}`);
     break;
   }
   case "mint": {

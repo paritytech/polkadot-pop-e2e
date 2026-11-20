@@ -30,9 +30,12 @@ A run has three parts:
 - **`chain`** waits for the game to open sign-ups, tops every bot up to 3 UNIT from
   `TEST_MNEMONIC`, signs them all up at once, sends every bot's report at once after the game, and
   claims the NFT credits its co-players' votes awarded it on Asset Hub, one claim at a time per bot
-  as the stash app does. It fails at once when the game plays more than 4 hours away, and when the
-  funder has too little it prints how much to send to which address. When it fails, it cancels the
-  rest of the run.
+  as the stash app does. Before anything slow it picks its game, `game_at` or the next one, and
+  fails at once when its binds and sign-ups don't fit before that game's registration ends, naming
+  the next game that leaves enough time; it also fails at once when the game plays more than 4
+  hours away, and when the funder has too little it prints how much to send to which address.
+  When it fails, it cancels the rest of the run. The log has `[plan]`, `[bind] done` and
+  `[sign-up] on chain` lines with UTC times, so a missed registration shows within seconds.
 - **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up,
   then runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
   opens its signalling, until the end of play.
@@ -76,8 +79,9 @@ means changing the commit in those overrides.
   backend (DUB), as chain-tests runs it; it also registers the bot's lite username.
 - **Lite sign-up**: a lite bot's personhood keys are the SDK's `PersonhoodProver`, answered with
   `verifiablejs` `one_shot` over its lite ring's members at the finalized block. The engine's `bind`
-  (the SDK's `bindGameSeat`) binds the game account before the game opens, 50 at a time and the
-  next 50 once those are in a block, since a block takes about 58 binds. `register` then takes the
+  (the SDK's `bindGameSeat`) binds the game account, 50 at a time and the next 50 once those are
+  in a block, since a block takes about 58 binds. `load people` binds every lite bot once; a game
+  run binds only the ones still unbound, before its game opens. `register` then takes the
   free route, `Game.sign_up_with_account_lite_invite`, and sends the revised leg itself when the
   ring's revision moved since the bind.
 - **Prize claims**: the engine's `draws` and `eligibility` reads, and `Game.claim_airdrop` from the
@@ -306,7 +310,9 @@ bots are lite people already, so a rerun, also of an interrupted run, attests on
 nothing is stored: a lite bot's keys follow from `--seed`, the network
 and its index alone, so the seed and the index range are all there is to keep. Changing the seed
 makes new lite people, and a lite person can't be removed. truapi-host connects to DUB only through
-`STACK` or `NETWORK`, so `people` takes `--rpc` only with `STACK`.
+`STACK` or `NETWORK`, so `people` takes `--rpc` only with `STACK`. Once its bots are lite people,
+`people` binds each one's game account, about 1 s a bot, so a game run doesn't spend its
+registration on binds; the summary says how many were bound already.
 
 `load chain --lite` plays lite bots in place of the deposit-backed ones.
 
