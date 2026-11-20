@@ -31,7 +31,7 @@ exported function `readsIn`. It parses one JS/TS file at a time and walks its sy
 
 
 > This is a syntax-based scan: it recognizes the shape of a PAPI access without verifying that the object is actually a PAPI client. 
-> See the [skipped detection tests](runtime-access/test.ts#L155) for known gaps, including bracket notation, and the [SDK batch test](runtime-access/test.ts#L382) for a real example.
+> See the [skipped detection tests](inputs/runtime-access/test.ts#L155) for known gaps, including bracket notation, and the [SDK batch test](inputs/runtime-access/test.ts#L382) for a real example.
 
 
 At the end we get a object like:

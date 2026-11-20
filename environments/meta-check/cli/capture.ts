@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { CHAINS } from "../../release-map.mjs";
-import Runtime from "../runtime/index.ts";
+import Runtime from "../inputs/runtime/index.ts";
 
 export type Side = "live" | "candidate";
 

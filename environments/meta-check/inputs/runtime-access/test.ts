@@ -1,0 +1,387 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { readsIn } from "./reads.ts";
+import RuntimeAccesses from "./index.ts";
+
+/** The reads in a snippet, as `selector chain line`. */
+const reads = (source: string): string[] =>
+  readsIn("snippet.ts", source).map((r) => `${r.selector} ${r.chain ?? "-"} ${r.line}`);
+
+describe("readsIn", () => {
+  it("reads a direct access, with or without optional chaining", () => {
+    assert.deepEqual(
+      reads(`
+        chain.individuality.query.Game.Players.getValue(key);
+        chain.individuality.query?.NetworkSuffix?.NetworkSuffix;
+        chain.assetHub.apis.NftsApi.owner();
+      `),
+      [
+        "query:Game.Players individuality 2",
+        "query:NetworkSuffix.NetworkSuffix individuality 3",
+        "apis:NftsApi.owner assetHub 4",
+      ],
+    );
+  });
+
+  it("maps each API word to its kind", () => {
+    assert.deepEqual(
+      reads(`
+        api.tx.Coinage.transfer(args);
+        api.constants.Resources.MaxUsernameLength;
+        api.event.System.ExtrinsicSuccess.watch();
+        api.view.Assets.balance_of(who);
+      `),
+      ["tx:Coinage.transfer - 2", "constants:Resources.MaxUsernameLength - 3", "event:System.ExtrinsicSuccess - 4", "view:Assets.balance_of - 5"],
+    );
+  });
+
+  it("does not read a chain whose access stops before the entry", () => {
+    assert.deepEqual(reads(`const query = chain.individuality.query.Game;`), []);
+  });
+
+  it("follows const aliases", () => {
+    assert.deepEqual(
+      reads(`
+        const query = chain.individuality.query.Game;
+        query.Players.getValue(key);
+        const api = chain.individuality;
+        const q = api.query;
+        q.Score.Participants;
+      `),
+      ["query:Game.Players individuality 3", "query:Score.Participants individuality 6"],
+    );
+  });
+
+  it("follows destructuring, renamed and nested", () => {
+    assert.deepEqual(
+      reads(`
+        const { query } = chain.individuality;
+        query.Game.Players;
+        const { constants: c } = chain.individuality;
+        c.Resources.MaxUsernameLength;
+        const { individuality: { tx } } = chain;
+        tx.Game.sign_up(args);
+      `),
+      [
+        "query:Game.Players individuality 3",
+        "constants:Resources.MaxUsernameLength individuality 5",
+        "tx:Game.sign_up individuality 7",
+      ],
+    );
+  });
+
+  it("follows only the alias in scope", () => {
+    assert.deepEqual(
+      reads(`
+        function people() {
+          const query = chain.individuality.query;
+          return query.Game.Players;
+        }
+        function assets() {
+          const query = chain.assetHub.query;
+          return query.Assets.Asset;
+        }
+      `),
+      ["query:Game.Players individuality 4", "query:Assets.Asset assetHub 8"],
+    );
+  });
+
+  it("does not follow a let, which can be reassigned: the read stays, without its chain", () => {
+    assert.deepEqual(
+      reads(`
+        let query = chain.individuality.query;
+        query.Game.Players;
+      `),
+      ["query:Game.Players - 3"],
+    );
+  });
+
+  it("marks a read optional when the pallet or the entry is reached with ?.", () => {
+    const optional = (source: string) => readsIn("snippet.ts", source).map((r) => `${r.selector} ${r.optional}`);
+    assert.deepEqual(
+      optional(`
+        chain.individuality.query.Game.Players;
+        chain.individuality.query?.NetworkSuffix?.NetworkSuffix;
+        chain.individuality.query.Score?.Participants;
+        chain?.individuality?.query.Game.Rounds;
+        const stored = chain.individuality.query?.NetworkSuffix;
+        stored.NetworkSuffix.getValue();
+      `),
+      [
+        "query:Game.Players false",
+        "query:NetworkSuffix.NetworkSuffix true",
+        "query:Score.Participants true",
+        // `?.` before the API word guards the client, not the entry.
+        "query:Game.Rounds false",
+        "query:NetworkSuffix.NetworkSuffix true",
+      ],
+    );
+  });
+
+  it("reads through casts and parentheses", () => {
+    assert.deepEqual(reads(`(chain as GameChain).individuality.query.Game.Players;`), [
+      "query:Game.Players individuality 1",
+    ]);
+  });
+
+  it("skips comments, strings and in-source tests", () => {
+    assert.deepEqual(
+      reads(`
+        // chain.individuality.query.Game.Players
+        /** chain.individuality.tx.Game.sign_up */
+        const text = "chain.individuality.query.Game.Players";
+        if (import.meta.vitest) {
+          chain.individuality.query.Game.Players;
+        }
+      `),
+      [],
+    );
+  });
+
+  it("reads plain JavaScript, as dist/ ships it", () => {
+    assert.deepEqual(
+      readsIn("index.js", `const query = chain.individuality.query.Game;\nquery.Players.getValue();`).map((r) => r.selector),
+      ["query:Game.Players"],
+    );
+  });
+});
+
+// Accesses the scanner misses today. Each test states the detection we want; all fail until fixed.
+const NOT_DETECTED_YET = "follow-up: the scanner does not detect these accesses yet";
+
+describe("readsIn: accesses it does not detect yet", { skip: NOT_DETECTED_YET }, () => {
+  it("1. reads a bracket access with a string literal or a const string key as a dot access", () => {
+    const found = (source: string) => readsIn("snippet.ts", source).map((r) => `${r.selector} ${r.chain ?? "-"} ${r.optional}`);
+    assert.deepEqual(
+      found(`
+        chain.individuality.query.Game?.["Players"].getValue();
+        chain.individuality.query.Game['Players'];
+        chain.individuality.tx.Utility[\`batch_all\`](calls);
+        chain["individuality"].query.Score.Participants;
+        const entry = "Rounds";
+        chain.individuality.query.Game[entry];
+      `),
+      [
+        "query:Game.Players individuality true",
+        "query:Game.Players individuality false",
+        "tx:Utility.batch_all individuality false",
+        "query:Score.Participants individuality false",
+        "query:Game.Rounds individuality false",
+      ],
+    );
+  });
+
+  it("2. reads an access that starts at a call or an await, with the chain unknown", () => {
+    assert.deepEqual(
+      reads(`
+        getApi().query.Game.Players.getValue();
+        (await getApi()).tx.Coinage.transfer(args);
+        client.getTypedApi(people).query.Score.Participants;
+      `),
+      ["query:Game.Players - 2", "tx:Coinage.transfer - 3", "query:Score.Participants - 4"],
+    );
+  });
+
+  it("3. reads through `satisfies` and `<T>` casts, like `as`", () => {
+    assert.deepEqual(
+      reads(`
+        (chain satisfies Chains).individuality.query.Game.Players;
+        (<GameChain>chain).individuality.query.Game.Players;
+      `),
+      ["query:Game.Players individuality 2", "query:Game.Players individuality 3"],
+    );
+  });
+
+  // The entry cannot be known, so the access is recorded with `*` for it instead of being
+  // dropped. `*` is a proposal: the report does not know this form yet.
+  it("4. records a bracket access with a variable key as a dynamic access to the pallet", () => {
+    assert.deepEqual(
+      reads(`
+        const mode = options?.mode ?? "batch_all";
+        api.tx.Utility[mode]({ calls });
+        function read(entry: string) {
+          return chain.individuality.query.Game[entry].getValue();
+        }
+      `),
+      ["tx:Utility.* - 3", "query:Game.* individuality 5"],
+    );
+  });
+});
+
+describe("RuntimeAccesses.scan", () => {
+  const packagesWith = (files: Record<string, string>): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-access-"));
+    for (const [file, text] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      fs.writeFileSync(path.join(dir, file), text);
+    }
+    return dir;
+  };
+  const manifest = (name: string, devDependencies: Record<string, string> = {}) =>
+    JSON.stringify({ name, devDependencies });
+  const DESCRIPTORS = { "@parity/product-sdk-descriptors": "workspace:*" };
+
+  it("records each read with its root-relative file and line, and skips tests and the descriptors", () => {
+    const dir = packagesWith({
+      "game/package.json": manifest("@x/game", DESCRIPTORS),
+      "game/src/read.ts": "\nchain.individuality.query.Game.Players;",
+      "game/src/read.test.ts": "chain.individuality.query.Game.Rounds;",
+      "descriptors/package.json": manifest("@parity/product-sdk-descriptors"),
+      "descriptors/src/x.ts": "api.query.System.Account;",
+    });
+    assert.deepEqual(RuntimeAccesses.scan(dir).accesses, [
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 2, file: "game/src/read.ts" },
+    ]);
+  });
+
+  it("distinguishes same-named files within and across packages by their paths", () => {
+    const dir = packagesWith({
+      "packages/a/package.json": manifest("@x/a"),
+      "packages/a/src/read.ts": "chain.individuality.query.Game.Players;",
+      "packages/a/src/nested/read.ts": "chain.individuality.query.Game.Players;",
+      "packages/b/package.json": manifest("@x/b"),
+      "packages/b/src/read.ts": "chain.individuality.query.Game.Players;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(dir).accesses.map((access) => access.file),
+      ["packages/a/src/nested/read.ts", "packages/a/src/read.ts", "packages/b/src/read.ts"],
+    );
+  });
+
+  it("prefixes files with package names when scanning multiple roots", () => {
+    const dir = packagesWith({
+      "a/package.json": manifest("@x/a"),
+      "a/src/read.ts": "chain.individuality.query.Game.Players;",
+      "b/package.json": manifest("@x/b"),
+      "b/src/read.ts": "chain.individuality.query.Game.Players;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(path.join(dir, "a", "src"), path.join(dir, "b", "src")).accesses,
+      [
+        { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "@x/a/src/read.ts" },
+        { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "@x/b/src/read.ts" },
+      ],
+    );
+  });
+
+  it("throws when a package that depends on the descriptors reads nothing", () => {
+    const dir = packagesWith({
+      "game/package.json": manifest("@x/game", DESCRIPTORS),
+      "game/src/read.ts": "export const nothing = 1;",
+    });
+    assert.throws(() => RuntimeAccesses.scan(dir), /@x\/game depends on @parity\/product-sdk-descriptors/);
+  });
+
+  it("scans one package's src/, using paths relative to that root", () => {
+    const dir = packagesWith({
+      "game/package.json": manifest("@x/game", DESCRIPTORS),
+      "game/src/read.ts": "chain.individuality.query.Game.Players;",
+    });
+    assert.deepEqual(RuntimeAccesses.scan(path.join(dir, "game", "src")).accesses, [
+      { selector: "query:Game.Players", chain: "individuality", optional: false, line: 1, file: "read.ts" },
+    ]);
+  });
+
+  it("skips test folders", () => {
+    const dir = packagesWith({
+      "game/package.json": manifest("@x/game"),
+      "game/src/read.ts": "chain.individuality.query.Game.Players;",
+      "game/manual-tests/try.mjs": "api.tx.System.remark(x);",
+      "game/src/__tests__/read.ts": "chain.individuality.query.Game.Rounds;",
+      "game/test/helpers.ts": "chain.individuality.query.Game.Seats;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(dir).accesses.map((access) => access.file),
+      ["game/src/read.ts"],
+    );
+  });
+
+  it("reads dist/ past a nameless package.json, and skips node_modules", () => {
+    const dir = packagesWith({
+      "game/package.json": manifest("@x/game", DESCRIPTORS),
+      "game/dist/package.json": JSON.stringify({ type: "module" }),
+      "game/dist/index.js": "chain.individuality.query.Game.Players;",
+      "game/node_modules/dep/package.json": manifest("dep"),
+      "game/node_modules/dep/index.js": "chain.individuality.query.Game.Rounds;",
+    });
+    assert.deepEqual(
+      RuntimeAccesses.scan(path.join(dir, "game")).accesses.map((access) => `${access.file} ${access.selector}`),
+      ["dist/index.js query:Game.Players"],
+    );
+  });
+
+  it("throws for a file with no package.json above it", () => {
+    const dir = packagesWith({ "loose/read.ts": "chain.individuality.query.Game.Players;" });
+    assert.throws(() => RuntimeAccesses.scan(dir), /no package\.json above it/);
+  });
+
+  it("accepts a package without the descriptors that reads nothing", () => {
+    const dir = packagesWith({
+      "logger/package.json": manifest("@x/logger"),
+      "logger/src/log.ts": "export const log = console.log;",
+    });
+    assert.deepEqual(RuntimeAccesses.scan(dir).accesses, []);
+  });
+});
+
+// Against the product-sdk versions in fixtures/ (see fixtures/README.md); skipped without them.
+const FIXTURES = path.join(import.meta.dirname, "..", "..", "fixtures");
+const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
+
+describe("RuntimeAccesses on the fixture SDKs", { skip }, () => {
+  const scan = (sdk: string) => RuntimeAccesses.scan(path.join(FIXTURES, `product-sdk-${sdk}`, "product-sdk", "packages"));
+
+  it("finds the reads, with where they are", () => {
+    const runtimeAccesses = scan("0.42.0");
+    assert.equal(runtimeAccesses.accesses.length, 112);
+    assert.equal(runtimeAccesses.selectors().size, 71);
+    assert.ok(
+      runtimeAccesses.accesses.some(
+        (u) =>
+          u.selector === "query:NetworkSuffix.NetworkSuffix" &&
+          u.chain === "individuality" &&
+          u.file === "individuality/src/rings.ts" &&
+          u.line === 284,
+      ),
+    );
+  });
+
+  it("splits the reads by chain", () => {
+    const runtimeAccesses = scan("0.42.0");
+    assert.equal(runtimeAccesses.forChain("individuality").length, 79);
+    assert.equal(runtimeAccesses.forChain("assetHub").length, 12);
+    assert.equal(runtimeAccesses.unattributed().length, 21);
+    assert.ok(runtimeAccesses.forChain("assetHub").every((access) => access.file.startsWith("nfts/")));
+  });
+
+  it("scans one package's src/ the same as it is found in the whole tree", () => {
+    const individuality = path.join(FIXTURES, "product-sdk-0.42.0", "product-sdk", "packages", "individuality", "src");
+    const alone = RuntimeAccesses.scan(individuality).accesses;
+    const inTree = scan("0.42.0").accesses.filter((access) => access.file.startsWith("individuality/"));
+    assert.equal(alone.length, 74);
+    assert.deepEqual(
+      alone.map((u) => `${u.selector} individuality/src/${u.file}:${u.line}`),
+      inTree.map((u) => `${u.selector} ${u.file}:${u.line}`),
+    );
+  });
+
+  it("tells the two SDK versions apart", () => {
+    const old = scan("0.28.0");
+    const current = scan("0.42.0");
+    assert.equal(old.selectors().size, 45);
+    assert.ok(!old.selectors().has("tx:PeopleAirdrops.register"));
+    assert.ok(current.selectors().has("tx:PeopleAirdrops.register"));
+    // 0.42.0 reads everything 0.28.0 did, and more.
+    assert.ok([...old.selectors()].every((s) => current.selectors().has(s)));
+  });
+
+  // Fails today: `api.tx.Utility[mode](...)` in tx/src/batch.ts is not recorded at all.
+  it("records the batch call product-sdk-tx makes with a dynamic entry name", { skip: NOT_DETECTED_YET }, () => {
+    assert.ok(
+      scan("0.42.0").accesses.some((access) => access.selector === "tx:Utility.*" && access.file === "tx/src/batch.ts" && access.line === 123),
+    );
+  });
+});

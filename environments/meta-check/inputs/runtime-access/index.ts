@@ -1,0 +1,142 @@
+// Find PAPI accesses across SDK folders, from TypeScript source or built JavaScript.
+// This module picks the files to scan; reads.ts looks for accesses inside each file.
+
+import fs from "node:fs";
+import path from "node:path";
+import { z } from "zod";
+import type { ChainKey, Selector } from "../../model/types.ts";
+import { readsIn } from "./reads.ts";
+import type { RuntimeAccess } from "./types.ts";
+
+const DESCRIPTORS = "@parity/product-sdk-descriptors";
+
+/**
+ * Packages that depend on the descriptors without reading the chain: chain-client
+ * builds the clients from them and leaves the reading to the other packages.
+ */
+const READS_NOTHING: ReadonlySet<string> = new Set(["@parity/product-sdk-chain-client"]);
+
+const Dependencies = z.record(z.string(), z.string()).optional();
+
+// `name` is optional: a build can drop a `{ "type": "module" }` package.json into
+// dist/, which marks the module format and is not a package of its own.
+const PackageJson = z.object({
+  name: z.string().optional(),
+  dependencies: Dependencies,
+  devDependencies: Dependencies,
+  peerDependencies: Dependencies,
+});
+
+interface Package {
+  name: string;
+  /** The folder holding its package.json. */
+  dir: string;
+  dependsOnDescriptors: boolean;
+}
+
+/** Folders that hold dependencies or tests, not the SDK's own code: `test`, `__tests__`, `manual-tests`. */
+const SKIPPED_DIR = /^(node_modules|e2e|__tests__|(.+-)?tests?)$/;
+
+/** Source and built files; not declarations or tests. `file` is relative to the scanned folder. */
+const isScanned = (file: string): boolean =>
+  /\.(tsx?|[cm]?js)$/.test(file) &&
+  !/\.d\.tsx?$/.test(file) &&
+  !/\.(test|spec)\.[cm]?[jt]sx?$/.test(file) &&
+  !path.dirname(file).split(path.sep).some((dir) => SKIPPED_DIR.test(dir));
+
+function readPackage(manifest: string): Package | null {
+  const parsed = PackageJson.safeParse(JSON.parse(fs.readFileSync(manifest, "utf8")));
+  if (!parsed.success) throw new Error(`${manifest}:\n${z.prettifyError(parsed.error)}`);
+  const { name, dependencies, devDependencies, peerDependencies } = parsed.data;
+  if (name === undefined) return null;
+  return {
+    name,
+    dir: path.dirname(manifest),
+    dependsOnDescriptors: [dependencies, devDependencies, peerDependencies].some((deps) => deps?.[DESCRIPTORS] !== undefined),
+  };
+}
+
+/** The package a directory belongs to: its own package.json, or its parent's. Cached per directory. */
+function packageFinder(): (dir: string) => Package | null {
+  const cache = new Map<string, Package | null>();
+  const packageOf = (dir: string): Package | null => {
+    const known = cache.get(dir);
+    if (known !== undefined) return known;
+    const manifest = path.join(dir, "package.json");
+    const parent = path.dirname(dir);
+    const own = fs.existsSync(manifest) ? readPackage(manifest) : null;
+    const found = own ?? (parent === dir ? null : packageOf(parent));
+    cache.set(dir, found);
+    return found;
+  };
+  return packageOf;
+}
+
+export default class RuntimeAccesses {
+  readonly accesses: RuntimeAccess[];
+
+  private constructor(accesses: RuntimeAccess[]) {
+    this.accesses = accesses;
+  }
+
+  /**
+   * Report file paths relative to the scan root. With multiple roots, use the
+   * package name and the path inside it, e.g. `@parity/product-sdk-tx/dist/index.js`.
+   *
+   * Fail if a package depends on the descriptors but no accesses are found, unless
+   * it is listed in READS_NOTHING. An empty scan could mean we missed an access pattern.
+   */
+  static scan(...dirs: string[]): RuntimeAccesses {
+    const packageOf = packageFinder();
+    const accesses: RuntimeAccess[] = [];
+    const scanByPackage = new Map<string, { pkg: Package; hasAccesses: boolean }>();
+    const multipleRoots = dirs.length > 1;
+
+    for (const dir of dirs) {
+      const root = path.resolve(dir);
+      const files = fs
+        .readdirSync(root, { recursive: true, encoding: "utf8" })
+        .filter(isScanned)
+        .sort();
+
+      for (const relativeFile of files) {
+        const file = path.join(root, relativeFile);
+        const pkg = packageOf(path.dirname(file));
+        if (!pkg) throw new Error(`${file}: no package.json above it`);
+        if (pkg.name === DESCRIPTORS) continue;
+
+        const fileReads = readsIn(file, fs.readFileSync(file, "utf8"));
+        const reportedFile = multipleRoots
+          ? path.join(pkg.name, path.relative(pkg.dir, file))
+          : relativeFile;
+
+        accesses.push(...fileReads.map((read) => ({ ...read, file: reportedFile })));
+
+        const packageScan = scanByPackage.get(pkg.name) ?? { pkg, hasAccesses: false };
+        packageScan.hasAccesses ||= fileReads.length > 0;
+        scanByPackage.set(pkg.name, packageScan);
+      }
+    }
+
+    for (const { pkg, hasAccesses } of scanByPackage.values()) {
+      if (pkg.dependsOnDescriptors && !READS_NOTHING.has(pkg.name) && !hasAccesses) {
+        throw new Error(`${pkg.name} depends on ${DESCRIPTORS} but no chain read was found in its files`);
+      }
+    }
+
+    return new RuntimeAccesses(accesses);
+  }
+
+  selectors(): Set<Selector> {
+    return new Set(this.accesses.map((access) => access.selector));
+  }
+
+  forChain(chain: ChainKey): RuntimeAccess[] {
+    return this.accesses.filter((access) => access.chain === chain);
+  }
+
+  /** Accesses for which the scanner couldn't identify a chain. */
+  unattributed(): RuntimeAccess[] {
+    return this.accesses.filter((access) => access.chain === null);
+  }
+}
