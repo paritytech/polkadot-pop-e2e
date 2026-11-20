@@ -124,15 +124,15 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       viem:
-        specifier: ^2.58.0
-        version: 2.58.0(typescript@7.0.2)
+        specifier: ^2.58.1
+        version: 2.58.1(typescript@7.0.2)
     devDependencies:
       '@parity/truapi':
         specifier: 0.31.0
         version: 0.31.0
       solc:
-        specifier: ^0.8.38
-        version: 0.8.38
+        specifier: ^0.8.39
+        version: 0.8.39
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -206,8 +206,8 @@ importers:
         specifier: ^3.3.0
         version: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
       smoldot:
-        specifier: 3.8.0
-        version: 3.8.0
+        specifier: 3.9.0
+        version: 3.9.0
       ws:
         specifier: ^8.23.0
         version: 8.23.0
@@ -1658,8 +1658,8 @@ packages:
   command-exists@1.2.9:
     resolution: {integrity: sha512-LTQ/SGc+s0Xc0Fu5WaKnR0YiygZkm9eKFvyS+fRsU7/ZWFF8ykFM6Pc9aCVf1+xasOOZpO3BAVgVrKvsqKHV7w==}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
     engines: {node: '>=22.12.0'}
 
   commander@8.3.0:
@@ -1745,8 +1745,8 @@ packages:
     resolution: {integrity: sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg==}
     engines: {node: '>=18'}
 
-  follow-redirects@1.16.2:
-    resolution: {integrity: sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==}
+  follow-redirects@1.16.3:
+    resolution: {integrity: sha512-toOSoqN6d51Wjf1aOFJYcoVv1aND9rj/CwjLU0Vz40oDuSpWDayCeKe4JpL5NL0WdFvoOOCI3BRo69HahjbR1A==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -2015,12 +2015,12 @@ packages:
   scale-ts@1.6.1:
     resolution: {integrity: sha512-PBMc2AWc6wSEqJYBDPcyCLUj9/tMKnLX70jLOSndMtcUoLQucP/DM0vnQo1wJAYjTrQiq8iG9rD0q6wFzgjH7g==}
 
-  semver@5.7.2:
-    resolution: {integrity: sha512-cBznnQ9KjJqU67B52RMC65CMarK2600WFnbkcaiwWq3xy/5haFJlshgnpjovMVJ+Hff49d8GEn0b87C5pDQ10g==}
+  semver@5.7.3:
+    resolution: {integrity: sha512-kM18BPOqTi0+TB68703/GJRpAML5Me+IDQsR1J26YB3EFKKNEyHIVZuWDX7+WKQB3tHwDwgk24BfhdpWUbytvQ==}
     hasBin: true
 
-  semver@7.8.5:
-    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
+  semver@7.8.6:
+    resolution: {integrity: sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -2045,11 +2045,11 @@ packages:
   smoldot@3.7.0:
     resolution: {integrity: sha512-49/jSn4hVysTu6SL8wTk6JRedG1GhxgDkxQ9hEC9gKMadZvWIoxgBVS2N8OQn4UTpWAd3hpifiBh8tRYPh8EkQ==}
 
-  smoldot@3.8.0:
-    resolution: {integrity: sha512-6howyfV6laaGTCyThK9AtvAhNYx724xZ0GJTlIfWcIpnye/frzVKKXUwdriY26DxrdZFa9/YqG5eIt3bBWPBog==}
+  smoldot@3.9.0:
+    resolution: {integrity: sha512-imprcbUvJdGk1Jxcn4CFlp6JrY0JY4NmvjhvlnoOSfMCQhzS8hPTpVhXEYkdG07LBoLVPlxWqZVckOvGVHOdBA==}
 
-  solc@0.8.38:
-    resolution: {integrity: sha512-DsDLa7uACQVVkE0DYNnUGC49b/yuCJ9ymWlcCEwmaJGcETPC6pTC+BXaRK9ADW8YVeMyxEKUtJsUwRAIG28jtQ==}
+  solc@0.8.39:
+    resolution: {integrity: sha512-DZgQzDMLd0U+DhaIi9o+W1Kb1GxySJgQRVRHMhbSzfQ5sp6a8sA8ePiAc9ZbgzUxGclUJtjFGcuiGF5X0pt4YA==}
     engines: {node: '>=16.0.0'}
     hasBin: true
 
@@ -2057,9 +2057,9 @@ packages:
     resolution: {integrity: sha512-aSbHV0DaBcr7u0PVHXzM6NbZNAtrr9sF6+Qfs9UUVG7Ll3jQ6hHi8F/xqIIcn2rvIVbr0v/2zyjSdwSV47AgLQ==}
     engines: {node: '>=12'}
 
-  source-map-js@1.2.2:
-    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
-    engines: {node: '>=0.10.0'}
+  source-map-js@1.2.4:
+    resolution: {integrity: sha512-J7ZjMvHd9O1fcT/5V09QWaaSl2BbWx3F6O08spde82Namf9UB0GxRVIPiNbVsdKkoizHiSpTodo3vp2bAy91MA==}
+    engines: {node: '>=6.0.0'}
 
   spdx-correct@3.2.0:
     resolution: {integrity: sha512-kN9dJbvnySHULIluDHy32WHRUu3Og7B9sbY7tsFLctQkIqnMh3hErYgdMjTYuqmcXX+lK5T1lnUt3G7zNswmZA==}
@@ -2184,8 +2184,8 @@ packages:
   verifiablejs@1.6.0:
     resolution: {integrity: sha512-JFkmQQsf4NHNng10cUl+0G+Hkb0W722r7BbDI7iheXG3o3Ux0XawNKYxh3rXiBmUCbRw3AcZHx+Rcw1a+xW6GQ==}
 
-  viem@2.58.0:
-    resolution: {integrity: sha512-oBGZGy6VptLmAATtEua71a7FzCXT5y74dQoeDP8EDHmBsWhQ34rXeHKz6tHeciKWnJ3zBT1u8sby8tAtg0gouA==}
+  viem@2.58.1:
+    resolution: {integrity: sha512-8qzo5+rbG4Sr9/MvUit9g0r/0H25suExk5WEBOzqXoTu7nYfm8EpgCTtpqQAlu8HkBmz96clZHfN7RkXKT3a1g==}
     peerDependencies:
       mppx: '>=0.17.0'
       typescript: '>=5.0.4'
@@ -2352,9 +2352,9 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.29.7': {}
 
-  '@commander-js/extra-typings@15.0.0(commander@15.0.0)':
+  '@commander-js/extra-typings@15.0.0(commander@15.1.0)':
     dependencies:
-      commander: 15.0.0
+      commander: 15.1.0
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
@@ -2738,7 +2738,7 @@ snapshots:
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd-helpers': 0.0.30
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
-      viem: 2.58.0(typescript@7.0.2)
+      viem: 2.58.1(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2926,7 +2926,7 @@ snapshots:
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
-      viem: 2.58.0(typescript@7.0.2)
+      viem: 2.58.1(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -3055,7 +3055,7 @@ snapshots:
 
   '@polkadot-api/cli@0.21.10(esbuild@0.28.2)':
     dependencies:
-      '@commander-js/extra-typings': 15.0.0(commander@15.0.0)
+      '@commander-js/extra-typings': 15.0.0(commander@15.1.0)
       '@polkadot-api/codegen': 0.22.5
       '@polkadot-api/ink-contracts': 0.6.3
       '@polkadot-api/json-rpc-provider': 0.2.0
@@ -3071,7 +3071,7 @@ snapshots:
       '@polkadot-api/ws-middleware': 0.3.6(rxjs@7.8.2)
       '@polkadot-api/ws-provider': 0.9.1(rxjs@7.8.2)
       '@types/node': 25.9.9
-      commander: 15.0.0
+      commander: 15.1.0
       execa: 9.6.1
       fs.promises.exists: 1.1.4
       ora: 9.4.1
@@ -3090,7 +3090,7 @@ snapshots:
 
   '@polkadot-api/cli@0.22.5(esbuild@0.28.2)':
     dependencies:
-      '@commander-js/extra-typings': 15.0.0(commander@15.0.0)
+      '@commander-js/extra-typings': 15.0.0(commander@15.1.0)
       '@polkadot-api/codegen': 0.23.2
       '@polkadot-api/ink-contracts': 0.7.2
       '@polkadot-api/json-rpc-provider': 0.2.0
@@ -3106,7 +3106,7 @@ snapshots:
       '@polkadot-api/ws-middleware': 0.4.2(rxjs@7.8.2)
       '@polkadot-api/ws-provider': 0.9.2(rxjs@7.8.2)
       '@types/node': 26.6.6
-      commander: 15.0.0
+      commander: 15.1.0
       execa: 10.2.1
       fs.promises.exists: 1.1.4
       ora: 9.4.1
@@ -4130,7 +4130,7 @@ snapshots:
 
   command-exists@1.2.9: {}
 
-  commander@15.0.0: {}
+  commander@15.1.0: {}
 
   commander@8.3.0: {}
 
@@ -4238,7 +4238,7 @@ snapshots:
     dependencies:
       is-unicode-supported: 2.1.0
 
-  follow-redirects@1.16.2: {}
+  follow-redirects@1.16.3: {}
 
   formdata-polyfill@4.0.10:
     dependencies:
@@ -4360,13 +4360,13 @@ snapshots:
   normalize-package-data@6.0.2:
     dependencies:
       hosted-git-info: 7.0.2
-      semver: 7.8.5
+      semver: 7.8.6
       validate-npm-package-license: 3.0.4
 
   normalize-package-data@8.0.0:
     dependencies:
       hosted-git-info: 9.0.3
-      semver: 7.8.5
+      semver: 7.8.6
       validate-npm-package-license: 3.0.4
 
   npm-run-path@6.0.0:
@@ -4485,7 +4485,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.20
       picocolors: 1.1.1
-      source-map-js: 1.2.2
+      source-map-js: 1.2.4
 
   pretty-ms@9.3.1:
     dependencies:
@@ -4644,9 +4644,9 @@ snapshots:
 
   scale-ts@1.6.1: {}
 
-  semver@5.7.2: {}
+  semver@5.7.3: {}
 
-  semver@7.8.5: {}
+  semver@7.8.6: {}
 
   shebang-command@2.0.0:
     dependencies:
@@ -4678,21 +4678,21 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  smoldot@3.8.0:
+  smoldot@3.9.0:
     dependencies:
       ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  solc@0.8.38:
+  solc@0.8.39:
     dependencies:
       command-exists: 1.2.9
       commander: 8.3.0
-      follow-redirects: 1.16.2
+      follow-redirects: 1.16.3
       js-sha3: 0.8.0
       memorystream: 0.3.1
-      semver: 5.7.2
+      semver: 5.7.3
       tmp: 0.2.6
     transitivePeerDependencies:
       - debug
@@ -4701,7 +4701,7 @@ snapshots:
     dependencies:
       is-plain-obj: 4.1.0
 
-  source-map-js@1.2.2: {}
+  source-map-js@1.2.4: {}
 
   spdx-correct@3.2.0:
     dependencies:
@@ -4825,7 +4825,7 @@ snapshots:
 
   verifiablejs@1.6.0: {}
 
-  viem@2.58.0(typescript@7.0.2):
+  viem@2.58.1(typescript@7.0.2):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
