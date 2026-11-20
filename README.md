@@ -107,12 +107,11 @@ Three ways to start one:
   People on Westend has no sudo, so its runtime is authorized when the fork is
   bitten and applied by the engine once the fork runs.
 
-When a run fails, its summary also says which runtime change most likely caused
-it. That is a diff of the forked runtime against the candidate, limited to what
-product-sdk uses, with each failing test placed next to the entry its error names.
+Each run's summary also has a metadata check: the candidate runtime against the
+live one, limited to what product-sdk uses, naming each change that breaks it.
 
 See [`environments/README.md`](environments/README.md) for how manifests, the
-release map, the candidate matrix and the runtime diff work.
+release map, the candidate matrix and the metadata check work.
 
 ### Testing a runtime change against an unreleased product-sdk or truapi fix
 

@@ -44,7 +44,7 @@ jobs:
       - name: Unit tests (release map, resolver, gate form)
         run: pnpm test:environments
 
-      - name: Typecheck the runtime diff
+      - name: Typecheck the metadata check
         run: pnpm typecheck:environments
 
       - name: Typecheck the suite

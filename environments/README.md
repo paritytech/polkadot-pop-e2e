@@ -60,26 +60,25 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
   STACK=http://127.0.0.1:8090/.well-known/trinity-stack.json pnpm --filter @pop-e2e/chain-tests test:network-health
   ```
 
-## The runtime diff
+## The metadata check
 
-A failing run names the tests that failed; the runtime diff says which runtime change most likely did it. The code is in [`runtime-diff/`](./runtime-diff). Before the upgrade, while the fork still runs the code it took from live, `capture.ts` reads each chain's `:code` from the fork and the candidate blob, takes both metadata with the wasm executor, and compares them on the surface the SDK depends on:
+A failing run names the tests that failed; the metadata check says which runtime change can break product-sdk. The code is in [`meta-check/`](./meta-check), and [`meta-check/README.md`](./meta-check/README.md) describes its types and flow.
 
-- **Entries** (`entries.ts`): calls, storage, constants, events, runtime APIs and view functions in the pinned `@parity/product-sdk-descriptors`, for the descriptor chain whose endpoint matches the release map's. Each is graded by polkadot-api's own compatibility check, descriptor against live and then against the candidate. polkadot-api checks an entry only when it is used, so only entries the scan finds the SDK's shipped code reading (★) are graded breaking. Such an entry is **breaking** when polkadot-api now refuses it outright (`Incompatible`, where live was better), and **may fail for some values** when it now checks each value (`Partial`): a new variant in a returned value, or a removed one in an argument, fails while other values still work. Everything else is **other**. The ★ scan does not follow aliases (`const query = api.query.Game`), so the SDK can read more than ★ shows.
-- **Transaction extensions** (`extensions.ts`), per extension version: added, removed, reordered or retyped extensions, and extensions that moved between versions (`AsPerson, … moved from v0 to v1`). A removed pipeline, or a reordered extension, is breaking. So is an added or removed extension, unless its type and additional-signed are both empty and polkadot-api's signer fills it by itself. A retyped extension is breaking when polkadot-api no longer accepts every value of the old type (below `BackwardsCompatible`).
-- **SDK surfaces the candidate no longer has** (`sdk.ts`): selectors such as `query:NetworkSuffix.NetworkSuffix`, found by scanning the installed product-sdk packages, on chains that have that pallet at all.
+Before the upgrade, while the fork still runs the code it took from live, `capture live` reads each upgraded chain's `:code` from the fork, and `capture candidate` takes the candidate blobs from the upgrade plan. After the tests, `report` builds the SDK's requirements from the pinned `@parity/product-sdk-descriptors` (the descriptor chain whose endpoint matches the release map's) and the reads and writes found by scanning the installed SDK code. It checks both runtimes against those requirements with polkadot-api's compatibility check, and grades each entry and transaction-extension pipeline: an entry polkadot-api would not accept for every value (below `BackwardsCompatible`) on the candidate is **breaking** when live fit better, and **pre-existing** when live fit no better; everything else is **ok**. Chains the SDK does not read (the relay) are skipped.
 
-After the tests, `report.ts` reads the junit results and puts each failing test next to what its error names (`links.ts`): an entry or SDK surface (`Incompatible runtime entry Tx(Game.sign_up)`), or a breaking extension change when the error names the extension or says the transaction was rejected. A test is not linked to a change from a static guess at what it reaches. When the run failed and something breaks the SDK (a breaking entry, a gone SDK surface, a breaking extension change, or any entry a failing test's error names), the summary links a prefilled `runtime-break` issue on [paritytech/product-sdk](https://github.com/paritytech/product-sdk), which is the issue the Runtime Release Contract asks for. Nothing is filed automatically: a person opens the link. The report goes to the job summary, and `diff.json`, `report.json`, `report.md` and both sides' metadata go to the `release-gate-runtime-diff-<network>-<candidate>` artifact. Neither step can fail the gate.
+The report goes to the job summary, and `report.md`, `report.json` and both sides' runtimes go to the `release-gate-meta-check-<network>-<candidate>` artifact. Neither step can fail the gate.
 
 vitest writes `test-results/junit.xml` again on every run, and the gate runs a manifest's test scripts one after another. [`run-chain-tests.sh`](./run-chain-tests.sh) renames it to `junit-<script>.xml` after each script, so no script's results replace another's.
-
-Chains without SDK descriptors (the relay, web3-storage) get the extension comparison only. `metadata.ts` is copied from Runtime Watch ([paritytech/velocity](https://paritytech.github.io/velocity/runtime-watch/)), which has no package to call.
 
 The code is TypeScript, run with `tsx` and checked with `pnpm typecheck:environments`. Locally, against a running fork or any RPC:
 
 ```bash
-pnpm exec tsx environments/runtime-diff/capture.ts environments/networks/previewnet.json upgrades.env \
-  --ports ppn/config/ports.env --out runtime-diff        # or --rpc people=https://…,asset-hub=./live.wasm
-pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json --junit packages/chain-tests/test-results
+cli=environments/meta-check/cli/main.ts
+pnpm exec tsx $cli capture live --out meta-check --ports ppn/config/ports.env --chains-from upgrades.env
+                                                    # or --rpc people=https://…
+pnpm exec tsx $cli capture candidate --out meta-check --plan upgrades.env
+                                                    # or --release paseo-network/runtimes@v2.4.4 --network previewnet
+pnpm exec tsx $cli report --in meta-check --sdk packages/chain-tests --network previewnet
 ```
 
 ## Advisory workflow calls

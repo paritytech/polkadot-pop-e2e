@@ -717,14 +717,19 @@ jobs:
 
       # Before the upgrade: the last point the fork still runs live's code. The bite's
       # chains count too: the engine's enactment waits out the relay's upgrade delay.
-      # Diagnosis only, never fails the gate; environments/README.md explains the diff.
-      - name: Capture the runtime diff
+      # Diagnosis only, never fails the gate; environments/README.md explains the check.
+      - name: Capture the runtimes for the metadata check
         continue-on-error: true
         timeout-minutes: 10
         run: |
           cat upgrades.env bite-upgrades.env > diff-plan.env
-          pnpm exec tsx environments/runtime-diff/capture.ts "$MANIFEST" diff-plan.env \
-            --ports ppn/config/ports.env --out runtime-diff --tests-dir packages/chain-tests
+          # Both sides, even when one fails: capture keeps every chain it could read.
+          rc=0
+          pnpm exec tsx environments/meta-check/cli/main.ts capture live --out meta-check \
+            --ports ppn/config/ports.env --chains-from diff-plan.env || rc=1
+          pnpm exec tsx environments/meta-check/cli/main.ts capture candidate --out meta-check \
+            --plan diff-plan.env || rc=1
+          exit $rc
 
       # The engine's enact-upgrades process applies what the bite authorized, through
       # the relay's PVF pre-check and go-ahead, so this waits for the chain to report
@@ -822,27 +827,24 @@ jobs:
           mapfile -t tests < <(node environments/resolve.mjs tests "$MANIFEST")
           environments/run-chain-tests.sh packages/chain-tests/test-results "${tests[@]}"
 
-      # Puts each failing test next to the diff entries its error names and, when the run
-      # failed on a change that breaks the SDK, links a prefilled `runtime-break` issue
-      # on product-sdk. Runs after a refused upgrade too, when there are no test
-      # results but the diff still says what the chain was offered.
-      - name: Explain the run against the runtime diff
+      # Grades each runtime entry and extension pipeline product-sdk uses, live against
+      # the candidate. Runs after a refused upgrade too: the check needs no test results.
+      - name: Check the candidate's metadata against product-sdk
         if: always()
         continue-on-error: true
         env:
-          OUTCOME: ${{ job.status }}
-          TITLE: ${{ matrix.candidate.manifest.network }} · ${{ matrix.candidate.id }}
+          NETWORK_NAME: ${{ matrix.candidate.manifest.network }}
         run: |
-          pnpm exec tsx environments/runtime-diff/report.ts runtime-diff/diff.json \
-            --junit packages/chain-tests/test-results \
-            --outcome "$OUTCOME" --title "$TITLE" >> "$GITHUB_STEP_SUMMARY"
+          [ -f meta-check/candidate.env ] || { echo "no runtimes captured; nothing to check"; exit 0; }
+          pnpm exec tsx environments/meta-check/cli/main.ts report --in meta-check \
+            --sdk packages/chain-tests --network "$NETWORK_NAME" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the runtime diff
+      - name: Upload the metadata check
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-gate-runtime-diff-${{ matrix.candidate.manifest.network }}-${{ matrix.candidate.id }}
-          path: runtime-diff/
+          name: release-gate-meta-check-${{ matrix.candidate.manifest.network }}-${{ matrix.candidate.id }}
+          path: meta-check/
           retention-days: 7
           if-no-files-found: ignore
 

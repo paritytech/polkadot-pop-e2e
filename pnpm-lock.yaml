@@ -39,12 +39,18 @@ importers:
       fzstd:
         specifier: ^0.1.1
         version: 0.1.1
+      polkadot-api:
+        specifier: ^3.3.0
+        version: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
       tsx:
         specifier: ^4.21.0
         version: 4.23.15
       typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
+        specifier: ^5.9.3
+        version: 5.9.3
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/chain-tests:
     dependencies:
@@ -59,13 +65,13 @@ importers:
         version: 0.5.0(multiformats@14.0.6)(polkadot-api@3.3.0(esbuild@0.28.2)(rxjs@7.8.2))
       '@parity/product-sdk':
         specifier: 0.45.0
-        version: 0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)
+        version: 0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-cloud-storage':
         specifier: 0.13.10
         version: 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-contracts':
         specifier: 0.11.10
-        version: 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)
+        version: 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-individuality':
         specifier: 0.11.7
         version: 0.11.7(esbuild@0.28.2)(rxjs@7.8.2)
@@ -125,7 +131,7 @@ importers:
         version: 1.6.0
       viem:
         specifier: ^2.58.0
-        version: 2.58.0(typescript@7.0.2)
+        version: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     devDependencies:
       '@parity/truapi':
         specifier: 0.31.0
@@ -2137,6 +2143,11 @@ packages:
     resolution: {integrity: sha512-NoSdpq/WEiAg5sjmBkmV/hfxv6HJH4NqPNrqjtSO5CwRmpsDfaf4begxW34KdJykH/l1yHtwBWQkCRdoXO8mPA==}
     engines: {node: '>=20'}
 
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -2339,6 +2350,9 @@ packages:
   yoctocolors@2.2.0:
     resolution: {integrity: sha512-xYqdZFUK/VYazNl/oCDYN+3WloWQwMfZxBoiNt6qNyk+xfOdi598muWE42rNZFp1kNOiqW936q5RhUdnpqElSg==}
     engines: {node: '>=18'}
+
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
@@ -2726,7 +2740,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@parity/product-sdk-contracts@0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)':
+  '@parity/product-sdk-contracts@0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
       '@parity/product-sdk-errors': 0.2.0
@@ -2738,7 +2752,7 @@ snapshots:
       '@polkadot-api/signers-common': 0.4.0(rxjs@7.8.2)
       '@polkadot-labs/hdkd-helpers': 0.0.30
       polkadot-api: 3.3.0(esbuild@0.28.2)(rxjs@7.8.2)
-      viem: 2.58.0(typescript@7.0.2)
+      viem: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -2920,13 +2934,13 @@ snapshots:
     dependencies:
       '@parity/truapi': 0.31.0
 
-  '@parity/product-sdk-reputation@0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)':
+  '@parity/product-sdk-reputation@0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
-      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)
+      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
-      viem: 2.58.0(typescript@7.0.2)
+      viem: 2.58.0(typescript@7.0.2)(zod@4.6.7)
     transitivePeerDependencies:
       - bufferutil
       - esbuild
@@ -3007,12 +3021,12 @@ snapshots:
       '@noble/hashes': 2.4.0
       '@parity/product-sdk-logger': 0.1.2
 
-  '@parity/product-sdk@0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)':
+  '@parity/product-sdk@0.45.0(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)':
     dependencies:
       '@parity/product-sdk-address': 0.3.1
       '@parity/product-sdk-chain-client': 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-cloud-storage': 0.13.10(esbuild@0.28.2)(rxjs@7.8.2)
-      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)
+      '@parity/product-sdk-contracts': 0.11.10(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-crypto': 0.1.1
       '@parity/product-sdk-errors': 0.2.0
       '@parity/product-sdk-host': 0.34.0(esbuild@0.28.2)(rxjs@7.8.2)
@@ -3022,7 +3036,7 @@ snapshots:
       '@parity/product-sdk-logger': 0.1.2
       '@parity/product-sdk-nfts': 0.4.1
       '@parity/product-sdk-renderer': 0.12.0
-      '@parity/product-sdk-reputation': 0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)
+      '@parity/product-sdk-reputation': 0.1.3(esbuild@0.28.2)(rxjs@7.8.2)(typescript@7.0.2)(zod@4.6.7)
       '@parity/product-sdk-signer': 0.17.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/product-sdk-tx': 0.5.10(esbuild@0.28.2)(rxjs@7.8.2)
       '@parity/result': 0.2.0
@@ -4108,9 +4122,10 @@ snapshots:
 
   '@vitest/spy@5.1.1': {}
 
-  abitype@1.2.3(typescript@7.0.2):
+  abitype@1.2.3(typescript@7.0.2)(zod@4.6.7):
     optionalDependencies:
       typescript: 7.0.2
+      zod: 4.6.7
 
   ansi-regex@6.4.0: {}
 
@@ -4391,7 +4406,7 @@ snapshots:
       stdin-discarder: 0.3.2
       string-width: 8.3.0
 
-  ox@0.14.67(typescript@7.0.2):
+  ox@0.14.67(typescript@7.0.2)(zod@4.6.7):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -4399,7 +4414,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@7.0.2)
+      abitype: 1.2.3(typescript@7.0.2)(zod@4.6.7)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 7.0.2
@@ -4765,6 +4780,8 @@ snapshots:
     dependencies:
       tagged-tag: 1.0.0
 
+  typescript@5.9.3: {}
+
   typescript@6.0.3: {}
 
   typescript@7.0.2:
@@ -4825,15 +4842,15 @@ snapshots:
 
   verifiablejs@1.6.0: {}
 
-  viem@2.58.0(typescript@7.0.2):
+  viem@2.58.0(typescript@7.0.2)(zod@4.6.7):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@7.0.2)
+      abitype: 1.2.3(typescript@7.0.2)(zod@4.6.7)
       isows: 1.0.7(ws@8.21.0)
-      ox: 0.14.67(typescript@7.0.2)
+      ox: 0.14.67(typescript@7.0.2)(zod@4.6.7)
       ws: 8.21.0
     optionalDependencies:
       typescript: 7.0.2
@@ -4916,3 +4933,5 @@ snapshots:
     optional: true
 
   yoctocolors@2.2.0: {}
+
+  zod@4.6.7: {}

@@ -15,6 +15,9 @@
     ]
   },
   "include": [
-    "runtime-diff/*.ts"
+    "meta-check/**/*.ts"
+  ],
+  "exclude": [
+    "meta-check/fixtures"
   ]
 }
