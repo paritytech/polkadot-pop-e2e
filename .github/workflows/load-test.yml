@@ -68,10 +68,11 @@ on:
 permissions:
   contents: read
 
-# A game run lasts until its game closes; a replay doesn't wait behind it, nor a game behind
-# making lite people, which takes hours.
+# Only one run makes a network's lite people at a time. Game runs don't queue: a run's chain job
+# stays on after its game for reports, claims and the summary, which would hold back the next
+# game's sign-ups, and a later game's run signs its bots up after the earlier game has closed.
 concurrency:
-  group: load-test-${{ inputs.network }}-${{ inputs.people_only && 'people' || inputs.replay_at == '' && 'game' || 'replay' }}
+  group: load-test-${{ inputs.network }}-${{ inputs.people_only && 'people' || github.run_id }}
   cancel-in-progress: false
 
 env:
