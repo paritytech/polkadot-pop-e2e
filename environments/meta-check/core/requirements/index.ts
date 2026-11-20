@@ -1,7 +1,3 @@
-// R: what the SDK needs from each chain, 
-// - > joining what its code reads (U) with what its & 
-// descriptors expect (D).
-//
 // A read that names its chain (`chain.individuality...`) belongs to that chain. One that
 // does not (`api.tx.Coinage.transfer`) belongs to every chain whose descriptor has the
 // pallet: `Coinage` only exists on People, while `System` lands on every chain.

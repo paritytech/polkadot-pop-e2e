@@ -1,5 +1,5 @@
-// buildRequirements with the descriptors in fixtures/ (see fixtures/README.md) and
-// runtime accesses scanned from small packages written for each test. Skipped without fixtures.
+// Tests use fixture descriptors and small SDK packages written for each test.
+// Fixture setup: see Testing in meta-check/README.md.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

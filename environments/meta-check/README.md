@@ -42,9 +42,6 @@ This tool checks metadata compatibility, not runtime behavior. A runtime upgrade
 See [Technical design](DESIGN.md) for how each step works, including which access patterns the scanner detects and which it misses.
 
 
-
-
-
 # Q&A
 ## Why not just run TSC?
 
@@ -85,3 +82,42 @@ Verdict:   breaking
 ```
 
 It catches the mismatch between what the **existing SDK expects** and what the candidate runtime provides.
+
+## Testing
+
+Run `pnpm test:environments` from the repository root after installing dependencies. Tests that use real runtimes and SDK sources are skipped when `environments/meta-check/fixtures/` is absent.
+
+To run those tests too, populate the ignored fixture directory using Git, the GitHub CLI, and npm. The SDK source tags don't include the `.scale` files, so use the pinned metadata from the published descriptor packages rather than regenerating it from a live chain.
+
+```sh
+fixtures="$PWD/environments/meta-check/fixtures"
+mkdir -p "$fixtures"
+
+download_runtime() {
+  gh release download "$1" --repo paritytech/individuality-community \
+    --pattern 'next_people_paseo_runtime.compact.compressed.wasm' \
+    --pattern 'next_asset_hub_paseo_runtime.compact.compressed.wasm' \
+    --dir "$fixtures/runtime-$2"
+}
+download_runtime v0.3.1 0.3.1
+download_runtime v0.3.4 0.3.4
+download_runtime nightly-2026-10-29-3004007 nightly-3004007
+
+git clone --depth 1 --branch '@parity/product-sdk@0.28.0' \
+  https://github.com/paritytech/product-sdk.git "$fixtures/product-sdk-0.28.0"
+git clone --depth 1 --branch '@parity/product-sdk@0.42.0' \
+  https://github.com/paritytech/product-sdk.git "$fixtures/product-sdk-0.42.0"
+
+extract_descriptors() {
+  descriptors="$fixtures/product-sdk-$1/product-sdk/packages/descriptors"
+  archive=$(npm pack --ignore-scripts --loglevel=error --pack-destination "$fixtures" \
+    "@parity/product-sdk-descriptors@$2") || return
+  tar -xf "$fixtures/$archive" -C "$descriptors" --strip-components 1 \
+    package/chains/paseo-individuality/generated/dist \
+    package/chains/paseo-asset-hub/generated/dist
+}
+extract_descriptors 0.28.0 0.12.0
+extract_descriptors 0.42.0 0.14.0
+
+pnpm test:environments
+```

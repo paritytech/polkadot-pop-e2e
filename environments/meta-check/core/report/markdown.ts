@@ -33,6 +33,8 @@ const count = (report: Report, verdict: Verdict): number =>
 const lockViolations = (report: Report): PipelineFinding[] =>
   report.pipelines.filter((pipeline) => violatesVersionLock(pipeline.change));
 const violationCount = (violations: number): string => `${violations} version-lock violation${violations === 1 ? "" : "s"}`;
+const pipelineMark = (pipeline: PipelineFinding): string =>
+  violatesVersionLock(pipeline.change) ? MARK.breaking : MARK[pipeline.verdict];
 
 /** `a.ts:292`, `:318`, `b.ts:132`: a file named once per run of accesses in it. */
 function readAt(accesses: RuntimeAccess[]): string {
@@ -225,7 +227,8 @@ function pipelineChangeLine(finding: PipelineFinding): string {
       : change.status === "removed"
         ? [`gone; live had ${extensions(change.removed)}`]
         : inPlaceChanges(change);
-  return `- ${MARK[finding.verdict]} Transaction extensions v${change.version}: ${what.join("; ")}`;
+  const warning = violatesVersionLock(change) ? " (version-lock violation)" : "";
+  return `- ${pipelineMark(finding)} Transaction extensions v${change.version}: ${what.join("; ")}${warning}`;
 }
 
 /** Which extrinsic versions the candidate stopped or started accepting. No grade, so no verdict. */
@@ -243,10 +246,10 @@ function changes(report: Report): string[] {
   const pipelines = report.pipelines.filter((f) => f.change);
   const { extrinsicVersions } = report;
   if (entries.length + pipelines.length === 0 && !extrinsicVersions) return [];
-  // An extension has no verdict of its own: its version's is the one that covers it.
+  // Each extension row uses its pipeline's mark.
   const extensionRows = pipelines.flatMap((f) =>
     (f.change?.retyped ?? []).flatMap((extension) =>
-      typeRows(`${MARK[f.verdict]} v${f.version} ${code(extension.identifier)}`, extension.types, extension.truncated),
+      typeRows(`${pipelineMark(f)} v${f.version} ${code(extension.identifier)}`, extension.types, extension.truncated),
     ),
   );
   const tableRows = [...entries.flatMap(entryChangeRows), ...extensionRows];
@@ -330,13 +333,14 @@ export default function renderMarkdown(run: Run): string {
     headline,
     "",
     ...(notes.length > 0 ? [...notes, ""] : []),
-    "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🟡 Pre-existing | 🟢 OK |",
-    "|---|---|---|---|---|",
-    ...run.reports.map(
-      (r) =>
-        `| ${CHAIN[r.chain]} | ${r.live.specVersion} → ${r.candidate.specVersion} | ` +
-        `${count(r, "breaking")} | ${count(r, "pre-existing")} | ${count(r, "ok")} |`,
-    ),
+    "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🔴 Version lock | 🟡 Pre-existing | 🟢 OK |",
+    "|---|---|---|---|---|---|",
+    ...run.reports.map((r) => {
+      const violations = lockViolations(r);
+      const ok = count(r, "ok") - violations.filter((pipeline) => pipeline.verdict === "ok").length;
+      return `| ${CHAIN[r.chain]} | ${r.live.specVersion} → ${r.candidate.specVersion} | ` +
+        `${count(r, "breaking")} | ${violations.length} | ${count(r, "pre-existing")} | ${ok} |`;
+    }),
     "",
     ...run.reports.flatMap(chainSection),
     ...unplaced(run.unplaced),

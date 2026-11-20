@@ -41,7 +41,7 @@ describe("forkRpc", () => {
   });
 });
 
-// Real runtimes from fixtures/ (see fixtures/README.md): capture opens every blob. Skipped without them.
+// Fixture setup: see Testing in meta-check/README.md.
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
 

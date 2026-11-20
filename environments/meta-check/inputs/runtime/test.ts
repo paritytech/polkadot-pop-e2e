@@ -1,4 +1,4 @@
-// Runtime against the release runtimes in fixtures/ (see fixtures/README.md); skipped without them.
+// Fixture setup: see Testing in meta-check/README.md.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

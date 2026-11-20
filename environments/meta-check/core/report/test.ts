@@ -114,8 +114,8 @@ describe("renderMarkdown", () => {
     );
     const lines = markdown.split("\n");
     assert.equal(lines[0], "### 🔴 Metadata check: 1 breaking change for the product-sdk");
-    assert.ok(lines.includes("| People | 1 → 2 | 1 | 1 | 2 |"));
-    assert.ok(lines.includes("| Asset Hub | 1 → 2 | 0 | 0 | 1 |"));
+    assert.ok(lines.includes("| People | 1 → 2 | 1 | 0 | 1 | 2 |"));
+    assert.ok(lines.includes("| Asset Hub | 1 → 2 | 0 | 0 | 0 | 1 |"));
     assert.ok(lines.includes("#### People: 1 breaking"));
     // A chain with nothing to show gets no section.
     assert.ok(!lines.some((line) => line.startsWith("#### Asset Hub")));
@@ -229,10 +229,12 @@ describe("renderMarkdown", () => {
     );
     const lines = markdown.split("\n");
     assert.equal(lines[0], "### 🔴 Metadata check: 1 version-lock violation");
-    assert.ok(lines.includes("| People | 1 → 2 | 0 | 0 | 1 |"));
+    assert.ok(lines.includes("| People | 1 → 2 | 0 | 1 | 0 | 0 |"));
     assert.ok(lines.includes("#### People: 1 version-lock violation"));
     const at = lines.indexOf("**Transaction extensions v1: changed in place** (existing versions must stay unchanged)  ");
     assert.deepEqual(lines.slice(at + 1, at + 6), ["Removes `B`  ", "Adds `D`  ", "Reorders the rest  ", "Retypes `C`  ", ""]);
+    assert.ok(lines.includes("- 🔴 Transaction extensions v1: removes `B`; adds `D`; reorders the rest; retypes `C` (version-lock violation)"));
+    assert.ok(lines.includes("| 🔴 v1 `C` | `type` | `u32` | `u64` |"));
   });
 
   it("counts a version that breaks the SDK and changed in place as both, in one block", () => {
@@ -251,6 +253,8 @@ describe("renderMarkdown", () => {
     );
     const lines = markdown.split("\n");
     assert.equal(lines[0], "### 🔴 Metadata check: 2 breaking changes for the product-sdk, 2 version-lock violations");
+    assert.ok(lines.includes("| People | 1 → 2 | 2 | 1 | 0 | 0 |"));
+    assert.ok(lines.includes("| Asset Hub | 1 → 2 | 0 | 1 | 0 | 0 |"));
     assert.ok(lines.includes("#### People: 2 breaking, 1 version-lock violation"));
     assert.ok(lines.includes("#### Asset Hub: 1 version-lock violation"));
     const block = lines.slice(lines.indexOf("**Transaction extensions v0: breaking** (Identical → Incompatible)  "));
@@ -276,6 +280,7 @@ describe("renderMarkdown", () => {
     );
     assert.ok(markdown.startsWith("### 🟢 Metadata check: no breaking change for the product-sdk\n"));
     assert.ok(markdown.includes("#### People\n"));
+    assert.ok(markdown.includes("| People | 1 → 2 | 0 | 0 | 0 | 3 |"));
     assert.ok(!markdown.includes("version-lock") && !markdown.includes("changed in place"));
   });
 
@@ -320,7 +325,7 @@ describe("renderMarkdown", () => {
     assert.deepEqual(section.slice(0, section.indexOf("</details>")).split("\n"), [
       "<details><summary>What changed between live and candidate (2 entries, 2 extension versions)</summary>",
       "",
-      "- 🔴 Transaction extensions v0: removes `B`; adds `D`; reorders the rest; retypes `C`",
+      "- 🔴 Transaction extensions v0: removes `B`; adds `D`; reorders the rest; retypes `C` (version-lock violation)",
       "- 🟢 Transaction extensions v1: new, with `A`, `B`",
       "",
       "| Entry / extension | Where | Live | Candidate |",
@@ -328,7 +333,6 @@ describe("renderMarkdown", () => {
       "| 🟢 `query:Game.Players` | `output.a` | — | `u32` |",
       "|  | `output.b` | — | `u32` |",
       "| 🔴 `constants:Game.Gone` (removed) | `output` | `enum { A, B }` | — |",
-      // The extension's row has its version's verdict: it has none of its own.
       "| 🔴 v0 `C` | `type` | `u32` | `Option<u32>` |",
       "",
     ]);
@@ -388,7 +392,7 @@ describe("renderMarkdown", () => {
       ),
     );
     assert.ok(markdown.includes("<details><summary>What changed between live and candidate (1 extension version)</summary>"));
-    assert.ok(markdown.includes("- 🔴 Transaction extensions v0: removes `A` (2 → 1)\n"));
+    assert.ok(markdown.includes("- 🔴 Transaction extensions v0: removes `A` (2 → 1) (version-lock violation)\n"));
     assert.ok(markdown.includes("Candidate lacks what the SDK signs with: `A` (2 → 1)  "));
     assert.ok(!markdown.includes("reorders"));
   });
@@ -563,7 +567,7 @@ describe("assembleReport", () => {
   });
 });
 
-// ── On the fixtures (see fixtures/README.md); skipped without them ──
+// Fixture setup: see Testing in meta-check/README.md.
 
 const FIXTURES = path.join(import.meta.dirname, "..", "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
@@ -702,9 +706,9 @@ describe("renderMarkdown on demo 1", { skip }, () => {
       [
         "### 🔴 Metadata check: 1 breaking change for the product-sdk",
         "",
-        "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🟡 Pre-existing | 🟢 OK |",
-        "|---|---|---|---|---|",
-        "| People | 3004000 → 3004007 | 1 | 1 | 53 |",
+        "| Chain | Runtime (live → candidate) | 🔴 Breaking | 🔴 Version lock | 🟡 Pre-existing | 🟢 OK |",
+        "|---|---|---|---|---|---|",
+        "| People | 3004000 → 3004007 | 1 | 0 | 1 | 53 |",
         "",
         "#### People: 1 breaking",
         "",

@@ -1,5 +1,4 @@
-// SdkDescriptor against the two product-sdk versions in fixtures/ (see fixtures/README.md).
-// The fixtures are not committed; without them these tests are skipped.
+// Fixture setup: see Testing in meta-check/README.md.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

@@ -24,7 +24,7 @@ exported function `readsIn`. It parses one JS/TS file at a time and walks its sy
 3. **Recognize the entry.** From `chain.individuality.tx.Game.sign_up`, it records `tx:Game.sign_up` on `individuality`, along with the file and line. If it recognizes the entry but can’t identify the chain, it leaves the chain unknown.
 
 
-> This is a syntax-based scan: it recognizes the shape of a PAPI access without verifying that the object is actually a PAPI client. 
+> This is a syntax-based scan: it recognizes the shape of a PAPI access without verifying that the object is actually a PAPI client.
 > See the [skipped detection tests](inputs/runtime-access/test.ts#L155) for known gaps, including bracket notation, and the [SDK batch test](inputs/runtime-access/test.ts#L382) for a real example.
 
 
@@ -36,7 +36,7 @@ const access = {
   chain: 'individuality',
   optional: false, //if the call is optional (?)
   file: 'packages/individuality/src/registration.ts',
-  line: 12, 
+  line: 12,
 };
 ```
 
@@ -66,7 +66,6 @@ Here we need to account for multiple cases:
 4. **Chain not detected**
    - **4.1 Find matching chains.** Consider every supplied descriptor. If it contains the pallet or runtime API named in the selector, include its chain. If none match, put the access in `unplaced`.
    - **4.2 Look up the entry on each matching chain.** Use the full selector to find the entry in that chain’s descriptor. If the entry is found, store it as `expected`. If not, still create the requirement, but set `expected: null`.
-   
 
 The builder returns a `RequirementSet` with two fields: `chains`, the requirements grouped by chain, and `unplaced`, the accesses that couldn’t be assigned.
 
@@ -88,12 +87,12 @@ For each `Requirement`, the checker looks up its selector in the runtime metadat
 
 ### Grading
 
-We use PAPI’s `@polkadot-api/metadata-compatibility` library to compare the types the SDK expects with those in the runtime metadata. PAPI gives us two grades: 
+We use PAPI’s `@polkadot-api/metadata-compatibility` library to compare the types the SDK expects with those in the runtime metadata. PAPI gives us two grades:
 
 - **Input compatibility:** Can the runtime accept the values the SDK sends?
 - **Output compatibility:** Can the SDK read the values the runtime returns?
 
-From strongest to weakest compatibility, the grades are 
+From strongest to weakest compatibility, the grades are
 - `Identical`
 - `BackwardsCompatible`
 - `Partial`
@@ -163,9 +162,6 @@ A version-lock violation is a separate finding from the live-to-candidate diff. 
 - **Extrinsic format versions:** On those same chains, list which format versions the candidate starts or stops accepting. These are separate from extension pipeline versions and aren't graded.
 
 **Known limitation:** The diff detects changes to `BitVec` bit order, but not to its storage type (for example, `u8` → `u32`). If that's the only change to a transaction extension pipeline, the report won't flag a version-lock violation.
-
-For example, suppose the SDK reads `query:Game.Rounds` but has no expected type for it. If the output changes from `u32` to `(u32, u32)`, both runtimes still get `Present`, so the verdict is `ok`. The diff shows `output: u32 → (u32, u32)`.
-
 
 ### Assembly and output
 

@@ -404,7 +404,7 @@ describe("diff", () => {
   });
 });
 
-// ── On the fixtures (see fixtures/README.md); skipped without them ──
+// Fixture setup: see Testing in meta-check/README.md.
 
 const FIXTURES = path.join(import.meta.dirname, "..", "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
