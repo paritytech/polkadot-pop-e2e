@@ -3,8 +3,9 @@
 // collapsed. An extension version changed in place is counted and shown in full too,
 // whatever its verdict. The JSON has the rest, up to its own limits.
 
-import { listChange, violatesVersionLock } from "../diff/index.ts";
+import { listChange } from "../diff/index.ts";
 import type { ExtrinsicVersionChange, PipelineChange, TypeChange } from "../diff/types.ts";
+import { violatesVersionLock } from "../regression/index.ts";
 import type { Verdict } from "../regression/types.ts";
 import type { ChainKey, Level } from "../types.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { EntryCheck, PipelineCheck, RuntimeCheck } from "../check/types.ts";
+import type { PipelineChange } from "../diff/types.ts";
 import type { Requirement } from "../requirements/types.ts";
 import type { Level, Selector } from "../types.ts";
-import regression, { verdict } from "./index.ts";
+import regression, { verdict, violatesVersionLock } from "./index.ts";
 
 describe("verdict", () => {
   const cases: [Level, Level, string][] = [
@@ -25,6 +26,31 @@ describe("verdict", () => {
   it("lets an optional entry go missing", async () => {
     assert.equal(verdict("Identical", "Missing", true), "ok");
     assert.equal(verdict("Identical", "Incompatible", true), "breaking");
+  });
+});
+
+describe("violatesVersionLock", () => {
+  /** One extension version's change as diff reports it: both runtimes' lists, null where one lacks the version. */
+  const change = (status: PipelineChange["status"]): PipelineChange => ({
+    version: 0,
+    status,
+    live: status === "added" ? null : ["A", "B"],
+    candidate: status === "removed" ? null : ["A"],
+    added: [],
+    removed: status === "added" ? [] : ["B"],
+    reordered: false,
+    retyped: [],
+  });
+
+  it("holds a version both runtimes have to the lock: a change in it violates", () => {
+    assert.equal(violatesVersionLock(change("changed")), true);
+  });
+
+  it("lets the candidate add or remove a version, and leave one as it is", () => {
+    assert.equal(violatesVersionLock(change("added")), false);
+    assert.equal(violatesVersionLock(change("removed")), false);
+    // diff reports no change for a version both runtimes have alike.
+    assert.equal(violatesVersionLock(null), false);
   });
 });
 

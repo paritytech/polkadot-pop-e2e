@@ -16,8 +16,8 @@
 // - `extrinsicVersions`: the versions A and A' accept when they differ, ungraded; else null.
 // Empty `pipelines` and a null `extrinsicVersions` also mean the SDK uses no transactions there.
 
-import { violatesVersionLock } from "../diff/index.ts";
 import type { EntryChange, PipelineChange, TypeChange } from "../diff/types.ts";
+import { violatesVersionLock } from "../regression/index.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";
 import type { Run } from "./types.ts";
 

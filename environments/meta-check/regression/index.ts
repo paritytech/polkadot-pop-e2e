@@ -1,8 +1,10 @@
 // regression(onLive, onCandidate): what upgrading a chain from live (A) to the candidate
 // (A') does to the SDK, from the same requirements checked against each. It compares
-// levels only; where the runtime's types changed is diff's.
+// levels only; where the runtime's types changed is diff's. The version lock is the one
+// rule here about the runtimes themselves: it reads diff's change, not a level.
 
 import type { RuntimeCheck } from "../check/types.ts";
+import type { PipelineChange } from "../diff/types.ts";
 import { RANK } from "../level.ts";
 import type { Level } from "../types.ts";
 import type { EntryVerdict, PipelineVerdict, Regression, Verdict } from "./types.ts";
@@ -17,6 +19,15 @@ export function verdict(before: Level, after: Level, optional = false): Verdict 
   if (RANK[after] >= RANK.BackwardsCompatible) return "ok";
   return RANK[after] < RANK[before] ? "breaking" : "pre-existing";
 }
+
+/**
+ * The version lock: an extension version both runtimes have must stay as it is, so that
+ * clients can keep using it; a format that has to change gets a new version. Any change to
+ * the version's extension list or to their types violates it, whatever the SDK expects of
+ * that version. A version the candidate adds or removes does not.
+ * `change`: diff's for that version; null when both runtimes have it alike.
+ */
+export const violatesVersionLock = (change: PipelineChange | null): boolean => change?.status === "changed";
 
 const mismatch = () => new Error("live and the candidate were checked against different requirements");
 

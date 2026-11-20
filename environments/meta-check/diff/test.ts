@@ -10,7 +10,7 @@ import Runtime from "../runtime/index.ts";
 import type { Encoding, Selector } from "../types.ts";
 import RuntimeAccesses from "../runtime-access/index.ts";
 import compareTypes, { MAX_TYPE_CHANGES } from "./compare.ts";
-import diff, { violatesVersionLock } from "./index.ts";
+import diff from "./index.ts";
 import type { RuntimeDiff, TypeChange, TypePath } from "./types.ts";
 
 // ── Hand-built runtimes: only what diff reads ────────────
@@ -366,25 +366,25 @@ describe("diff", () => {
       assert.equal(r.pipelines[0]?.reordered, false);
     });
 
-    it("holds a version both runtimes have to the version lock, and no other", () => {
-      const violated = (live: Record<number, Extension[]>, candidate: Record<number, Extension[]>) =>
+    // What regression's version lock goes by: `changed` is a version both runtimes have, differing.
+    it("calls a version both runtimes have changed, whatever differs in it, and no other", () => {
+      const changed = (live: Record<number, Extension[]>, candidate: Record<number, Extension[]>) =>
         transactions(live, candidate)
-          .pipelines.filter(violatesVersionLock)
+          .pipelines.filter((p) => p.status === "changed")
           .map((p) => p.version);
       const a = ext("A");
       const b = ext("B");
-      // Any change within a version both have: its list, its order, or either type of an extension.
-      assert.deepEqual(violated({ 0: [a, b] }, { 0: [a] }), [0]);
-      assert.deepEqual(violated({ 0: [a] }, { 0: [a, b] }), [0]);
-      assert.deepEqual(violated({ 0: [a, b] }, { 0: [b, a] }), [0]);
-      assert.deepEqual(violated({ 0: [a] }, { 0: [ext("A", u64.id)] }), [0]);
-      assert.deepEqual(violated({ 0: [a] }, { 0: [{ ...a, additionalSigned: u64.id }] }), [0]);
-      // Only the version that changed, not the ones beside it.
-      assert.deepEqual(violated({ 0: [a], 1: [a, b] }, { 0: [a], 1: [b] }), [1]);
-      // A new version beside an unchanged one, or a version gone: a change, but the lock holds.
-      assert.deepEqual(violated({ 0: [a] }, { 0: [a], 1: [a, b] }), []);
-      assert.deepEqual(violated({ 0: [a], 1: [a] }, { 1: [a] }), []);
-      assert.equal(violatesVersionLock(null), false);
+      // Any difference within a version both have: its list, its order, or either type of an extension.
+      assert.deepEqual(changed({ 0: [a, b] }, { 0: [a] }), [0]);
+      assert.deepEqual(changed({ 0: [a] }, { 0: [a, b] }), [0]);
+      assert.deepEqual(changed({ 0: [a, b] }, { 0: [b, a] }), [0]);
+      assert.deepEqual(changed({ 0: [a] }, { 0: [ext("A", u64.id)] }), [0]);
+      assert.deepEqual(changed({ 0: [a] }, { 0: [{ ...a, additionalSigned: u64.id }] }), [0]);
+      // Only the version that differs, not the ones beside it.
+      assert.deepEqual(changed({ 0: [a], 1: [a, b] }, { 0: [a], 1: [b] }), [1]);
+      // A new version beside an unchanged one, or a version gone: added or removed, not changed.
+      assert.deepEqual(changed({ 0: [a] }, { 0: [a], 1: [a, b] }), []);
+      assert.deepEqual(changed({ 0: [a], 1: [a] }, { 1: [a] }), []);
     });
 
     it("lists the extrinsic versions the candidate stops or starts accepting", () => {
@@ -455,8 +455,6 @@ describe("diff on the fixtures", { skip }, () => {
       ["v0 changed +1 -12 false 0", "v1 added +23 -0 false 0"],
     );
     assert.deepEqual(r.pipelines[0]?.added, ["CheckMetadataHash"]);
-    // v0 changed in place; v1 is new.
-    assert.deepEqual(r.pipelines.filter(violatesVersionLock).map((p) => p.version), [0]);
     assert.equal(r.extrinsicVersions, null);
   });
 
