@@ -1,4 +1,5 @@
 name: Load test
+run-name: "${{ inputs.people_only && 'Lite people' || 'Load test' }} · ${{ inputs.network }} · ${{ inputs.players }} bots${{ inputs.lite && ' · lite' || '' }}${{ inputs.video && ' · video' || '' }}${{ inputs.chain_backend == 'light-client' && ' · light client' || '' }}${{ inputs.game_at != '' && format(' · game {0}', inputs.game_at) || '' }}${{ inputs.replay_at != '' && format(' · replay {0}', inputs.replay_at) || '' }}${{ inputs.args != '' && format(' · {0}', inputs.args) || '' }}"
 
 # Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
 # sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
