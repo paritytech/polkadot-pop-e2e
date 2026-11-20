@@ -10,8 +10,7 @@ import Runtime from "../runtime/index.ts";
 import RuntimeAccesses from "../runtime-access/index.ts";
 import check from "./index.ts";
 
-// Against fixtures/ (see fixtures/README.md): People, read by SDK 0.42.0. Skipped without
-// them. Live against the candidate is buildReport's, in report/test.ts.
+// People fixtures for SDK 0.42.0. Upgrade comparisons are in report/test.ts.
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
 

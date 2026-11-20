@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import check from "../check/index.ts";
 import type { PipelineCheck, RuntimeCheck } from "../check/types.ts";
 import SdkDescriptor from "../descriptor/index.ts";
+import diff from "../diff/index.ts";
 import type { EntryChange, PipelineChange, RuntimeDiff, TypePath } from "../diff/types.ts";
 import { violatesVersionLock } from "../regression/index.ts";
 import type { Verdict } from "../regression/types.ts";
@@ -13,7 +15,7 @@ import Runtime from "../runtime/index.ts";
 import type { Level, Selector } from "../types.ts";
 import RuntimeAccesses from "../runtime-access/index.ts";
 import type { RuntimeAccess } from "../runtime-access/types.ts";
-import buildReport, { assembleReport } from "./index.ts";
+import { assembleReport } from "./index.ts";
 import toJson from "./json.ts";
 import renderMarkdown from "./markdown.ts";
 import type { EntryFinding, PipelineFinding, Report, Run } from "./types.ts";
@@ -566,7 +568,10 @@ describe("assembleReport", () => {
 const FIXTURES = path.join(import.meta.dirname, "..", "fixtures");
 const skip = fs.existsSync(FIXTURES) ? false : "fixtures/ not downloaded";
 
-describe("buildReport on the fixtures", { skip }, () => {
+const assembleFixtureReport = (requirements: Requirements, live: Runtime, candidate: Runtime): Report =>
+  assembleReport(check(requirements, live), check(requirements, candidate), diff(requirements, live, candidate));
+
+describe("assembleReport on the fixtures", { skip }, () => {
   type Chain = "individuality" | "assetHub";
   const WASM: Record<Chain, string> = {
     individuality: "next_people_paseo_runtime.compact.compressed.wasm",
@@ -598,7 +603,7 @@ describe("buildReport on the fixtures", { skip }, () => {
   const fixtureReport = async (
     sdk: string,
     { live = "0.3.1", candidate = "0.3.4", chain = "individuality" as Chain, runtimeAccesses = RuntimeAccesses.scan(packagesOf(sdk)) } = {},
-  ): Promise<Report> => buildReport(await requirementsOf(sdk, chain, runtimeAccesses), runtime(live, chain), runtime(candidate, chain));
+  ): Promise<Report> => assembleFixtureReport(await requirementsOf(sdk, chain, runtimeAccesses), runtime(live, chain), runtime(candidate, chain));
   const notOk = (r: Report) =>
     r.entries.filter((e) => e.verdict !== "ok").map((e) => `${e.verdict} ${e.requirement.selector} ${e.before}->${e.after}`);
   const breaking = (r: Report) => [
@@ -688,7 +693,7 @@ describe("renderMarkdown on demo 1", { skip }, () => {
     const [requirements] = set.chains;
     assert.ok(requirements);
     const markdown = renderMarkdown({
-      reports: [buildReport(requirements, wasm("0.3.4"), wasm("nightly-3004007"))],
+      reports: [assembleFixtureReport(requirements, wasm("0.3.4"), wasm("nightly-3004007"))],
       unplaced: [],
       failed: [],
     });

@@ -18,8 +18,10 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { CHAINS } from "../../release-map.mjs";
+import check from "../check/index.ts";
 import SdkDescriptor from "../descriptor/index.ts";
-import buildReport from "../report/index.ts";
+import diff from "../diff/index.ts";
+import { assembleReport } from "../report/index.ts";
 import toJson from "../report/json.ts";
 import renderMarkdown from "../report/markdown.ts";
 import type { Report, Run } from "../report/types.ts";
@@ -98,13 +100,19 @@ export async function report(options: ReportOptions): Promise<{ run: Run; warnin
   const reports: Report[] = [];
   for (const { chain, key } of chains) {
     const requirements = set.chains.find((r) => r.chain === key);
-    const live = lives.get(chain);
-    const candidate = candidates.get(chain);
+    const livePath = lives.get(chain);
+    const candidatePath = candidates.get(chain);
     try {
       if (!requirements) throw new Error(`no requirements were built for ${key}`);
-      if (!live) throw new Error(`no live runtime in ${liveFile}`);
-      if (!candidate) throw new Error("no candidate runtime");
-      reports.push(buildReport(requirements, new Runtime(fs.readFileSync(live)), new Runtime(fs.readFileSync(candidate))));
+      if (!livePath) throw new Error(`no live runtime in ${liveFile}`);
+      if (!candidatePath) throw new Error("no candidate runtime");
+
+      const live = new Runtime(fs.readFileSync(livePath));
+      const candidate = new Runtime(fs.readFileSync(candidatePath));
+      const onLive = check(requirements, live);
+      const onCandidate = check(requirements, candidate);
+      const changes = diff(requirements, live, candidate);
+      reports.push(assembleReport(onLive, onCandidate, changes));
     } catch (error) {
       failed.push({ chain, error: errorText(error) });
     }

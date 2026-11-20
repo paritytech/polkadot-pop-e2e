@@ -1,20 +1,10 @@
-// One chain's report, as the markdown and the JSON show it: the requirements checked
-// against live (A) and the candidate (A'), the verdict on each, and what changed.
-// Built here; json.ts and markdown.ts render it.
+// Join one chain's compatibility verdicts and runtime changes for both report formats.
 
-import check from "../check/index.ts";
 import type { RuntimeCheck } from "../check/types.ts";
-import diff from "../diff/index.ts";
 import type { RuntimeDiff } from "../diff/types.ts";
 import regression from "../regression/index.ts";
 import type { PipelineVerdict } from "../regression/types.ts";
-import type { Requirements } from "../requirements/types.ts";
-import type Runtime from "../runtime/index.ts";
 import type { PipelineFinding, Report } from "./types.ts";
-
-export default function buildReport(requirements: Requirements, live: Runtime, candidate: Runtime): Report {
-  return assembleReport(check(requirements, live), check(requirements, candidate), diff(requirements, live, candidate));
-}
 
 /** The report from its parts: the same requirements checked against live and the candidate, and the diff between them. */
 export function assembleReport(onLive: RuntimeCheck, onCandidate: RuntimeCheck, changes: RuntimeDiff): Report {
