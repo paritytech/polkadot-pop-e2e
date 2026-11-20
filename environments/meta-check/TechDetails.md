@@ -186,38 +186,20 @@ The CLI collects the chain reports into a `Run`, along with SDK accesses that co
 
 A breaking verdict or version-lock violation does not by itself make the CLI exit nonzero.
 
+## Nice to know
 
+### Can a type change still get an `ok` verdict?
 
+Yes. Suppose the SDK reads `query:Game.Rounds`, but its pinned descriptor has no expected type for it. If the output changes from `u32` to `(u32, u32)`, both runtimes still get `Present`, and the verdict is `ok`. `Present` confirms the entry exists; it doesn't confirm that the SDK can read the new type. The change is visible in the diff.
 
+### Does `Identical` mean the SCALE encoding is unchanged?
 
+No. PAPI can grade `u16` and `u32` as `Identical` because both map to JavaScript `number`. They occupy different numbers of bytes in SCALE, so `diff` reports the change.
 
---- $$$$
+### Can an extension version be compatible and still violate the version lock?
 
-We look up this entry in the metadata used to generate the SDK's existing PAPI descriptors. By doing so we can find out what the current descriptors expect for a type.
+Yes. In the People 0.3.1 → 0.3.4 fixture, `v0` gets `Incompatible → Identical` and an `ok` verdict with SDK 0.42.0. The candidate matches that SDK's descriptor, but it changed `v0` in place relative to live. The report flags that separately as a version-lock violation.
 
-```js
-{
-  selector: access.selector,
-  expected: descriptor.entry(access.selector) ?? null,
-  accesses: [access],
-  placedBy: 'chain',
-}
-```
+### Can a constant change without appearing in the diff?
 
-The requirement also derives `direction` from the selector (`encode` for `tx`) and `optional` from whether all its accesses are optional.
-
-
-In the next step we look into the runtime metadata which derived the PAPI descriptors for the SDKs codebase, to decorate the collected endpoints.
-
-# Q/A - Nice to know
-**1. No descriptor type: `Present` on both runtimes.** The SDK reads `query:Game.Rounds` through an untyped API. Its pinned descriptor predates that storage item.
-
-| | Descriptor | Live | Candidate |
-|---|---|---|---|
-| Value type | not in the descriptor | `u32` | `(u32, u32)` |
-| `check` grade | n/a | `Present` | `Present` |
-
-- `regression`: `Present → Present` gives `ok`, because `Present` ranks as a fit ([`entryLevel`](worktree://967f9aca-1626-4247-845c-79c313d4bc71/environments/meta-check/check/grade.ts#L36-L38) returns it without comparing types).
-- `diff`: `output: u32 → (u32, u32)`.
-
-The SDK code expects a number and now gets a tuple. The verdict stays `ok`; only the diff line shows the change.
+Yes. The tool compares a constant's type, not its value. If `constants:System.BlockHashCount` changes value but stays a `u32`, neither the grade nor the diff shows the value change.
