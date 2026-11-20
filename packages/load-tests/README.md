@@ -25,19 +25,22 @@ or Asset Hub.
 | `args` | more CLI options; changing `--ghosts-per-host` or `--seed` plays new, unfunded bots; `--bots-per-process 1` runs every bot in its own truapi-host, as on a phone |
 | `people_only` | runs `load people --players <players>` alone, on one parity-large for up to 12 h, to make lite bots `--lite-from`.. lite people (see [Lite bots](#lite-bots-and-the-prize-draw)); a rerun continues where the last one stopped, and a game run on the same network doesn't wait for it |
 
-A run has three parts:
+A run has four parts:
 
-- **`chain`** waits for the game to open sign-ups, tops every bot up to 3 UNIT from
-  `TEST_MNEMONIC`, signs them all up at once, sends every bot's report at once after the game, and
-  claims the NFT credits its co-players' votes awarded it on Asset Hub, one claim at a time per bot
-  as the stash app does. Before anything slow it picks its game, `game_at` or the next one, and
-  fails at once when its binds and sign-ups don't fit before that game's registration ends, naming
-  the next game that leaves enough time; it also fails at once when the game plays more than 4
-  hours away, and when the funder has too little it prints how much to send to which address.
-  When it fails, it cancels the rest of the run. The log has `[plan]`, `[bind] done` and
-  `[sign-up] on chain` lines with UTC times, so a missed registration shows within seconds.
-- **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up,
-  then runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
+- **`plan`** picks the run's game once (`load target`): `game_at`, or else the game in
+  registration, or else the next one scheduled. It fails at once when the bots' binds and sign-ups
+  don't fit before that game's registration ends, naming the next game that leaves enough time.
+- **`chain`** signs up to the plan's game as soon as it takes sign-ups, tops every bot up to 3 UNIT
+  from `TEST_MNEMONIC`, signs them all up at once, sends every bot's report at once after the
+  game, and claims the NFT credits its co-players' votes awarded it on Asset Hub, one claim at a
+  time per bot as the stash app does. It checks the plan again before anything slow, fails at once
+  when the game plays more than 4 hours away, and when the funder has too little it prints how
+  much to send to which address. When it fails, it cancels the rest of the run. The log has
+  `[plan]`, `[bind] done` and `[sign-up] on chain` lines with UTC times, so a missed registration
+  shows within seconds.
+- **`messages · machine N`**, one per `bots_per_machine` bots, waits until its bots are signed up
+  to the plan's game, so bots another run signed up to an earlier game don't take it there, then
+  runs them inside `truapi-host signing-host --script` from 64 s before the game, when the app
   opens its signalling, until the end of play.
 - **`summary`** merges every machine's result into one table.
 

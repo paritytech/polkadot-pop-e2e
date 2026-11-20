@@ -97,6 +97,7 @@ jobs:
     outputs:
       machines: ${{ steps.plan.outputs.machines }}
       shards: ${{ steps.plan.outputs.shards }}
+      game_at: ${{ steps.target.outputs.game_at }}
     steps:
       - id: plan
         env:
@@ -125,11 +126,34 @@ jobs:
           echo "machines=$machines" >> "$GITHUB_OUTPUT"
           echo "shards=[$(seq -s, 0 $((machines - 1)))]" >> "$GITHUB_OUTPUT"
           echo "$PLAYERS bots, $per per machine on $machines parity-large machine(s), lite $LITE, video $VIDEO, timing ${{ inputs.timing }}, claims ${{ inputs.claim }}" >> "$GITHUB_STEP_SUMMARY"
+      # The run's game, picked once: the chain job signs up to it and every message machine plays
+      # it, whatever game another run has the same bots signed up to.
+      - if: ${{ inputs.replay_at == '' }}
+        uses: actions/checkout@v4
+      - if: ${{ inputs.replay_at == '' }}
+        uses: pnpm/action-setup@v4
+      - if: ${{ inputs.replay_at == '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - if: ${{ inputs.replay_at == '' }}
+        run: pnpm install --frozen-lockfile
+      - id: target
+        if: ${{ inputs.replay_at == '' }}
+        run: |
+          set -euo pipefail
+          read -ra extra <<< "$ARGS"
+          game=()
+          if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
+          if [ "$LITE" = true ]; then game+=(--lite); fi
+          pnpm --silent --filter @pop-e2e/load-tests load target --players "$PLAYERS" "${game[@]}" "${extra[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Signs every bot up as soon as the game takes sign-ups, then reports and claims for all of
   # them. The TEST_MNEMONIC account pays their play deposits and fees.
   chain:
     name: chain · sign-up, reports, NFT claims
+    needs: plan
     if: ${{ !inputs.people_only && inputs.replay_at == '' }}
     runs-on: ubuntu-latest
     # Up to 4 h until the game, then its reporting and the claims; GitHub-hosted jobs stop at 6 h.
@@ -149,6 +173,7 @@ jobs:
       - name: Play the game on chain
         env:
           CLAIM: ${{ inputs.claim }}
+          GAME_AT: ${{ needs.plan.outputs.game_at }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
@@ -208,13 +233,14 @@ jobs:
           MACHINES: ${{ needs.plan.outputs.machines }}
           PHASE: ${{ inputs.timing }}
           REPLAY_AT: ${{ inputs.replay_at }}
+          GAME_AT: ${{ needs.plan.outputs.game_at }}
           TRUAPI_CHAIN_BACKEND: ${{ inputs.chain_backend }}
           TRUAPI_HOST_LOG: ${{ inputs.host_log }}
           VIDEO: ${{ inputs.video }}
         run: |
           set -euo pipefail
           read -ra extra <<< "$ARGS"
-          if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --registration-wait 240); fi
+          if [ -n "$REPLAY_AT" ]; then start=(--start-at "$REPLAY_AT"); else start=(--follow-game --game-at "$GAME_AT" --registration-wait 240); fi
           if [ "$VIDEO" = true ]; then start+=(--video); fi
           if [ "$LITE" = true ]; then start+=(--lite); fi
           pnpm --silent --filter @pop-e2e/load-tests load host "${start[@]}" --steps "$PLAYERS" --phase "$PHASE" \
