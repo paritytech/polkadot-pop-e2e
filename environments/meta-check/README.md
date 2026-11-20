@@ -26,12 +26,12 @@ Checking both v2 and v3 against the consumer’s v1 expectations distinguishes i
 ```mermaid
 flowchart TD
     A["Collect requirements"] --> B["Check compatibility"]
-    B --> C["Identify regressions"]
+    B --> C["Build the report"]
 ```
 
 1. **Collect requirements.** Identify the consumer’s PAPI chain accesses and their expected types using its existing descriptor metadata.
 2. **Check compatibility.** Evaluate live and candidate independently against those requirements.
-3. **Identify regressions.** Compare the results to distinguish new or worsened incompatibilities from existing mismatches.
+3. **Build the report.** Distinguish SDK regressions from existing mismatches and show what changed between live and candidate.
 
 ## Results and limits
 

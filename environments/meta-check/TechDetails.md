@@ -3,7 +3,7 @@
 ```mermaid
 flowchart TD
     A["Collect requirements"] --> B["Check compatibility"]
-    B --> C["Identify regressions"]
+    B --> C["Build the report"]
 ```
 
 ## 1. Collect requirements
@@ -133,14 +133,63 @@ The report counts the two results separately, and they can disagree: a version c
 - **Version removed:** Report the removal. If the SDK expects that version, its compatibility grade becomes `Missing`.
 - **Version present on both runtimes:** The extension identifiers must match in order, and each extension must keep the same SCALE types for its transaction data (`type`) and signing data (`additionalSigned`). Any change is a **version-lock violation**, whatever the SDK compatibility grade.
 
-## 3. Identify regressions
-Explain the verdict rules and how the independent live/candidate metadata diff contributes diagnostics to the final report.
+## 3. Build the report
+
+The report brings together two results: what the upgrade changes for the SDK, and what changed in the runtime metadata.
 
 ### Regression
 
+`regression(onLive: RuntimeCheck, onCandidate: RuntimeCheck): Regression`
+
+`regression` takes the results of checking the same `Requirements` against live and candidate. It compares the grades, not the metadata types again. It pairs entries in order and throws if the chains or the ordered lists of selectors don't match.
+
+For each pair, `verdict(before, after, optional)` applies the first matching rule:
+
+| Rule | Verdict |
+|---|---|
+| The `Requirement` is optional and the candidate grade is `Missing`. | `ok` |
+| The candidate grade is `BackwardsCompatible` or better. `Present` also meets this threshold. | `ok` |
+| The candidate grade is worse than the live grade. | `breaking` |
+| The candidate is below the threshold, but no worse than live. | `pre-existing` |
+
+For example, `Identical` → `BackwardsCompatible` is `ok`, while `Identical` → `Partial` is `breaking`. `Incompatible` → `Missing` is `pre-existing` because those two grades have the same rank.
+
+Transaction extension pipelines are paired by version number. If a version has no result in one check, its grade on that side is `Missing`. The same verdict rules apply, except that extension versions aren't optional and a version the SDK descriptor doesn't expect always gets `ok`.
+
+A version-lock violation is a separate finding from the live-to-candidate diff. It does not change the SDK verdict.
+
 ### Diff
 
-### Report
+`diff(requirements: Requirements, live: Runtime, candidate: Runtime): RuntimeDiff`
+
+`diff` compares the two runtimes directly. It uses `Requirements` to choose which entries to look at, but it doesn't compare them against the SDK descriptor or assign compatibility grades.
+
+- **Entries:** For each required selector, report whether the entry was added, removed, or changed. Type changes include a path such as `output.status` and the live and candidate values at that path. The comparison looks at details such as integer widths, field names and order, and enum variant indices.
+- **Transaction extension pipelines:** On chains with a `tx:` requirement, report added and removed versions. For versions on both runtimes, report changes to the extension list, its order, or either payload type (`type` and `additionalSigned`).
+- **Extrinsic format versions:** On those same chains, list which format versions the candidate starts or stops accepting. These are separate from extension pipeline versions and aren't graded.
+
+For example, suppose the SDK reads `query:Game.Rounds` but has no expected type for it. If the output changes from `u32` to `(u32, u32)`, both runtimes still get `Present`, so the verdict is `ok`. The diff shows `output: u32 → (u32, u32)`.
+
+
+### Assembly and output
+
+`assembleReport(onLive: RuntimeCheck, onCandidate: RuntimeCheck, changes: RuntimeDiff): Report`
+
+For each chain, the CLI runs `check` against live and candidate, runs `diff` between them, and passes the three results to `assembleReport`.
+
+`assembleReport` calls `regression` on the two checks. It attaches the matching diff to each verdict: by selector for entries, and by version number for transaction extension pipelines. Each finding keeps both grades (`before` and `after`), the SDK verdict, and `change` (`null` if the diff found no change). Extrinsic format changes are reported without a verdict.
+
+The CLI collects the chain reports into a `Run`, along with SDK accesses that couldn't be assigned to a chain being checked and any chains it failed to check. It writes two views:
+
+- **`report.md`** highlights SDK regressions and version-lock violations. Pre-existing issues and the live-to-candidate diff are in collapsible sections.
+- **`report.json`** contains the grades, verdicts, diff details, and SDK source locations. Each extension pipeline has a separate `lockViolation` flag.
+
+A breaking verdict or version-lock violation does not by itself make the CLI exit nonzero.
+
+
+
+
+
 
 --- $$$$
 
@@ -159,3 +208,16 @@ The requirement also derives `direction` from the selector (`encode` for `tx`) a
 
 
 In the next step we look into the runtime metadata which derived the PAPI descriptors for the SDKs codebase, to decorate the collected endpoints.
+
+# Q/A - Nice to know
+**1. No descriptor type: `Present` on both runtimes.** The SDK reads `query:Game.Rounds` through an untyped API. Its pinned descriptor predates that storage item.
+
+| | Descriptor | Live | Candidate |
+|---|---|---|---|
+| Value type | not in the descriptor | `u32` | `(u32, u32)` |
+| `check` grade | n/a | `Present` | `Present` |
+
+- `regression`: `Present → Present` gives `ok`, because `Present` ranks as a fit ([`entryLevel`](worktree://967f9aca-1626-4247-845c-79c313d4bc71/environments/meta-check/check/grade.ts#L36-L38) returns it without comparing types).
+- `diff`: `output: u32 → (u32, u32)`.
+
+The SDK code expects a number and now gets a tuple. The verdict stays `ok`; only the diff line shows the change.
