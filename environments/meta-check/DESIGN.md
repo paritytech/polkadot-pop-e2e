@@ -9,7 +9,7 @@ flowchart TD
 ## 1. Collect requirements
 Start here. Explain:
 - How SDK code and descriptor metadata are located.
-- Which PAPI access patterns are recognized, using the examples already in [TechDetails.md](worktree://967f9aca-1626-4247-845c-79c313d4bc71/environments/meta-check/TechDetails.md#L1).
+- Which PAPI access patterns are recognized, using the examples below.
 - How accesses are assigned to chains and paired with expected types.
 - What happens when the chain cannot be identified or the descriptor lacks an entry.
 

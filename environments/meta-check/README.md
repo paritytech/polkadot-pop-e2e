@@ -42,7 +42,7 @@ The tool produces Markdown and JSON reports containing:
 
 This tool checks metadata compatibility, not runtime behavior. A runtime upgrade can remain compatible at the metadata level while changing behavior the consumer relies on. Coverage also depends on which PAPI accesses the scanner can identify.
 
-See [Technical details](TechDetails.md) for how each step works, including which access patterns the scanner detects and which it misses.
+See [Technical design](DESIGN.md) for how each step works, including which access patterns the scanner detects and which it misses.
 
 
 
