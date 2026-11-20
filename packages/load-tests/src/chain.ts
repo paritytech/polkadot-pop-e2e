@@ -29,7 +29,7 @@ import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { iso, readAll, retry, sleep, withTimeout } from "./time.js";
+import { iso, readAll, retryUntil, sleep, withTimeout } from "./time.js";
 
 /** How long the run waits after the game for its last blocks to be finalized and read. */
 const FINALIZED_WAIT_MS = 120_000;
@@ -174,12 +174,25 @@ export async function buildReport(engine: GameEngine, player: Player, playerCoun
   return rounds.every((votes): votes is ReportVote[] => votes !== undefined) ? rounds : undefined;
 }
 
+/** How long the run reads chain time again, reconnecting, before it gives up on the node. */
+const CHAIN_TIME_WAIT_MS = 600_000;
+
+/** A chain run that stopped before its result, with the claim steps it never reached. */
+export class ChainStopped extends Error {
+  constructor(
+    message: string,
+    readonly skipped: string[],
+  ) {
+    super(message);
+  }
+}
+
 /**
  * Plays one game with `players` funded accounts: every player signs up at once, the chain
  * shuffles, and every player reports at once after the game's length. With a root key the game
  * is one this run schedules; without one the players join a scheduled game, reusing the same
  * accounts from game to game, so each pays its play deposit once. Every deadline is the chain's
- * clock, which a dev node runs at its own pace.
+ * clock, which a dev node runs at its own pace. A run that stops early throws `ChainStopped`.
  */
 export async function runChain(run: ChainRun): Promise<ChainResult> {
   const { target } = run;
@@ -187,13 +200,29 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
   const pool = SigningPool.open(target);
   const timeline: ChainResult["timeline"] = [];
   const findings: string[] = [];
+  // Chain time and the game's state come over a connection of their own, opened again after a read
+  // that gets no answer: one slow read must not end a run that follows its game for hours.
+  let watch = connectPeople(target);
+  const reconnectWatch = (reason: string) => {
+    console.warn(`[chain] ${new Date().toISOString()} ${reason}; reconnecting`);
+    watch.client.destroy();
+    watch = connectPeople(target);
+  };
   const chainNow = async () =>
-    Number(await retry(3, 1_000, () => withTimeout(api.query.Timestamp.Now.getValue({ at: "best" }), GROUP_READ_MS, "chain time read")));
+    Number(
+      await retryUntil(
+        () => withTimeout(watch.api.query.Timestamp.Now.getValue({ at: "best" }), GROUP_READ_MS, "chain time read"),
+        CHAIN_TIME_WAIT_MS,
+        (error, attempt, pauseMs) => reconnectWatch(`${error.message} (attempt ${attempt}), next in ${pauseMs / 1000} s`),
+      ),
+    );
   let previousPhases: Phases | undefined;
   let watching = true;
   // On a live network the next game starts as soon as this one ends, so the end is a new index.
   let gameIndex: number | undefined;
   let blockFollower: BlockFollower | undefined;
+  // The claim steps the run hasn't reached, which a run that stops early skips.
+  const pending = new Set([...(run.claim ? ["NFT claims"] : []), ...(run.draw ? ["prize draw claims"] : [])]);
 
   try {
     const { players } = run;
@@ -230,14 +259,14 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     void (async () => {
       while (watching) {
         try {
-          const current = await api.query.Game.Game.getValue({ at: "best" });
+          const current = await withTimeout(watch.api.query.Game.Game.getValue({ at: "best" }), GROUP_READ_MS, "game state read");
           const label = gameIndex !== undefined && current && current.index !== gameIndex ? "None" : stateLabel(current);
           if (timeline.at(-1)?.state !== label) {
             timeline.push({ state: label, at: Date.now() });
             console.log(`[chain] game: ${label}`);
           }
         } catch (error) {
-          console.warn(`[chain] game state not read: ${(error as Error).message}`);
+          if (watching) reconnectWatch(`game state not read: ${(error as Error).message}`);
         }
         await sleep(1_000);
       }
@@ -354,6 +383,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       if (burst.inTime < reports.length) {
         findings.push(`report: ${reports.length - burst.inTime} of ${reports.length} not in within ${run.reportWindowMs / 1000} s`);
       }
+      pending.delete("NFT claims");
       if (run.claim && burst.firstBlock !== null) {
         // The credits arrive on Asset Hub while the game still takes reports.
         try {
@@ -377,6 +407,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       }
     }
     let draw: ChainResult["draw"] = null;
+    pending.delete("prize draw claims");
     if (run.draw && game.airdrops_scheduled > 0) {
       draw = { entries: drawEntries, skips: drawSkips, outcome: null };
       if (drawEntries > 0 && timeline.at(-1)!.state === "None") {
@@ -446,8 +477,11 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     await mkdir(run.outDir, { recursive: true });
     await writeFile(join(run.outDir, `chain.n${players.length}.json`), JSON.stringify(result, null, 2));
     return result;
+  } catch (error) {
+    throw new ChainStopped((error as Error).message, [...pending]);
   } finally {
     watching = false;
+    watch.client.destroy();
     blockFollower?.stop();
     // The phases apply to every later game, so a run on a shared network sets them back.
     if (previousPhases && target.sudo) {

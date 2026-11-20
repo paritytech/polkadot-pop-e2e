@@ -33,6 +33,25 @@ export async function retry<T>(attempts: number, pauseMs: number, read: () => Pr
   }
 }
 
+/**
+ * What `read` resolves to, read again while it fails, 1 s after the first failure and twice as
+ * long after each next one up to 30 s, until `waitMs` from the first read have passed; then its
+ * last error, with how many reads it took. `onRetry` hears each failure before the pause.
+ */
+export async function retryUntil<T>(read: () => Promise<T>, waitMs: number, onRetry: (error: Error, attempt: number, pauseMs: number) => void): Promise<T> {
+  const until = Date.now() + waitMs;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      if (Date.now() >= until) throw new Error(`${(error as Error).message}, ${attempt} reads over ${waitMs / 1000} s`);
+      const pauseMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      onRetry(error as Error, attempt, pauseMs);
+      await sleep(pauseMs);
+    }
+  }
+}
+
 /** `read` over every item, at most `concurrency` at once, the results in item order. */
 export async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>, concurrency = 100): Promise<R[]> {
   const results: R[] = new Array(items.length);
