@@ -414,6 +414,10 @@ switch (values.help ? undefined : command) {
       registrationWaitMs: positiveInteger("registration-wait", values["registration-wait"]) * 60_000,
       claim: target.assetHubRpc !== undefined && !values["skip-claim"],
       draw: values.draw,
+    }).catch(async (error: Error) => {
+      // A run that stops before its result, such as on a game it can't make, still says why on the run's page.
+      if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Chain game on ${target.label}: fail\n\n- ${error.message}\n`);
+      throw error;
     });
     const text = chainMarkdown(result);
     await writeFile(`${outDir}/chain.n${result.players}.md`, text);

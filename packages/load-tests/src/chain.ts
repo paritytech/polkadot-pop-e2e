@@ -8,14 +8,27 @@ import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { buildDraw, claimDrawPrizes, GAME_AIRDROP_SOURCE, type DrawResult } from "./draw.js";
-import { ALREADY_REGISTERED, bindLiteBots, NOT_MEMBER_YET, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
+import {
+  ALREADY_REGISTERED,
+  BIND_MS,
+  bindLiteBots,
+  NOT_MEMBER_YET,
+  planGame,
+  PLAYER_FUNDS,
+  signSignUps,
+  signUpLeadMs,
+  topUpPlayers,
+  unboundBots,
+  waitForGame,
+  type GamePlan,
+} from "./join.js";
 import type { Keypair, Player } from "./keys.js";
 import { dispatchAsRoot, fundPlayers } from "./root.js";
 import { findBlockLimits, splitStates } from "./phases.js";
 import { SigningPool } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { readAll, retry, sleep, withTimeout } from "./time.js";
+import { iso, readAll, retry, sleep, withTimeout } from "./time.js";
 
 /** How long the run waits after the game for its last blocks to be finalized and read. */
 const FINALIZED_WAIT_MS = 120_000;
@@ -83,10 +96,12 @@ export interface ChainResult {
   notes: string[];
   /** Where People blocks came close to their limits without failing the run. */
   capacity: string[];
-  /** Lite bots' binds by outcome, and how many have a deposit reserved after signing up; null for deposit-backed bots. */
-  lite: { binds: Record<string, number>; withDeposit: number } | null;
+  /** Lite bots' binds this run made, by outcome, with how long they took, and how many have a deposit reserved after signing up; null for deposit-backed bots. */
+  lite: { binds: Record<string, number>; bindMs: number; withDeposit: number } | null;
   /** The prize draws: sign-ups that entered them and why the others didn't, then tickets, winners and claims; null without `draw`. */
   draw: { entries: number; skips: Record<string, number>; outcome: DrawResult | null } | null;
+  /** The game the run aimed at before it started, on a live network; null for a game the run schedules. */
+  plan: GamePlan | null;
 }
 
 /** As root: clears the chain's game and schedule when `takeOver`, then funds the players. */
@@ -187,9 +202,21 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
     let phases = chainPhases;
     let gameAt = run.gameAt;
-    // Before the game is scheduled, so the binds don't take registration's time.
-    const { outcomes: binds, refusals: bindRefusals } = isLite ? await bindLiteBots(pool, players) : { outcomes: {}, refusals: {} };
-    for (const [reason, count] of Object.entries(bindRefusals)) findings.push(`bind refused, ${reason}: ${count}`);
+    const unbound = isLite ? await unboundBots(api, players) : [];
+    const signUpMs = signUpLeadMs(players.length, pool.size);
+    // On a live network the game is someone else's: one whose registration ends before this run's
+    // binds and sign-ups are in fails here, before anything slow.
+    const plan = ownGame ? null : await planGame(engine, gameAt, { bindMs: unbound.length * BIND_MS, signUpMs });
+    if (plan) {
+      gameAt = plan.playsAt;
+      console.log(
+        `[plan] ${new Date().toISOString()} target game ${plan.index ?? "next"} plays at ${iso(plan.playsAt)}, registration ends ${iso(plan.registrationEnds)}, needs ${Math.round(plan.neededMs / 1000)} s`,
+      );
+    }
+    // `load people` binds every lite bot; the ones still unbound are bound here, before the game opens.
+    const bind = unbound.length > 0 ? await bindLiteBots(pool, unbound) : { outcomes: {}, refusals: {}, durationMs: 0 };
+    if (isLite) console.log(`[bind] ${unbound.length} of ${players.length} lite bots needed a bind, ${(bind.durationMs / 1000).toFixed(1)} s`);
+    for (const [reason, count] of Object.entries(bind.refusals)) findings.push(`bind refused, ${reason}: ${count}`);
     if (ownGame) {
       await clearAndFund(api, run, target.sudo!, isLite ? [] : players);
       const scheduled = await scheduleOwnGame(api, run, target.sudo!, chainPhases);
@@ -224,7 +251,6 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
 
     // The players sign up as soon as the game takes sign-ups and report after it, so the run lasts
     // until the game: one further away than the run's wait fails at once.
-    const signUpMs = 120_000 + Math.ceil(players.length / pool.size) * SIGN_UP_MS;
     const game = await waitForGame(engine, gameAt, ownGame ? 0 : signUpMs, run.registrationWaitMs);
     gameIndex = game.index;
     blockFollower.followGame(game.index);
@@ -247,13 +273,18 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     console.log(`[chain] game ${game.index}: ${signUpExtrinsics.length} players sign up`);
     const signUp = await submitBurst(signUpExtrinsics, api, client, target.rpc, run.connections, () => game.registration_ends * 1000);
     console.log(`[chain] sign-ups: ${signUp.ok}/${signUp.submitted} in ${signUp.durationMs} ms`);
+    const signedUp = await withTimeout(api.query.Game.Game.getValue({ at: "best" }), GROUP_READ_MS, "game read").then(
+      (current) => (current?.index === game.index && current.state.type === "Registration" ? `${current.state.value.next_player_index} players in game ${game.index}` : `game ${game.index} ${current?.index === game.index ? current.state.type : "over"}`),
+      (error: Error) => error.message,
+    );
+    console.log(`[sign-up] ${new Date().toISOString()} on chain: ${signUp.inTime} of ${signUpExtrinsics.length} before registration ended; ${signedUp}`);
     if (signUp.inTime < signUpExtrinsics.length) {
       findings.push(`sign-up: ${signUpExtrinsics.length - signUp.inTime} of ${signUpExtrinsics.length} not in before registration ended`);
     }
     let lite: ChainResult["lite"] = null;
     if (isLite) {
       const accounts = await api.query.System.Account.getValues(players.map((player) => [player.address]), { at: "best" });
-      lite = { binds, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
+      lite = { binds: bind.outcomes, bindMs: bind.durationMs, withDeposit: accounts.filter((account) => account.data.reserved > 0n).length };
       console.log(`[chain] lite sign-ups: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
       if (lite.withDeposit > 0) findings.push(`sign-up: ${lite.withDeposit} of ${players.length} lite bots have a deposit reserved`);
     }
@@ -408,6 +439,7 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
       notes,
       capacity: limits.capacity,
       lite,
+      plan,
       draw,
     };
     await mkdir(run.outDir, { recursive: true });

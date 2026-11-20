@@ -2,6 +2,9 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 
 export const sleepUntil = (at: number) => sleep(Math.max(0, at - Date.now()));
 
+/** `seconds` of chain time as UTC, to the second. */
+export const iso = (seconds: number) => `${new Date(seconds * 1000).toISOString().slice(0, 19).replace("T", " ")} UTC`;
+
 /**
  * `promise`, or a rejection that contains `what` after `ms`, with `onTimeout` called first: one
  * reply that never comes must not hang a caller.

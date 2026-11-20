@@ -8,18 +8,25 @@ import { submitToBestBlock } from "./root.js";
 import type { BindOutcome, SigningPool, SignUpOutcome } from "./signing-pool.js";
 import { bump } from "./stats.js";
 import { connectPeople, type PeopleApi, type Target } from "./target.js";
-import { readAll, sleep, withTimeout } from "./time.js";
+import { iso, readAll, sleep, withTimeout } from "./time.js";
 
 /** Balance per player, its play deposit included: the default 2 UNIT deposit, existential deposit and fees. */
 export const PLAYER_FUNDS = 30_000_000_000n;
 
 /**
- * The CPU time one sign-up takes on one core of a CI runner, its fee estimate and its signature
- * each decoding the whole runtime metadata: 172.5 s for 300 players on previewnet, on one thread.
+ * One sign-up's time on one signing thread, its register reads and its signature: about 0.08 s a
+ * sign-up on 4 threads in today's runs.
  */
-export const SIGN_UP_MS = 600;
+export const SIGN_UP_MS = 320;
 
-const iso = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ");
+/** One lite bot's bind, the binds going out in block-sized waves: 971 s for 1,000 bots on paseo-next-v2. */
+export const BIND_MS = 1_000;
+
+/** A sign-up burst's time beyond signing: sending every sign-up and waiting for its blocks. */
+const SIGN_UP_BURST_MS = 120_000;
+
+/** Time from opening registration until `players` sign-ups, signed on `threads` threads, are in blocks. */
+export const signUpLeadMs = (players: number, threads: number) => Math.ceil(players / threads) * SIGN_UP_MS + SIGN_UP_BURST_MS;
 
 /** The refusal of a player already signed up to the game, which a rerun meets for every earlier sign-up. */
 export const ALREADY_REGISTERED = "AlreadyRegistered";
@@ -118,12 +125,18 @@ export async function bindSeat(engine: GameEngine, player: Player, personhood: G
 /** A bind's ring proof check weighs 29.3 ms, so a 2 s block's 85% normal class takes 58 binds. */
 const BINDS_PER_WAVE = 50;
 
+/** The lite bots of `players` whose game account has no binding to a lite person yet. */
+export async function unboundBots(api: PeopleApi, players: Player[]): Promise<Player[]> {
+  const aliases = await withTimeout(api.query.PeopleLite.AccountToAlias.getValues(players.map((player) => [player.address]), { at: "best" }), 60_000, "binding read");
+  return players.filter((_, position) => aliases[position] === undefined);
+}
+
 /**
- * Binds every lite bot whose seat takes a bind, before the sign-up burst: `BINDS_PER_WAVE` at once,
- * the next wave once the last one is in a block, so no block takes more binds than fit. `outcomes`
- * counts the binds made and the seats that took none, `refusals` the binds refused, by reason.
+ * Binds every lite bot of `players` whose seat takes a bind: `BINDS_PER_WAVE` at once, the next
+ * wave once the last one is in a block, so no block takes more binds than fit. `outcomes` counts
+ * the binds made and the seats that took none, `refusals` the binds refused, by reason.
  */
-export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<{ outcomes: Record<string, number>; refusals: Record<string, number> }> {
+export async function bindLiteBots(pool: SigningPool, players: Player[]): Promise<{ outcomes: Record<string, number>; refusals: Record<string, number>; durationMs: number }> {
   const startTime = Date.now();
   const outcomes: Record<string, number> = {};
   const refusals: Record<string, number> = {};
@@ -133,8 +146,71 @@ export async function bindLiteBots(pool: SigningPool, players: Player[]): Promis
       else bump(outcomes, "binding" in outcome ? `${outcome.binding} binding` : `${outcome.route} route`);
     }
   }
-  console.log(`[bind] ${players.length} lite bots in ${((Date.now() - startTime) / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
-  return { outcomes, refusals };
+  const durationMs = Date.now() - startTime;
+  console.log(`[bind] done ${new Date().toISOString()}: ${players.length} lite bots in ${(durationMs / 1000).toFixed(1)} s ${JSON.stringify(outcomes)}, refused ${JSON.stringify(refusals)}`);
+  return { outcomes, refusals, durationMs };
+}
+
+/** The game a run signs up to, with the time the run needs before its registration ends. */
+export interface GamePlan {
+  /** Undefined for a scheduled game while no game has an index to count from. */
+  index: number | undefined;
+  playsAt: number;
+  registrationEnds: number;
+  neededMs: number;
+}
+
+/** What the chain shows of its games: the current one, the scheduled ones and the phase durations, at chain time `now` (seconds). */
+export interface GameCalendar {
+  game: PalletGame | undefined;
+  schedules: Array<{ game_play_time: number }>;
+  phases: { registration: number; shuffle: number; post_shuffle_margin: number };
+  now: number;
+}
+
+/**
+ * The game playing at `gameAt` (chain seconds), or else the current game while it takes sign-ups,
+ * or else the next one scheduled; with `lead`, the binds the run makes before the game opens and
+ * the sign-ups after. Fails when the game's registration ends before the run's sign-ups are in,
+ * naming the next game that leaves enough time.
+ */
+export function pickGame(calendar: GameCalendar, gameAt: number | undefined, lead: { bindMs: number; signUpMs: number }): GamePlan {
+  const { game, schedules, phases, now } = calendar;
+  const candidates = [
+    ...(game?.state.type === "Registration" ? [{ index: game.index, playsAt: game.game_date, opensAt: now, registrationEnds: game.registration_ends }] : []),
+    ...schedules.map(({ game_play_time: playsAt }, position) => ({
+      index: game && game.index + 1 + position,
+      playsAt,
+      opensAt: playsAt - phases.registration - phases.shuffle - phases.post_shuffle_margin,
+      registrationEnds: playsAt - phases.shuffle - phases.post_shuffle_margin,
+    })),
+  ];
+  const readyAt = (candidate: (typeof candidates)[number]) => Math.max(now * 1000 + lead.bindMs, candidate.opensAt * 1000) + lead.signUpMs;
+  const plan = (candidate: (typeof candidates)[number]): GamePlan => ({
+    index: candidate.index,
+    playsAt: candidate.playsAt,
+    registrationEnds: candidate.registrationEnds,
+    neededMs: readyAt(candidate) - now * 1000,
+  });
+  const target = gameAt === undefined ? candidates[0] : candidates.find((candidate) => candidate.playsAt === gameAt);
+  if (!target) {
+    if (gameAt !== undefined && game?.game_date === gameAt) throw new Error(`game ${game.index} at ${iso(gameAt)} is past its registration (${game.state.type})`);
+    throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)}`);
+  }
+  if (readyAt(target) <= target.registrationEnds * 1000) return plan(target);
+  const next = candidates.find((candidate) => candidate.playsAt > target.playsAt && readyAt(candidate) <= candidate.registrationEnds * 1000);
+  const label = (candidate: (typeof candidates)[number]) => `game ${candidate.index ?? "next"} at ${iso(candidate.playsAt)}`;
+  throw new Error(
+    `${label(target)}: registration ends ${iso(target.registrationEnds)}, ${target.registrationEnds - now} s from now, and the run needs ${Math.round(plan(target).neededMs / 1000)} s` +
+      ` (binds ${Math.round(lead.bindMs / 1000)} s, sign-ups ${Math.round(lead.signUpMs / 1000)} s); ` +
+      (next ? `the next game that fits is ${label(next)}, --game-at ${next.playsAt}` : "no scheduled game fits"),
+  );
+}
+
+/** `pickGame` over the chain's current calendar, as the app's engine reads it. */
+export async function planGame(engine: GameEngine, gameAt: number | undefined, lead: { bindMs: number; signUpMs: number }): Promise<GamePlan> {
+  const [game, schedules, phases, now] = await withTimeout(Promise.all([engine.game(), engine.schedules(), engine.phases(), engine.now()]), 60_000, "game calendar read");
+  return pickGame({ game, schedules, phases, now }, gameAt, lead);
 }
 
 /** How long a game just scheduled may take to show in the finalized schedule the engine reads. */
@@ -155,7 +231,7 @@ export async function waitForGame(engine: GameEngine, gameAt: number | undefined
     // The run lasts until the game is over, so the wait bounds when the game plays, not only when it opens.
     const requirePlayWithinWait = (playTime: number) => {
       if (playTime > nowSeconds + (until - Date.now()) / 1000) {
-        throw new Error(`the game at ${iso(playTime)} UTC plays after this run's ${timeoutMs / 60_000} min wait; start the run later`);
+        throw new Error(`the game at ${iso(playTime)} plays after this run's ${timeoutMs / 60_000} min wait; start the run later`);
       }
     };
     const open = game?.state.type === "Registration" && game.registration_ends - nowSeconds >= minRemainingMs / 1000;
@@ -164,7 +240,7 @@ export async function waitForGame(engine: GameEngine, gameAt: number | undefined
       return game;
     }
     if (gameAt !== undefined && game?.game_date === gameAt) {
-      throw new Error(`game ${game.index} at ${iso(gameAt)} UTC is past its registration (${game.state.type})`);
+      throw new Error(`game ${game.index} at ${iso(gameAt)} is past its registration (${game.state.type})`);
     }
     const position = gameAt === undefined ? 0 : schedules.findIndex((schedule) => schedule.game_play_time === gameAt);
     const next = schedules[position]?.game_play_time;
@@ -173,11 +249,11 @@ export async function waitForGame(engine: GameEngine, gameAt: number | undefined
         await sleep(5_000);
         continue;
       }
-      throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)} UTC`);
+      throw new Error(gameAt === undefined ? "no game is scheduled" : `no game is scheduled at ${iso(gameAt)}`);
     }
     requirePlayWithinWait(next);
-    const state = game ? `game ${game.index} at ${iso(game.game_date)} UTC is in ${game.state.type}` : "no game is running";
-    if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${iso(next)} UTC to open registration`);
+    const state = game ? `game ${game.index} at ${iso(game.game_date)} is in ${game.state.type}` : "no game is running";
+    if (state !== reported) console.log(`[join] ${state}; waiting for the game at ${iso(next)} to open registration`);
     reported = state;
     if (Date.now() > until) throw new Error(`no game opened registration within ${timeoutMs / 60_000} min; ${state}`);
     await sleep(5_000);
@@ -221,8 +297,10 @@ export async function topUpPlayers(target: Target, api: PeopleApi, players: Play
 
 /**
  * The game any of `players` is signed up to, once one is and that game hasn't started: how a
- * message machine finds the game a separate chain run signs its bots up to. Fails after
- * `timeoutMs`, also when the chain stops answering, with the last failed check's error.
+ * message machine finds the game a separate chain run signs its bots up to, whichever game the
+ * chain run picked. A sign-up goes only into a game in registration, so the game in registration
+ * or its shuffle is that one. Fails after `timeoutMs`, also when the chain stops answering, with
+ * the last failed check's error.
  */
 export async function waitForSignUp(target: Target, players: Player[], timeoutMs: number): Promise<PalletGame> {
   let { client, engine } = connectPeople(target);
@@ -237,7 +315,8 @@ export async function waitForSignUp(target: Target, players: Player[], timeoutMs
           "sign-up check",
         );
         const signedUp = rows.some((row) => row?.registered);
-        if (game && signedUp && game.game_date > now) return game;
+        const seating = game?.state.type === "Registration" || game?.state.type === "Shuffle";
+        if (game && seating && signedUp && game.game_date > now) return game;
       } catch (error) {
         lastError = (error as Error).message;
         console.warn(`[host] ${lastError}; reconnecting`);

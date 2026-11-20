@@ -8,6 +8,7 @@ import type { HostUsage, SignallingShardResult } from "./signalling.js";
 import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
 import { summarizeVideo, videoFindings, videoMarkdown, type VideoSummary } from "./video/report.js";
 import { VideoStats } from "./video/stats.js";
+import { iso } from "./time.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -286,6 +287,12 @@ export function chainMarkdown(result: ChainResult): string {
   return [
     `### Chain game with ${result.players} players on ${result.target}: ${result.verdict}`,
     "",
+    ...(result.plan
+      ? [
+          `Target: game ${result.plan.index ?? "next"}, plays at ${iso(result.plan.playsAt)}, registration ends ${iso(result.plan.registrationEnds)}; the run needed ${Math.round(result.plan.neededMs / 1000)} s before it.`,
+          "",
+        ]
+      : []),
     result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up, report and claim was in",
     "",
     ...(result.capacity.length > 0 ? [`**Capacity:** ${result.capacity.join("; ")}.`, ""] : []),
@@ -305,7 +312,10 @@ export function chainMarkdown(result: ChainResult): string {
         ]
       : []),
     ...(result.lite
-      ? [`Lite sign-up: binds ${JSON.stringify(result.lite.binds)}; ${result.lite.withDeposit} of ${result.players} lite bots have a deposit reserved after signing up.`, ""]
+      ? [
+          `Lite sign-up: binds this run made ${JSON.stringify(result.lite.binds)} in ${seconds(result.lite.bindMs)}; ${result.lite.withDeposit} of ${result.players} lite bots have a deposit reserved after signing up.`,
+          "",
+        ]
       : []),
     ...(result.draw
       ? [
