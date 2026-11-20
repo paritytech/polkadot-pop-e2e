@@ -2,8 +2,8 @@
   "network": "westend",
   "base": "fork",
   "binaries": {
-    "polkadot": "paritytech/polkadot-sdk@polkadot-stable2609-1",
-    "polkadot-parachain": "paritytech/polkadot-sdk@polkadot-stable2609-1"
+    "polkadot": "paritytech/polkadot-sdk@polkadot-stable2609-2",
+    "polkadot-parachain": "paritytech/polkadot-sdk@polkadot-stable2609-2"
   },
   "chains": {
     "relay": {
