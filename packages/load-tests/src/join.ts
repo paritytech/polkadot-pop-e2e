@@ -169,12 +169,21 @@ export interface GameCalendar {
 }
 
 /**
+ * What a run spends before its game's registration ends: `startMs` before it can do anything,
+ * `bindMs` on binds that don't wait for the game to open, then `signUpMs` once it is open.
+ */
+export interface SignUpLead {
+  startMs?: number;
+  bindMs: number;
+  signUpMs: number;
+}
+
+/**
  * The game playing at `gameAt` (chain seconds), or else the current game while it takes sign-ups,
- * or else the next one scheduled; with `lead`, the binds the run makes before the game opens and
- * the sign-ups after. Fails when the game's registration ends before the run's sign-ups are in,
+ * or else the next one scheduled. Fails when the game's registration ends before `lead` is over,
  * naming the next game that leaves enough time.
  */
-export function pickGame(calendar: GameCalendar, gameAt: number | undefined, lead: { bindMs: number; signUpMs: number }): GamePlan {
+export function pickGame(calendar: GameCalendar, gameAt: number | undefined, lead: SignUpLead): GamePlan {
   const { game, schedules, phases, now } = calendar;
   const candidates = [
     ...(game?.state.type === "Registration" ? [{ index: game.index, playsAt: game.game_date, opensAt: now, registrationEnds: game.registration_ends }] : []),
@@ -185,7 +194,8 @@ export function pickGame(calendar: GameCalendar, gameAt: number | undefined, lea
       registrationEnds: playsAt - phases.shuffle - phases.post_shuffle_margin,
     })),
   ];
-  const readyAt = (candidate: (typeof candidates)[number]) => Math.max(now * 1000 + lead.bindMs, candidate.opensAt * 1000) + lead.signUpMs;
+  const startMs = lead.startMs ?? 0;
+  const readyAt = (candidate: (typeof candidates)[number]) => Math.max(now * 1000 + startMs + lead.bindMs, candidate.opensAt * 1000) + lead.signUpMs;
   const plan = (candidate: (typeof candidates)[number]): GamePlan => ({
     index: candidate.index,
     playsAt: candidate.playsAt,
@@ -202,14 +212,19 @@ export function pickGame(calendar: GameCalendar, gameAt: number | undefined, lea
   const label = (candidate: (typeof candidates)[number]) => `game ${candidate.index ?? "next"} at ${iso(candidate.playsAt)}`;
   throw new Error(
     `${label(target)}: registration ends ${iso(target.registrationEnds)}, ${target.registrationEnds - now} s from now, and the run needs ${Math.round(plan(target).neededMs / 1000)} s` +
-      ` (binds ${Math.round(lead.bindMs / 1000)} s, sign-ups ${Math.round(lead.signUpMs / 1000)} s); ` +
+      ` (start-up ${Math.round(startMs / 1000)} s, binds ${Math.round(lead.bindMs / 1000)} s, sign-ups ${Math.round(lead.signUpMs / 1000)} s); ` +
       (next ? `the next game that fits is ${label(next)}, --game-at ${next.playsAt}` : "no scheduled game fits"),
   );
 }
 
-/** `pickGame` over the chain's current calendar, as the app's engine reads it. */
-export async function planGame(engine: GameEngine, gameAt: number | undefined, lead: { bindMs: number; signUpMs: number }): Promise<GamePlan> {
-  const [game, schedules, phases, now] = await withTimeout(Promise.all([engine.game(), engine.schedules(), engine.phases(), engine.now()]), 60_000, "game calendar read");
+/** The chain's phase durations: `Game.StoredPhaseDurations`, or else the pallet's defaults. */
+export async function readPhaseDurations(api: PeopleApi) {
+  return (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+}
+
+/** `pickGame` over the chain's current calendar: the games as the app's engine reads them, the phase durations as the chain applies them. */
+export async function planGame(engine: GameEngine, api: PeopleApi, gameAt: number | undefined, lead: SignUpLead): Promise<GamePlan> {
+  const [game, schedules, phases, now] = await withTimeout(Promise.all([engine.game(), engine.schedules(), readPhaseDurations(api), engine.now()]), 60_000, "game calendar read");
   return pickGame({ game, schedules, phases, now }, gameAt, lead);
 }
 

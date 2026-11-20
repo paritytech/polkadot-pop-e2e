@@ -225,6 +225,9 @@ function deriveLiteBots(target: Target, offsets: number[]): LiteBot[] {
 
 const firstOffsets = (count: number) => Array.from({ length: count }, (_, offset) => offset);
 
+/** From the plan job's pick until the chain job can sign up: runner pickup, checkout and install took 3 to 4 min on previewnet. */
+const CHAIN_JOB_START_MS = 300_000;
+
 /** The accounts a chain run of `--players` signs up: lite bots with `--lite`, else deposit-backed ones. */
 function chainPlayers(target: Target): Player[] {
   const count = positiveInteger("players", values.players);
@@ -458,9 +461,11 @@ switch (values.help ? undefined : command) {
     const players = chainPlayers(target);
     const { client, api, engine } = connectPeople(target);
     try {
-      // The chain command's own lead, on a runner of the same size: its signing threads are one per core.
+      // The chain command's own lead, on a runner of the same size: its signing threads are one per
+      // core. It starts once its job has a runner, a checkout and an install behind it.
       const unbound = values.lite ? await unboundBots(api, players) : [];
-      const plan = await planGame(engine, gameAt, { bindMs: unbound.length * BIND_MS, signUpMs: signUpLeadMs(players.length, availableParallelism()) });
+      const lead = { startMs: CHAIN_JOB_START_MS, bindMs: unbound.length * BIND_MS, signUpMs: signUpLeadMs(players.length, availableParallelism()) };
+      const plan = await planGame(engine, api, gameAt, lead);
       console.log(`[plan] target game ${plan.index ?? "next"} plays at ${iso(plan.playsAt)}, registration ends ${iso(plan.registrationEnds)}, needs ${Math.round(plan.neededMs / 1000)} s`);
       if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `game_at=${plan.playsAt}\n`);
     } finally {

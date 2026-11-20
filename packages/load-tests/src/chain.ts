@@ -15,6 +15,7 @@ import {
   NOT_MEMBER_YET,
   planGame,
   PLAYER_FUNDS,
+  readPhaseDurations,
   signSignUps,
   signUpLeadMs,
   topUpPlayers,
@@ -199,14 +200,14 @@ export async function runChain(run: ChainRun): Promise<ChainResult> {
     // Lite bots sign up free after a bind, so they get no funds.
     const isLite = players.length > 0 && players.every((player) => player.liteEntropy !== undefined);
     const ownGame = target.sudo !== undefined && run.gameAt === undefined;
-    const chainPhases = (await api.query.Game.StoredPhaseDurations.getValue()) ?? (await api.constants.Game.DefaultPhaseDurations());
+    const chainPhases = await readPhaseDurations(api);
     let phases = chainPhases;
     let gameAt = run.gameAt;
     const unbound = isLite ? await unboundBots(api, players) : [];
     const signUpMs = signUpLeadMs(players.length, pool.size);
     // On a live network the game is someone else's: one whose registration ends before this run's
     // binds and sign-ups are in fails here, before anything slow.
-    const plan = ownGame ? null : await planGame(engine, gameAt, { bindMs: unbound.length * BIND_MS, signUpMs });
+    const plan = ownGame ? null : await planGame(engine, api, gameAt, { bindMs: unbound.length * BIND_MS, signUpMs });
     if (plan) {
       gameAt = plan.playsAt;
       console.log(

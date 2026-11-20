@@ -1,6 +1,7 @@
-import type { PalletGame } from "@jollity/protocol/src/engine";
+import type { GameEngine, PalletGame } from "@jollity/protocol/src/engine";
 import { describe, expect, it } from "vitest";
-import { isFollowedGame, pickGame, type GameCalendar } from "./join.js";
+import { isFollowedGame, pickGame, planGame, type GameCalendar } from "./join.js";
+import type { PeopleApi } from "./target.js";
 
 const now = 1_800_000_000;
 const phases = { registration: 600, shuffle: 60, post_shuffle_margin: 30 };
@@ -21,13 +22,43 @@ describe("pickGame", () => {
 
   it("fails on a game the binds and sign-ups don't fit, naming the next game that fits", () => {
     expect(() => pickGame(calendar, undefined, { bindMs: 971_000, signUpMs: 200_000 })).toThrow(
-      `game 357 at 2027-01-15 08:06:30 UTC: registration ends 2027-01-15 08:05:00 UTC, 300 s from now, and the run needs 1171 s (binds 971 s, sign-ups 200 s); the next game that fits is game 358 at 2027-01-15 09:00:00 UTC, --game-at ${now + 3_600}`,
+      `game 357 at 2027-01-15 08:06:30 UTC: registration ends 2027-01-15 08:05:00 UTC, 300 s from now, and the run needs 1171 s (start-up 0 s, binds 971 s, sign-ups 200 s); the next game that fits is game 358 at 2027-01-15 09:00:00 UTC, --game-at ${now + 3_600}`,
     );
   });
 
   it("binds before a scheduled game opens registration, and signs up once it is open", () => {
     const plan = pickGame(calendar, now + 3_600, { bindMs: 971_000, signUpMs: 200_000 });
     expect(plan).toEqual({ index: 358, playsAt: now + 3_600, registrationEnds: now + 3_510, neededMs: (3_600 - 690) * 1000 + 200_000 });
+  });
+
+  // The plan job picks the game minutes before the chain job can sign up: game 173's sign-ups
+  // fit when the plan checked them, and no longer did by the time the chain job started.
+  it("counts the chain job's start-up before its sign-ups", () => {
+    const lead = { bindMs: 0, signUpMs: 144_000 };
+    expect(pickGame(calendar, undefined, lead).index).toBe(357);
+    expect(() => pickGame(calendar, undefined, { ...lead, startMs: 300_000 })).toThrow("needs 444 s (start-up 300 s, binds 0 s, sign-ups 144 s); the next game that fits is game 358");
+  });
+});
+
+// A scheduled game's registration ends shuffle and margin before it plays, by the durations the
+// chain applies: a shuffle of 120 s ends it a minute earlier than the default 60 s.
+describe("planGame", () => {
+  const engine = { game: async () => undefined, schedules: async () => [{ game_play_time: now + 3_600 }], now: async () => now } as unknown as GameEngine;
+  const apiWith = (stored: GameCalendar["phases"] | undefined) =>
+    ({
+      query: { Game: { StoredPhaseDurations: { getValue: async () => stored } } },
+      constants: { Game: { DefaultPhaseDurations: async () => phases } },
+    }) as unknown as PeopleApi;
+  const lead = { bindMs: 0, signUpMs: 0 };
+
+  it("ends a scheduled game's registration by the chain's stored phase durations", async () => {
+    const plan = await planGame(engine, apiWith({ registration: 600, shuffle: 120, post_shuffle_margin: 30 }), undefined, lead);
+    expect(plan.registrationEnds).toBe(now + 3_600 - 150);
+  });
+
+  it("falls back to the pallet's default phase durations", async () => {
+    const plan = await planGame(engine, apiWith(undefined), undefined, lead);
+    expect(plan.registrationEnds).toBe(now + 3_600 - 90);
   });
 });
 
