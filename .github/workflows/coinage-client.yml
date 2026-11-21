@@ -1,0 +1,37 @@
+name: Coinage client checks
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/coinage-client.yml
+      - packages/chain-tests/src/lib/coinage-client*
+      - packages/chain-tests/src/lib/verifiable-loader.ts
+      - packages/chain-tests/scripts/coinage-client*
+      - packages/chain-tests/package.json
+      - packages/papi/**
+      - pnpm-lock.yaml
+  push:
+    branches: [feat/th-coinage-client]
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pnpm install --frozen-lockfile
+      - name: Check client types
+        working-directory: packages/chain-tests
+        run: >-
+          pnpm exec tsc --noEmit --target es2022 --module esnext
+          --moduleResolution bundler --strict --skipLibCheck
+          src/lib/coinage-client.ts src/lib/coinage-client.test.ts scripts/coinage-client.ts
+      - name: Verify proofs, encoding and outcome tracking
+        run: pnpm --filter @pop-e2e/chain-tests test:coinage-client
