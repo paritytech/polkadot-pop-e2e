@@ -374,6 +374,9 @@ describe("report", () => {
     const report = readJson(fs.readFileSync(path.join(dir, "report.json"), "utf8"));
     assert.ok(report && typeof report === "object" && "failingTests" in report && Array.isArray(report.failingTests));
     assert.equal(report.failingTests.length, 2);
+    // One breaking entry in the fixture. The "other" event beside it is not counted.
+    assert.ok(report && typeof report === "object" && "summary" in report);
+    assert.deepEqual(report.summary, { breaking: 1, unknown: 0, sdkError: null, chains: [{ chain: "people", breaking: 1 }] });
   });
 
   it("puts a note in the job summary when the diff was not captured", () => {
