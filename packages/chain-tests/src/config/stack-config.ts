@@ -31,6 +31,12 @@ export interface NetworkFeatures {
    * the relay chain's PAPI descriptor and the test account is funded on the relay and Asset Hub.
    */
   systemFlows: boolean;
+  /**
+   * DotnsGateway.DispatcherAddress points at a RootGatewayDispatcher, which product-sdk's address
+   * discovery walks (TARGET() → protocolRegistry()). Previewnet's points at the PoP controller
+   * itself, so discovery cannot work there yet (#116).
+   */
+  dotnsDiscovery: boolean;
 }
 
 export interface BulletinConfig {
@@ -80,14 +86,14 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack-paseo-next.parity-testnet.parity.io/.well-known/trinity-stack.json",
       key: "0x2b89d8ca74aa2e11ab55f5af1168cd6929b88d1998aecd979b42cfc1078d5377",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false, dotnsDiscovery: true },
   },
   previewnet: {
     stack: {
       url: "https://previewnet.substrate.dev/.well-known/trinity-stack.json",
       key: "0x4d43362f03d5511632a210632d1fb7760b5a663580f12ffca34619f79357e239",
     },
-    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false },
+    features: { resources: true, pgas: true, hop: true, dotns: true, identity: true, game: true, bulletin: true, systemFlows: false, dotnsDiscovery: false },
   },
   // The community-operated Polkadot Products Devnet: the REAL Paseo system chains
   // (Asset Hub 1000, People 1004) plus Bulletin 1010 on the public relay —
@@ -100,13 +106,13 @@ export const NETWORKS: Record<string, NetworkEntry> = {
       url: "https://stack.api.polkadotcommunity.foundation/.well-known/trinity-stack.json",
       key: "0x1fbc5eed0deb09fe4eeefdf45350b4b4cf36370d9bbb93ca2818b076737a0ed3",
     },
-    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true, bulletin: true, systemFlows: false },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: true, bulletin: true, systemFlows: false, dotnsDiscovery: false },
   },
   // Westend: relay, Asset Hub (1000) and People (1004). People runs none of the Individuality
   // pallets and there is no Bulletin, so the chain-level tests and the system flows run.
   westend: {
     stack: { url: "https://stack-westend.parity-testnet.parity.io/.well-known/trinity-stack.json" },
-    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: false, bulletin: false, systemFlows: true },
+    features: { resources: false, pgas: false, hop: false, dotns: false, identity: false, game: false, bulletin: false, systemFlows: true, dotnsDiscovery: false },
   },
 };
 
