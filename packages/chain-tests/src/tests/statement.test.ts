@@ -14,6 +14,9 @@ import { assertChainHealthy } from "../lib/chain-cascade.js";
 import { createNodeStatementTransport } from "../lib/statement-transport.js";
 import { getNetworkConfig, type NetworkConfig } from "../config/networks.js";
 
+// Exceeds the ~15 s a pnv2 People reorg lasts at a relay session change.
+const ALLOWANCE_TIMEOUT_MS = 60_000;
+
 describe("Statement: People Chain + Identity Backend", () => {
   let network: NetworkConfig;
   let client: PolkadotClient;
@@ -66,12 +69,16 @@ describe("Statement: People Chain + Identity Backend", () => {
     expect(body.status).toBe("ok");
   });
 
-  /** A product-sdk client publishing as `secret`, with the transport a host would provide. */
-  async function connectClient(secret: Uint8Array): Promise<StatementStoreClient> {
-    const { transport, signer } = createNodeStatementTransport(network.people.ws, secret);
-    const client = new StatementStoreClient({ appName: `pop-e2e-${Date.now()}`, transport });
-    await client.connect({ mode: "local", signer });
+  /**
+   * A product-sdk client publishing as `secret`, with the transport a host would provide. With
+   * `waitForAllowance`, it returns once the claimed allowance is usable on the node it publishes to.
+   */
+  async function connectClient(secret: Uint8Array, { waitForAllowance = false } = {}): Promise<StatementStoreClient> {
+    const transport = createNodeStatementTransport(network.people.ws, secret);
+    const client = new StatementStoreClient({ appName: `pop-e2e-${Date.now()}`, transport: transport.transport });
+    await client.connect({ mode: "local", signer: transport.signer });
     clients.push(client);
+    if (waitForAllowance) await transport.waitForAllowance(ALLOWANCE_TIMEOUT_MS);
     return client;
   }
 
@@ -86,7 +93,7 @@ describe("Statement: People Chain + Identity Backend", () => {
   );
 
   it.skipIf(!needsAttestation())("Statement Store write succeeds with the product key", async () => {
-    const statements = await connectClient(statementSecret);
+    const statements = await connectClient(statementSecret, { waitForAllowance: true });
     const result = await statements.publish({ probe: Date.now() });
     if (!result.ok) throw result.error;
   });
@@ -94,7 +101,7 @@ describe("Statement: People Chain + Identity Backend", () => {
   it.skipIf(!needsAttestation())(
     "Statement Store write + read roundtrip",
     async () => {
-      const statements = await connectClient(statementSecret);
+      const statements = await connectClient(statementSecret, { waitForAllowance: true });
       const marker = `pop-e2e-roundtrip-${Date.now()}`;
       const received = new Promise<void>((resolve) => {
         statements.subscribe<{ marker: string }>((s) => {
@@ -107,7 +114,7 @@ describe("Statement: People Chain + Identity Backend", () => {
       await received;
       console.log(`[statement] Roundtrip: data verified`);
     },
-    60_000,
+    ALLOWANCE_TIMEOUT_MS + 60_000,
   );
 
   it.skipIf(!needsAttestation())(
