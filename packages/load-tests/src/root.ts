@@ -1,8 +1,8 @@
 import type { Transaction, TxCallData } from "polkadot-api";
 import { mergeUint8 } from "@polkadot-api/utils";
-import { getTxCreator } from "polkadot-api/tx-creator";
 import { sudoBatch } from "@pop-e2e/chain-tests/src/lib/game-fork.js";
 import { PEOPLE_CLAIM_EXTENSIONS } from "@pop-e2e/chain-tests/src/lib/people-claim.js";
+import { accountSigner } from "./burst.js";
 import type { Keypair, Player } from "./keys.js";
 import type { PeopleApi } from "./target.js";
 
@@ -27,7 +27,7 @@ export async function submitToBestBlock(tx: Transaction, signer: Keypair): Promi
 
 function submitOnce(tx: Transaction, signer: Keypair): Promise<Included> {
   return new Promise((resolve, reject) => {
-    const creator = getTxCreator(signer.publicKey, "Sr25519", async (input) => signer.sign(input));
+    const creator = accountSigner(signer);
     const timer = setTimeout(() => {
       subscription.unsubscribe();
       reject(new Error(`not in a block within ${INCLUSION_TIMEOUT_MS / 1000} s`));
@@ -59,7 +59,7 @@ export async function dispatchAsRoot(
   chunk: number,
   label: string,
 ): Promise<void> {
-  const signer = getTxCreator(sudo.publicKey, "Sr25519", async (input) => sudo.sign(input));
+  const signer = accountSigner(sudo);
   for (let start = 0; start < calls.length; start += chunk) {
     const batch = calls.slice(start, start + chunk).map((decodedCall) => ({ decodedCall }));
     await sudoBatch(api, signer, batch, `${label} ${Math.min(start + chunk, calls.length)}/${calls.length}`);
