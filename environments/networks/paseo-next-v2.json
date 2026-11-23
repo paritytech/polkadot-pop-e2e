@@ -2,7 +2,7 @@
   "network": "paseo-next-v2",
   "base": "fork",
   "binaries": {
-    "polkadot": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
+    "polkadot": "paritytech/polkadot-sdk@polkadot-stable2609-2",
     "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
   },
   "chains": {

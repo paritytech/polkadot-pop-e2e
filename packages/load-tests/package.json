@@ -11,8 +11,18 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@novasamatech/sdk-statement": "^0.6.0",
+    "@individuality/game-outcome": "*",
+    "@individuality/people-chain": "*",
+    "@jollity/collectables": "*",
+    "@jollity/game-chain": "*",
+    "@jollity/protocol": "*",
+    "@jollity/statement-core": "*",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@parity/product-sdk-host": "0.34.0",
+    "@parity/product-sdk-individuality": "0.11.7",
     "@parity/product-sdk-nfts": "0.4.1",
+    "@polkadot-api/signers-common": "^0.4.0",
     "@polkadot-api/substrate-bindings": "^0.21.2",
     "@polkadot-api/utils": "^0.4.0",
     "@polkadot-labs/hdkd": "^0.0.32",
@@ -21,7 +31,7 @@
     "@pop-e2e/papi": "workspace:*",
     "@scure/sr25519": "^2.4.0",
     "polkadot-api": "^3.3.0",
-    "smoldot": "3.8.0",
+    "smoldot": "3.9.0",
     "ws": "^8.23.0"
   },
   "devDependencies": {
@@ -29,6 +39,6 @@
     "@types/ws": "^8.18.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }

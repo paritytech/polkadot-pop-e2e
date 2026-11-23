@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PROFILES } from "./profile.js";
 import { DEFAULT_THRESHOLDS, summarizeStep } from "./report.js";
 import type { SignallingShardResult } from "./signalling.js";
-import { DeliveryCounter, STALL_MS, SignallingStats, countDeliveryGap } from "./stats.js";
+import { DeliveryCounter, STALL_MS, SignallingStats, countDeliveryGap, creditedDeliveries } from "./stats.js";
 
 function shard(index: number, accepted: number, delivered: number, lagMs = 10, record?: (stats: SignallingStats) => void): SignallingShardResult {
   const stats = new SignallingStats();
@@ -11,6 +11,11 @@ function shard(index: number, accepted: number, delivered: number, lagMs = 10, r
   stats.acceptedInWindow = accepted;
   // One game room of 100 players: each statement is due to the 99 others.
   stats.expectedDeliveries = accepted * 99;
+  // The shard's statements on one channel, the deliveries spread over receivers up to the last of them.
+  stats.acceptedExpiries[`channel ${index}`] = Array.from({ length: accepted }, (_, expiry) => String(expiry + 1));
+  for (let receiver = 0; receiver * accepted < delivered; receiver++) {
+    stats.deliveredUpTo[`shard ${index} receiver ${receiver}`] = { [`channel ${index}`]: String(Math.min(accepted, delivered - receiver * accepted)) };
+  }
   stats.deliveredInWindow = delivered;
   stats.submits = { new: accepted };
   for (let i = 0; i < delivered; i++) stats.latency.add(40);
@@ -57,16 +62,36 @@ describe("summarizeStep", () => {
     expect(summary.verdict).toBe("inconclusive");
   });
 
+  // statement-core's expiry floor carries a burst's expiries past the end of their second, so the
+  // next statement on a channel can decode to an earlier time while its expiry still rises. The one
+  // it replaced has to count as delivered with it, or the summary reads loss that didn't happen.
+  it("credits a replaced statement when its successor decodes to an earlier time", () => {
+    const stats = new SignallingStats();
+    const sender = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 1, "sender");
+    const receiver = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 1, "receiver");
+    const first = { channel: "0xfloor", expiry: 0x7000_0000_0000_0001n, stampedAt: 1_000 };
+    const second = { channel: "0xfloor", expiry: 0x7000_0000_0000_0002n, stampedAt: 500 };
+    sender.accepted(first);
+    sender.accepted(second);
+    receiver.receive(second, 500, 600);
+    // Shard results arrive at the summary as JSON, where a u64 expiry has to keep every digit.
+    const merged = new SignallingStats();
+    merged.add(JSON.parse(JSON.stringify(stats)));
+    expect(merged.expectedDeliveries).toBe(2);
+    expect(creditedDeliveries(merged)).toBe(2);
+  });
+
   // A feed the node ends before it delivers anything is a subscription that never worked; one
   // that ends later is a reader dropped mid-game. The summary has to tell the two apart.
   it("reports how long ended subscriptions were open and how many ended before a statement", () => {
     vi.useFakeTimers({ now: 0 });
     const record = (stats: SignallingStats) => {
-      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 0, 10);
-      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 1, 10);
+      const silent = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10, "silent");
+      const delivering = new DeliveryCounter(stats, { start: 0, end: 151_000 }, 10, "delivering");
       silent.recordSubscribe();
       delivering.recordSubscribe();
-      delivering.receive(undefined, 1_000);
+      // a statement sent before the window: one statement delivered, no delivery counted
+      delivering.receive({ channel: "early", expiry: 1n, stampedAt: -1 }, -1, 1_000);
       vi.advanceTimersByTime(30_000);
       silent.recordEnd("closed");
       delivering.recordEnd("closed");
