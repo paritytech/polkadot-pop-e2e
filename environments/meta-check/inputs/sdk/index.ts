@@ -95,10 +95,13 @@ function installed(root: string): SdkLocation {
     );
   }
 
-  const code = [...packages]
-    .filter(([, m]) => m.name !== DESCRIPTORS)
-    .map(([dir]) => path.join(dir, "dist"))
-    .filter((dist) => fs.existsSync(dist));
+  const code: string[] = [];
+  for (const [dir, manifest] of packages) {
+    if (manifest.name === DESCRIPTORS) continue;
+    const dist = path.join(dir, "dist");
+    if (fs.existsSync(dist)) code.push(dist);
+    else warnings.push(`${manifest.name}@${manifest.version} ships no dist/; its reads are not checked`);
+  }
   return {
     layout: "installed",
     descriptors,
