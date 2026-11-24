@@ -89,8 +89,9 @@ function installed(root: string): SdkLocation {
     const used = client ? resolvePackage(client, DESCRIPTORS) : null;
     descriptors = used ?? descriptors;
     const versions = descriptorDirs.map((dir) => packages.get(dir)?.version).join(", ");
+    const why = used ? `the one ${CHAIN_CLIENT} uses` : `the first found, as no ${CHAIN_CLIENT} is installed`;
     warnings.push(
-      `${DESCRIPTORS} is installed at ${descriptorDirs.length} versions (${versions}); using ${packages.get(descriptors)?.version}, the one ${CHAIN_CLIENT} uses`,
+      `${DESCRIPTORS} is installed at ${descriptorDirs.length} versions (${versions}); using ${packages.get(descriptors)?.version}, ${why}`,
     );
   }
 
