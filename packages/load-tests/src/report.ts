@@ -3,8 +3,9 @@ import { join } from "node:path";
 import type { QuantileSummary } from "./histogram.js";
 import type { Sample } from "./prometheus.js";
 import type { ChainResult } from "./chain.js";
+import { summarizeGameProcessing, summarizePhases, type GameProcessing, type PhaseLoad } from "./phases.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
-import { STALL_MS, SignallingStats, bump, total } from "./stats.js";
+import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
 
 /** Limits a step stays within to pass. */
 export interface Thresholds {
@@ -31,8 +32,10 @@ export interface StepSummary {
   verdict: "pass" | "fail" | "inconclusive";
   /** What exceeded a threshold, in terms of where it points. */
   findings: string[];
-  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "add">;
+  stats: Omit<SignallingStats, "latency" | "submitRtt" | "subscriptionLifetimeMs" | "acceptedExpiries" | "deliveredUpTo" | "add">;
   expectedDeliveries: number;
+  /** Deliveries of statements accepted in the window, a statement replaced before it arrived counted with the one that replaced it. */
+  deliveries: number;
   loss: number;
   latencyMs: QuantileSummary;
   submitRttMs: QuantileSummary;
@@ -79,7 +82,8 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   for (const result of results) stats.add(result.stats);
   const clientLagP99Ms = Math.max(...results.map((result) => result.clientLoopDelayMs.p99));
   const { expectedDeliveries } = stats;
-  const loss = expectedDeliveries > 0 ? Math.max(0, 1 - stats.deliveredInWindow / expectedDeliveries) : 1;
+  const deliveries = creditedDeliveries(stats);
+  const loss = expectedDeliveries > 0 ? Math.max(0, 1 - deliveries / expectedDeliveries) : 1;
   const nodes: Record<string, NodeSummary> = {};
   const metered = results.find((result) => result.metrics);
   if (metered?.metrics) {
@@ -110,9 +114,10 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings.push(`statement store: ${stats.stalledSubscriptions} of ${stats.subscribed} subscriptions stopped delivering ${STALL_MS / 1000} s or more before the game ended`);
   }
   if (stats.deliveredInWindow > expectedDeliveries) {
-    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late and the loss reads low`);
+    findings.push(`delivery: more arrived than were sent, so some submits that timed out were accepted late`);
   }
   if (hosts && total(hosts.failures) > 0) findings.push(`host: ${total(hosts.failures)} of ${hosts.processes} truapi-host processes failed`);
+  if (stats.linksUp < stats.links) findings.push(`signalling: ${stats.links - stats.linksUp} of ${stats.links} links not up when the game ended`);
   if (submitTotal > 0 && submitFailures / submitTotal > thresholds.maxSubmitFailureRate) {
     findings.push(`submit: ${submitFailures}/${submitTotal} not accepted`);
   }
@@ -128,7 +133,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   if (lateShards > 0) findings.push(`client: ${lateShards} of ${shardCount} machines started over 1 s late`);
   const inconclusive = clientBound || missingShards > 0 || lateShards > 0;
 
-  const { latency: _latency, submitRtt, subscriptionLifetimeMs, ...counts } = stats;
+  const { latency: _latency, submitRtt, subscriptionLifetimeMs, acceptedExpiries: _accepted, deliveredUpTo: _deliveredUpTo, ...counts } = stats;
   return {
     layer,
     players,
@@ -137,6 +142,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
     findings,
     stats: counts,
     expectedDeliveries,
+    deliveries,
     loss,
     latencyMs: latency,
     submitRttMs: submitRtt.summary(),
@@ -190,7 +196,67 @@ function stepsMarkdown(target: string, steps: StepSummary[]): string {
   ].join("\n");
 }
 
-/** One chain game's result: the timeline of its phases, both transaction bursts, block fullness. */
+function phasesMarkdown(phases: PhaseLoad[]): string[] {
+  if (phases.length === 0) return ["Blocks by phase: no finalized block of the game was read.", ""];
+  const percent = (share: number) => `${Math.round(share * 100)}`;
+  const withWitness = phases.some((phase) => phase.maxWitnessBytes !== null);
+  const withProposals = phases.some((phase) => phase.proposalEnds !== null);
+  const header = [
+    "Phase",
+    "Blocks",
+    "Block time p50 / max s",
+    "Max extrinsics",
+    "Max normal % ref / proof",
+    "Max mandatory % ref / proof",
+    "Max KB",
+    ...(withWitness ? ["Max PoV KB"] : []),
+    "Max unincluded",
+    "Max credit trees",
+    "Max finality lag",
+    "Failed extrinsics",
+    ...(withProposals ? ["Collator 1 block ends"] : []),
+  ];
+  const rows = phases.map((phase) =>
+    [
+      phase.phase,
+      `${phase.blocks} (#${phase.firstBlock}–#${phase.lastBlock})`,
+      [phase.blockMs.p50, phase.blockMs.max].map((ms) => (ms === null ? "–" : (ms / 1000).toFixed(1))).join(" / "),
+      phase.maxExtrinsics,
+      `${percent(phase.maxNormal.refTime)} / ${percent(phase.maxNormal.proofSize)}`,
+      `${percent(phase.maxMandatory.refTime)} / ${percent(phase.maxMandatory.proofSize)}`,
+      (phase.maxBytes / 1024).toFixed(1),
+      ...(withWitness ? [phase.maxWitnessBytes === null ? "–" : (phase.maxWitnessBytes / 1024).toFixed(1)] : []),
+      phase.maxUnincluded,
+      phase.maxCreditTrees,
+      phase.maxFinalityLag,
+      phase.failedExtrinsics,
+      ...(withProposals
+        ? [
+            Object.entries(phase.proposalEnds ?? {})
+              .map(([end, count]) => `${end} ${count}`)
+              .join(", ") || "–",
+          ]
+        : []),
+    ].join(" | "),
+  );
+  return ["Blocks by phase:", "", `| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row} |`), ""];
+}
+
+function processingMarkdown({ shuffle, playerProcess, heaviestStep }: GameProcessing): string {
+  const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const parts = [
+    shuffle ? `shuffle ${shuffle.blocks} blocks / ${seconds(shuffle.ms)}` : "shuffle –",
+    playerProcess
+      ? `reports ended #${playerProcess.reportEndBlock}, GameEnded ${playerProcess.gameEndBlock === null ? "not seen" : `#${playerProcess.gameEndBlock}`}: ${playerProcess.blocks} blocks / ${seconds(playerProcess.ms)}`
+      : "player processing –",
+    heaviestStep
+      ? `heaviest step ${Math.round(heaviestStep.share * 100)}% of ${heaviestStep.source === "step call" ? "the step budget" : "a block's ref time"} (#${heaviestStep.block}, ${heaviestStep.source})`
+      : "heaviest step –",
+  ];
+  return `Game processing: ${parts.join("; ")}.`;
+}
+
+/** One chain game's result: the timeline of its phases, the transaction bursts, the People blocks of each phase. */
 export function chainMarkdown(result: ChainResult): string {
   const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   const phaseRow = (name: string, phase: ChainResult["signUp"] | null) =>
@@ -198,13 +264,12 @@ export function chainMarkdown(result: ChainResult): string {
       ? `| ${name} | ${phase.ok}/${phase.submitted} | ${phase.inTime} | ${phase.inclusionMs.p50 ?? "–"} / ${phase.inclusionMs.p95 ?? "–"} / ${phase.inclusionMs.max ?? "–"} | ${seconds(phase.durationMs)} | ${phase.firstBlock ?? "–"}–${phase.lastBlock ?? "–"} |`
       : `| ${name} | skipped | | | | |`;
   const durations = result.timeline.slice(1).map((entry, i) => `${result.timeline[i].state} ${seconds(entry.at - result.timeline[i].at)}`);
-  const fullest = (pick: (block: ChainResult["blocks"][number]) => number) =>
-    `${(Math.max(0, ...result.blocks.map(pick)) * 100).toFixed(0)}%`;
   return [
     `### Chain game with ${result.players} players on ${result.target}: ${result.verdict}`,
     "",
     result.findings.length > 0 ? result.findings.map((finding) => `- ${finding}`).join("\n") : "- every sign-up, report and claim was in",
     "",
+    ...(result.capacity.length > 0 ? [`**Capacity:** ${result.capacity.join("; ")}.`, ""] : []),
     "| Burst | Succeeded | In time | Inclusion p50 / p95 / max ms | Burst length | Blocks |",
     "|---|---|---|---|---|---|",
     phaseRow("sign-up", result.signUp),
@@ -222,8 +287,10 @@ export function chainMarkdown(result: ChainResult): string {
       : []),
     `Phases: ${durations.join(" → ") || "–"}`,
     "",
-    `Fullest block: ${fullest((block) => block.refTime)} of the normal-class ref time, ${fullest((block) => block.proofSize)} of its proof size, ${Math.max(0, ...result.blocks.map((block) => block.extrinsics))} extrinsics.`,
+    ...phasesMarkdown(summarizePhases(result)),
+    processingMarkdown(summarizeGameProcessing(result)),
     "",
+    ...(result.notes.length > 0 ? ["Notes:", "", ...result.notes.map((note) => `- ${note}`), ""] : []),
   ].join("\n");
 }
 

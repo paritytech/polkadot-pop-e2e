@@ -3,13 +3,12 @@ import { parseArgs } from "node:util";
 import { runChain } from "./chain.js";
 import { derivePlayers, hostGhostPlayer, type Player } from "./keys.js";
 import { PHASES, PROFILES, playMs, type Phase } from "./profile.js";
-import { ROOMS, type Rooms } from "./seating.js";
 import { chainMarkdown, DEFAULT_THRESHOLDS, writeSummary } from "./report.js";
 import { waitForSignUp } from "./join.js";
 import { grantStatementAllowance } from "./root.js";
-import { hostGhosts, PRODUCT_IDS, shardHosts, shardProcesses } from "./host.js";
+import { hostGhosts, shardHosts, shardProcesses } from "./host.js";
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
-import { connectPeople, resolveTarget, type Target } from "./target.js";
+import { connectPeople, gameProductId, resolveTarget, type Target } from "./target.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
 
@@ -42,12 +41,8 @@ Signalling:
   --rpc-limit <n>       The People node's --rpc-max-connections: fail before a step that would exceed it
   --ramp <s> --warmup <s> --drain <s> --cooldown <s>  Step phases (default 30, 10, 10, 10)
   --profile <name>      ${Object.keys(PROFILES).join(" | ")} (default jollity)
-  --phase <name>        sync: every ghost opens the room at the same instant and re-sends on one
-                        beat from it, as the app does (default); random: each at its own phase
-  --rooms <name>        co-players: each phone posts under its own topic and listens to its
-                        co-players', bundles with offers deflated, as the app does since
-                        https://github.com/paritytech/individuality-apps/pull/1972 (default);
-                        game: one room for the whole game, the app before it
+  --phase <name>        sync: every ghost opens the room at the same instant, as the app does
+                        (default); random: each up to one heartbeat later
   --run-id <id>         Separates topics and results of runs (default local-<time>)
   --out <dir>           Result directory (default results/<run-id>)
 
@@ -96,7 +91,6 @@ const { positionals, values } = parseArgs({
     drain: { type: "string", default: "10" },
     cooldown: { type: "string", default: "10" },
     profile: { type: "string", default: "jollity" },
-    rooms: { type: "string", default: "co-players" },
     phase: { type: "string", default: "sync" },
     "run-id": { type: "string", default: `local-${Date.now()}` },
     out: { type: "string" },
@@ -153,7 +147,7 @@ const outDir = values.out ?? `results/${values["run-id"]}`;
 const targetOptions = { rpc: list(values.rpc), network: values.network, sudoUri: values.sudo ?? process.env.SUDO_URI, metrics: list(values.metrics) };
 const gameAt = gameTime(values["game-at"]);
 const ghostsPerHost = positiveInteger("ghosts-per-host", values["ghosts-per-host"]);
-const productIdOf = (target: Target) => values["product-id"] ?? PRODUCT_IDS[target.network];
+const productIdOf = (target: Target) => values["product-id"] ?? gameProductId(target.network);
 
 /**
  * Key seed of a game run's players. On a fork, fresh accounts per game, so the sign-up is each
@@ -218,7 +212,6 @@ switch (values.help ? undefined : command) {
     const startText = values["start-at"];
     let startAt = startText === undefined ? Date.now() + 5_000 : /^\d+$/.test(startText) ? Number(startText) : Date.parse(startText);
     if (Number.isNaN(startAt)) throw new Error(`--start-at must be ms or an ISO time, not '${startText}'`);
-    if (!ROOMS.includes(values.rooms as Rooms)) throw new Error(`--rooms must be one of ${ROOMS.join(", ")}, not '${values.rooms}'`);
     if (values["follow-game"]) {
       if (command !== "host" || steps.length !== 1) throw new Error("--follow-game plays one step of host, as in `host --steps <players>`");
       const own = shardHosts(steps[0], ghostsPerHost, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
@@ -238,7 +231,6 @@ switch (values.help ? undefined : command) {
       timing,
       profile,
       phase: values.phase as Phase,
-      rooms: values.rooms as Rooms,
       target,
       outDir,
     };
