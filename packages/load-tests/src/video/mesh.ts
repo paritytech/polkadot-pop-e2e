@@ -89,6 +89,12 @@ const describeCandidates = (counts: Record<string, number>) =>
     .map(([type, count]) => `${type} ${count}`)
     .join(" ") || "none";
 
+/** A link's path as the app's mesh counts it (`LinkPath`): relay when either end of its selected pair is a relay candidate. */
+export function linkPath(pair: { local: { type: string | null }; remote: { type: string | null } } | null | undefined): "direct" | "relay" | "unknown" {
+  if (!pair) return "unknown";
+  return pair.local.type === "relay" || pair.remote.type === "relay" ? "relay" : "direct";
+}
+
 /**
  * One bot's peer connections, set up as the app's mesh (jollity-app `lib/webrtc/mesh.ts`) sets
  * them up: a data-channel-only offer and answer over the statement transport, then the video
@@ -286,7 +292,9 @@ export class VideoMesh implements PeerLinks {
     const { stats, onLinked } = this.options;
     link.up = true;
     stats.connectMs.add(Date.now() - link.createTime);
-    bump(stats.candidateTypes, link.pc.iceTransports[0]?.getSelectedCandidatePair()?.local.type ?? "unknown");
+    const pair = link.pc.iceTransports[0]?.getSelectedCandidatePair();
+    bump(stats.candidateTypes, pair?.local.type ?? "unknown");
+    bump(stats.linkPaths, linkPath(pair));
     onLinked(link.peer, true);
     // Media starts once the channel is open, and only the initiator offers it down the lane.
     if (link.initiator) void this.offerVideo(link);

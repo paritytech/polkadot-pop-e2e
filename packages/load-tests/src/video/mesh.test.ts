@@ -2,7 +2,7 @@ import type { RtcPayload } from "@jollity/statement-core";
 import { describe, expect, it } from "vitest";
 import { sleep } from "../time.js";
 import { loadClip } from "./clip.js";
-import { VideoMesh } from "./mesh.js";
+import { linkPath, VideoMesh } from "./mesh.js";
 import { VideoStats } from "./stats.js";
 
 /** Once `condition` holds, polled on the real clock: the links are real werift connections, which fake timers don't drive. */
@@ -47,5 +47,17 @@ describe("VideoMesh", () => {
 
     expect(linked.sort()).toEqual(["a->b", "a->b", "b->a", "b->a"]);
     expect(answererStats.failures).toEqual({});
+  });
+});
+
+// The summary counts each link's path as the app reports it, so bot and phone numbers compare.
+describe("linkPath", () => {
+  it("is relay when either end of the selected pair is a relay candidate, else direct", () => {
+    const pair = (local: string, remote: string) => ({ local: { type: local }, remote: { type: remote } });
+    expect(linkPath(pair("host", "srflx"))).toBe("direct");
+    expect(linkPath(pair("prflx", "host"))).toBe("direct");
+    expect(linkPath(pair("relay", "host"))).toBe("relay");
+    expect(linkPath(pair("srflx", "relay"))).toBe("relay");
+    expect(linkPath(undefined)).toBe("unknown");
   });
 });
