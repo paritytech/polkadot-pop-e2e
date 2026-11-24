@@ -111,6 +111,7 @@ export class VideoMesh implements PeerLinks {
   open(peers: string[]): void {
     const { rounds, stats, self } = this.options;
     stats.bots++;
+    stats.links += peers.length;
     if (this.options.ice.turn.length > 0) stats.botsWithTurn++;
     this.camera.start();
     const now = Date.now();
@@ -143,6 +144,7 @@ export class VideoMesh implements PeerLinks {
     this.timers.forEach((timer) => clearTimeout(timer));
     this.camera.stop();
     await Promise.all([...this.links.values()].map((link) => this.closeLink(link, "end")));
+    this.options.stats.linksUp += this.linksUp;
     return this.linksUp;
   }
 

@@ -3,6 +3,9 @@ import { addCounts } from "../stats.js";
 
 /** What the video bots of one shard observed during one step; sums across shards like `SignallingStats`. */
 export class VideoStats {
+  /** Links the bots opened to their co-players, and those up until they closed, each side counted. */
+  links = 0;
+  linksUp = 0;
   /** Peer connections whose video renegotiation over the "data" channel completed. */
   linksWithVideo = 0;
   /** Room open (or the link's creation) to its "data" channel opening. */
@@ -59,5 +62,17 @@ export class VideoStats {
   /** Adds the counts of `other`, a `VideoStats` or its JSON. */
   add(other: VideoStats): void {
     addCounts(this, other);
+  }
+}
+
+/** The video counts of the bots that use TURN and of those that use STUN only, kept apart for the summary. */
+export class VideoGroups {
+  withTurn = new VideoStats();
+  withoutTurn = new VideoStats();
+
+  /** Adds the counts of `other`, a `VideoGroups` or its JSON. */
+  add(other: VideoGroups): void {
+    this.withTurn.add(other.withTurn);
+    this.withoutTurn.add(other.withoutTurn);
   }
 }

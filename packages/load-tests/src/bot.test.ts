@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SignallingBot } from "./bot.js";
 import { loadClip } from "./video/clip.js";
 import { videoMarkdown } from "./video/report.js";
-import { VideoStats } from "./video/stats.js";
+import { VideoGroups } from "./video/stats.js";
 import { coPlayersOf, roundsOf } from "./seating.js";
 import type { SignallingProfile } from "./profile.js";
 import { derivePlayer, type Player } from "./keys.js";
@@ -148,7 +148,8 @@ describe("SignallingBot", () => {
   it("plays video to the current group over real peer connections set up through the transport", { timeout: 60_000 }, async () => {
     const memory = new MemoryStore();
     const stats = new SignallingStats();
-    const video = new VideoStats();
+    const groups = new VideoGroups();
+    const video = groups.withoutTurn;
     const profile: SignallingProfile = { ...PROFILES.jollity, preconnectMs: 6_000, roundMs: 5_000, breakMs: 1_000 };
     const players = Array.from({ length: 12 }, (_, index) => derivePlayer("video-test", index));
     const clip = loadClip();
@@ -203,13 +204,14 @@ describe("SignallingBot", () => {
       lateMs: 0,
       stats,
       clientLoopDelayMs: { p50: 0, p99: 0, max: 0 },
-      video,
+      video: groups,
     };
     const summary = summarizeStep([JSON.parse(JSON.stringify(result)) as SignallingShardResult], DEFAULT_THRESHOLDS);
     console.log(videoMarkdown("memory", [{ players: players.length, video: summary.video! }]));
+    expect(summary.video?.all.linksUp).toBe(stats.linksUp);
     // Over 1 would mean frames from a co-player on standby, whose camera should be off.
-    expect(summary.video?.frameShare).toBeGreaterThan(0.9);
-    expect(summary.video?.frameShare).toBeLessThan(1.05);
+    expect(summary.video?.all.frameShare).toBeGreaterThan(0.9);
+    expect(summary.video?.all.frameShare).toBeLessThan(1.05);
     expect(summary.findings.filter((finding) => /^(video|TURN)/.test(finding))).toEqual([]);
   });
 });

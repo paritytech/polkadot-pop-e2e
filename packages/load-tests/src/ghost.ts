@@ -18,7 +18,7 @@ import { roomOpensAt, type Phase, type SignallingProfile } from "./profile.js";
 import { RpcConnection } from "./rpc.js";
 import type { SignallingStats } from "./stats.js";
 import type { BotVideo } from "./video/mesh.js";
-import type { VideoStats } from "./video/stats.js";
+import type { VideoGroups } from "./video/stats.js";
 
 export interface GhostRoom {
   profile: SignallingProfile;
@@ -29,8 +29,8 @@ export interface GhostRoom {
   gameStart: number;
   window: { start: number; end: number };
   stats: SignallingStats;
-  /** The shard's video counts, in a run with video. */
-  video?: VideoStats;
+  /** The shard's video counts by TURN group, in a run with video. */
+  video?: VideoGroups;
 }
 
 const SUBSCRIBE = "statement_subscribeStatement";

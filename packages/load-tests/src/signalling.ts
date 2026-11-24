@@ -11,7 +11,7 @@ import { SignallingStats, bump } from "./stats.js";
 import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
 import { botVideo, type VideoRun } from "./video/run.js";
-import { VideoStats } from "./video/stats.js";
+import { VideoGroups } from "./video/stats.js";
 
 export interface Shard {
   index: number;
@@ -69,7 +69,7 @@ export interface SignallingShardResult {
   /** Node metrics at the window's start and end, scraped by shard 0 only. */
   metrics?: { start: NodeMetrics; end: NodeMetrics };
   hosts?: HostUsage;
-  video?: VideoStats;
+  video?: VideoGroups;
 }
 
 /** One step's game as every shard sees it. */
@@ -127,7 +127,7 @@ async function runStep(
   const window = { start: windowStart, end: windowStart + gameMs(profile) };
   const namespace = `pop-e2e-load/${run.runId}/${layer}/n${count}`;
   const stats = new SignallingStats();
-  const video = run.video && new VideoStats();
+  const video = run.video && new VideoGroups();
   const room: GhostRoom = {
     profile,
     phase: run.phase,
@@ -150,7 +150,7 @@ async function runStep(
   players.stopSending();
   await sleepUntil(window.end + timing.drainMs);
   await players.leave();
-  if (video && run.video?.turn) video.add(run.video.turn.takeStats());
+  if (video && run.video?.turn) video.withTurn.add(run.video.turn.takeStats());
 
   return {
     layer,
@@ -207,8 +207,8 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         const end = Math.min((connectionIndex + 1) * ghostsPerConnection, count);
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
           const addressOf = (other: number) => playerAt(other).address;
-          // Direct-RPC ghosts are never lite bots, so they have no TURN credentials.
-          const video = run.video && room.video && botVideo(run.video.ice, [], room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
+          // Direct-RPC ghosts are never lite bots, so they use STUN only.
+          const video = run.video && room.video && botVideo(run.video.ice, null, room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
           const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();

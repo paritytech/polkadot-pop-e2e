@@ -3,6 +3,8 @@ import { PROFILES } from "./profile.js";
 import { DEFAULT_THRESHOLDS, summarizeStep } from "./report.js";
 import type { SignallingShardResult } from "./signalling.js";
 import { DeliveryCounter, STALL_MS, SignallingStats, countDeliveryGap, creditedDeliveries } from "./stats.js";
+import { summarizeVideoGroups, videoMarkdown } from "./video/report.js";
+import { VideoGroups, VideoStats } from "./video/stats.js";
 
 function shard(index: number, accepted: number, delivered: number, lagMs = 10, record?: (stats: SignallingStats) => void): SignallingShardResult {
   const stats = new SignallingStats();
@@ -124,5 +126,27 @@ describe("countDeliveryGap", () => {
     countDeliveryGap(stats, windowEnd - STALL_MS - 1, windowEnd);
     countDeliveryGap(stats, windowEnd - STALL_MS + 1, windowEnd);
     expect([stats.silentSubscriptions, stats.stalledSubscriptions]).toEqual([1, 1]);
+  });
+});
+
+// A mixed run compares the bots that took TURN relay ports with those on STUN only.
+describe("videoMarkdown", () => {
+  it("adds a row per TURN group under the step's row when the step had both", () => {
+    const groups = new VideoGroups();
+    groups.withTurn.bots = 1;
+    groups.withTurn.connectMs.add(20_000);
+    groups.withTurn.candidateErrors = { "TURN server without a relay candidate": 3 };
+    groups.withoutTurn.bots = 2;
+    groups.withoutTurn.connectMs.add(500);
+    const rows = videoMarkdown("test", [{ players: 3, video: summarizeVideoGroups(groups) }])
+      .split("\n")
+      .filter((line) => line.startsWith("| 3 |"));
+
+    expect(rows.map((row) => row.split(" | ")[1])).toEqual(["all 3", "with TURN 1", "without TURN 2"]);
+    expect(rows[1]).toContain("TURN server without a relay candidate 3");
+    expect(rows[2]).not.toContain("TURN server without a relay candidate");
+
+    groups.withoutTurn = new VideoStats();
+    expect(videoMarkdown("test", [{ players: 3, video: summarizeVideoGroups(groups) }]).split("\n").filter((line) => line.startsWith("| 3 |"))).toHaveLength(1);
   });
 });

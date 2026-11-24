@@ -6,8 +6,8 @@ import type { ChainResult } from "./chain.js";
 import { summarizeGameProcessing, summarizePhases, type GameProcessing, type PhaseLoad } from "./phases.js";
 import type { HostUsage, SignallingShardResult } from "./signalling.js";
 import { STALL_MS, SignallingStats, bump, creditedDeliveries, total } from "./stats.js";
-import { summarizeVideo, videoFindings, videoMarkdown, type VideoSummary } from "./video/report.js";
-import { VideoStats } from "./video/stats.js";
+import { summarizeVideoGroups, videoFindings, videoMarkdown, type VideoGroupSummaries } from "./video/report.js";
+import { VideoGroups } from "./video/stats.js";
 import { iso } from "./time.js";
 
 /** Limits a step stays within to pass. */
@@ -49,7 +49,7 @@ export interface StepSummary {
   /** Per People node over the window: statement-store submit time, CPU cores used, RSS. */
   nodes: Record<string, NodeSummary>;
   hosts: HostUsage | null;
-  video: VideoSummary | null;
+  video: VideoGroupSummaries | null;
 }
 
 function nodeSummary(start: Sample, end: Sample, seconds: number): NodeSummary {
@@ -106,11 +106,11 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   }
   const hosts = mergeHosts(results);
   const videoResults = results.flatMap((result) => (result.video ? [result.video] : []));
-  let video: VideoSummary | null = null;
+  let video: VideoGroupSummaries | null = null;
   if (videoResults.length > 0) {
-    const videoStats = new VideoStats();
-    for (const result of videoResults) videoStats.add(result);
-    video = summarizeVideo(videoStats, stats);
+    const groups = new VideoGroups();
+    for (const result of videoResults) groups.add(result);
+    video = summarizeVideoGroups(groups);
   }
 
   const findings: string[] = [];
@@ -141,7 +141,7 @@ export function summarizeStep(results: SignallingShardResult[], thresholds: Thre
   }
   if (loss > thresholds.maxLoss) findings.push(`delivery: ${(loss * 100).toFixed(2)}% lost`);
   if ((latency.p95 ?? Infinity) > thresholds.maxP95Ms) findings.push(`delivery: p95 ${latency.p95} ms`);
-  const videoVerdict = video ? videoFindings(video) : { findings: [], clientBound: false };
+  const videoVerdict = video ? videoFindings(video.all) : { findings: [], clientBound: false };
   findings.push(...videoVerdict.findings);
   const clientBound = clientLagP99Ms > thresholds.maxClientLagMs || videoVerdict.clientBound;
   if (clientLagP99Ms > thresholds.maxClientLagMs) findings.push(`client: event loop p99 ${clientLagP99Ms.toFixed(0)} ms, add shards`);

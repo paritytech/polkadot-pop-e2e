@@ -12,7 +12,7 @@ import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
 import type { RunIce } from "./video/run.js";
-import type { VideoStats } from "./video/stats.js";
+import type { VideoGroups } from "./video/stats.js";
 
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
@@ -32,8 +32,8 @@ export interface HostGhostPlan {
   stopAt: number;
   leaveAt: number;
   resultPath: string;
-  /** With video: the run's ICE settings, and each ghost's TURN servers. */
-  video?: { ice: RunIce; turn: TurnServer[][] };
+  /** With video: the run's ICE settings, and each ghost's TURN servers, null for a ghost that uses STUN only. */
+  video?: { ice: RunIce; turn: Array<TurnServer[] | null> };
   /**
    * In a game: where the runner writes the chain's seats, which the ghosts wait for before
    * playing, and with video the app's room key, under the app's product account as namespace.
@@ -44,7 +44,7 @@ export interface HostGhostPlan {
 /** What a host's ghost script writes to `resultPath`. */
 export interface HostGhostResult {
   stats: SignallingStats;
-  video?: VideoStats;
+  video?: VideoGroups;
 }
 
 export interface HostOptions {
@@ -161,7 +161,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         ...(run.video && {
           video: {
             ice: run.video.ice,
-            turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? []),
+            turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? null),
           },
         }),
         ...(game && { game }),

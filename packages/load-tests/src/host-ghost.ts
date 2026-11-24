@@ -20,7 +20,7 @@ import { tablesOf, timeRounds } from "./seating.js";
 import { SignallingStats } from "./stats.js";
 import { sleep, sleepUntil } from "./time.js";
 import { botVideo } from "./video/run.js";
-import { VideoStats } from "./video/stats.js";
+import { VideoGroups } from "./video/stats.js";
 
 declare const truapi: Pick<TruApi, "statementStore">;
 declare const host: { productAccount(index: number): ProductAccountId };
@@ -96,7 +96,7 @@ function hostStatementStore(productAccountId: ProductAccountId): MeasurableStore
 const plan = JSON.parse(readFileSync(process.env.GHOST_PLAN!, "utf8")) as HostGhostPlan;
 const { profile, accounts } = plan;
 const stats = new SignallingStats();
-const video = plan.video && { ...plan.video, stats: new VideoStats() };
+const video = plan.video && { ...plan.video, stats: new VideoGroups() };
 const bots = new Set(accounts);
 
 /** The chain's seats once the runner writes them to `path`, or none by `until`. */

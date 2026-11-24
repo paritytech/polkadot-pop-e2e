@@ -1,6 +1,6 @@
 import type { QuantileSummary } from "../histogram.js";
 import { total } from "../stats.js";
-import type { VideoStats } from "./stats.js";
+import { VideoStats, type VideoGroups } from "./stats.js";
 
 /** Below this share of the expected frames a step's video fails. */
 const MIN_FRAME_SHARE = 0.95;
@@ -38,13 +38,27 @@ export interface VideoSummary {
   turnProofMs: QuantileSummary;
 }
 
-export function summarizeVideo(stats: VideoStats, links: { links: number; linksUp: number }): VideoSummary {
+/** A step's video over every bot, and over the bots with TURN and those with STUN only. */
+export interface VideoGroupSummaries {
+  all: VideoSummary;
+  withTurn: VideoSummary;
+  withoutTurn: VideoSummary;
+}
+
+export function summarizeVideoGroups(groups: VideoGroups): VideoGroupSummaries {
+  const all = new VideoStats();
+  all.add(groups.withTurn);
+  all.add(groups.withoutTurn);
+  return { all: summarizeVideo(all), withTurn: summarizeVideo(groups.withTurn), withoutTurn: summarizeVideo(groups.withoutTurn) };
+}
+
+function summarizeVideo(stats: VideoStats): VideoSummary {
   const lossBase = stats.streamPackets + stats.packetsLost;
   return {
     bots: stats.bots,
     botsWithTurn: stats.botsWithTurn,
-    links: links.links,
-    linksUp: links.linksUp,
+    links: stats.links,
+    linksUp: stats.linksUp,
     linksWithVideo: stats.linksWithVideo,
     connectMs: stats.connectMs.summary(),
     candidateTypes: stats.candidateTypes,
@@ -86,8 +100,8 @@ export function videoFindings(video: VideoSummary): { findings: string[]; client
   return { findings, clientBound };
 }
 
-/** The video table of a layer's steps. */
-export function videoMarkdown(target: string, steps: Array<{ players: number; video: VideoSummary }>): string {
+/** The video table of a layer's steps: a row of every bot, then one per TURN group when the step had both. */
+export function videoMarkdown(target: string, steps: Array<{ players: number; video: VideoGroupSummaries }>): string {
   const ms = (summary: QuantileSummary) => `${summary.p50 ?? "–"} / ${summary.p95 ?? "–"}`;
   const counts = (record: Record<string, number>) =>
     Object.entries(record)
@@ -95,10 +109,12 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
       .join(", ") || "–";
   const header = [
     "Players",
+    "Bots",
     "Links up / attempted",
     "With video",
     "Connect p50 / p95 ms",
     "Candidate types",
+    "Candidate errors",
     "Candidates gathered / received",
     "First frame p50 / p95 ms",
     "Frames received / expected",
@@ -108,13 +124,15 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
     "TURN (bots with servers, requests)",
     "Issuer p50 / p95 ms",
   ];
-  const rows = steps.map(({ players, video }) =>
+  const row = (players: number, label: string, video: VideoSummary) =>
     [
       players,
+      `${label} ${video.bots}`,
       `${video.linksUp} / ${video.links}`,
       video.linksWithVideo,
       ms(video.connectMs),
       counts(video.candidateTypes),
+      counts(video.candidateErrors),
       `${counts(video.localCandidates)} / ${counts(video.remoteCandidates)}`,
       ms(video.firstFrameMs),
       `${video.framesReceived} / ${video.framesExpected} (${(video.frameShare * 100).toFixed(1)}%)`,
@@ -123,7 +141,12 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
       `${video.pliSent} / ${video.pliReceived}, ${video.keyframesForced}`,
       `${video.botsWithTurn} of ${video.bots}; ${counts(video.turnFetches)}`,
       ms(video.turnIssuerMs),
-    ].join(" | "),
-  );
-  return [`### Video on ${target}`, "", `| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row} |`), ""].join("\n");
+    ].join(" | ");
+  const rows = steps.flatMap(({ players, video }) => [
+    row(players, "all", video.all),
+    ...(video.withTurn.bots > 0 && video.withoutTurn.bots > 0
+      ? [row(players, "with TURN", video.withTurn), row(players, "without TURN", video.withoutTurn)]
+      : []),
+  ]);
+  return [`### Video on ${target}`, "", `| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((cells) => `| ${cells} |`), ""].join("\n");
 }
