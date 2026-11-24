@@ -102,8 +102,13 @@ export async function fetchTurnPass(proveTurn: ProveTurn, issuer: TurnIssuer, st
   }
 }
 
+/** Of `offsets`, lite bot offsets from `--lite-from`, the ones that use TURN: the run's first `turnBots`. */
+export function turnBotOffsets(offsets: number[], turnBots: number): number[] {
+  return offsets.filter((offset) => offset < turnBots);
+}
+
 /**
- * The TURN passes of a run's lite bots, fetched when the app fetches them: as soon as the bot
+ * The TURN passes of the lite bots in `provers`, fetched when the app fetches them: as soon as the bot
  * knows of its game, then 10 and 3 minutes before the game for a pass with under 10 minutes
  * left. After a failed refresh the previous pass stays in use while it is valid.
  */
@@ -127,8 +132,9 @@ export class TurnPasses {
     return this.fetchAll();
   }
 
-  /** The TURN servers of bot `index`, from its latest pass that is still valid. */
-  serversOf(index: number): TurnServer[] {
+  /** The TURN servers of bot `index` from its latest pass that is still valid; null for a bot that doesn't use TURN. */
+  serversOf(index: number): TurnServer[] | null {
+    if (!this.provers.has(index)) return null;
     const pass = this.passes.get(index);
     return pass && turnPassLeftMs(pass, Date.now()) > 0 ? pass.turn : [];
   }

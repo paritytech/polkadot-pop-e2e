@@ -188,6 +188,12 @@ to three attempts. The runner proves and fetches for its machine's bots, proving
 thread per core and each proof right before its post, so no proof is over 30 s old when it goes
 out, and gives each truapi-host its bot's TURN servers. Without `--lite`, bots have STUN only.
 
+`--turn-bots <n>` (in the workflow's `args`) gives TURN to lite bots `--lite-from`..`--lite-from + n - 1`
+only; the others never request credentials and use the app's STUN servers alone. Each video link
+takes three of the TURN server's relay ports per side with TURN, so a mixed game leaves the ports to
+real players. The video table then has a row for the bots with TURN and one for those without
+under each step's row of all bots.
+
 A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A
 parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) has 32 Gbps, about 7 Gbps of it per runner
 to external IPs, so 400 video bots use under a tenth of that and CPU and memory decide how many

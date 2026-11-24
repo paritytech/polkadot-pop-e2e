@@ -16,7 +16,7 @@ import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
 import { APP_STUN_URLS } from "./video/ice.js";
 import type { VideoRun } from "./video/run.js";
-import { openLiteTurnPasses } from "./video/turn.js";
+import { openLiteTurnPasses, turnBotOffsets } from "./video/turn.js";
 import { iso } from "./time.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
@@ -71,6 +71,8 @@ Signalling:
   --relay               With --video: only relay candidates, through the lite bots' TURN servers
   --stun <url,...>      With --video: STUN servers (default the app's six); empty for none
   --turn-issuer <url>   With --video --lite: the TURN credential issuer (default the stack's identity backend)
+  --turn-bots <n>       With --video --lite: only lite bots --lite-from..--lite-from+n-1 fetch TURN credentials
+                        and use TURN; the others use the app's STUN servers only (default every bot; 0 for none)
   --ice-address <ip>    With --video: gather host candidates on this address alone, such as 127.0.0.1
                         when every bot runs on one machine
 
@@ -84,8 +86,8 @@ Host (truapi-host from TRUAPI_HOST_BIN or PATH, with bun on PATH):
                         with them, opening the room when the app does, 64 s before that game; with
                         --game-at only that game, ignoring sign-ups of the same bots to others
   --lite                The players are lite bots --lite-from.., one host each, as \`chain --lite\` signs
-                        them up; with --video each fetches TURN credentials when the app does: once its
-                        game is known, then 10 and 3 minutes before it
+                        them up; with --video each (or each of --turn-bots) fetches TURN credentials when
+                        the app does: once its game is known, then 10 and 3 minutes before it
 
 Live networks (no root key): players join a scheduled game as regular players
   --game-at <s|iso>     Play time of the game to join (default: the closest scheduled one).
@@ -159,6 +161,7 @@ const { positionals, values } = parseArgs({
     relay: { type: "boolean", default: false },
     stun: { type: "string" },
     "turn-issuer": { type: "string" },
+    "turn-bots": { type: "string" },
     "ice-address": { type: "string" },
   },
 });
@@ -168,6 +171,12 @@ const list = (entries: string[]) => entries.flatMap((entry) => entry.split(","))
 function positiveInteger(name: string, text: string | undefined): number {
   const value = Number(text);
   if (!Number.isInteger(value) || value <= 0) throw new Error(`--${name} must be a positive integer, not '${text}'`);
+  return value;
+}
+
+function nonNegativeInteger(name: string, text: string): number {
+  const value = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(value)) throw new Error(`--${name} must be a non-negative integer, not '${text}'`);
   return value;
 }
 
@@ -349,19 +358,24 @@ switch (values.help ? undefined : command) {
     if (values.video) {
       video = { ice: { stunUrls: values.stun === undefined ? APP_STUN_URLS : list([values.stun]), relay: values.relay, interfaceAddress: values["ice-address"] } };
       if (values.lite) {
-        // Loaded on use, as for stackArgs above: the module reads STACK or NETWORK when it loads.
-        const config = (await import("@pop-e2e/chain-tests/src/config/networks.js")).getNetworkConfig();
-        const issuer = values["turn-issuer"] ?? config.identityBackend;
-        if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
+        const turnBots = values["turn-bots"] === undefined ? Infinity : nonNegativeInteger("turn-bots", values["turn-bots"]);
         const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-        const liteEntropies = new Map(deriveLiteBots(target, own).map(({ player }, position) => [own[position], player.liteEntropy]));
-        const turn = await openLiteTurnPasses(target, liteEntropies, productId, issuer);
-        video.turn = turn.passes;
-        closeTurn = turn.close;
-        // The app fetches as soon as it knows of its game: the first step's game, after the pre-connect.
-        await turn.passes.warm(startAt + timing.rampMs + timing.warmupMs + profile.preconnectMs);
-        const withTurn = own.filter((index) => turn.passes.serversOf(index).length > 0).length;
-        console.log(`[${command}] TURN credentials from ${issuer}: ${withTurn} of ${own.length} lite bots`);
+        const turnOffsets = turnBotOffsets(own, turnBots);
+        if (turnOffsets.length > 0) {
+          // Loaded on use, as for stackArgs above: the module reads STACK or NETWORK when it loads.
+          const config = (await import("@pop-e2e/chain-tests/src/config/networks.js")).getNetworkConfig();
+          const issuer = values["turn-issuer"] ?? config.identityBackend;
+          if (!issuer) throw new Error(`${target.label} has no identity backend to issue TURN credentials: pass --turn-issuer`);
+          const liteEntropies = new Map(deriveLiteBots(target, turnOffsets).map(({ player }, position) => [turnOffsets[position], player.liteEntropy]));
+          const turn = await openLiteTurnPasses(target, liteEntropies, productId, issuer);
+          video.turn = turn.passes;
+          closeTurn = turn.close;
+          // The app fetches as soon as it knows of its game: the first step's game, after the pre-connect.
+          await turn.passes.warm(startAt + timing.rampMs + timing.warmupMs + profile.preconnectMs);
+          const withPass = turnOffsets.filter((index) => (turn.passes.serversOf(index)?.length ?? 0) > 0).length;
+          console.log(`[${command}] TURN credentials from ${issuer}: ${withPass} of ${turnOffsets.length} TURN bots`);
+        }
+        console.log(`[${command}] ${turnOffsets.length} of ${own.length} lite bots use TURN, ${own.length - turnOffsets.length} STUN only`);
       }
     }
     const run: StepRun = {
