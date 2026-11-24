@@ -835,7 +835,7 @@ jobs:
         env:
           NETWORK_NAME: ${{ matrix.candidate.manifest.network }}
         run: |
-          [ -f meta-check/candidate.env ] || { echo "no runtimes captured; nothing to check"; exit 0; }
+          [ -f meta-check/candidate.env ] || { echo "Metadata check: no runtimes captured; nothing to check" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
           pnpm exec tsx environments/meta-check/cli/main.ts report --in meta-check \
             --sdk packages/chain-tests --network "$NETWORK_NAME" >> "$GITHUB_STEP_SUMMARY"
 
