@@ -169,7 +169,10 @@ export async function main(args: string[]): Promise<number> {
     console.log(markdown);
     return run.failed.length > 0 ? 1 : 0;
   } catch (error) {
-    console.error(`report failed: ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`report failed: ${message}`);
+    // stdout is the job summary: say there that the check did not run.
+    console.log(`### ⚠️ Metadata check could not run: ${message}`);
     return 1;
   }
 }
