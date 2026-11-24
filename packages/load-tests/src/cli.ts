@@ -15,8 +15,9 @@ import { hostGhosts, shardHosts, shardProcesses, type HostOptions } from "./host
 import { rpcGhosts, runSteps, stepMs, type StepRun } from "./signalling.js";
 import { connectPeople, gameProductId, networkTld, resolveTarget, type Target } from "./target.js";
 import { APP_STUN_URLS } from "./video/ice.js";
-import type { VideoRun } from "./video/run.js";
-import { openLiteTurnPasses, turnBotOffsets } from "./video/turn.js";
+import { parseBotSplit, STUN_ONLY, turnOffsetsOf, videoGroupOf, type VideoRun } from "./video/run.js";
+import type { VideoGroup } from "./video/stats.js";
+import { openLiteTurnPasses } from "./video/turn.js";
 import { iso } from "./time.js";
 
 const USAGE = `Usage: pnpm --filter @pop-e2e/load-tests load <command> [options]
@@ -68,11 +69,13 @@ Signalling:
   --video               Real WebRTC peer connections (werift) in place of descriptions of Chrome's size:
                         each link negotiated as the app's mesh does, H.264 360x360 at 24 fps to the
                         current round's group, the next round's co-players on standby
-  --relay               With --video: only relay candidates, through the lite bots' TURN servers
+  --relay               With --video --lite: every bot relay-only, as --relay-bots with every bot
   --stun <url,...>      With --video: STUN servers (default the app's six); empty for none
   --turn-issuer <url>   With --video --lite: the TURN credential issuer (default the stack's identity backend)
   --turn-bots <n>       With --video --lite: only lite bots --lite-from..--lite-from+n-1 fetch TURN credentials
                         and use TURN; the others use the app's STUN servers only (default every bot; 0 for none)
+  --relay-bots <n>      With --video --lite: lite bots --lite-from..--lite-from+n-1 allow relay candidates only,
+                        as a phone on a network where only TURN works; at most --turn-bots (default 0)
   --ice-address <ip>    With --video: gather host candidates on this address alone, such as 127.0.0.1
                         when every bot runs on one machine
 
@@ -162,6 +165,7 @@ const { positionals, values } = parseArgs({
     stun: { type: "string" },
     "turn-issuer": { type: "string" },
     "turn-bots": { type: "string" },
+    "relay-bots": { type: "string" },
     "ice-address": { type: "string" },
   },
 });
@@ -171,12 +175,6 @@ const list = (entries: string[]) => entries.flatMap((entry) => entry.split(","))
 function positiveInteger(name: string, text: string | undefined): number {
   const value = Number(text);
   if (!Number.isInteger(value) || value <= 0) throw new Error(`--${name} must be a positive integer, not '${text}'`);
-  return value;
-}
-
-function nonNegativeInteger(name: string, text: string): number {
-  const value = Number(text);
-  if (!/^\d+$/.test(text) || !Number.isSafeInteger(value)) throw new Error(`--${name} must be a non-negative integer, not '${text}'`);
   return value;
 }
 
@@ -322,7 +320,10 @@ switch (values.help ? undefined : command) {
     const ghostsPerConnection = positiveInteger("ghosts-per-connection", values["ghosts-per-connection"]);
     const productId = productIdOf(target);
     if (values.lite && command !== "host") throw new Error("--lite plays lite bots in the host layer only: `host --lite`");
-    if (values.relay && !(values.video && values.lite)) throw new Error("--relay sends media through TURN servers, which only lite bots get: `host --video --lite --relay`");
+    if ((values.relay || values["relay-bots"] !== undefined) && !(values.video && values.lite)) {
+      throw new Error("--relay and --relay-bots send media through TURN servers, which only lite bots get: `host --video --lite`");
+    }
+    const split = values.video && values.lite ? parseBotSplit({ turnBots: values["turn-bots"], relayBots: values["relay-bots"], relay: values.relay }) : STUN_ONLY;
     // A lite bot is the only product account of its own host, from host `--lite-from` on.
     const lite = values.lite ? liteRange(target) : undefined;
     const layout = lite ? { ghostsPerHost: 1, firstHost: lite.from } : { ghostsPerHost, firstHost: 0 };
@@ -356,11 +357,10 @@ switch (values.help ? undefined : command) {
     let video: VideoRun | undefined;
     let closeTurn = () => {};
     if (values.video) {
-      video = { ice: { stunUrls: values.stun === undefined ? APP_STUN_URLS : list([values.stun]), relay: values.relay, interfaceAddress: values["ice-address"] } };
+      video = { ice: { stunUrls: values.stun === undefined ? APP_STUN_URLS : list([values.stun]), interfaceAddress: values["ice-address"] }, split };
       if (values.lite) {
-        const turnBots = values["turn-bots"] === undefined ? Infinity : nonNegativeInteger("turn-bots", values["turn-bots"]);
         const own = shardHosts(Math.max(...steps), 1, { index: shardIndex, count: shardCount }).flatMap(({ players }) => players);
-        const turnOffsets = turnBotOffsets(own, turnBots);
+        const turnOffsets = turnOffsetsOf(own, split);
         if (turnOffsets.length > 0) {
           // Loaded on use, as for stackArgs above: the module reads STACK or NETWORK when it loads.
           const config = (await import("@pop-e2e/chain-tests/src/config/networks.js")).getNetworkConfig();
@@ -372,10 +372,11 @@ switch (values.help ? undefined : command) {
           closeTurn = turn.close;
           // The app fetches as soon as it knows of its game: the first step's game, after the pre-connect.
           await turn.passes.warm(startAt + timing.rampMs + timing.warmupMs + profile.preconnectMs);
-          const withPass = turnOffsets.filter((index) => (turn.passes.serversOf(index)?.length ?? 0) > 0).length;
+          const withPass = turnOffsets.filter((index) => turn.passes.serversOf(index).length > 0).length;
           console.log(`[${command}] TURN credentials from ${issuer}: ${withPass} of ${turnOffsets.length} TURN bots`);
         }
-        console.log(`[${command}] ${turnOffsets.length} of ${own.length} lite bots use TURN, ${own.length - turnOffsets.length} STUN only`);
+        const count = (group: VideoGroup) => own.filter((offset) => videoGroupOf(offset, split) === group).length;
+        console.log(`[${command}] of ${own.length} lite bots: ${count("relayOnly")} relay-only, ${count("turnAndDirect")} with TURN and direct, ${count("stunOnly")} STUN only`);
       }
     }
     const run: StepRun = {

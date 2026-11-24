@@ -149,7 +149,7 @@ describe("SignallingBot", () => {
     const memory = new MemoryStore();
     const stats = new SignallingStats();
     const groups = new VideoGroups();
-    const video = groups.withoutTurn;
+    const video = groups.stunOnly;
     const profile: SignallingProfile = { ...PROFILES.jollity, preconnectMs: 6_000, roundMs: 5_000, breakMs: 1_000 };
     const players = Array.from({ length: 12 }, (_, index) => derivePlayer("video-test", index));
     const clip = loadClip();
@@ -181,6 +181,7 @@ describe("SignallingBot", () => {
     expect(stats.linksUp).toBe(stats.links);
     expect(video.linksWithVideo).toBe(stats.links);
     expect(video.candidateTypes).toEqual({ host: stats.links });
+    expect(video.linkPaths).toEqual({ direct: stats.links });
     // One loopback host candidate per link and side, sent in the description and received by the co-player.
     expect(video.localCandidates).toEqual({ host: stats.links });
     expect(video.remoteCandidates).toEqual({ host: stats.links });

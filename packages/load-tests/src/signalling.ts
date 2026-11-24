@@ -10,7 +10,7 @@ import { coPlayersOf, roundsOf } from "./seating.js";
 import { SignallingStats, bump } from "./stats.js";
 import { sleepUntil } from "./time.js";
 import type { Target } from "./target.js";
-import { botVideo, type VideoRun } from "./video/run.js";
+import { botVideo, videoGroupOf, type VideoRun } from "./video/run.js";
 import { VideoGroups } from "./video/stats.js";
 
 export interface Shard {
@@ -150,7 +150,10 @@ async function runStep(
   players.stopSending();
   await sleepUntil(window.end + timing.drainMs);
   await players.leave();
-  if (video && run.video?.turn) video.withTurn.add(run.video.turn.takeStats());
+  if (video && run.video?.turn) {
+    const { split } = run.video;
+    run.video.turn.takeStats((index) => video[videoGroupOf(index, split)]);
+  }
 
   return {
     layer,
@@ -208,7 +211,8 @@ export function rpcGhosts(run: StepRun, ghostsPerConnection: number): StartPlaye
         for (let index = connectionIndex * ghostsPerConnection; index < end; index++) {
           const addressOf = (other: number) => playerAt(other).address;
           // Direct-RPC ghosts are never lite bots, so they use STUN only.
-          const video = run.video && room.video && botVideo(run.video.ice, null, room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
+          const video =
+            run.video && room.video && botVideo(run.video.ice, { group: "stunOnly", turn: [] }, room.video, roundsOf(index, count, run.profile, room.gameStart, addressOf));
           const ghost = new Ghost(playerAt(index), coPlayersOf(index, count, run.profile).map(playerAt), connection, room, video);
           ghosts.push(ghost);
           ghost.join();

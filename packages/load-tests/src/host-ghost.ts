@@ -140,7 +140,7 @@ async function play(ghost: number): Promise<void> {
     stats,
     window: plan.window,
     game,
-    video: video && botVideo(video.ice, video.turn[ghost], video.stats, timeRounds(groups, profile, plan.gameStart)),
+    video: video && botVideo(video.ice, video.bots[ghost], video.stats, timeRounds(groups, profile, plan.gameStart)),
   });
   await sleepUntil(plan.joinAt[ghost]);
   void bot.calibrate();

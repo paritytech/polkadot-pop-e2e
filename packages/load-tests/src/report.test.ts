@@ -129,24 +129,42 @@ describe("countDeliveryGap", () => {
   });
 });
 
-// A mixed run compares the bots that took TURN relay ports with those on STUN only.
+// A mixed run compares bots that take TURN relay ports with bots on STUN only, and bots that may
+// connect only through a relay, as phones on some mobile networks, with bots free to connect directly.
 describe("videoMarkdown", () => {
-  it("adds a row per TURN group under the step's row when the step had both", () => {
-    const groups = new VideoGroups();
-    groups.withTurn.bots = 1;
-    groups.withTurn.connectMs.add(20_000);
-    groups.withTurn.candidateErrors = { "TURN server without a relay candidate": 3 };
-    groups.withoutTurn.bots = 2;
-    groups.withoutTurn.connectMs.add(500);
-    const rows = videoMarkdown("test", [{ players: 3, video: summarizeVideoGroups(groups) }])
+  /** The table's header cells and each row's cells. */
+  const tableOf = (groups: VideoGroups) => {
+    const [header, ...rows] = videoMarkdown("test", [{ players: 6, video: summarizeVideoGroups(groups) }])
       .split("\n")
-      .filter((line) => line.startsWith("| 3 |"));
+      .filter((line) => line.startsWith("| "))
+      .map((line) => line.slice(2, -2).split(" | "));
+    return { header, rows };
+  };
 
-    expect(rows.map((row) => row.split(" | ")[1])).toEqual(["all 3", "with TURN 1", "without TURN 2"]);
+  it("adds a row per side of each split under the step's row when the step had both sides", () => {
+    const groups = new VideoGroups();
+    groups.relayOnly.bots = 1;
+    groups.relayOnly.linkPaths = { relay: 2 };
+    groups.turnAndDirect.bots = 2;
+    groups.turnAndDirect.linkPaths = { direct: 3, relay: 1 };
+    groups.turnAndDirect.candidateErrors = { "TURN server without a relay candidate": 3 };
+    groups.stunOnly.bots = 3;
+    groups.stunOnly.linkPaths = { direct: 4 };
+    const { header, rows } = tableOf(groups);
+    const paths = header.indexOf("Direct / relay links");
+
+    expect(rows.map((cells) => cells[1])).toEqual(["all 6", "with TURN 3", "without TURN 3", "relay-only 1", "free 5"]);
+    expect(rows.map((cells) => cells[paths])).toEqual(["7 / 3", "3 / 3", "4 / 0", "0 / 2", "7 / 1"]);
     expect(rows[1]).toContain("TURN server without a relay candidate 3");
-    expect(rows[2]).not.toContain("TURN server without a relay candidate");
+    expect(rows[2]).not.toContain("TURN server without a relay candidate 3");
+  });
 
-    groups.withoutTurn = new VideoStats();
-    expect(videoMarkdown("test", [{ players: 3, video: summarizeVideoGroups(groups) }]).split("\n").filter((line) => line.startsWith("| 3 |"))).toHaveLength(1);
+  it("shows only the step's row for a split with one side empty", () => {
+    const groups = new VideoGroups();
+    groups.stunOnly.bots = 3;
+    expect(tableOf(groups).rows.map((cells) => cells[1])).toEqual(["all 3"]);
+    groups.stunOnly = new VideoStats();
+    groups.relayOnly.bots = 3;
+    expect(tableOf(groups).rows.map((cells) => cells[1])).toEqual(["all 3"]);
   });
 });

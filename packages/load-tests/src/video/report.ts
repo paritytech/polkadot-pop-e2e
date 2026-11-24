@@ -16,6 +16,7 @@ export interface VideoSummary {
   linksWithVideo: number;
   connectMs: QuantileSummary;
   candidateTypes: Record<string, number>;
+  linkPaths: Record<string, number>;
   localCandidates: Record<string, number>;
   remoteCandidates: Record<string, number>;
   candidateErrors: Record<string, number>;
@@ -38,18 +39,31 @@ export interface VideoSummary {
   turnProofMs: QuantileSummary;
 }
 
-/** A step's video over every bot, and over the bots with TURN and those with STUN only. */
+/**
+ * A step's video over every bot, and over each side of two splits: bots with TURN and with STUN
+ * only, and relay-only bots and free ones, which may connect directly.
+ */
 export interface VideoGroupSummaries {
   all: VideoSummary;
   withTurn: VideoSummary;
   withoutTurn: VideoSummary;
+  relayOnly: VideoSummary;
+  free: VideoSummary;
 }
 
 export function summarizeVideoGroups(groups: VideoGroups): VideoGroupSummaries {
-  const all = new VideoStats();
-  all.add(groups.withTurn);
-  all.add(groups.withoutTurn);
-  return { all: summarizeVideo(all), withTurn: summarizeVideo(groups.withTurn), withoutTurn: summarizeVideo(groups.withoutTurn) };
+  const merged = (...parts: VideoStats[]) => {
+    const stats = new VideoStats();
+    for (const part of parts) stats.add(part);
+    return summarizeVideo(stats);
+  };
+  return {
+    all: merged(groups.relayOnly, groups.turnAndDirect, groups.stunOnly),
+    withTurn: merged(groups.relayOnly, groups.turnAndDirect),
+    withoutTurn: summarizeVideo(groups.stunOnly),
+    relayOnly: summarizeVideo(groups.relayOnly),
+    free: merged(groups.turnAndDirect, groups.stunOnly),
+  };
 }
 
 function summarizeVideo(stats: VideoStats): VideoSummary {
@@ -62,6 +76,7 @@ function summarizeVideo(stats: VideoStats): VideoSummary {
     linksWithVideo: stats.linksWithVideo,
     connectMs: stats.connectMs.summary(),
     candidateTypes: stats.candidateTypes,
+    linkPaths: stats.linkPaths,
     localCandidates: stats.localCandidates,
     remoteCandidates: stats.remoteCandidates,
     candidateErrors: stats.candidateErrors,
@@ -100,7 +115,7 @@ export function videoFindings(video: VideoSummary): { findings: string[]; client
   return { findings, clientBound };
 }
 
-/** The video table of a layer's steps: a row of every bot, then one per TURN group when the step had both. */
+/** The video table of a layer's steps: a row of every bot, then one per side of each split the step had both sides of. */
 export function videoMarkdown(target: string, steps: Array<{ players: number; video: VideoGroupSummaries }>): string {
   const ms = (summary: QuantileSummary) => `${summary.p50 ?? "–"} / ${summary.p95 ?? "–"}`;
   const counts = (record: Record<string, number>) =>
@@ -114,6 +129,7 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
     "With video",
     "Connect p50 / p95 ms",
     "Candidate types",
+    "Direct / relay links",
     "Candidate errors",
     "Candidates gathered / received",
     "First frame p50 / p95 ms",
@@ -132,6 +148,7 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
       video.linksWithVideo,
       ms(video.connectMs),
       counts(video.candidateTypes),
+      `${video.linkPaths.direct ?? 0} / ${video.linkPaths.relay ?? 0}${video.linkPaths.unknown ? `, unknown ${video.linkPaths.unknown}` : ""}`,
       counts(video.candidateErrors),
       `${counts(video.localCandidates)} / ${counts(video.remoteCandidates)}`,
       ms(video.firstFrameMs),
@@ -142,11 +159,18 @@ export function videoMarkdown(target: string, steps: Array<{ players: number; vi
       `${video.botsWithTurn} of ${video.bots}; ${counts(video.turnFetches)}`,
       ms(video.turnIssuerMs),
     ].join(" | ");
+  const split = (players: number, sides: Array<[string, VideoSummary]>) =>
+    sides.every(([, video]) => video.bots > 0) ? sides.map(([label, video]) => row(players, label, video)) : [];
   const rows = steps.flatMap(({ players, video }) => [
     row(players, "all", video.all),
-    ...(video.withTurn.bots > 0 && video.withoutTurn.bots > 0
-      ? [row(players, "with TURN", video.withTurn), row(players, "without TURN", video.withoutTurn)]
-      : []),
+    ...split(players, [
+      ["with TURN", video.withTurn],
+      ["without TURN", video.withoutTurn],
+    ]),
+    ...split(players, [
+      ["relay-only", video.relayOnly],
+      ["free", video.free],
+    ]),
   ]);
   return [`### Video on ${target}`, "", `| ${header.join(" | ")} |`, `|${header.map(() => "---").join("|")}|`, ...rows.map((cells) => `| ${cells} |`), ""].join("\n");
 }

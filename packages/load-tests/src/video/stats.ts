@@ -12,6 +12,8 @@ export class VideoStats {
   connectMs = new Histogram();
   /** Local candidate type of each connected link's selected pair: host, srflx, prflx or relay. */
   candidateTypes: Record<string, number> = {};
+  /** Each connected link's path as the app counts it (`LinkPath`): direct, relay or unknown. */
+  linkPaths: Record<string, number> = {};
   /** Candidates by type the bots gathered and their co-players sent them, over every link. */
   localCandidates: Record<string, number> = {};
   remoteCandidates: Record<string, number> = {};
@@ -65,14 +67,19 @@ export class VideoStats {
   }
 }
 
-/** The video counts of the bots that use TURN and of those that use STUN only, kept apart for the summary. */
+/** A bot's ICE group: TURN with relay candidates only, TURN with every candidate, or STUN only. */
+export type VideoGroup = "relayOnly" | "turnAndDirect" | "stunOnly";
+
+/** The video counts of each `VideoGroup`, kept apart for the summary. */
 export class VideoGroups {
-  withTurn = new VideoStats();
-  withoutTurn = new VideoStats();
+  relayOnly = new VideoStats();
+  turnAndDirect = new VideoStats();
+  stunOnly = new VideoStats();
 
   /** Adds the counts of `other`, a `VideoGroups` or its JSON. */
   add(other: VideoGroups): void {
-    this.withTurn.add(other.withTurn);
-    this.withoutTurn.add(other.withoutTurn);
+    this.relayOnly.add(other.relayOnly);
+    this.turnAndDirect.add(other.turnAndDirect);
+    this.stunOnly.add(other.stunOnly);
   }
 }

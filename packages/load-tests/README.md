@@ -177,7 +177,7 @@ runs in Node and in the bun script inside truapi-host. Each link is set up as th
 - A receiver counts packets, frames (marker bits), keyframes and sequence gaps without decoding,
   and sends a PLI when no keyframe has arrived since the camera came on or a loss persists.
 - ICE uses the app's six STUN servers (`--stun` changes them, `--stun ""` uses none) and policy
-  `all`; `--relay` allows relay candidates only.
+  `all`; relay-only bots (`--relay-bots`, or `--relay` for every bot) allow relay candidates only.
 
 **TURN.** `host --lite --video` plays lite bots, the ones `chain --lite` signs up, each in its own
 truapi-host (each has its own wallet). Each fetches TURN credentials when the app does: as soon as
@@ -191,8 +191,11 @@ out, and gives each truapi-host its bot's TURN servers. Without `--lite`, bots h
 `--turn-bots <n>` (in the workflow's `args`) gives TURN to lite bots `--lite-from`..`--lite-from + n - 1`
 only; the others never request credentials and use the app's STUN servers alone. Each video link
 takes three of the TURN server's relay ports per side with TURN, so a mixed game leaves the ports to
-real players. The video table then has a row for the bots with TURN and one for those without
-under each step's row of all bots.
+real players. `--relay-bots <n>` (default 0, at most `--turn-bots`) makes the first n of those
+relay-only, as a phone on a mobile network where only TURN works. The video table then has a row
+per side of each split, with TURN and without, relay-only and free, under each step's row of all
+bots, and counts each link's path as the app does: relay when either end of its selected candidate
+pair is a relay candidate, else direct.
 
 A video bot sends and receives about 1.5 Mbit/s of video each way, 1.6 with packet headers. A
 parity-large machine (c2d-highcpu-32: 32 vCPU, 64 GB) has 32 Gbps, about 7 Gbps of it per runner

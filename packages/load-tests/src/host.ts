@@ -4,14 +4,13 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { TurnServer } from "@jollity/protocol";
 import type { ChainSeats } from "./chain-seats.js";
 import { hostGhostPlayer, hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
-import type { RunIce } from "./video/run.js";
+import { botIceOf, type BotIce, type RunIce } from "./video/run.js";
 import type { VideoGroups } from "./video/stats.js";
 
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
@@ -32,8 +31,8 @@ export interface HostGhostPlan {
   stopAt: number;
   leaveAt: number;
   resultPath: string;
-  /** With video: the run's ICE settings, and each ghost's TURN servers, null for a ghost that uses STUN only. */
-  video?: { ice: RunIce; turn: Array<TurnServer[] | null> };
+  /** With video: the run's ICE settings, and each ghost's group and TURN servers. */
+  video?: { ice: RunIce; bots: BotIce[] };
   /**
    * In a game: where the runner writes the chain's seats, which the ghosts wait for before
    * playing, and with video the app's room key, under the app's product account as namespace.
@@ -125,6 +124,7 @@ export function shardProcesses(
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
   const { ghostsPerHost, firstHost } = options;
+  const { video } = run;
   const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, firstHost * ghostsPerHost + index).address);
   return async ({ count, stepStart, room }) => {
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
@@ -158,10 +158,10 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
         stopAt: room.window.end,
         leaveAt: room.window.end + run.timing.drainMs,
         resultPath,
-        ...(run.video && {
+        ...(video && {
           video: {
-            ice: run.video.ice,
-            turn: Array.from({ length: ghosts }, (_, ghost) => run.video?.turn?.serversOf(firstPlayer + ghost) ?? null),
+            ice: video.ice,
+            bots: Array.from({ length: ghosts }, (_, ghost) => botIceOf(video, firstPlayer + ghost)),
           },
         }),
         ...(game && { game }),

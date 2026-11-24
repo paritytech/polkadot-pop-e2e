@@ -5,8 +5,9 @@ import { freshnessMessage, hex, TURN_ISSUE_PATH, type TurnProofBody } from "@jol
 import { ringCollectionId, type PersonhoodProver } from "@parity/product-sdk-individuality";
 import { afterEach, describe, expect, it } from "vitest";
 import { sleep } from "../time.js";
+import { turnOffsetsOf } from "./run.js";
 import { VideoStats } from "./stats.js";
-import { createProofQueue, fetchTurnPass, proveTurnNow, TurnPasses, turnBotOffsets, type ProveTurn, type TurnProofSetup } from "./turn.js";
+import { createProofQueue, fetchTurnPass, proveTurnNow, TurnPasses, type ProveTurn, type TurnProofSetup } from "./turn.js";
 
 const CREDENTIALS = { servers: ["turn:turn.example:3478?transport=udp", "turns:turn.example:5349?transport=tcp"], username: "1700000000:alias", password: "secret", ttl: 1800 };
 
@@ -170,9 +171,13 @@ describe("TurnPasses", () => {
     expect(issuer.bodies).toHaveLength(4);
     expect(passes.serversOf(0)).toHaveLength(2);
     expect(passes.serversOf(1)).toHaveLength(2);
-    expect(passes.serversOf(2)).toBeNull();
-    expect(passes.takeStats().turnFetches).toEqual({ ok: 2, "proof-rejected 403": 2 });
-    expect(passes.takeStats().turnFetches).toEqual({});
+    expect(passes.serversOf(2)).toEqual([]);
+    const stats = new VideoStats();
+    passes.takeStats(() => stats);
+    expect(stats.turnFetches).toEqual({ ok: 2, "proof-rejected 403": 2 });
+    const later = new VideoStats();
+    passes.takeStats(() => later);
+    expect(later.turnFetches).toEqual({});
   });
 
   it("leaves a pass with 10 minutes or more alone at a refresh", async () => {
@@ -184,27 +189,21 @@ describe("TurnPasses", () => {
     passes.stop();
 
     expect(issuer.bodies).toHaveLength(1);
-    expect(passes.takeStats().turnFetches).toEqual({ ok: 1 });
+    const stats = new VideoStats();
+    passes.takeStats(() => stats);
+    expect(stats.turnFetches).toEqual({ ok: 1 });
   });
 });
 
 // A run mixes bots that take TURN relay ports, as phones do, with bots on STUN only, so a live
 // game's testers keep the TURN server's ports and the summary compares both groups.
 describe("TURN bots", () => {
-  it("are the run's first --turn-bots lite bots by offset, on any shard", () => {
-    const shard = [1, 3, 5, 7];
-    expect(turnBotOffsets(shard, 0)).toEqual([]);
-    expect(turnBotOffsets(shard, 5)).toEqual([1, 3]);
-    expect(turnBotOffsets(shard, 8)).toEqual(shard);
-    expect(turnBotOffsets(shard, Infinity)).toEqual(shard);
-  });
-
   it("leave the STUN-only bots without a proof or an issuer request", async () => {
     const issuer = await startIssuer([{ status: 200, body: CREDENTIALS }]);
     servers.push(issuer.server);
     const proved: number[] = [];
     const provers = new Map(
-      turnBotOffsets([0, 1, 2], 1).map((offset): [number, ProveTurn] => [
+      turnOffsetsOf([0, 1, 2], { turnBots: 1, relayBots: 0 }).map((offset): [number, ProveTurn] => [
         offset,
         () => {
           proved.push(offset);
@@ -218,8 +217,8 @@ describe("TURN bots", () => {
 
     expect(proved).toEqual([0]);
     expect(issuer.bodies).toHaveLength(1);
-    expect(passes.serversOf(0)).toHaveLength(2);
-    expect(passes.serversOf(1)).toBeNull();
-    expect(passes.serversOf(2)).toBeNull();
+    const byBot = new Map<number, VideoStats>();
+    passes.takeStats((index) => byBot.get(index) ?? byBot.set(index, new VideoStats()).get(index)!);
+    expect([...byBot.keys()]).toEqual([0]);
   });
 });

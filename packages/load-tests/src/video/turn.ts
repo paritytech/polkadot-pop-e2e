@@ -102,11 +102,6 @@ export async function fetchTurnPass(proveTurn: ProveTurn, issuer: TurnIssuer, st
   }
 }
 
-/** Of `offsets`, lite bot offsets from `--lite-from`, the ones that use TURN: the run's first `turnBots`. */
-export function turnBotOffsets(offsets: number[], turnBots: number): number[] {
-  return offsets.filter((offset) => offset < turnBots);
-}
-
 /**
  * The TURN passes of the lite bots in `provers`, fetched when the app fetches them: as soon as the bot
  * knows of its game, then 10 and 3 minutes before the game for a pass with under 10 minutes
@@ -115,7 +110,8 @@ export function turnBotOffsets(offsets: number[], turnBots: number): number[] {
 export class TurnPasses {
   private readonly passes = new Map<number, TurnPass>();
   private readonly timers: NodeJS.Timeout[] = [];
-  private stats = new VideoStats();
+  /** Fetch counts by bot, so each bot's land in its group. */
+  private stats = new Map<number, VideoStats>();
   private fetching: Promise<void> = Promise.resolve();
 
   constructor(
@@ -132,18 +128,16 @@ export class TurnPasses {
     return this.fetchAll();
   }
 
-  /** The TURN servers of bot `index` from its latest pass that is still valid; null for a bot that doesn't use TURN. */
-  serversOf(index: number): TurnServer[] | null {
-    if (!this.provers.has(index)) return null;
+  /** The TURN servers of bot `index`, from its latest pass that is still valid. */
+  serversOf(index: number): TurnServer[] {
     const pass = this.passes.get(index);
     return pass && turnPassLeftMs(pass, Date.now()) > 0 ? pass.turn : [];
   }
 
-  /** The fetch counts since the last call, so each step's results contain each fetch once. */
-  takeStats(): VideoStats {
-    const stats = this.stats;
-    this.stats = new VideoStats();
-    return stats;
+  /** Adds each bot's fetch counts since the last call to `statsOf(index)`, so each step's results contain each fetch once. */
+  takeStats(statsOf: (index: number) => VideoStats): void {
+    for (const [index, stats] of this.stats) statsOf(index).add(stats);
+    this.stats = new Map();
   }
 
   stop(): void {
@@ -159,7 +153,8 @@ export class TurnPasses {
       });
       await Promise.all(
         due.map(async ([index, prove]) => {
-          const pass = await fetchTurnPass(prove, this.issuer, this.stats);
+          const stats = this.stats.get(index) ?? this.stats.set(index, new VideoStats()).get(index)!;
+          const pass = await fetchTurnPass(prove, this.issuer, stats);
           if (pass) this.passes.set(index, pass);
         }),
       );
