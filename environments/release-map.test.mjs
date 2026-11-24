@@ -328,11 +328,7 @@ describe('guard rails', () => {
     const byChain = Object.fromEntries(plan.map((p) => [p.chain, p]));
     assert.equal(byChain.people.asset, 'next_people_paseo_runtime.compact.compressed.wasm');
     assert.equal(byChain['asset-hub'].asset, 'next_asset_hub_paseo_runtime.compact.compressed.wasm');
-    assert.equal(
-      byChain.relay.asset,
-      'paseo_fast_runtime.compressed.wasm',
-      'other chains keep their own source untouched (relay pins the fast build — previewnet runs 1-minute epochs)'
-    );
+    assert.equal(byChain.relay.asset, 'paseo_runtime.compressed.wasm');
   });
 
   it('catches disallowed repos at validate time, not in the gate job', () => {

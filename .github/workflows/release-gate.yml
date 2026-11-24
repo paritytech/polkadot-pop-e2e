@@ -211,7 +211,7 @@ on:
         description: >
           Runtime relay — UPGRADED from whatever production runs to this release; a
           byte-identical pin is a no-op assertion, an older one fails as stale. From
-          paseo-network/runtimes, and it must be the _fast build. Do NOT use
+          paseo-network/runtimes; the gate picks the build variant per network. Do NOT use
           paseo-network/runtimes@latest — it resolves to v2.4.3, behind the
           deployed v2.4.4, and the gate rejects the downgrade.
           e.g. paseo-network/runtimes@v2.4.5

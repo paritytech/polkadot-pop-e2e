@@ -34,13 +34,11 @@ export const CHAINS = {
     relay: {
       node: 'polkadot',
       ws: 'wss://previewnet.substrate.dev/relay/alice',
-      // The _fast build (1-minute epochs), NOT paseo_runtime: previewnet was spawned
-      // with fast epochs, and enacting a runtime whose BABE EpochDuration differs
-      // wedges the chain on the spot — every block after the swap fails import with
-      // "Expected epoch change to happen at ..." (caught live by the local gate run,
-      // 2026-08-14).
+      // paseo_runtime, not the _fast build: production runs the deployable profile,
+      // whose relay has 1-hour epochs. Enacting a runtime with a different BABE
+      // EpochDuration wedges the chain ("Expected epoch change to happen at ...").
       runtime: {
-        'paseo-network/runtimes': 'paseo_fast_runtime.compressed.wasm',
+        'paseo-network/runtimes': 'paseo_runtime.compressed.wasm',
       },
     },
     // The next-* runtimes are developed in paritytech/individuality and published on
@@ -77,8 +75,6 @@ export const CHAINS = {
     },
   },
   // Next runtimes as parachains on the PUBLIC Paseo relay (para band 1500-1502).
-  // The relay pin is the NORMAL build — public Paseo runs 1-hour epochs, unlike
-  // previewnet's fast genesis (see the previewnet relay note above).
   'paseo-next-v2': {
     relay: {
       node: 'polkadot',
@@ -184,8 +180,7 @@ export const CHAINS = {
  * relay (1-hour epochs) the bite's injected session keys are QUEUED at the first
  * epoch boundary and become the active parachain core assignments only at the
  * second — collators author immediately, but parachains finalize nothing for up to
- * ~2 hours (observed live: one boundary alone did not assign cores). Previewnet
- * runs 1-minute epochs, so the same pipeline completes in minutes.
+ * ~2 hours (observed live: one boundary alone did not assign cores).
  */
 export const NETWORK_META = {
   // freshBite until PPN publishes a bundle bitten WITH the transaction-storage wipe:
