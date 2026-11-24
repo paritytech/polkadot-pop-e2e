@@ -141,8 +141,8 @@ describe('scanManifest', () => {
   const releasesByRepo = {
     // pinned tags exist and carry the OLD bytes; the newer tag carries live bytes
     'paseo-network/runtimes': [
-      { tag: 'v2.4.5', assets: { 'paseo_fast_runtime.compressed.wasm': CODE_LIVE } },
-      { tag: 'v2.4.4', assets: { 'paseo_fast_runtime.compressed.wasm': CODE_OLD } },
+      { tag: 'v2.4.5', assets: { 'paseo_runtime.compressed.wasm': CODE_LIVE } },
+      { tag: 'v2.4.4', assets: { 'paseo_runtime.compressed.wasm': CODE_OLD } },
     ],
     'paritytech/individuality-community': [
       { tag: 'v0.12.1-previewnet', assets: {

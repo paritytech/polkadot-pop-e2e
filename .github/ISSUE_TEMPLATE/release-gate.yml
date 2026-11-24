@@ -71,8 +71,8 @@ body:
         The fork's relay runtime is UPGRADED from whatever production runs (X) to
         this release (Y) via sudo authorize+apply — byte-identical pins become a
         no-op assertion, a pin OLDER than production fails the gate as stale. From
-        paseo-network/runtimes. The right build variant (previewnet = fast
-        epochs) is chosen automatically. westend: from
+        paseo-network/runtimes. The right build variant is chosen automatically.
+        westend: from
         paritytech/release-automation (weekly releases) or paritytech/polkadot-sdk
         (its patch releases carry no runtimes, so no `@latest`).
         Do NOT use paseo-network/runtimes@latest — it resolves behind production.
