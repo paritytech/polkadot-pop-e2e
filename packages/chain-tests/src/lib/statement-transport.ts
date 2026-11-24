@@ -4,7 +4,8 @@
  * does the host's part, signing with the attested account's statement key and
  * submitting over the People chain RPC.
  */
-import { fromHex } from "@polkadot-api/utils";
+import { setTimeout as sleep } from "node:timers/promises";
+import { fromHex, toHex } from "@polkadot-api/utils";
 import { getWsProvider } from "polkadot-api/ws";
 import {
   createLazyClient,
@@ -57,14 +58,40 @@ function trackStatementRequests(provider: JsonRpcProvider) {
   return { tracked, settled };
 }
 
+/** `sp_statement_store::statement_allowance_key` without the account id. */
+const ALLOWANCE_KEY_PREFIX = toHex(new TextEncoder().encode(":statement_allowance:"));
+
 export function createNodeStatementTransport(
   peopleWs: string,
   statementSecret: Uint8Array,
-): { transport: StatementTransport; signer: StatementSignerWithKey } {
+): {
+  transport: StatementTransport;
+  signer: StatementSignerWithKey;
+  waitForAllowance: (timeoutMs: number) => Promise<void>;
+} {
   const requests = trackStatementRequests(getWsProvider(peopleWs));
   const lazyClient = createLazyClient(requests.tracked);
   const adapter = createPapiStatementStoreAdapter(lazyClient);
   const prover = createSr25519Prover(statementSecret);
+  const publicKey = deriveSr25519PublicKey(statementSecret);
+
+  /**
+   * Resolves once the signer's statement allowance is in the best state of the node this
+   * transport submits to, the state the node checks a statement against; rejects after
+   * `timeoutMs`. A registration reported `InBlock` can be in a non-best block, e.g. during a
+   * parachain reorg at a relay session change, or on another node behind the same RPC URL.
+   */
+  async function waitForAllowance(timeoutMs: number): Promise<void> {
+    const request = lazyClient.getRequestFn();
+    const key = ALLOWANCE_KEY_PREFIX + toHex(publicKey).slice(2);
+    const deadline = Date.now() + timeoutMs;
+    while ((await request("state_getStorage", [key])) == null) {
+      if (Date.now() > deadline) {
+        throw new Error(`the statement allowance of ${toHex(publicKey)} isn't at the node's best block after ${timeoutMs} ms`);
+      }
+      await sleep(1_000);
+    }
+  }
 
   const transport: StatementTransport = {
     subscribe(filter, onStatements) {
@@ -95,8 +122,8 @@ export function createNodeStatementTransport(
   };
 
   const signer: StatementSignerWithKey = {
-    publicKey: deriveSr25519PublicKey(statementSecret),
+    publicKey,
     sign: (message) => signWithSr25519Secret(statementSecret, message),
   };
-  return { transport, signer };
+  return { transport, signer, waitForAllowance };
 }
