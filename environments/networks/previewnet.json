@@ -2,8 +2,8 @@
   "network": "previewnet",
   "base": "fork",
   "binaries": {
-    "polkadot": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
-    "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w33-rc2"
+    "polkadot": "paritytech/release-automation@polkadot-weekly2026w47-rc1",
+    "polkadot-omni-node": "paritytech/release-automation@polkadot-weekly2026w47-rc1"
   },
   "chains": {
     "relay": {

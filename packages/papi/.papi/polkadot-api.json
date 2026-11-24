@@ -66,7 +66,7 @@
       "wsUrl": "wss://westend-asset-hub-rpc.polkadot.io",
       "metadata": ".papi/metadata/westendAssetHub.scale",
       "genesis": "0x67f9723393ef76214df0118c34bbbd3dbebc8ed46a10973a8c969d48fe7598c9",
-      "codeHash": "0x31e3e8868acfe04371e09ffee66be05749be3a96d6887becab235d88737a323a"
+      "codeHash": "0xcafffa197d9236b042aeb2cfe56852d5e4ec6575652dbca9c84cf2e2aa2c90a3"
     },
     "westendPeople": {
       "wsUrl": "wss://westend-people-rpc.polkadot.io",
