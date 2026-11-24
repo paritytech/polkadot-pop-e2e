@@ -127,6 +127,8 @@ The networks these manifests describe upgrade on their own schedule; a pin that 
 
 Two honest exceptions: the public Paseo relay is upstream-operated and its deployed blob byte-matches no published asset (same declared spec, different build), and Westend is upgraded with builds no release publishes byte for byte. Chains marked `scanPolicy: 'spec'` in the map are compared by the RuntimeVersion the pinned artifact declares (parsed from the wasm itself — `wasm-spec.mjs`) instead of bytes, and render as `[spec]` in the summary.
 
+Binary pins follow the nodes. Every chain's `system_version` ends in the polkadot-sdk commit its node was built from, and the scan maps that commit to the polkadot-sdk tags at it. When all chains a binary slot runs agree on a tag other than the pinned one, the slot is pinned to the release under that tag that carries every linux file of the slot (`polkadot` with its two PVF workers), from the pinned repo first and else the slot's other allowed repo. A slot whose chains run different builds, or a build without a tag, stays as pinned and doesn't fail the scan. eth-rpc pins don't move this way yet. The scan's own PR gates only the target candidate: it records what production already runs in both dimensions, so the rollout-order cross terms don't apply.
+
 The scan goes red only when a human is needed: **unattributed** (production runs bytes/spec no allow-listed release carries — someone deployed unpublished code) or an unreachable scan endpoint. Drift alone is not a failure; the auto-PR is the fix. The gate never uses the scan's endpoints — forks get state from the engine's bite; the pre-existing downgrade guard stays as the backstop for the hours between scans.
 
 ## Current limitations

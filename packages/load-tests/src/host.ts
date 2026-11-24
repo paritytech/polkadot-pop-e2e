@@ -4,22 +4,20 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { hostMnemonic } from "./keys.js";
+import { hostGhostPlayer, hostMnemonic } from "./keys.js";
 import type { Phase, SignallingProfile } from "./profile.js";
-import type { Seating } from "./seating.js";
 import type { HostUsage, Shard, StartPlayers, StepRun } from "./signalling.js";
 import { sleepUntil } from "./time.js";
 import { bump, type SignallingStats } from "./stats.js";
-
-/** The product the Jollity app signs statements as on each network. */
-export const PRODUCT_IDS = { previewnet: "dim2.testnet", "paseo-next-v2": "dim2.paseo" } as const;
 
 /** What one host's ghost script plays: written by the runner, read by `host-ghost.ts`. */
 export interface HostGhostPlan {
   profile: SignallingProfile;
   phase: Phase;
   namespace: string;
-  seating: Seating;
+  /** Every player's account, by player index: its id on the wire, its co-players' included. */
+  accounts: string[];
+  /** When the room opens, the pre-connect before the game. */
   gameStart: number;
   window: { start: number; end: number };
   /** Ghost `k` is player `firstPlayer + k`, signing as product account `firstAccount + k` of its host. */
@@ -105,8 +103,9 @@ export function shardProcesses(
  * are split over shards.
  */
 export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
+  const { ghostsPerHost } = options;
+  const accounts = Array.from({ length: Math.max(...run.steps) }, (_, index) => hostGhostPlayer(run.seed, options.productId, ghostsPerHost, index).address);
   return async ({ count, stepStart, room }) => {
-    const { ghostsPerHost } = options;
     const owned = shardProcesses(count, ghostsPerHost, options.botsPerProcess, run.shard);
     const ownedGhosts = owned.reduce((sum, { ghosts }) => sum + ghosts, 0);
     const workDir = resolve(run.outDir, "hosts", `n${count}`);
@@ -122,7 +121,7 @@ export function hostGhosts(run: StepRun, options: HostOptions): StartPlayers {
       const plan: HostGhostPlan = {
         profile: room.profile,
         namespace: room.namespace,
-        seating: room.seating,
+        accounts: accounts.slice(0, count),
         phase: room.phase,
         gameStart: room.gameStart,
         window: room.window,

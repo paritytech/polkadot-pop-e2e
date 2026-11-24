@@ -1,5 +1,4 @@
 import { Histogram } from "./histogram.js";
-import type { Probe } from "./statement.js";
 
 export function bump(counts: Record<string, number>, key: string, by = 1): void {
   counts[key] = (counts[key] ?? 0) + by;
@@ -17,27 +16,58 @@ export function countDeliveryGap(stats: SignallingStats, lastDeliveryAt: number,
 }
 
 /**
- * One player's share of a step's delivery counts: the bundles it sent that `recipients` others
- * are due, and the ones it received, each counted once, so every kind of ghost measures loss alike.
+ * A statement as the counts read it: its channel, its packed expiry, and the time decoded from that
+ * expiry. The expiry rises with every statement of a channel; the decoded time can fall, since
+ * statement-core's expiry floor carries a burst's expiries past the end of their second.
+ */
+export interface CountedStatement {
+  channel: string;
+  expiry: bigint;
+  stampedAt: number;
+}
+
+/** The later of two expiries kept as decimal strings, which JSON carries where a u64 number would lose digits. */
+const laterExpiry = (left: string | undefined, right: string) => (left !== undefined && BigInt(left) >= BigInt(right) ? left : right);
+
+/**
+ * Deliveries of the statements accepted in the window. A player has one statement per channel, a
+ * newer one replacing the last, so a receiver credits every statement of a channel up to the
+ * latest it received there: one replaced before it arrived came with the one that replaced it.
+ */
+export function creditedDeliveries(stats: Pick<SignallingStats, "acceptedExpiries" | "deliveredUpTo">): number {
+  let deliveries = 0;
+  for (const channels of Object.values(stats.deliveredUpTo)) {
+    for (const [channel, upTo] of Object.entries(channels)) {
+      const latest = BigInt(upTo);
+      deliveries += (stats.acceptedExpiries[channel] ?? []).filter((expiry) => BigInt(expiry) <= latest).length;
+    }
+  }
+  return deliveries;
+}
+
+/**
+ * One player's share of a step's delivery counts: the statements it sent that `recipients` others
+ * are due, and the ones it received, so every kind of ghost measures loss alike.
  */
 export class DeliveryCounter {
-  private readonly seen = new Set<number>();
+  private readonly seen = new Set<string>();
   private lastDeliveryAt = 0;
-  private subscribeTime = 0;
+  private subscribeTime: number | undefined;
   private statements = 0;
 
   constructor(
     private readonly stats: SignallingStats,
     private readonly window: { start: number; end: number },
-    private readonly self: number,
     private readonly recipients: number,
+    private readonly receiver: string,
   ) {}
 
-  /** A bundle of this player's the store accepted; one sent in the window is due to every recipient. */
-  accepted(sentAt: number): void {
-    if (sentAt < this.window.start || sentAt >= this.window.end) return;
+  /** A statement of this player's the store accepted; one stamped in the window is due to every recipient. */
+  accepted({ channel, expiry, stampedAt }: CountedStatement): void {
+    if (stampedAt < this.window.start || stampedAt >= this.window.end) return;
     this.stats.acceptedInWindow++;
     this.stats.expectedDeliveries += this.recipients;
+    (this.stats.acceptedExpiries[channel] ??= []).push(expiry.toString());
   }
 
   recordSubscribe(): void {
@@ -48,27 +78,27 @@ export class DeliveryCounter {
   /** Counts a subscription that ended before its player left, by `reason`, with how long it lasted. */
   recordEnd(reason: string): void {
     bump(this.stats.subscriptionsEnded, reason);
-    this.stats.subscriptionLifetimeMs.add(Date.now() - this.subscribeTime);
+    this.stats.subscriptionLifetimeMs.add(Date.now() - (this.subscribeTime ?? Date.now()));
     if (this.statements === 0) this.stats.emptySubscriptionEnds++;
   }
 
-  /** A bundle that arrived at this player; another player's sent in the window counts once. */
-  receive(probe: Probe | undefined, now: number): void {
+  /** `statement`, sent at `sentAt`, arrived at this player; one stamped in the window counts once. */
+  receive({ channel, expiry, stampedAt }: CountedStatement, sentAt: number, now: number): void {
     this.statements++;
-    if (!probe || probe.sender === this.self || probe.sentAt < this.window.start || probe.sentAt >= this.window.end) return;
-    // A resubscribed feed may deliver a bundle again; one counted twice would hide a lost one.
-    // Both fields are u32; the key is exact while the sender index is below 2^21.
-    const key = probe.sender * 2 ** 32 + probe.sequence;
-    if (this.seen.has(key)) return;
+    const channels = (this.stats.deliveredUpTo[this.receiver] ??= {});
+    channels[channel] = laterExpiry(channels[channel], expiry.toString());
+    // A resubscribed feed may deliver a statement again; one counted twice would hide a lost one.
+    const key = `${channel}/${expiry}`;
+    if (stampedAt < this.window.start || stampedAt >= this.window.end || this.seen.has(key)) return;
     this.seen.add(key);
     this.stats.deliveredInWindow++;
-    this.stats.latency.add(now - probe.sentAt);
+    this.stats.latency.add(now - sentAt);
     this.lastDeliveryAt = now;
   }
 
-  /** Counts the player's subscription if it delivered nothing, or stopped before the window ended. */
+  /** Counts the player's subscription, if it opened one, when it delivered nothing or stopped before the window ended. */
   finish(): void {
-    countDeliveryGap(this.stats, this.lastDeliveryAt, this.window.end);
+    if (this.subscribeTime !== undefined) countDeliveryGap(this.stats, this.lastDeliveryAt, this.window.end);
   }
 }
 
@@ -91,24 +121,40 @@ export class SignallingStats {
    * `STALL_MS`: the statement store ends a subscriber that falls behind without telling it.
    */
   stalledSubscriptions = 0;
-  /** `statement_submit` answers by status (and reason), or the error the request ended with. */
+  /** `statement_submit` answers by status, or the error the proof or submit failed with. */
   submits: Record<string, number> = {};
-  /** Bundles not sent because `maxInflight` submits were still waiting, as the app does. */
-  skippedInflight = 0;
-  /** Statements the node accepted as new whose probe time falls in the measurement window. */
+  /** What the statement transport reported of its submits: retries, waits for a slot, frames
+   *  replaced while queued, and submits it gave up on. */
+  submitEvents: Record<string, number> = {};
+  /** The waiting room's store clock calibrations, by outcome. */
+  calibrations: Record<string, number> = {};
+  /** Links the ghosts' rooms negotiate, and those up when the game ended. */
+  links = 0;
+  linksUp = 0;
+  /** Statements the node accepted whose stamp time falls in the measurement window. */
   acceptedInWindow = 0;
   /** Deliveries those statements owe: for each, the ghosts that listen on its topics. */
   expectedDeliveries = 0;
-  /** Deliveries to this shard's ghosts of statements from other ghosts sent in the window. */
+  /** Statements of other ghosts stamped in the window that reached this shard's ghosts themselves, not replaced first. */
   deliveredInWindow = 0;
+  /** Per channel, the expiries of the statements accepted in the window, as decimal strings. */
+  acceptedExpiries: Record<string, string[]> = {};
+  /** Per receiver, then per channel, the latest expiry the receiver got there, as a decimal string. */
+  deliveredUpTo: Record<string, Record<string, string>> = {};
   bytesSubmitted = 0;
   latency = new Histogram();
   submitRtt = new Histogram();
 
   /** Adds the counts of `other`, a `SignallingStats` or its JSON. */
   add(other: SignallingStats): void {
+    const { acceptedExpiries, deliveredUpTo, ...counts } = other;
+    for (const [channel, expiries] of Object.entries(acceptedExpiries)) (this.acceptedExpiries[channel] ??= []).push(...expiries);
+    for (const [receiver, channels] of Object.entries(deliveredUpTo)) {
+      const latest = (this.deliveredUpTo[receiver] ??= {});
+      for (const [channel, expiry] of Object.entries(channels)) latest[channel] = laterExpiry(latest[channel], expiry);
+    }
     const own = this as unknown as Record<string, number | Histogram | Record<string, number>>;
-    for (const [key, value] of Object.entries(other) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
+    for (const [key, value] of Object.entries(counts) as Array<[string, number | { counts: Record<number, number> } | Record<string, number>]>) {
       const field = own[key];
       if (typeof value === "number") own[key] = (field as number) + value;
       else if (field instanceof Histogram) field.merge(new Histogram((value as { counts: Record<number, number> }).counts));
