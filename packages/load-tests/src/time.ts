@@ -23,3 +23,18 @@ export async function retry<T>(attempts: number, pauseMs: number, read: () => Pr
     }
   }
 }
+
+/** `read` over every item, at most `concurrency` at once, the results in item order. */
+export async function readAll<T, R>(items: T[], read: (item: T) => Promise<R>, concurrency = 100): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (next < items.length) {
+        const position = next++;
+        results[position] = await read(items[position]);
+      }
+    }),
+  );
+  return results;
+}
