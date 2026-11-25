@@ -118,14 +118,20 @@ jobs:
           node-version: "22"
           cache: "pnpm"
       - if: ${{ inputs.start_at != '' && matrix.leg == 1 && inputs.replay_at == '' }}
+        # Only whether the game is scheduled counts here: hours ahead, the timing check underrates a
+        # game the chain hasn't created yet, and the plan job checks the timing at start_at.
         run: |
-          set -euo pipefail
+          set -uo pipefail
           pnpm install --frozen-lockfile
           read -ra extra <<< "$ARGS"
           game=()
           if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
           if [ "$LITE" = true ]; then game+=(--lite); fi
-          pnpm --silent --filter @pop-e2e/load-tests load target --players "$PLAYERS" "${game[@]}" "${extra[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          out=$(pnpm --silent --filter @pop-e2e/load-tests load target --players "$PLAYERS" "${game[@]}" "${extra[@]}" 2>&1); status=$?
+          echo "$out"
+          if grep -q "no game is scheduled" <<< "$out"; then echo "::error::$(grep -o 'no game is scheduled.*' <<< "$out" | head -1)"; exit 1; fi
+          if (( status != 0 )); then echo "::warning::the timing is checked again at start_at"; fi
+          exit 0
       - env:
           START_AT: ${{ inputs.start_at }}
         run: |
