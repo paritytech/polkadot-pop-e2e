@@ -1,7 +1,7 @@
 name: Engine Bump
 
-# Opens a PR moving PPN_REF_DEFAULT to previewnet-engine's latest release, so the
-# gate runs the same engine and backend the networks run.
+# Opens a PR moving environments/engine-ref to previewnet-engine's latest release,
+# so the gate runs the same engine and backend the networks run.
 on:
   schedule:
     - cron: "30 7 * * *"
@@ -25,12 +25,8 @@ jobs:
         run: |
           set -euo pipefail
           latest="$(gh release view -R paritytech/previewnet-engine --json tagName --jq .tagName)"
-          current="$(sed -nE 's/^  PPN_REF_DEFAULT: (.+)$/\1/p' .github/workflows/release-gate.yml)"
-          echo "current=$current latest=$latest"
-          if [ "$latest" != "$current" ]; then
-            sed -i "s/^  PPN_REF_DEFAULT: .*/  PPN_REF_DEFAULT: $latest/" .github/workflows/release-gate.yml
-            sed -i "s/previewnet-engine \`$current\`/previewnet-engine \`$latest\`/" environments/README.md
-          fi
+          echo "current=$(cat environments/engine-ref) latest=$latest"
+          echo "$latest" > environments/engine-ref
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
       - uses: peter-evans/create-pull-request@v7
