@@ -29,7 +29,7 @@
     "@parity/product-sdk-individuality": "0.11.8",
     "@parity/product-sdk-statement-store": "0.7.11",
     "@parity/product-sdk-tx": "0.5.11",
-    "@parity/trinity-stack": "^0.3.0",
+    "@parity/trinity-stack": "^0.4.0",
     "@polkadot-api/metadata-builders": "^0.15.2",
     "@polkadot-api/signers-common": "^0.4.0",
     "@polkadot-api/substrate-bindings": "^0.21.2",
@@ -48,7 +48,7 @@
     "viem": "^2.58.1"
   },
   "devDependencies": {
-    "@parity/truapi": "0.32.0",
+    "@parity/truapi": "0.33.0",
     "solc": "^0.8.39",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
