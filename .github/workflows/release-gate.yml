@@ -108,6 +108,14 @@ on:
           e.g. paritytech/device-uniqueness-backend-community@v0.8.2
         type: string
         required: false
+      service_storage_provider_node:
+        description: >
+          Service storage-provider-node, the Web3 Storage provider. Either a
+          release or a build uploaded in THIS run: `artifact:<name>`, the artifact
+          holding a linux binary called storage-provider-node. previewnet only.
+          e.g. paritytech/web3-storage@v0.5.1-paseo or artifact:storage-provider-node
+        type: string
+        required: false
       product_sdk:
         description: >
           product-sdk packages to run the tests on instead of the ones chain-tests
@@ -253,6 +261,11 @@ on:
           else the engine's default tag. previewnet and paseo-next-v2. `@latest` is safe.
           e.g. paritytech/device-uniqueness-backend-community@latest
         required: false
+      service_storage_provider_node:
+        description: >
+          The Web3 Storage provider binary, from paritytech/web3-storage. previewnet
+          only. `@latest` is safe. e.g. paritytech/web3-storage@v0.5.1-paseo
+        required: false
       product_sdk:
         description: >
           product-sdk packages to test instead of the pinned ones, npm specs
@@ -348,6 +361,7 @@ jobs:
           GATE_RUNTIME_WEB3_STORAGE: ${{ inputs.runtime_web3_storage }}
           GATE_SERVICE_ETH_RPC: ${{ inputs.service_eth_rpc }}
           GATE_SERVICE_IDENTITY_BACKEND: ${{ inputs.service_identity_backend }}
+          GATE_SERVICE_STORAGE_PROVIDER_NODE: ${{ inputs.service_storage_provider_node }}
           GATE_PRODUCT_SDK: ${{ inputs.product_sdk }}
           GATE_TRUAPI: ${{ inputs.truapi }}
           GATE_ADVANCED: ${{ inputs.advanced }}

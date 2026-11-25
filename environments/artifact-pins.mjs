@@ -8,7 +8,9 @@
 //
 // A node binary doesn't declare anything we can read, so a binary slot takes the file
 // called after the slot — `binary_polkadot: artifact:node-binaries` finds
-// `polkadot`. The engine copies a local polkadot's PVF workers from the same
+// `polkadot` — and a service takes the file called after the engine binary it
+// replaces — `service_storage_provider_node: artifact:provider` finds
+// `storage-provider-node`. The engine copies a local polkadot's PVF workers from the same
 // directory and fails without them.
 //
 // `artifact:<name>/<path>` names the file outright, for the rare artifact holding
@@ -16,7 +18,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHAINS, parseReleaseRef } from './release-map.mjs';
+import { CHAINS, SERVICES, parseReleaseRef } from './release-map.mjs';
 import { rpc } from './baseline-scan.mjs';
 import { runtimeSpecOf, decompressRuntime } from './wasm-spec.mjs';
 
@@ -80,20 +82,27 @@ export async function resolveArtifactPins(manifest, io) {
     );
   }
 
-  for (const [slot, pin] of Object.entries(manifest.binaries ?? {})) {
-    if (!String(pin).startsWith('artifact:')) continue;
+  const binaryPins = [
+    ...Object.keys(manifest.binaries ?? {}).map((slot) => ({ pins: manifest.binaries, key: slot, file: slot })),
+    ...Object.keys(manifest.services ?? {})
+      .filter((name) => SERVICES[manifest.network]?.[name]?.override)
+      .map((name) => ({ pins: manifest.services, key: name, file: SERVICES[manifest.network][name].override })),
+  ];
+  for (const { pins, key, file: expected } of binaryPins) {
+    const pin = String(pins[key]);
+    if (!pin.startsWith('artifact:')) continue;
     const { artifact, within } = parseReleaseRef(pin);
     const files = io.list(artifact);
-    const hits = files.filter((file) => (within ? file.endsWith(within) : path.basename(file) === slot));
+    const hits = files.filter((file) => (within ? file.endsWith(within) : path.basename(file) === expected));
     if (hits.length !== 1) {
       throw new Error(
-        `${slot}: "${pin}" expected exactly one file ${within ? `ending in ${within}` : `called ${slot}`} ` +
+        `${key}: "${pin}" expected exactly one file ${within ? `ending in ${within}` : `called ${expected}`} ` +
           `in artifact ${artifact}, found ${hits.length}. It contains: ` +
           `${files.map((file) => path.basename(file)).join(', ') || '(nothing)'}`
       );
     }
-    manifest.binaries[slot] = `file:${hits[0]}`;
-    notes.push(`  ${slot.padEnd(14)} <- ${hits[0]}`);
+    pins[key] = `file:${hits[0]}`;
+    notes.push(`  ${key.padEnd(14)} <- ${hits[0]}`);
   }
   return notes;
 }
@@ -122,7 +131,11 @@ if (process.argv[1] && import.meta.url === (await import('node:url')).pathToFile
   // chains or binaries to different artifacts.
   if (namesOnly) {
     const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    const pins = [...Object.values(m.chains ?? {}).map((c) => c?.runtime), ...Object.values(m.binaries ?? {})];
+    const pins = [
+      ...Object.values(m.chains ?? {}).map((c) => c?.runtime),
+      ...Object.values(m.binaries ?? {}),
+      ...Object.values(m.services ?? {}),
+    ];
     const names = [
       ...new Set(
         pins

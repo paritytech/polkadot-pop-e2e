@@ -137,6 +137,14 @@ body:
         DUB_TAG to gate that release. previewnet and paseo-next-v2. `@latest` is safe.
       placeholder: paritytech/device-uniqueness-backend-community@v0.8.2
   - type: input
+    id: service-storage-provider-node
+    attributes:
+      label: "Service: storage-provider-node"
+      description: >
+        The Web3 Storage provider binary the fork runs, from paritytech/web3-storage
+        releases. previewnet only. `@latest` is safe.
+      placeholder: paritytech/web3-storage@v0.5.1-paseo
+  - type: input
     id: product-sdk
     attributes:
       label: "Client: product-sdk"

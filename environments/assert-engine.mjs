@@ -19,6 +19,9 @@ import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CHAINS, SERVICES, validateManifest } from './release-map.mjs';
 
+/** Where the engine takes a binary from; it reports a file: override as repo `file:<path>`, tag `local`. */
+const engineSource = (binary) => (binary.repo.startsWith('file:') ? binary.repo : `${binary.repo}@${binary.tag}`);
+
 export function assertEngineAgrees(manifest, show) {
   const wiring = CHAINS[manifest.network];
   const errors = [];
@@ -42,8 +45,7 @@ export function assertEngineAgrees(manifest, show) {
       continue;
     }
     const pin = manifest.binaries[slot];
-    // The engine reports a file: override as repo `file:<path>`, tag `local`.
-    const got = c.binary.repo.startsWith('file:') ? c.binary.repo : `${c.binary.repo}@${c.binary.tag}`;
+    const got = engineSource(c.binary);
     if (got !== pin) {
       errors.push(`${chain}: manifest pins ${slot} to ${pin}, engine will run ${got}`);
     } else if (!c.binary.overridden) {
@@ -68,8 +70,8 @@ export function assertEngineAgrees(manifest, show) {
     const pin = manifest.services[name];
     if (!b) {
       errors.push(`engine does not fetch a binary named "${svc.override}" (service ${name})`);
-    } else if (`${b.repo}@${b.tag}` !== pin) {
-      errors.push(`${name}: manifest pins ${pin}, engine will fetch ${b.repo}@${b.tag}`);
+    } else if (engineSource(b) !== pin) {
+      errors.push(`${name}: manifest pins ${pin}, engine will fetch ${engineSource(b)}`);
     } else {
       ok.push(`${name}: ${pin}`);
     }
