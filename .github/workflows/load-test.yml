@@ -121,7 +121,7 @@ jobs:
         # Only whether the game is scheduled counts here: hours ahead, the timing check underrates a
         # game the chain hasn't created yet, and the plan job checks the timing at start_at.
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           pnpm install --frozen-lockfile
           read -ra extra <<< "$ARGS"
           game=()
