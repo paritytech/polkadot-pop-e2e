@@ -1,5 +1,5 @@
 name: Load test
-run-name: "${{ inputs.people_only && 'Lite people' || 'Load test' }} · ${{ inputs.network }} · ${{ inputs.players }} bots${{ inputs.lite && ' · lite' || '' }}${{ inputs.video && ' · video' || '' }}${{ inputs.chain_backend == 'light-client' && ' · light client' || '' }}${{ inputs.game_at != '' && format(' · game {0}', inputs.game_at) || '' }}${{ inputs.replay_at != '' && format(' · replay {0}', inputs.replay_at) || '' }}${{ inputs.args != '' && format(' · {0}', inputs.args) || '' }}"
+run-name: "${{ inputs.people_only && 'Lite people' || 'Load test' }} · ${{ inputs.network }} · ${{ inputs.players }} bots${{ inputs.lite && ' · lite' || '' }}${{ inputs.video && ' · video' || '' }}${{ inputs.chain_backend == 'light-client' && ' · light client' || '' }}${{ inputs.game_at != '' && format(' · game {0}', inputs.game_at) || '' }}${{ inputs.start_at != '' && format(' · starts {0}', inputs.start_at) || '' }}${{ inputs.replay_at != '' && format(' · replay {0}', inputs.replay_at) || '' }}${{ inputs.args != '' && format(' · {0}', inputs.args) || '' }}"
 
 # Plays the closest scheduled Jollity game on a live network with N bots as regular players: they
 # sign up, exchange the app's pre-game messages through truapi-host, report and claim their NFTs.
@@ -65,6 +65,10 @@ on:
         description: "Only make lite bots --lite-from.. of players lite people (`load people`), resuming where an earlier run stopped; no game. Attests 3 at a time, or --attest-concurrency in args"
         type: boolean
         default: false
+      start_at:
+        description: "UTC time (ISO, e.g. 2026-11-25T12:15:00Z) at which the run starts its work; empty starts now. A small runner waits until then, at most 6 hours"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -90,8 +94,26 @@ env:
   TRUAPI_HOST_NO_UPDATE: "1"
 
 jobs:
+  # Lets a run be dispatched ahead and start its work at `start_at` without anyone online. It runs
+  # on every game run, as a no-op without start_at, so no job after it is skipped.
+  wait:
+    name: wait for start_at
+    if: ${{ !inputs.people_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - env:
+          START_AT: ${{ inputs.start_at }}
+        run: |
+          [[ -n "$START_AT" ]] || exit 0
+          start=$(date -u -d "$START_AT" +%s) || { echo "start_at '$START_AT' is not a time" >&2; exit 1; }
+          wait=$(( start - $(date -u +%s) ))
+          if (( wait > 0 )); then echo "waiting ${wait}s until $START_AT"; sleep "$wait"; fi
+          echo "starting at $(date -u +%FT%TZ)"
+
   plan:
     name: plan
+    needs: wait
     if: ${{ !inputs.people_only }}
     runs-on: ubuntu-latest
     outputs:
