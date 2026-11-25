@@ -29,6 +29,7 @@ import {
   createPeopleClient,
   createAssetHubClient,
   createBulletinClient,
+  createWeb3StorageClient,
   type PeopleApi,
   type AssetHubApi,
   type BulletinApi,
@@ -64,6 +65,7 @@ const ADVANCEMENT_WINDOW_MS = 30_000;
 const PEOPLE_BLOCK_SECONDS = 2;
 const AH_BLOCK_SECONDS = 2;
 const BULLETIN_BLOCK_SECONDS = 6;
+const WEB3_STORAGE_BLOCK_SECONDS = 6;
 
 // "Latest finalized block is stale" budget per chain. Only consulted on
 // the slow path (after a no-advancement sample). Healthy parachains can
@@ -76,9 +78,11 @@ const BULLETIN_BLOCK_SECONDS = 6;
 const MAX_PEOPLE_BLOCKS_STALE = 60;
 const MAX_AH_BLOCKS_STALE = 60;
 const MAX_BULLETIN_BLOCKS_STALE = 30;
+const MAX_WEB3_STORAGE_BLOCKS_STALE = 30;
 const MAX_PEOPLE_FRESHNESS_MS = PEOPLE_BLOCK_SECONDS * MAX_PEOPLE_BLOCKS_STALE * 1000;
 const MAX_AH_FRESHNESS_MS = AH_BLOCK_SECONDS * MAX_AH_BLOCKS_STALE * 1000;
 const MAX_BULLETIN_FRESHNESS_MS = BULLETIN_BLOCK_SECONDS * MAX_BULLETIN_BLOCKS_STALE * 1000;
+const MAX_WEB3_STORAGE_FRESHNESS_MS = WEB3_STORAGE_BLOCK_SECONDS * MAX_WEB3_STORAGE_BLOCKS_STALE * 1000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -154,6 +158,7 @@ describe("Chain Health", () => {
   let assetHubApi: AssetHubApi;
   let bulletinClient: PolkadotClient;
   let bulletinApi: BulletinApi;
+  let web3Storage: ReturnType<typeof createWeb3StorageClient> | undefined;
 
   beforeAll(() => {
     network = getNetworkConfig();
@@ -175,12 +180,15 @@ describe("Chain Health", () => {
       bulletinClient = bulletin.client;
       bulletinApi = bulletin.api;
     }
+
+    if (network.web3Storage) web3Storage = createWeb3StorageClient(network.web3Storage.ws);
   });
 
   afterAll(() => {
     peopleClient?.destroy();
     assetHubClient?.destroy();
     bulletinClient?.destroy();
+    web3Storage?.client.destroy();
   });
 
   it(
@@ -240,6 +248,28 @@ describe("Chain Health", () => {
         });
       } catch (err) {
         markChainUnhealthy("bulletin", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    },
+    FINALIZED_BLOCK_PROBE_MS,
+  );
+
+  it.skipIf(!getNetworkConfig().web3Storage)(
+    "Web3 Storage chain is producing finalized blocks",
+    async () => {
+      const { client, api } = web3Storage!;
+      try {
+        await probeChainProducing({
+          chain: "web3-storage",
+          label: "Web3 Storage",
+          blockSeconds: WEB3_STORAGE_BLOCK_SECONDS,
+          freshnessBudgetMs: MAX_WEB3_STORAGE_FRESHNESS_MS,
+          maxBlocksStale: MAX_WEB3_STORAGE_BLOCKS_STALE,
+          client,
+          getTimestampAt: async (hash) => Number(await api.query.Timestamp.Now.getValue({ at: hash })),
+        });
+      } catch (err) {
+        markChainUnhealthy("web3-storage", err instanceof Error ? err.message : String(err));
         throw err;
       }
     },

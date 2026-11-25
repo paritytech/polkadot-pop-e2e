@@ -24,11 +24,18 @@ function descriptor(extra: Partial<Descriptor> = {}): Descriptor {
     name: "Fork of Previewnet",
     network: "paseo",
     tld: "testnet",
-    chains: [chain("Relay", "relay"), chain("AssetHub", "asset-hub"), chain("People", "people"), chain("Bulletin", "bulletin")],
+    chains: [
+      chain("Relay", "relay"),
+      chain("AssetHub", "asset-hub"),
+      chain("People", "people"),
+      chain("Bulletin", "bulletin"),
+      chain("Web3Storage", "web3-storage"),
+    ],
     services: [
       { kind: "dub", urls: ["http://127.0.0.1:8090/dub/"] },
       { kind: "ipfs-gateway", urls: ["http://127.0.0.1:8090/ipfs/"] },
       { kind: "hop", urls: ["ws://127.0.0.1:8090/bulletin"] },
+      { kind: "storage-provider", urls: ["http://127.0.0.1:8090/web3-storage-provider/"] },
     ],
     ...extra,
   };
@@ -78,6 +85,10 @@ describe("buildNetworkConfig", () => {
         hopWs: "ws://127.0.0.1:8090/bulletin",
         ipfsGateway: "http://127.0.0.1:8090/ipfs",
       },
+      web3Storage: {
+        ws: "ws://127.0.0.1:8090/web3-storage",
+        provider: "http://127.0.0.1:8090/web3-storage-provider",
+      },
       identityBackend: "http://127.0.0.1:8090/dub",
       tld: "testnet",
       features: NETWORKS.previewnet.features,
@@ -105,6 +116,16 @@ describe("buildNetworkConfig", () => {
     expect(() => buildNetworkConfig(NETWORKS.previewnet, noPeople)).toThrow(/People/);
     const noBulletin = descriptor({ chains: descriptor().chains.filter((entry) => entry.role !== "Bulletin") });
     expect(() => buildNetworkConfig(NETWORKS.previewnet, noBulletin)).toThrow(/Bulletin/);
+    const noWeb3Storage = descriptor({ chains: descriptor().chains.filter((entry) => entry.role !== "Web3Storage") });
+    expect(() => buildNetworkConfig(NETWORKS.previewnet, noWeb3Storage)).toThrow(/Web3Storage/);
+    const noProvider = descriptor({ services: descriptor().services.filter((entry) => entry.kind !== "storage-provider") });
+    expect(() => buildNetworkConfig(NETWORKS.previewnet, noProvider)).toThrow(/storage-provider/);
+  });
+
+  // Only previewnet runs Web3 Storage; its tests skip elsewhere instead of failing on a stack
+  // that has no such chain.
+  it("leaves Web3 Storage unset on networks without it", () => {
+    expect(buildNetworkConfig(NETWORKS["paseo-next-v2"], descriptor({ id: "paseo-next-v2-fork" })).web3Storage).toBeNull();
   });
 });
 
@@ -129,6 +150,7 @@ describe("a Westend fork", () => {
       assetHub: { ws: "ws://127.0.0.1:8090/asset-hub" },
       people: { ws: "ws://127.0.0.1:8090/people" },
       bulletin: null,
+      web3Storage: null,
       identityBackend: null,
       tld: "westend",
       features: NETWORKS.westend.features,

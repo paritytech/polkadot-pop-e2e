@@ -17,7 +17,7 @@
  * `attested-fixture.ts` to share its IB-cascade marker.
  */
 
-export type ChainName = "people" | "asset-hub" | "bulletin";
+export type ChainName = "people" | "asset-hub" | "bulletin" | "web3-storage";
 
 const unhealthy: Map<ChainName, string> = new Map();
 
