@@ -66,7 +66,7 @@ on:
         type: boolean
         default: false
       start_at:
-        description: "UTC time (ISO, e.g. 2026-11-25T12:15:00Z) at which the run starts its work; empty starts now. A small runner waits until then, at most 6 hours"
+        description: "UTC time (ISO, e.g. 2026-11-25T12:15:00Z) at which the run starts its work; empty starts now. Small runners wait until then, at most about 23 hours; the target game is checked against the chain's schedule right away"
         type: string
         default: ""
 
@@ -95,21 +95,46 @@ env:
 
 jobs:
   # Lets a run be dispatched ahead and start its work at `start_at` without anyone online. It runs
-  # on every game run, as a no-op without start_at, so no job after it is skipped.
+  # on every game run, as a no-op without start_at, so no job after it is skipped. A job may run
+  # 6 hours at most, so the wait runs as up to 4 legs one after another, about 23 hours in all.
   wait:
-    name: wait for start_at
+    name: wait for start_at (leg ${{ matrix.leg }})
     if: ${{ !inputs.people_only }}
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 355
+    strategy:
+      max-parallel: 1
+      matrix:
+        leg: [1, 2, 3, 4]
     steps:
+      # A run dispatched ahead for a game that isn't scheduled fails now, while someone can still fix it.
+      - if: ${{ inputs.start_at != '' && matrix.leg == 1 && inputs.replay_at == '' }}
+        uses: actions/checkout@v4
+      - if: ${{ inputs.start_at != '' && matrix.leg == 1 && inputs.replay_at == '' }}
+        uses: pnpm/action-setup@v4
+      - if: ${{ inputs.start_at != '' && matrix.leg == 1 && inputs.replay_at == '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - if: ${{ inputs.start_at != '' && matrix.leg == 1 && inputs.replay_at == '' }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          read -ra extra <<< "$ARGS"
+          game=()
+          if [ -n "$GAME_AT" ]; then game+=(--game-at "$GAME_AT"); fi
+          if [ "$LITE" = true ]; then game+=(--lite); fi
+          pnpm --silent --filter @pop-e2e/load-tests load target --players "$PLAYERS" "${game[@]}" "${extra[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
       - env:
           START_AT: ${{ inputs.start_at }}
         run: |
           [[ -n "$START_AT" ]] || exit 0
           start=$(date -u -d "$START_AT" +%s) || { echo "start_at '$START_AT' is not a time" >&2; exit 1; }
           wait=$(( start - $(date -u +%s) ))
-          if (( wait > 0 )); then echo "waiting ${wait}s until $START_AT"; sleep "$wait"; fi
-          echo "starting at $(date -u +%FT%TZ)"
+          (( wait > 20700 )) && wait=20700
+          if (( wait > 0 )); then echo "waiting ${wait}s towards $START_AT"; sleep "$wait"; fi
+          echo "leg done at $(date -u +%FT%TZ)"
 
   plan:
     name: plan
