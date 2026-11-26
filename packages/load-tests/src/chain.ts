@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { clearGames } from "@pop-e2e/chain-tests/src/lib/game-fork.js";
 import { fromPapi, groupSeats, reportTx, type ReportVote } from "@parity/product-sdk-individuality";
 import { statePlayerCount, type GameEngine, type PalletGame } from "@jollity/protocol/src/engine";
 import { followBlockLoad, stateLabel, type BlockFollower, type BlockLoad } from "./block-load.js";
-import { submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
+import { accountSigner, submitBurst, summarizeBurst, type BurstSummary } from "./burst.js";
 import { readProposals, type Proposal } from "./collator-log.js";
 import { claimCredits, type ClaimResult } from "./claim.js";
 import { ALREADY_REGISTERED, SIGN_UP_MS, signSignUps, topUpPlayers, waitForGame, PLAYER_FUNDS } from "./join.js";
@@ -89,25 +90,8 @@ async function clearAndFund(api: PeopleApi, run: ChainRun, sudo: Keypair, player
     if (!run.takeOver) {
       throw new Error(`${target.label} has a game ${existing ? "running" : "scheduled"}; pass --take-over to cancel it, or --game-at to play a load game`);
     }
-    // The schedules go first, so no copied game starts once the current one ends. Only a game in
-    // registration or the shuffle can be cancelled; reporting can be ended at once on a testnet;
-    // player processing and cancelling finish by themselves within a few blocks.
-    const endCurrent =
-      existing?.state.type === "Registration" || existing?.state.type === "Shuffle"
-        ? [api.tx.Game.cancel_game().decodedCall]
-        : existing?.state.type === "Reporting"
-          ? [api.tx.Game.testnet_force_end_reporting().decodedCall]
-          : [];
-    const calls = [
-      ...schedules.map((schedule) => api.tx.Game.remove_scheduled_game({ game_play_time: schedule.game_play_time }).decodedCall),
-      ...endCurrent,
-    ];
-    if (calls.length > 0) await dispatchAsRoot(api, sudo, calls, calls.length, "take-over");
-    const until = Date.now() + 600_000;
-    while (await api.query.Game.Game.getValue({ at: "best" })) {
-      if (Date.now() > until) throw new Error(`${target.label}: the game on chain did not end within 10 min of the take-over`);
-      await sleep(2_000);
-    }
+    // null: the take-over leaves the chain's phases as they are.
+    await clearGames(api, accountSigner(sudo), null);
   }
   await fundPlayers(api, sudo, players, PLAYER_FUNDS);
 }
