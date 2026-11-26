@@ -113,7 +113,7 @@ on:
           Service storage-provider-node, the Web3 Storage provider. Either a
           release or a build uploaded in THIS run: `artifact:<name>`, the artifact
           holding a linux binary called storage-provider-node. previewnet only.
-          e.g. paritytech/web3-storage@v0.5.1-paseo or artifact:storage-provider-node
+          e.g. paritytech/web3-storage@v0.5.2-provider or artifact:storage-provider-node
         type: string
         required: false
       product_sdk:
@@ -263,8 +263,10 @@ on:
         required: false
       service_storage_provider_node:
         description: >
-          The Web3 Storage provider binary, from paritytech/web3-storage. previewnet
-          only. `@latest` is safe. e.g. paritytech/web3-storage@v0.5.1-paseo
+          The Web3 Storage provider binary, from a paritytech/web3-storage
+          v<version>-provider release. previewnet only. Not `@latest`: it resolves
+          to a runtime release, which has no provider. e.g.
+          paritytech/web3-storage@v0.5.2-provider
         required: false
       product_sdk:
         description: >

@@ -12,7 +12,7 @@ Doors 2 and 3 share one field list, [`gate-form.mjs`](./gate-form.mjs), which as
 { "chains": { "bulletin": { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" } } }
 ```
 
-Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage`, `individuality-community` and `device-uniqueness-backend-community`, but a trap on two sources (verified 2026-09-03):
+Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage` (runtimes only: its provider releases are never marked latest), `individuality-community` and `device-uniqueness-backend-community`, but a trap on two sources (verified 2026-09-03):
 
 | Source | `@latest` resolves to | Why it bites |
 |---|---|---|

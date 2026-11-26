@@ -141,9 +141,10 @@ body:
     attributes:
       label: "Service: storage-provider-node"
       description: >
-        The Web3 Storage provider binary the fork runs, from paritytech/web3-storage
-        releases. previewnet only. `@latest` is safe.
-      placeholder: paritytech/web3-storage@v0.5.1-paseo
+        The Web3 Storage provider binary the fork runs, from a paritytech/web3-storage
+        v<version>-provider release. previewnet only. Not `@latest`: it resolves to a
+        runtime release, which has no provider.
+      placeholder: paritytech/web3-storage@v0.5.2-provider
   - type: input
     id: product-sdk
     attributes:
