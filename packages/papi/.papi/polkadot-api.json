@@ -60,19 +60,19 @@
       "wsUrl": "wss://westend-rpc.polkadot.io",
       "metadata": ".papi/metadata/westendRelay.scale",
       "genesis": "0xe143f23803ac50e8f6f8e62695d1ce9e4e1d68aa36c1cd2cfd15340213f3423e",
-      "codeHash": "0xb5723ec53e943ee8a038e1bcbefee0132fb93900b394a1c41990aef203aeb8ba"
+      "codeHash": "0xae5d45164859d321a321bd1f67aade695181e790bca8c8ec9e160bd9663c3c74"
     },
     "westendAssetHub": {
       "wsUrl": "wss://westend-asset-hub-rpc.polkadot.io",
       "metadata": ".papi/metadata/westendAssetHub.scale",
       "genesis": "0x67f9723393ef76214df0118c34bbbd3dbebc8ed46a10973a8c969d48fe7598c9",
-      "codeHash": "0xcafffa197d9236b042aeb2cfe56852d5e4ec6575652dbca9c84cf2e2aa2c90a3"
+      "codeHash": "0xa79e86ec9d9e14cc51b6476bf57404049bed3df1f4129bd4e9e3f6aa0b6de8cd"
     },
     "westendPeople": {
       "wsUrl": "wss://westend-people-rpc.polkadot.io",
       "metadata": ".papi/metadata/westendPeople.scale",
       "genesis": "0x1eb6fb0ba5187434de017a70cb84d4f47142df1d571d0ef9e7e1407f2b80b93c",
-      "codeHash": "0xf6ffdfb54976bec62c0e4adf8d741169fabf16068c4ef19cc736828fcdc42494"
+      "codeHash": "0x3a4f2392fdc12beb5cc8200eb9f2be685b0e34e09507763a4d486e618302f437"
     }
   }
 }
