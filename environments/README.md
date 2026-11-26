@@ -50,7 +50,7 @@ The engine's own pins are its business (per-network `networks/<name>.json`; `con
 ## Entry points
 
 - **PR touching `environments/**`** — the normal path; review the pin bump, CI gates it.
-- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to previewnet-engine `v0.18.1`). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
+- **Actions → Release Gate → Run workflow** — ad-hoc runs; one field per pin, two client fields for product-sdk and truapi builds, plus an advanced overlay whose `ppn_ref` key picks the engine ref (defaults to the previewnet-engine release in [`engine-ref`](./engine-ref)). A future UI needs nothing more than these two: render the manifest, write the PR or fire the dispatch.
 - **Locally** — resolve, then drive the engine by hand:
 
   ```bash
@@ -142,6 +142,6 @@ The engine builds nothing itself — binaries come from `paritytech/release-auto
 
 - Canonical pins point at the real sources: binaries + eth-rpc from release-automation, relay runtime from `paseo-network/runtimes`, asset-hub/people from `individuality-community`, bulletin/web3-storage from their repos; identity-backend from `device-uniqueness-backend-community`, at the engine's default tag unless the manifest pins one. Westend pins its binaries, eth-rpc and relay runtime to the polkadot-sdk releases live Westend runs, and its Asset Hub and People runtimes to release-automation weeklies.
 - Binary delivery = `PPN_BINARIES` overrides + the `assert-engine.mjs` pre-spawn check (see "Delivery is declared" above). No files are pre-seeded except the identity quadruple, which has no override channel yet.
-- `PPN_REF_DEFAULT` is a released engine tag, so an engine merge cannot change what a rerun does; a dispatch can pin `ppn_ref` via the advanced overlay to run against a branch.
+- [`engine-ref`](./engine-ref) names a released engine tag, so an engine merge cannot change what a rerun does. The daily Engine Bump workflow opens a PR moving it to the engine's latest release. It is a file outside `.github/workflows/` because the workflow token cannot push changes to workflow files. A dispatch can pin `ppn_ref` via the advanced overlay to run against a branch.
 - Still deliberately ours: the **downgrade guard** (`ppn upgrade` reports and applies downgrades without refusing) and per-chain runtime asset names (`ppn upgrade` does not check a blob belongs to the chain it's fed to).
 - Later: `@parity/ppn-network-config` is on npm now, so the map's mirrored wiring can read from it instead of restating it (the runtime drift assert keeps the mirror honest until it does); publish pnv2 fork bundles so its gate stops biting live; a full raw Paseo Asset Hub spec to unblock devnet.

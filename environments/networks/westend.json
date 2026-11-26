@@ -2,18 +2,18 @@
   "network": "westend",
   "base": "fork",
   "binaries": {
-    "polkadot": "paritytech/polkadot-sdk@polkadot-stable2609-2",
-    "polkadot-parachain": "paritytech/polkadot-sdk@polkadot-stable2609-2"
+    "polkadot": "paritytech/polkadot-sdk@polkadot-stable2611-rc1",
+    "polkadot-parachain": "paritytech/polkadot-sdk@polkadot-stable2611-rc1"
   },
   "chains": {
     "relay": {
-      "runtime": "paritytech/polkadot-sdk@polkadot-stable2609"
+      "runtime": "paritytech/polkadot-sdk@polkadot-stable2611-rc1"
     },
     "asset-hub": {
-      "runtime": "paritytech/release-automation@polkadot-weekly2026w47-rc2"
+      "runtime": "paritytech/polkadot-sdk@polkadot-stable2611-rc1"
     },
     "people": {
-      "runtime": "paritytech/release-automation@polkadot-weekly2026w43-rc1"
+      "runtime": "paritytech/polkadot-sdk@polkadot-stable2611-rc1"
     }
   },
   "services": {
