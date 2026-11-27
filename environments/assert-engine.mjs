@@ -62,19 +62,16 @@ export function assertEngineAgrees(manifest, show) {
     }
   }
 
-  const flat = new Map((show.binaries ?? []).map((b) => [b.name, b]));
   const services = SERVICES[manifest.network] ?? {};
   for (const [name, svc] of Object.entries(services)) {
     if (!svc.override || !manifest.services?.[name]) continue;
-    const b = flat.get(svc.override);
     const pin = manifest.services[name];
-    if (!b) {
-      errors.push(`engine does not fetch a binary named "${svc.override}" (service ${name})`);
-    } else if (engineSource(b) !== pin) {
-      errors.push(`${name}: manifest pins ${pin}, engine will fetch ${engineSource(b)}`);
-    } else {
-      ok.push(`${name}: ${pin}`);
-    }
+    const binary = show.services?.[name]?.binary;
+    const got = binary && engineSource(binary);
+    if (!binary) errors.push(`engine runs no binary for service ${name}`);
+    else if (got !== pin) errors.push(`${name}: manifest pins ${pin}, engine will fetch ${got}`);
+    else if (!binary.overridden) errors.push(`${name}: engine runs ${got} but not via our override`);
+    else ok.push(`${name}: ${got} (overridden)`);
   }
 
   return { ok, errors };

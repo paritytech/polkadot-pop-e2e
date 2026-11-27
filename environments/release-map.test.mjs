@@ -408,10 +408,12 @@ describe('guard rails', () => {
         key,
         binary: { name: e.node, ...ref(previewnet.binaries[e.node]), overridden: true },
       })),
-      binaries: [
-        { name: 'eth-rpc', ...ref(previewnet.services['eth-rpc']) },
-        { name: 'storage-provider-node', ...ref(previewnet.services['storage-provider-node']) },
-      ],
+      services: Object.fromEntries(
+        ['eth-rpc', 'storage-provider-node'].map((name) => [
+          name,
+          { enabled: true, binary: { name, ...ref(previewnet.services[name]), overridden: true } },
+        ])
+      ),
     });
 
     assert.equal(assertEngineAgrees(previewnet, faithful()).errors.length, 0);
@@ -433,14 +435,26 @@ describe('guard rails', () => {
     assert.match(assertEngineAgrees(previewnet, extra).errors[0], /chain "coretime" the map does not know/);
 
     const svc = faithful();
-    svc.binaries = [];
-    assert.match(assertEngineAgrees(previewnet, svc).errors[0], /does not fetch a binary named "eth-rpc"/);
+    svc.services = {};
+    assert.match(assertEngineAgrees(previewnet, svc).errors[0], /engine runs no binary for service eth-rpc/);
+
+    const serviceUnapplied = faithful();
+    delete serviceUnapplied.services['storage-provider-node'].binary.overridden;
+    assert.match(
+      assertEngineAgrees(previewnet, serviceUnapplied).errors[0],
+      /storage-provider-node: engine runs .* but not via our override/
+    );
 
     // A provider build from the calling run reaches the engine as a file: pin, which the
     // engine reports as repo `file:<path>`, tag `local`.
     const build = { ...previewnet, services: { ...previewnet.services, 'storage-provider-node': 'file:/tmp/storage-provider-node' } };
     const local = faithful();
-    local.binaries[1] = { name: 'storage-provider-node', repo: 'file:/tmp/storage-provider-node', tag: 'local' };
+    local.services['storage-provider-node'].binary = {
+      name: 'storage-provider-node',
+      repo: 'file:/tmp/storage-provider-node',
+      tag: 'local',
+      overridden: true,
+    };
     assert.equal(assertEngineAgrees(build, local).errors.length, 0);
   });
 
@@ -647,7 +661,7 @@ describe('binary builds from the calling run', () => {
         { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...parachain } },
         { key: 'people', binary: { name: 'polkadot-parachain', ...parachain } },
       ],
-      binaries: [{ name: 'eth-rpc', ...ethRpc }],
+      services: { 'eth-rpc': { enabled: true, binary: { name: 'eth-rpc', ...ethRpc } } },
     };
     assert.deepEqual(assertEngineAgrees(manifest, show).errors, []);
   });
