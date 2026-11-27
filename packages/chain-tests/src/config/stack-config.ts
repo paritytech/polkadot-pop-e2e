@@ -35,12 +35,6 @@ export interface NetworkFeatures {
   web3Storage: boolean;
 }
 
-export interface Web3StorageConfig {
-  ws: string;
-  /** The storage provider's HTTP API, without a trailing slash. */
-  provider: string;
-}
-
 export interface BulletinConfig {
   ws: string;
   /**
@@ -63,7 +57,11 @@ export interface NetworkConfig {
   /** Null on a network without Bulletin (`features.bulletin`). */
   bulletin: BulletinConfig | null;
   /** Null on a network without Web3 Storage (`features.web3Storage`). */
-  web3Storage: Web3StorageConfig | null;
+  web3Storage: {
+    ws: string;
+    /** The storage provider's HTTP API, without a trailing slash. */
+    provider: string;
+  } | null;
   identityBackend: string | null;
   /** The dotNS TLD the person's identities derive under. */
   tld: string;
