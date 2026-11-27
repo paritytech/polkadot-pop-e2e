@@ -75,7 +75,7 @@ describe('the checked-in previewnet manifest', () => {
     const entries = ppnOverrides(previewnet).split(',');
     assert.deepEqual(
       entries.map((e) => e.split('=')[0]).sort(),
-      ['eth-rpc', 'polkadot', 'polkadot-omni-node']
+      ['eth-rpc', 'polkadot', 'polkadot-omni-node', 'storage-provider-node']
     );
     assert.ok(entries.every((e) => /^[\w-]+=[\w.-]+\/[\w.-]+@\S+$/.test(e)), entries.join(','));
     assert.equal(entries.find((e) => e.startsWith('polkadot=')).split('=')[1], previewnet.binaries.polkadot);
@@ -98,7 +98,7 @@ describe('the checked-in previewnet manifest', () => {
 
   it('reports the not-yet-deliverable service pins instead of dropping them silently', () => {
     const { recorded } = binaryPlan(previewnet, '');
-    assert.deepEqual(recorded.sort(), ['kubo', 'storage-provider-node']);
+    assert.deepEqual(recorded, ['kubo']);
   });
 });
 
@@ -380,6 +380,17 @@ describe('guard rails', () => {
     );
   });
 
+  it('refuses a build for a service the engine cannot override, instead of fetching and then ignoring it', () => {
+    const withService = (name, pin) => ({ ...previewnet, services: { ...previewnet.services, [name]: pin } });
+    assert.throws(() => binaryPlan(withService('kubo', 'artifact:kubo-build'), ''), /kubo takes a release pin/);
+    assert.throws(
+      () => binaryPlan(withService('identity-backend', 'artifact:dub'), ''),
+      /identity-backend takes a release pin/
+    );
+    assert.doesNotThrow(() => binaryPlan(withService('storage-provider-node', 'artifact:provider'), ''));
+    assert.doesNotThrow(() => binaryPlan(withService('eth-rpc', 'file:/tmp/eth-rpc'), ''));
+  });
+
   it('knows the release-asset platform convention', () => {
     assert.equal(platformAssetSuffix('linux', 'x64'), '');
     assert.equal(platformAssetSuffix('darwin', 'arm64'), '-aarch64-apple-darwin');
@@ -397,7 +408,12 @@ describe('guard rails', () => {
         key,
         binary: { name: e.node, ...ref(previewnet.binaries[e.node]), overridden: true },
       })),
-      binaries: [{ name: 'eth-rpc', ...ref(previewnet.services['eth-rpc']) }],
+      services: Object.fromEntries(
+        ['eth-rpc', 'storage-provider-node'].map((name) => [
+          name,
+          { enabled: true, binary: { name, ...ref(previewnet.services[name]), overridden: true } },
+        ])
+      ),
     });
 
     assert.equal(assertEngineAgrees(previewnet, faithful()).errors.length, 0);
@@ -419,8 +435,27 @@ describe('guard rails', () => {
     assert.match(assertEngineAgrees(previewnet, extra).errors[0], /chain "coretime" the map does not know/);
 
     const svc = faithful();
-    svc.binaries = [];
-    assert.match(assertEngineAgrees(previewnet, svc).errors[0], /does not fetch a binary named "eth-rpc"/);
+    svc.services = {};
+    assert.match(assertEngineAgrees(previewnet, svc).errors[0], /engine runs no binary for service eth-rpc/);
+
+    const serviceUnapplied = faithful();
+    delete serviceUnapplied.services['storage-provider-node'].binary.overridden;
+    assert.match(
+      assertEngineAgrees(previewnet, serviceUnapplied).errors[0],
+      /storage-provider-node: engine runs .* but not via our override/
+    );
+
+    // A provider build from the calling run reaches the engine as a file: pin, which the
+    // engine reports as repo `file:<path>`, tag `local`.
+    const build = { ...previewnet, services: { ...previewnet.services, 'storage-provider-node': 'file:/tmp/storage-provider-node' } };
+    const local = faithful();
+    local.services['storage-provider-node'].binary = {
+      name: 'storage-provider-node',
+      repo: 'file:/tmp/storage-provider-node',
+      tag: 'local',
+      overridden: true,
+    };
+    assert.equal(assertEngineAgrees(build, local).errors.length, 0);
   });
 
   it('map integrity: every chain has a node slot and exact runtime assets per repo', () => {
@@ -626,7 +661,7 @@ describe('binary builds from the calling run', () => {
         { key: 'asset-hub', binary: { name: 'polkadot-parachain', ...parachain } },
         { key: 'people', binary: { name: 'polkadot-parachain', ...parachain } },
       ],
-      binaries: [{ name: 'eth-rpc', ...ethRpc }],
+      services: { 'eth-rpc': { enabled: true, binary: { name: 'eth-rpc', ...ethRpc } } },
     };
     assert.deepEqual(assertEngineAgrees(manifest, show).errors, []);
   });

@@ -255,7 +255,7 @@ export const SERVICES = {
       envTag: 'DUB_TAG',
       repos: ['paritytech/device-uniqueness-backend-community'],
     },
-    'storage-provider-node': { recordedOnly: true, repos: ['paritytech/web3-storage'] },
+    'storage-provider-node': { override: 'storage-provider-node', repos: ['paritytech/web3-storage'] },
     kubo: { recordedOnly: true, repos: ['ipfs/kubo'] },
   },
   'paseo-next-v2': {
@@ -547,10 +547,14 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
         `manifest names unknown service "${name}" for ${manifest.network} — known: ${Object.keys(services).join(', ')}`
       );
     }
-    const { repo, tag } = parseReleaseRef(ref0);
-    if (!source.repos.includes(repo)) {
+    const ref = parseReleaseRef(ref0);
+    if (ref.artifact || ref.local) {
+      if (!source.override) throw new Error(`${manifest.network}/${name} takes a release pin, the gate cannot deliver a build for it: ${ref0}`);
+      continue;
+    }
+    if (!source.repos.includes(ref.repo)) {
       throw new Error(
-        `${manifest.network}/${name} may come from ${source.repos.join(' or ')}, manifest says ${repo}`
+        `${manifest.network}/${name} may come from ${source.repos.join(' or ')}, manifest says ${ref.repo}`
       );
     }
     if (source.recordedOnly) {
@@ -571,18 +575,22 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
  */
 export function ppnOverrides(manifest) {
   binaryPlan(manifest, ''); // reject bad slots/repos before emitting anything
-  const entries = Object.entries(manifest.binaries ?? {}).map(([slot, ref]) => {
+  const resolved = (what, ref) => {
     if (parseReleaseRef(ref).artifact) {
       throw new Error(
-        `binaries.${slot} still pins ${ref} — environments/artifact-pins.mjs resolves it to a ` +
+        `${what} still pins ${ref} — environments/artifact-pins.mjs resolves it to a ` +
           `file before the engine sees it, so the download step did not run`
       );
     }
-    return `${slot}=${ref}`;
-  });
+    return ref;
+  };
+  const entries = Object.entries(manifest.binaries ?? {}).map(
+    ([slot, ref]) => `${slot}=${resolved(`binaries.${slot}`, ref)}`
+  );
   const services = SERVICES[manifest.network] ?? {};
   for (const [name, ref] of Object.entries(manifest.services ?? {})) {
-    if (services[name]?.override) entries.push(`${services[name].override}=${ref}`);
+    const binary = services[name]?.override;
+    if (binary) entries.push(`${binary}=${resolved(`services.${name}`, ref)}`);
   }
   return entries.join(','); // PPN_BINARIES entries are comma-separated (overridesFromEnv)
 }

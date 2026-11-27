@@ -118,3 +118,32 @@ describe('binary artifact: pins', () => {
     );
   });
 });
+
+// web3-storage gates a provider build of its own run: the fork must run that build,
+// not the engine's pinned release, or a provider change ships ungated.
+describe('service artifact: pins', () => {
+  const previewnet = (services) => ({ network: 'previewnet', chains: {}, services });
+  const resolve = (manifest, files) => resolveArtifactPins(manifest, io({ list: () => files }));
+
+  it('becomes a file: pin on the binary the service replaces', async () => {
+    const m = previewnet({ 'storage-provider-node': 'artifact:provider' });
+    await resolve(m, ['/in/provider/storage-provider-node', '/in/provider/README.md']);
+    assert.equal(m.services['storage-provider-node'], 'file:/in/provider/storage-provider-node');
+  });
+
+  it('fails when the artifact holds only the release archive', async () => {
+    await assert.rejects(
+      () =>
+        resolve(previewnet({ 'storage-provider-node': 'artifact:provider' }), [
+          '/in/provider/storage-provider-node-v0.5.2-paseo-x86_64-unknown-linux-gnu.tar.gz',
+        ]),
+      /expected exactly one file called storage-provider-node in artifact provider, found 0/
+    );
+  });
+
+  it('leaves services without an engine binary alone', async () => {
+    const m = previewnet({ kubo: 'artifact:kubo' });
+    await resolve(m, ['/in/kubo/kubo']);
+    assert.equal(m.services.kubo, 'artifact:kubo');
+  });
+});

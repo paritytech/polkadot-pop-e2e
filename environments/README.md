@@ -12,7 +12,7 @@ Doors 2 and 3 share one field list, [`gate-form.mjs`](./gate-form.mjs), which as
 { "chains": { "bulletin": { "runtime": "paritytech/polkadot-bulletin-chain@v0.0.23-paseo" } } }
 ```
 
-Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage`, `individuality-community` and `device-uniqueness-backend-community`, but a trap on two sources (verified 2026-09-03):
+Pins are `owner/repo@tag`. **`@latest`** is accepted everywhere and resolves through the repo's GitHub *latest release*, with the run log naming the concrete tag — safe on `polkadot-sdk`, `release-automation`, `web3-storage` (runtimes only: its provider releases are never marked latest), `individuality-community` and `device-uniqueness-backend-community`, but a trap on two sources (verified 2026-09-03):
 
 | Source | `@latest` resolves to | Why it bites |
 |---|---|---|
@@ -111,9 +111,9 @@ Binaries are pinned **once per engine binary slot**; runtimes **per chain**:
 
 A slot may come from **any repo in its allow-list**: polkadot-sdk and release-automation both publish `polkadot` (+ its ABI-coupled PVF workers, which always travel with it), `polkadot-omni-node`, `polkadot-parachain` and `eth-rpc` under the same asset-name convention, so `"polkadot-omni-node": "paritytech/polkadot-sdk@polkadot-stable2606-1"` is a legal manifest change. Whether that source can actually *drive* the network (host functions, features) is what the gate run answers — that's the point. (release-automation caveat: some of its releases are partial re-publishes — pin a complete tag, never `latest`.)
 
-A workflow call may also pin a slot to a build from its own run, `artifact:<name>[/<path>]`. The gate downloads the artifact, takes the file called after the slot (or the path given) and hands it to the engine as `PPN_BINARIES=<slot>=file:<absolute path>`. The engine makes it executable and, for `polkadot`, copies `polkadot-execute-worker` and `polkadot-prepare-worker` from the same directory, failing before the bite when either is missing.
+A workflow call may also pin a slot to a build from its own run, `artifact:<name>[/<path>]`. The gate downloads the artifact, takes the file called after the slot (or the path given) and hands it to the engine as `PPN_BINARIES=<slot>=file:<absolute path>`. The engine makes it executable and, for `polkadot`, copies `polkadot-execute-worker` and `polkadot-prepare-worker` from the same directory, failing before the bite when either is missing. The `storage-provider-node` service takes the same two forms; its `artifact:` pin takes the file called `storage-provider-node`.
 
-**Delivery is declared, not smuggled**: slot and eth-rpc pins become `PPN_BINARIES` overrides (`resolve.mjs overrides`), applied inside the engine's loader so `fetch`, `start` and `ppn show --json` cannot disagree; the gate asserts the resolved `show --json` against the manifest (`assert-engine.mjs`) before spawning — every pin must come back marked `overridden`, and the chain→binary wiring we mirror in the map for ask-time validation is checked against the engine's own answer on every run.
+**Delivery is declared, not smuggled**: slot, eth-rpc and storage-provider-node pins become `PPN_BINARIES` overrides (`resolve.mjs overrides`), applied inside the engine's loader so `fetch`, `start` and `ppn show --json` cannot disagree; the gate asserts the resolved `show --json` against the manifest (`assert-engine.mjs`) before spawning — every pin must come back marked `overridden`, and the chain→binary wiring we mirror in the map for ask-time validation is checked against the engine's own answer on every run.
 
 Runtimes are allow-listed the same way, with the asset name looked up **per repo** (naming conventions differ): previewnet's people and asset-hub runtimes may pin `paritytech/individuality-community` (the public nightlies) or `paritytech/individuality` (the upstream source of the next-* runtimes, `.compact.compressed.wasm`). Every chain now pins the repo that builds its runtime. Westend's runtimes carry their spec version in the asset name (`westend_runtime-v1025004.compact.compressed.wasm`), so the map names them with one `*` (`westend_runtime-v*.compact.compressed.wasm`); a pattern has to match exactly one asset of the pinned release, and two matches fail the resolution. They come from release-automation's weekly releases or from polkadot-sdk's stable and rc releases; polkadot-sdk's patch releases carry no runtimes.
 
@@ -133,7 +133,7 @@ The scan goes red only when a human is needed: **unattributed** (production runs
 
 ## Current limitations
 
-- Only `base: fork` and only previewnet. The `kubo` and `storage-provider-node` pins are recorded but not yet deliverable (per-platform tarballs the engine self-extracts); the engine uses its own defaults for them.
+- Only `base: fork` and only previewnet. The `kubo` pin is recorded but not yet deliverable (a per-platform tarball the engine self-extracts); the engine uses its own default for it.
 - Non-chain components beyond the pinned services (dotli, the host apps) are not gateable yet; the map's shape is where they will go.
 
 ## How the gate drives the engine

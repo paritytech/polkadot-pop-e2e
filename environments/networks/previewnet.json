@@ -24,7 +24,7 @@
   },
   "services": {
     "eth-rpc": "paritytech/release-automation@polkadot-weekly2026w33-rc2",
-    "storage-provider-node": "paritytech/web3-storage@v0.4.1-paseo",
+    "storage-provider-node": "paritytech/web3-storage@v0.5.1-paseo",
     "kubo": "ipfs/kubo@v0.39.0"
   },
   "tests": [

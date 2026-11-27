@@ -17,8 +17,8 @@
 // asks the fields cannot express — a different `tests` list, a `ppn_ref` — and
 // REPLACES the pin fields when filled.
 //
-// A pin is `owner/repo@tag`, or `artifact:<name>` for a runtime or node binary built
-// and uploaded in the calling run. One field per chain or binary slot either way, so
+// A pin is `owner/repo@tag`, or `artifact:<name>` for a runtime, node binary or service
+// binary built and uploaded in the calling run. One field per chain, binary slot or service either way, so
 // what is being tested reads off the call. The two client fields are not pins:
 // they pick the product-sdk packages and truapi release the tests run on, and are
 // split out of the overlay before the overlay is applied to the manifest.
@@ -76,6 +76,11 @@ export const FIELDS = [
     id: 'service_identity_backend',
     label: 'Service: identity-backend',
     paths: [['services', 'identity-backend']],
+  },
+  {
+    id: 'service_storage_provider_node',
+    label: 'Service: storage-provider-node',
+    paths: [['services', 'storage-provider-node']],
   },
   {
     id: 'product_sdk',
