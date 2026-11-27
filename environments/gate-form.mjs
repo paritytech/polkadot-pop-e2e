@@ -18,7 +18,7 @@
 // REPLACES the pin fields when filled.
 //
 // A pin is `owner/repo@tag`, or `artifact:<name>` for a runtime, node binary or service
-// binary built and uploaded in the calling run. One field per chain or binary slot either way, so
+// binary built and uploaded in the calling run. One field per chain, binary slot or service either way, so
 // what is being tested reads off the call. The two client fields are not pins:
 // they pick the product-sdk packages and truapi release the tests run on, and are
 // split out of the overlay before the overlay is applied to the manifest.
