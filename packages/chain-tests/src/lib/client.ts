@@ -152,6 +152,15 @@ export function createBulletinClient(ws: string): {
   return { client, api };
 }
 
+/**
+ * Web3 Storage has no descriptor here: its tests decode with the metadata the chain runs, which is
+ * what a runtime upgrade under test changes.
+ */
+export function createWeb3StorageClient(ws: string) {
+  const client = createClient(getWsProvider(ws));
+  return { client, api: client.getUnsafeApi() };
+}
+
 export function createPeopleClient(ws: string): {
   client: PolkadotClient;
   api: PeopleApi;

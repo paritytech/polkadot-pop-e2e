@@ -311,7 +311,7 @@ def _is_chain_attributed(body: str) -> bool:
     return any(m in body for m in _CHAIN_FAILURE_MARKERS)
 
 
-_CHAIN_NAMES = ("people", "asset-hub", "bulletin")
+_CHAIN_NAMES = ("people", "asset-hub", "bulletin", "web3-storage")
 
 
 def _chains_in_body(body: str) -> list[str]:
