@@ -380,6 +380,17 @@ describe('guard rails', () => {
     );
   });
 
+  it('refuses a build for a service the engine cannot override, instead of fetching and then ignoring it', () => {
+    const withService = (name, pin) => ({ ...previewnet, services: { ...previewnet.services, [name]: pin } });
+    assert.throws(() => binaryPlan(withService('kubo', 'artifact:kubo-build'), ''), /kubo takes a release pin/);
+    assert.throws(
+      () => binaryPlan(withService('identity-backend', 'artifact:dub'), ''),
+      /identity-backend takes a release pin/
+    );
+    assert.doesNotThrow(() => binaryPlan(withService('storage-provider-node', 'artifact:provider'), ''));
+    assert.doesNotThrow(() => binaryPlan(withService('eth-rpc', 'file:/tmp/eth-rpc'), ''));
+  });
+
   it('knows the release-asset platform convention', () => {
     assert.equal(platformAssetSuffix('linux', 'x64'), '');
     assert.equal(platformAssetSuffix('darwin', 'arm64'), '-aarch64-apple-darwin');

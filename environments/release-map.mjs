@@ -548,7 +548,10 @@ export function binaryPlan(manifest, suffix = platformAssetSuffix()) {
       );
     }
     const ref = parseReleaseRef(ref0);
-    if (ref.artifact || ref.local) continue;
+    if (ref.artifact || ref.local) {
+      if (!source.override) throw new Error(`${manifest.network}/${name} takes a release pin, the gate cannot deliver a build for it: ${ref0}`);
+      continue;
+    }
     if (!source.repos.includes(ref.repo)) {
       throw new Error(
         `${manifest.network}/${name} may come from ${source.repos.join(' or ')}, manifest says ${ref.repo}`
