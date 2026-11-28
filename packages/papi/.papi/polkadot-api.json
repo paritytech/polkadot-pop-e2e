@@ -23,8 +23,8 @@
     "previewAssetHub": {
       "wsUrl": "wss://previewnet.substrate.dev/asset-hub",
       "metadata": ".papi/metadata/previewAssetHub.scale",
-      "genesis": "0xf7d88e2e343e911c9a5c1a7e6ed53d06ef4cd73276fc3afff87062a1f6f90514",
-      "codeHash": "0xe03444d9aad5089f049c38bde11a2280a7e4413e80f2e0e24ffc36e93d8a7f6c"
+      "genesis": "0x413886e711b79dd1bb8d8fdf0b5988670c63ac10fc7a91d52314c89003bed8e0",
+      "codeHash": "0x5f62373e3c163a9393d3f6b9609b2a7f7b4f260aaa2666df41b9243623eaf30f"
     },
     "previewBulletin": {
       "wsUrl": "wss://previewnet.substrate.dev/bulletin",
@@ -35,8 +35,8 @@
     "previewPeople": {
       "wsUrl": "wss://previewnet.substrate.dev/people",
       "metadata": ".papi/metadata/previewPeople.scale",
-      "genesis": "0x732abb4e3052154ebd9201a375b0aacf2d1fe7015700235c0a8b30d44b401c19",
-      "codeHash": "0x4cb6604dc0588cc27df3fc7f274b00cd26fd7211d51bad29e9954984a4074f07"
+      "genesis": "0x7f3a2a7ca80d660192d3e898968919c3abfbde64d77f0ca4ae9afe69682c17ee",
+      "codeHash": "0xcc4449bbb11fd1411727f25f7c97720ec21ca2b9c9d201d22d489b01e13f0fa0"
     },
     "paseoNextAssetHub": {
       "wsUrl": "wss://paseo-asset-hub-next-rpc.polkadot.io",
